@@ -80,7 +80,7 @@ export default function Home() {
             setTimeout(() => sendChatMsg(text), 500)
             addLog('bot', '🤖봇', text)
           }
-        } else if (eventName === 'LiveLike' || eventName === 'LivePresent') {
+        } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
           const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
           addLog('system', '❤️좋아요', `${author}님`)
           if (likeEnabled && likeMsg) {
