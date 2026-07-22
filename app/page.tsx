@@ -8,7 +8,7 @@ export default function Home() {
   const [message, setMessage] = useState('')
   const [logs, setLogs] = useState<{type:string,author:string,text:string}[]>([])
   const [connected, setConnected] = useState(false)
-  const [bookmarkUrl, setBookmarkUrl] = useState('')
+  const [shareUrl, setShareUrl] = useState('')
   const wsRef = useRef<WebSocket|null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -27,15 +27,17 @@ export default function Home() {
   useEffect(() => { if (channelId) localStorage.setItem('spoon_channel', channelId) }, [channelId])
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
 
-  const generateBookmark = () => {
-    const url = `${window.location.origin}?a=${encodeURIComponent(accessToken)}&r=${encodeURIComponent(roomToken)}&c=${encodeURIComponent(channelId.trim())}`
-    setBookmarkUrl(url)
-    navigator.clipboard?.writeText(url)
-    addLog('system', '시스템', '북마크 URL이 클립보드에 복사됐어요! 즐겨찾기에 추가하세요.')
-  }
-
   const addLog = (type: string, author: string, text: string) => {
     setLogs(prev => [...prev, { type, author, text }])
+  }
+
+  const generateUrl = () => {
+    if (!accessToken || !roomToken || !channelId) {
+      addLog('error', '시스템', '토큰을 먼저 입력하세요!')
+      return
+    }
+    const url = `https://spoon-game-tan.vercel.app?a=${encodeURIComponent(accessToken)}&r=${encodeURIComponent(roomToken)}&c=${encodeURIComponent(channelId.trim())}`
+    setShareUrl(url)
   }
 
   const connect = () => {
@@ -72,6 +74,16 @@ export default function Home() {
 
   const disconnect = () => { wsRef.current?.close(); setConnected(false) }
 
+  const sendChat = async () => {
+    if (!message.trim()) return
+    const res = await fetch('/api/spoon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: channelId.trim(), message, accessToken, roomToken })
+    })
+    if (res.ok) { addLog('bot', '봇', message); setMessage('') }
+  }
+
   const colorMap: Record<string,string> = { chat: '#fff', join: '#4ade80', error: '#f87171', system: '#94a3b8', bot: '#60a5fa' }
 
   return (
@@ -85,11 +97,12 @@ export default function Home() {
       <div style={{ display:'flex', gap:'0.5rem' }}>
         <button onClick={connect} disabled={connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:connected?'#334155':'#22c55e', color:'#fff', cursor:connected?'not-allowed':'pointer' }}>{connected?'✅ 연결됨':'🔌 연결'}</button>
         <button onClick={disconnect} disabled={!connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:!connected?'#334155':'#ef4444', color:'#fff', cursor:!connected?'not-allowed':'pointer' }}>⛔ 끊기</button>
-        <button onClick={generateBookmark} style={{ padding:'0.5rem 1rem', borderRadius:'6px', border:'none', background:'#7c3aed', color:'#fff', cursor:'pointer' }}>🔖 북마크 저장</button>
+        <button onClick={generateUrl} style={{ padding:'0.5rem 1rem', borderRadius:'6px', border:'none', background:'#7c3aed', color:'#fff', cursor:'pointer' }}>🔗 링크생성</button>
       </div>
-      {bookmarkUrl && (
-        <div style={{ background:'#1e293b', borderRadius:'6px', padding:'0.5rem', fontSize:'0.7rem', color:'#94a3b8', wordBreak:'break-all' }}>
-          📋 복사됨! 이 URL을 즐겨찾기에 추가하세요
+      {shareUrl && (
+        <div style={{ background:'#1e293b', borderRadius:'6px', padding:'0.5rem', display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          <textarea readOnly value={shareUrl} style={{ width:'100%', background:'#0f172a', color:'#94a3b8', border:'none', fontSize:'0.65rem', resize:'none', height:'60px', borderRadius:'4px', padding:'0.25rem' }} />
+          <button onClick={() => navigator.clipboard?.writeText(shareUrl).then(() => addLog('system', '시스템', '복사됐어요!'))} style={{ padding:'0.25rem', borderRadius:'4px', border:'none', background:'#3b82f6', color:'#fff', cursor:'pointer', fontSize:'0.75rem' }}>📋 복사</button>
         </div>
       )}
       <div style={{ flex:1, overflowY:'auto', background:'#1e293b', borderRadius:'8px', padding:'0.75rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
@@ -106,14 +119,4 @@ export default function Home() {
       </div>
     </div>
   )
-
-  async function sendChat() {
-    if (!message.trim()) return
-    const res = await fetch('/api/spoon', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId: channelId.trim(), message, accessToken, roomToken })
-    })
-    if (res.ok) { addLog('bot', '봇', message); setMessage('') }
-  }
 }
