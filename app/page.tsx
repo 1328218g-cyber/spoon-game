@@ -11,6 +11,18 @@ export default function Home() {
   const wsRef = useRef<WebSocket|null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    const a = localStorage.getItem('spoon_access') || ''
+    const r = localStorage.getItem('spoon_room') || ''
+    const c = localStorage.getItem('spoon_channel') || ''
+    if (a) setAccessToken(a)
+    if (r) setRoomToken(r)
+    if (c) setChannelId(c)
+  }, [])
+
+  useEffect(() => { if (accessToken) localStorage.setItem('spoon_access', accessToken) }, [accessToken])
+  useEffect(() => { if (roomToken) localStorage.setItem('spoon_room', roomToken) }, [roomToken])
+  useEffect(() => { if (channelId) localStorage.setItem('spoon_channel', channelId) }, [channelId])
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
 
   const addLog = (type: string, author: string, text: string) => {
@@ -26,9 +38,9 @@ export default function Home() {
     const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`)
     wsRef.current = ws
     ws.onopen = () => {
-      ws.send(JSON.stringify({ command: 'ACTIVATE_CHANNEL', payload: { channelId, liveToken: roomToken } }))
+      ws.send(JSON.stringify({ command: 'ACTIVATE_CHANNEL', payload: { channelId: channelId.trim(), liveToken: roomToken } }))
       addLog('system', '시스템', 'WebSocket 연결됨!')
-      setTimeout(() => { setConnected(true); addLog('system', '시스템', '연결 완료!') }, 1500)
+      setTimeout(() => { setConnected(true); addLog('system', '시스템', '✅ 연결 완료!') }, 1500)
     }
     ws.onmessage = (e) => {
       try {
@@ -41,22 +53,30 @@ export default function Home() {
           addLog('chat', author, eventPayload.message || '')
         } else if (eventName === 'RoomJoin') {
           const author = eventPayload.generator?.nickname || '?'
-          addLog('join', author, '입장했습니다')
+          addLog('join', author, '입장했습니다 👋')
         }
       } catch {}
     }
     ws.onerror = () => addLog('error', '오류', '연결 오류')
-    ws.onclose = (e) => { setConnected(false); addLog('system', '시스템', '연결 종료') }
+    ws.onclose = () => { setConnected(false); addLog('system', '시스템', '연결 종료') }
   }
 
   const disconnect = () => { wsRef.current?.close(); setConnected(false) }
+
+  const clearTokens = () => {
+    localStorage.removeItem('spoon_access')
+    localStorage.removeItem('spoon_room')
+    localStorage.removeItem('spoon_channel')
+    setAccessToken(''); setRoomToken(''); setChannelId('')
+    addLog('system', '시스템', '토큰 초기화됨')
+  }
 
   const sendChat = async () => {
     if (!message.trim()) return
     const res = await fetch('/api/spoon', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId, message, accessToken, roomToken })
+      body: JSON.stringify({ channelId: channelId.trim(), message, accessToken, roomToken })
     })
     if (res.ok) { addLog('bot', '봇', message); setMessage('') }
   }
@@ -65,15 +85,18 @@ export default function Home() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#0f172a', color:'#fff', fontFamily:'sans-serif', padding:'1rem', gap:'0.75rem' }}>
-      <h1 style={{ margin:0, fontSize:'1.25rem' }}>스푼 웹봇</h1>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <h1 style={{ margin:0, fontSize:'1.25rem' }}>🎙️ 스푼 웹봇</h1>
+        <button onClick={clearTokens} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'none', background:'#475569', color:'#fff', cursor:'pointer', fontSize:'0.75rem' }}>토큰 초기화</button>
+      </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
         <input placeholder="Access Token" value={accessToken} onChange={e=>setAccessToken(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem' }} />
         <input placeholder="Room Token" value={roomToken} onChange={e=>setRoomToken(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem' }} />
-        <input placeholder="Channel ID" value={channelId} onChange={e=>setChannelId(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem', gridColumn:'span 2' }} />
+        <input placeholder="Channel ID (예: rz3QHUQT)" value={channelId} onChange={e=>setChannelId(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem', gridColumn:'span 2' }} />
       </div>
       <div style={{ display:'flex', gap:'0.5rem' }}>
-        <button onClick={connect} disabled={connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:connected?'#334155':'#22c55e', color:'#fff', cursor:connected?'not-allowed':'pointer' }}>{connected?'연결됨':'연결'}</button>
-        <button onClick={disconnect} disabled={!connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:!connected?'#334155':'#ef4444', color:'#fff', cursor:!connected?'not-allowed':'pointer' }}>끊기</button>
+        <button onClick={connect} disabled={connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:connected?'#334155':'#22c55e', color:'#fff', cursor:connected?'not-allowed':'pointer' }}>{connected?'✅ 연결됨':'🔌 연결'}</button>
+        <button onClick={disconnect} disabled={!connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:!connected?'#334155':'#ef4444', color:'#fff', cursor:!connected?'not-allowed':'pointer' }}>⛔ 끊기</button>
       </div>
       <div style={{ flex:1, overflowY:'auto', background:'#1e293b', borderRadius:'8px', padding:'0.75rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
         {logs.map((log, i) => (
