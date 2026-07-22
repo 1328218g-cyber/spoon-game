@@ -16,19 +16,39 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { channelId, message, accessToken, roomToken } = await req.json()
-  if (!channelId || !message || !accessToken || !roomToken) return NextResponse.json({ error: '파라미터 없음' }, { status: 400 })
-  const res = await fetch(`${GW_BASE}/lives/${channelId}/chat/message`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'x-live-authorization': `Bearer ${roomToken}`,
-      'User-Agent': CHROME_UA,
-      'Origin': 'https://www.spooncast.net',
-      'Referer': 'https://www.spooncast.net/',
-    },
-    body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
-  })
-  return NextResponse.json(await res.json())
+  try {
+    const body = await req.json()
+    console.log('[spoon API] 받은 body:', JSON.stringify(body))
+    
+    const { channelId, message, accessToken, roomToken } = body
+    
+    if (!channelId || !message || !accessToken || !roomToken) {
+      console.log('[spoon API] 파라미터 없음:', { channelId: !!channelId, message: !!message, accessToken: !!accessToken, roomToken: !!roomToken })
+      return NextResponse.json({ error: '파라미터 없음' }, { status: 400 })
+    }
+
+    const url = `${GW_BASE}/lives/${channelId.trim()}/chat/message`
+    console.log('[spoon API] 요청 URL:', url)
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'x-live-authorization': `Bearer ${roomToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+        'Referer': 'https://www.spooncast.net/',
+      },
+      body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
+    })
+
+    const data = await res.json()
+    console.log('[spoon API] 스푼 응답 status:', res.status, '응답:', JSON.stringify(data))
+    
+    return NextResponse.json({ status: res.status, data })
+  } catch(e: any) {
+    console.log('[spoon API] 오류:', e.message)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
 }
