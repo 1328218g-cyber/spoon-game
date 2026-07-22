@@ -8,13 +8,15 @@ export default function Home() {
   const [message, setMessage] = useState('')
   const [logs, setLogs] = useState<{type:string,author:string,text:string}[]>([])
   const [connected, setConnected] = useState(false)
+  const [bookmarkUrl, setBookmarkUrl] = useState('')
   const wsRef = useRef<WebSocket|null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const a = localStorage.getItem('spoon_access') || ''
-    const r = localStorage.getItem('spoon_room') || ''
-    const c = localStorage.getItem('spoon_channel') || ''
+    const params = new URLSearchParams(window.location.search)
+    const a = params.get('a') || localStorage.getItem('spoon_access') || ''
+    const r = params.get('r') || localStorage.getItem('spoon_room') || ''
+    const c = params.get('c') || localStorage.getItem('spoon_channel') || ''
     if (a) setAccessToken(a)
     if (r) setRoomToken(r)
     if (c) setChannelId(c)
@@ -24,6 +26,13 @@ export default function Home() {
   useEffect(() => { if (roomToken) localStorage.setItem('spoon_room', roomToken) }, [roomToken])
   useEffect(() => { if (channelId) localStorage.setItem('spoon_channel', channelId) }, [channelId])
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
+
+  const generateBookmark = () => {
+    const url = `${window.location.origin}?a=${encodeURIComponent(accessToken)}&r=${encodeURIComponent(roomToken)}&c=${encodeURIComponent(channelId.trim())}`
+    setBookmarkUrl(url)
+    navigator.clipboard?.writeText(url)
+    addLog('system', '시스템', '북마크 URL이 클립보드에 복사됐어요! 즐겨찾기에 추가하세요.')
+  }
 
   const addLog = (type: string, author: string, text: string) => {
     setLogs(prev => [...prev, { type, author, text }])
@@ -63,32 +72,11 @@ export default function Home() {
 
   const disconnect = () => { wsRef.current?.close(); setConnected(false) }
 
-  const clearTokens = () => {
-    localStorage.removeItem('spoon_access')
-    localStorage.removeItem('spoon_room')
-    localStorage.removeItem('spoon_channel')
-    setAccessToken(''); setRoomToken(''); setChannelId('')
-    addLog('system', '시스템', '토큰 초기화됨')
-  }
-
-  const sendChat = async () => {
-    if (!message.trim()) return
-    const res = await fetch('/api/spoon', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId: channelId.trim(), message, accessToken, roomToken })
-    })
-    if (res.ok) { addLog('bot', '봇', message); setMessage('') }
-  }
-
   const colorMap: Record<string,string> = { chat: '#fff', join: '#4ade80', error: '#f87171', system: '#94a3b8', bot: '#60a5fa' }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#0f172a', color:'#fff', fontFamily:'sans-serif', padding:'1rem', gap:'0.75rem' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <h1 style={{ margin:0, fontSize:'1.25rem' }}>🎙️ 스푼 웹봇</h1>
-        <button onClick={clearTokens} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'none', background:'#475569', color:'#fff', cursor:'pointer', fontSize:'0.75rem' }}>토큰 초기화</button>
-      </div>
+      <h1 style={{ margin:0, fontSize:'1.25rem' }}>🎙️ 스푼 웹봇</h1>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
         <input placeholder="Access Token" value={accessToken} onChange={e=>setAccessToken(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem' }} />
         <input placeholder="Room Token" value={roomToken} onChange={e=>setRoomToken(e.target.value)} style={{ padding:'0.5rem', borderRadius:'6px', border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:'0.75rem' }} />
@@ -97,7 +85,13 @@ export default function Home() {
       <div style={{ display:'flex', gap:'0.5rem' }}>
         <button onClick={connect} disabled={connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:connected?'#334155':'#22c55e', color:'#fff', cursor:connected?'not-allowed':'pointer' }}>{connected?'✅ 연결됨':'🔌 연결'}</button>
         <button onClick={disconnect} disabled={!connected} style={{ flex:1, padding:'0.5rem', borderRadius:'6px', border:'none', background:!connected?'#334155':'#ef4444', color:'#fff', cursor:!connected?'not-allowed':'pointer' }}>⛔ 끊기</button>
+        <button onClick={generateBookmark} style={{ padding:'0.5rem 1rem', borderRadius:'6px', border:'none', background:'#7c3aed', color:'#fff', cursor:'pointer' }}>🔖 북마크 저장</button>
       </div>
+      {bookmarkUrl && (
+        <div style={{ background:'#1e293b', borderRadius:'6px', padding:'0.5rem', fontSize:'0.7rem', color:'#94a3b8', wordBreak:'break-all' }}>
+          📋 복사됨! 이 URL을 즐겨찾기에 추가하세요
+        </div>
+      )}
       <div style={{ flex:1, overflowY:'auto', background:'#1e293b', borderRadius:'8px', padding:'0.75rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
         {logs.map((log, i) => (
           <div key={i} style={{ fontSize:'0.85rem', color:colorMap[log.type]||'#fff' }}>
@@ -112,4 +106,14 @@ export default function Home() {
       </div>
     </div>
   )
+
+  async function sendChat() {
+    if (!message.trim()) return
+    const res = await fetch('/api/spoon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: channelId.trim(), message, accessToken, roomToken })
+    })
+    if (res.ok) { addLog('bot', '봇', message); setMessage('') }
+  }
 }
