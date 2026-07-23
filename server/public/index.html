@@ -616,6 +616,7 @@ const SERVER='https://spoon-game-production.up.railway.app';
 /* ── 인증 (디제이 로그인) ── */
 let djToken=localStorage.getItem('djToken')||'';
 let djId=localStorage.getItem('djId')||'';
+let djAutoJoinEnabled=false;
 let authMode='login';
 
 function authHeaders(){
@@ -652,7 +653,7 @@ async function submitAuth(){
     const res=await fetch(SERVER+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
     const d=await res.json();
     if(!d.success){errEl.textContent=d.error||'로그인 실패';return;}
-    djToken=d.token;djId=d.djId;
+    djToken=d.token;djId=d.djId;djAutoJoinEnabled=!!d.autoJoinEnabled;
     localStorage.setItem('djToken',djToken);
     localStorage.setItem('djId',djId);
     enterApp();
@@ -677,6 +678,7 @@ function enterApp(){
   document.getElementById('djIdLabel').textContent=djId;
 
   const isAdmin = djId===ADMIN_DJ_ID;
+  const canAutoJoin = isAdmin || djAutoJoinEnabled;
   const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
   const sessionPanel=document.querySelector('.panel[data-panel="session"]');
   if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
@@ -685,8 +687,8 @@ function enterApp(){
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
   const autojoinPanel=document.querySelector('.panel[data-panel="autojoin"]');
-  if(autojoinNav) autojoinNav.style.display = isAdmin ? '' : 'none';
-  if(autojoinPanel) autojoinPanel.style.display = isAdmin ? '' : 'none';
+  if(autojoinNav) autojoinNav.style.display = canAutoJoin ? '' : 'none';
+  if(autojoinPanel) autojoinPanel.style.display = canAutoJoin ? '' : 'none';
   if(isAdmin) loadUserList();
 
   initApp();
@@ -698,7 +700,7 @@ async function tryAutoLogin(){
   try{
     const res=await fetch(SERVER+'/auth/me',{headers:authHeaders()});
     const d=await res.json();
-    if(d.success){enterApp();return;}
+    if(d.success){djAutoJoinEnabled=!!d.autoJoinEnabled;enterApp();return;}
   }catch(e){}
   logout();
 }
@@ -1303,16 +1305,26 @@ async function loadUserList(){
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
+        <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML=`<table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
+}
+
+async function toggleUserAutoJoin(djIdTarget,enabled){
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    if(d.success){showToast(enabled?'자동입장 허용함':'자동입장 차단함');loadUserList();}
+    else {showToast(d.error||'처리 실패');loadUserList();}
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function toggleBlockUser(djIdTarget,blocked){

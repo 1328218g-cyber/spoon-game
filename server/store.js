@@ -83,6 +83,8 @@ function signup(djId, password) {
     passwordHash: bcrypt.hashSync(password, 10),
     settings: defaultSettings(),
     createdAt: Date.now(),
+    blocked: false,
+    autoJoinEnabled: false, // 관리자가 켜줘야만 자동입장(방입장) 기능 사용 가능
   };
   saveDjs(djs);
   return { ok: true };
@@ -137,7 +139,21 @@ function listDjSummaries() {
     createdAt: djs[id].createdAt || null,
     autoJoinTag: djs[id].settings?.autoJoinTag || '',
     blocked: !!djs[id].blocked,
+    autoJoinEnabled: !!djs[id].autoJoinEnabled,
   }));
+}
+
+function setAutoJoinEnabled(djId, enabled) {
+  const djs = loadDjs();
+  if (!djs[djId]) return false;
+  djs[djId].autoJoinEnabled = !!enabled;
+  saveDjs(djs);
+  return true;
+}
+
+function getAutoJoinEnabled(djId) {
+  const djs = loadDjs();
+  return !!(djs[djId] && djs[djId].autoJoinEnabled);
 }
 
 function exists(djId) {
@@ -154,5 +170,7 @@ module.exports = {
   listDjSummaries,
   setBlocked,
   isBlocked,
+  setAutoJoinEnabled,
+  getAutoJoinEnabled,
   exists,
 };

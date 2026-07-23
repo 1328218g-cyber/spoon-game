@@ -486,16 +486,20 @@ app.post('/auth/signup', (req, res) => {
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
 })
 
+function canAutoJoin(djId) {
+  return djId === 'sum' || store.getAutoJoinEnabled(djId)
+}
+
 app.post('/auth/login', (req, res) => {
   const { djId, password } = req.body || {}
   const result = store.login(djId, password)
   if (!result.ok) return res.json({ success: false, error: result.error })
   const token = auth.issueToken(djId)
-  res.json({ success: true, token, djId })
+  res.json({ success: true, token, djId, autoJoinEnabled: canAutoJoin(djId) })
 })
 
 app.get('/auth/me', auth.requireAuth, (req, res) => {
-  res.json({ success: true, djId: req.djId })
+  res.json({ success: true, djId: req.djId, autoJoinEnabled: canAutoJoin(req.djId) })
 })
 
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
@@ -514,6 +518,17 @@ app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
   if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 차단할 수 없어요' })
   const { blocked } = req.body || {}
   const ok = store.setBlocked(targetId, !!blocked)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
+app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 항상 사용 가능해요' })
+  const { enabled } = req.body || {}
+  const ok = store.setAutoJoinEnabled(targetId, !!enabled)
   if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   res.json({ success: true })
 })
@@ -544,40 +559,39 @@ app.post('/settings', auth.requireAuth, (req, res) => {
 
 // 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
 async function checkAdminAutoJoin() {
-  const djId = 'sum'
-  const settings = store.getSettings(djId)
-  if (!settings || !settings.autoJoinWatch) return
-  const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
-  if (!tagList.length) return
   if (!tokenManager.getAccessToken()) return
 
-  const room = getRoom(djId)
-  if (room.checking) return
-  room.checking = true
+  for (const djId of store.listDjIds()) {
+    if (!canAutoJoin(djId)) continue
 
-  try {
-    // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지만 확인하고 유지
-    if (room.isConnected && room.autoJoinedFor) {
-      room.checking = false
-      return
-    }
+    const settings = store.getSettings(djId)
+    if (!settings || !settings.autoJoinWatch) continue
+    const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
+    if (!tagList.length) continue
 
-    for (const tag of tagList) {
-      const status = await fetchUserStatusByTag(tag)
-      if (status && status.is_live && status.current_live_id) {
-        const liveId = String(status.current_live_id)
-        broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-        const roomToken = await tokenManager.fetchRoomToken(liveId)
-        room.autoJoinedFor = liveId
-        await connectSpoonForDj(djId, liveId, roomToken || '')
-        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
-        break
+    const room = getRoom(djId)
+    if (room.checking) continue
+    if (room.isConnected && room.autoJoinedFor) continue // 이미 어딘가 들어가 있으면 유지
+    room.checking = true
+
+    try {
+      for (const tag of tagList) {
+        const status = await fetchUserStatusByTag(tag)
+        if (status && status.is_live && status.current_live_id) {
+          const liveId = String(status.current_live_id)
+          broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
+          const roomToken = await tokenManager.fetchRoomToken(liveId)
+          room.autoJoinedFor = liveId
+          await connectSpoonForDj(djId, liveId, roomToken || '')
+          broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
+          break
+        }
       }
+    } catch (e) {
+      console.log(`[자동입장:${djId} 오류]`, e.message)
+    } finally {
+      room.checking = false
     }
-  } catch (e) {
-    console.log('[관리자 자동입장 오류]', e.message)
-  } finally {
-    room.checking = false
   }
 }
 
@@ -590,25 +604,26 @@ app.post('/bot/toggle', auth.requireAuth, (req, res) => {
   res.json({ success: true, msg: enabled ? '봇 기능 켜짐' : '봇 기능 꺼짐 (순수 시청 모드)' })
 })
 
-// 관리자 전용 — 등록 방송키(고유닉) 자동감시 on/off
+// 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
+  const djId = req.djId
   const { enabled, tags } = req.body || {}
   const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
 
   if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
 
-  store.saveSettings('sum', { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
+  store.saveSettings(djId, { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
   if (!enabled) {
-    const room = getRoom('sum')
+    const room = getRoom(djId)
     room.autoJoinedFor = ''
   }
-  broadcast({ type: 'autojoin', djId: 'sum', status: enabled ? 'watching' : 'off', tags: cleanTags })
+  broadcast({ type: 'autojoin', djId, status: enabled ? 'watching' : 'off', tags: cleanTags })
   res.json({ success: true, msg: enabled ? `${cleanTags.length}개 고유닉 감시 시작` : '감시 중지됨' })
 })
 
 app.post('/autojoin', auth.requireAuth, async (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '이 기능은 관리자만 사용할 수 있어요' })
+  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
   const { tag } = req.body || {}
   const djId = req.djId
   const room = getRoom(djId)
@@ -646,7 +661,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 // 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
 // (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
 app.post('/room/leave', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '이 기능은 관리자만 사용할 수 있어요' })
+  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
   const djId = req.djId
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
