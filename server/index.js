@@ -115,18 +115,19 @@ async function fetchLiveInfo(liveId, accessToken) {
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken()
-  if (!room.streamName || !room.roomToken || !accessToken) return
+  if (!room.streamName || !accessToken) return
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+      'User-Agent': CHROME_UA,
+      'Origin': 'https://www.spooncast.net',
+      'Referer': 'https://www.spooncast.net/',
+    }
+    if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
     const res = await fetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        'x-live-authorization': `Bearer ${room.roomToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
-        'Referer': 'https://www.spooncast.net/',
-      },
+      headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
     console.log(`[채팅:${djId}]`, message, '응답:', res.status)
@@ -375,14 +376,10 @@ async function checkAutoJoinAll() {
       if (liveId === room.autoJoinedFor) continue
 
       broadcast({ type: 'autojoin', djId, status: 'joining', tag: settings.autoJoinTag, liveId })
-      const roomToken = await tokenManager.fetchRoomToken(liveId)
-      if (!roomToken) {
-        broadcast({ type: 'autojoin', djId, status: 'error', tag: settings.autoJoinTag, msg: 'Room Token 발급 실패' })
-        continue
-      }
-
+      // roomToken(liveToken)은 실제 브라우저도 빈 값으로 방 입장에 성공하는 것으로 확인되어
+      // 더 이상 별도 발급 단계를 거치지 않는다 (Puppeteer 호출 절약 + 실패 원인 제거)
       room.autoJoinedFor = liveId
-      await connectSpoonForDj(djId, liveId, roomToken)
+      await connectSpoonForDj(djId, liveId, '')
       broadcast({ type: 'autojoin', djId, status: 'joined', tag: settings.autoJoinTag, liveId })
     } catch (e) {
       console.log(`[자동입장:${djId} 오류]`, e.message)
