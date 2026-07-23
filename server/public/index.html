@@ -672,6 +672,8 @@ function logout(){
   djToken='';djId='';
   localStorage.removeItem('djToken');
   localStorage.removeItem('djId');
+  const chatLog=document.getElementById('chatLog');
+  if(chatLog) chatLog.innerHTML='';
   document.getElementById('appRoot').classList.remove('ready');
   document.getElementById('authScreen').style.display='flex';
 }
@@ -1210,6 +1212,13 @@ async function initApp(){
 }
 
 async function loadDjSettings(){
+  // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
+  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
+  Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]});
+  Object.assign(flagsData,{cmd:'!깃발',items:[]});
+  Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
+  cmdData=[];
+
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
     const d=await res.json();
