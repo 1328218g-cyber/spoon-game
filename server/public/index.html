@@ -193,6 +193,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .status-pill.ended{background:rgba(107,107,128,.15);color:var(--muted)}
 .status-pill.dday{background:rgba(251,146,60,.15);color:#fb923c}
 
+/* ── 유저 관리 ── */
+.user-table{width:100%;border-collapse:collapse;font-size:13px}
+.user-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border)}
+.user-table td{padding:10px;border-bottom:1px solid var(--border)}
+.user-table tr:last-child td{border-bottom:none}
+.user-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;background:var(--muted)}
+.user-dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
+
 /* ── 로그인 / 회원가입 화면 ── */
 #authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
 .auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
@@ -254,6 +262,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
 
     <div class="nav-group-label">방송 도구</div>
@@ -302,6 +311,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <summary>쿠키는 어떻게 얻나요?</summary>
           <div class="hint">PC에서 <code>get_session_cookies.js</code>를 한 번 실행해 스푼 로그인을 완료하면 <code>session_cookies.json</code> 파일이 생성돼요. 그 파일 내용을 통째로 복사해서 위 칸에 붙여넣고 업로드하면, 이후로는 서버가 PC 없이 알아서 로그인 상태를 유지합니다. 세션이 만료되면 이 과정을 한 번 더 반복하면 돼요.</div>
           </details>
+        </div>
+      </div>
+
+      <!-- 유저 관리 (관리자 전용) -->
+      <div class="panel" data-panel="userlist">
+        <div class="card">
+          <div class="card-title"><span>👥 가입 유저 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -601,6 +618,9 @@ function enterApp(){
   const sessionPanel=document.querySelector('.panel[data-panel="session"]');
   if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
   if(sessionPanel) sessionPanel.style.display = isAdmin ? '' : 'none';
+  const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
+  if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
+  if(isAdmin) loadUserList();
 
   initApp();
   selectPanel(isAdmin ? 'session' : 'autojoin');
@@ -623,6 +643,7 @@ tryAutoLogin();
 const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','DJ 고유닉을 넣고 방송 중일 때 바로 입장합니다'],
+  userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -1176,6 +1197,31 @@ async function checkSessionStatus(){
     else if(d.hasSession){pill.textContent='토큰 발급 중';pill.className='session-pill';}
     else{pill.textContent='미연결';pill.className='session-pill bad';}
   }catch{}
+}
+
+async function loadUserList(){
+  const wrap=document.getElementById('userListWrap');
+  try{
+    const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){wrap.innerHTML='<p class="hint">불러오지 못했어요: '+(d.error||'')+'</p>';return;}
+    if(!d.users.length){wrap.innerHTML='<p class="hint">아직 가입한 디제이가 없습니다.</p>';return;}
+    const rows=d.users.map(u=>{
+      const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
+      return `<tr>
+        <td>${escapeHtml(u.djId)}</td>
+        <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
+        <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
+        <td>${created}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML=`<table class="user-table">
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }catch(e){
+    wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
+  }
 }
 
 async function startAutoJoin(){

@@ -111,6 +111,16 @@ function listDjIds() {
   return Object.keys(loadDjs());
 }
 
+// 유저 관리 화면용 요약 정보 (비밀번호 해시는 제외)
+function listDjSummaries() {
+  const djs = loadDjs();
+  return Object.keys(djs).map(id => ({
+    djId: id,
+    createdAt: djs[id].createdAt || null,
+    autoJoinTag: djs[id].settings?.autoJoinTag || '',
+  }));
+}
+
 function exists(djId) {
   const djs = loadDjs();
   return !!djs[djId];
@@ -122,5 +132,6 @@ module.exports = {
   getSettings,
   saveSettings,
   listDjIds,
+  listDjSummaries,
   exists,
 };

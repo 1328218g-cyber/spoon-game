@@ -323,8 +323,18 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
 
-  const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`)
+  const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
+    headers: {
+      'Origin': 'https://www.spooncast.net',
+      'User-Agent': CHROME_UA,
+      'Cache-Control': 'no-cache',
+    }
+  })
   room.ws = ws
+
+  ws.on('unexpected-response', (req, res) => {
+    console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
+  })
 
   ws.on('open', () => {
     console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName)
@@ -332,7 +342,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         command: 'ACTIVATE_CHANNEL',
-        payload: { channelId: streamName, liveToken: roomToken }
+        payload: { channelId: streamName, liveToken: roomToken || '' }
       }))
     }
     broadcast({ type: 'status', djId, isConnected: true })
@@ -407,53 +417,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 }
 
 // ══════════════════════════════════════════════════════
-// 자동입장 감시 — 모든 디제이를 한 번씩 훑으면서, autoJoinTag가 설정된
-// 디제이의 방송 여부를 확인하고 켜져있으면 자동 입장시킨다.
-async function checkAutoJoinAll() {
-  const accessToken = tokenManager.getAccessToken()
-  if (!accessToken) return
-
-  for (const djId of store.listDjIds()) {
-    const settings = store.getSettings(djId)
-    if (!settings || !settings.autoJoinTag) continue
-
-    const room = getRoom(djId)
-    if (room.checking) continue
-    room.checking = true
-
-    try {
-      const status = await fetchUserStatusByTag(settings.autoJoinTag)
-      if (!status) continue
-
-      if (!status.is_live || !status.current_live_id) {
-        if (room.autoJoinedFor) {
-          broadcast({ type: 'autojoin', djId, status: 'offline', tag: settings.autoJoinTag })
-          room.autoJoinedFor = ''
-          if (room.ws) { room.ws.terminate(); room.ws = null; room.isConnected = false }
-          broadcast({ type: 'status', djId, isConnected: false })
-        }
-        continue
-      }
-
-      const liveId = String(status.current_live_id)
-      broadcast({ type: 'autojoin', djId, status: 'live', tag: settings.autoJoinTag, liveId })
-      if (liveId === room.autoJoinedFor) continue
-
-      broadcast({ type: 'autojoin', djId, status: 'joining', tag: settings.autoJoinTag, liveId })
-      // roomToken(liveToken)은 실제 브라우저도 빈 값으로 방 입장에 성공하는 것으로 확인되어
-      // 더 이상 별도 발급 단계를 거치지 않는다 (Puppeteer 호출 절약 + 실패 원인 제거)
-      room.autoJoinedFor = liveId
-      await connectSpoonForDj(djId, liveId, '')
-      broadcast({ type: 'autojoin', djId, status: 'joined', tag: settings.autoJoinTag, liveId })
-    } catch (e) {
-      console.log(`[자동입장:${djId} 오류]`, e.message)
-    } finally {
-      room.checking = false
-    }
-  }
-}
-
-setInterval(checkAutoJoinAll, 5000)
+// (실시간 방송 감시 폴링은 제거됨 — 이제 고유닉으로 즉시 1회 입장하는 방식만 사용)
 
 // 5분마다 "주기 출력" 켜진 깃발의 현재 상태를 채팅으로 자동 출력
 setInterval(() => {
@@ -489,6 +453,16 @@ app.get('/auth/me', auth.requireAuth, (req, res) => {
   res.json({ success: true, djId: req.djId })
 })
 
+// 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
+app.get('/admin/users', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const users = store.listDjSummaries().map(u => {
+    const room = getRoom(u.djId)
+    return { ...u, isConnected: room.isConnected }
+  })
+  res.json({ success: true, users })
+})
+
 // ══════════════════════════════════════════════════════
 // 디제이별 설정 (로그인 필요)
 app.get('/settings', auth.requireAuth, (req, res) => {
@@ -510,26 +484,39 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-app.post('/autojoin', auth.requireAuth, (req, res) => {
+app.post('/autojoin', auth.requireAuth, async (req, res) => {
   const { tag } = req.body || {}
   const djId = req.djId
   const room = getRoom(djId)
+  const cleanTag = String(tag || '').replace('@', '').trim()
 
-  if (!tag) {
-    store.saveSettings(djId, { autoJoinTag: '' })
-    room.autoJoinedFor = ''
-    if (room.ws) { room.ws.terminate(); room.ws = null; room.isConnected = false }
-    broadcast({ type: 'autojoin', djId, status: 'off' })
-    return res.json({ success: true, msg: '자동입장 해제' })
+  if (!cleanTag) {
+    return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
-
   if (!tokenManager.getAccessToken()) {
     return res.json({ success: false, error: '스푼 세션이 아직 준비되지 않았어요. 관리자에게 문의해주세요.' })
   }
 
-  store.saveSettings(djId, { autoJoinTag: String(tag).replace('@', '').trim() })
-  broadcast({ type: 'autojoin', djId, status: 'watching', tag })
-  res.json({ success: true, msg: `@${tag} 감시 시작` })
+  store.saveSettings(djId, { autoJoinTag: cleanTag })
+  broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
+
+  try {
+    const status = await fetchUserStatusByTag(cleanTag)
+    if (!status || !status.is_live || !status.current_live_id) {
+      broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
+      return res.json({ success: false, error: '현재 방송 중이 아니에요' })
+    }
+
+    const liveId = String(status.current_live_id)
+    const roomToken = await tokenManager.fetchRoomToken(liveId)
+    room.autoJoinedFor = liveId
+    await connectSpoonForDj(djId, liveId, roomToken || '')
+    broadcast({ type: 'autojoin', djId, status: 'joined', tag: cleanTag, liveId })
+    res.json({ success: true, msg: `@${cleanTag} 방 입장 완료` })
+  } catch (e) {
+    broadcast({ type: 'autojoin', djId, status: 'error', tag: cleanTag, msg: e.message })
+    res.json({ success: false, error: '입장 중 오류: ' + e.message })
+  }
 })
 
 // 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
