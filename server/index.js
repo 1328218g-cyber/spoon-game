@@ -25,7 +25,7 @@ function broadcast(data) {
 }
 
 async function sendChat(message) {
-  if (!settings || !spoonWs) return
+  if (!settings) return
   try {
     const res = await fetch(`${GW_BASE}/lives/${settings.channelId}/chat/message`, {
       method: 'POST',
