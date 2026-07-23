@@ -80,66 +80,66 @@ button:active{transform:scale(0.97);opacity:0.85}
 <script>
 const SERVER='https://spoon-game-production.up.railway.app';
 window.onload=()=>{
-['accessToken','roomToken','channelId','joinMessages','likeMessages'].forEach(k=>{
-const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
-});
-checkStatus();
-setInterval(checkStatus,5000);
+  ['accessToken','roomToken','channelId','joinMessages','likeMessages'].forEach(k=>{
+    const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
+  });
+  checkStatus();
+  setInterval(checkStatus,5000);
 };
 ['accessToken','roomToken','channelId'].forEach(k=>{
-document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
+  document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
 });
 async function connect(){
-const a=document.getElementById('accessToken').value.trim();
-const r=document.getElementById('roomToken').value.trim();
-const c=document.getElementById('channelId').value.trim();
-if(!a||!r||!c)return showToast('토큰과 채널ID를 입력해주세요');
-try{
-const res=await fetch(SERVER+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessToken:a,roomToken:r,channelId:c})});
-const d=await res.json();
-if(d.success){showToast('연결 중...');setTimeout(checkStatus,1500);await saveSettings();}
-else showToast('연결 실패: '+(d.error||''));
-}catch(e){showToast('서버 오류: '+e.message);}
+  const a=document.getElementById('accessToken').value.trim();
+  const r=document.getElementById('roomToken').value.trim();
+  const c=document.getElementById('channelId').value.trim();
+  if(!a||!r||!c)return showToast('토큰과 채널ID를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessToken:a,roomToken:r,channelId:c})});
+    const d=await res.json();
+    if(d.success){showToast('연결 중...');setTimeout(checkStatus,1500);await saveSettings();}
+    else showToast('연결 실패: '+(d.error||''));
+  }catch(e){showToast('서버 오류: '+e.message);}
 }
 async function disconnect(){
-try{await fetch(SERVER+'/disconnect',{method:'POST'});setStatus(false);showToast('연결 해제됨');}
-catch(e){showToast('오류: '+e.message);}
+  try{await fetch(SERVER+'/disconnect',{method:'POST'});setStatus(false);showToast('연결 해제됨');}
+  catch(e){showToast('오류: '+e.message);}
 }
 async function sendChat(){
-const input=document.getElementById('chatInput');
-const msg=input.value.trim();if(!msg)return;input.value='';
-try{
-await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
-addLog('봇',msg,'bot');
-}catch(e){showToast('전송 실패');}
+  const input=document.getElementById('chatInput');
+  const msg=input.value.trim();if(!msg)return;input.value='';
+  try{
+    await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    addLog('봇',msg,'bot');
+  }catch(e){showToast('전송 실패');}
 }
 async function saveSettings(){
-const j=document.getElementById('joinMessages').value;
-const l=document.getElementById('likeMessages').value;
-localStorage.setItem('joinMessages',j);localStorage.setItem('likeMessages',l);
-const jm=j.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
-const lm=l.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
-try{
-await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({joinMessages:jm,likeMessages:lm,cmds:[]})});
-showToast('저장 완료 ✓');
-}catch(e){showToast('저장 실패');}
+  const j=document.getElementById('joinMessages').value;
+  const l=document.getElementById('likeMessages').value;
+  localStorage.setItem('joinMessages',j);localStorage.setItem('likeMessages',l);
+  const jm=j.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
+  const lm=l.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({joinMessages:jm,likeMessages:lm,cmds:[]})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
 }
 async function checkStatus(){
-try{const res=await fetch(SERVER+'/status');const d=await res.json();setStatus(d.isConnected);}catch{}
+  try{const res=await fetch(SERVER+'/status');const d=await res.json();setStatus(d.isConnected);}catch{}
 }
 function setStatus(on){
-document.getElementById('statusDot').className='dot '+(on?'on':'off');
-document.getElementById('statusText').textContent=on?'온라인':'오프라인';
+  document.getElementById('statusDot').className='dot '+(on?'on':'off');
+  document.getElementById('statusText').textContent=on?'온라인':'오프라인';
 }
 function addLog(nick,text,type='user'){
-const log=document.getElementById('chatLog');
-const line=document.createElement('div');line.className='log-line';
-line.innerHTML='<span class="nick '+type+'">'+nick+'</span> '+text;
-log.appendChild(line);log.scrollTop=log.scrollHeight;
+  const log=document.getElementById('chatLog');
+  const line=document.createElement('div');line.className='log-line';
+  line.innerHTML='<span class="nick '+type+'">'+nick+'</span> '+text;
+  log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 function showToast(msg){
-const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
-setTimeout(()=>t.classList.remove('show'),2500);
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
 }
 </script>
 </body>
