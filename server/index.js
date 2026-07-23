@@ -71,29 +71,6 @@ async function fetchUserStatusByTag(tag) {
   }
 }
 
-async function fetchRoomToken(liveId, accessToken) {
-  try {
-    const res = await fetch(`${API_BASE}/lives/${liveId}/entrance/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
-        'Referer': 'https://www.spooncast.net/',
-      },
-      body: JSON.stringify({})
-    })
-    const data = await res.json()
-    console.log('[입장 API]', res.status, JSON.stringify(data).substring(0, 200))
-    const token = data.token || data.live_token || data.room_token || data.access_token
-    return token || null
-  } catch(e) {
-    console.log('[입장 API 오류]', e.message)
-    return null
-  }
-}
-
 async function fetchStreamName(liveId, accessToken) {
   try {
     const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
@@ -252,7 +229,7 @@ async function checkAutoJoin() {
     console.log(`[자동입장] @${autoJoinTag} 방송 감지! live_id: ${liveId}`)
     broadcast({ type: 'autojoin', status: 'joining', tag: autoJoinTag, liveId })
 
-    const roomToken = await fetchRoomToken(liveId, settings.accessToken)
+    const roomToken = await tokenManager.fetchRoomToken(liveId)
     if (!roomToken) {
       console.log('[자동입장] Room Token 발급 실패')
       broadcast({ type: 'autojoin', status: 'error', tag: autoJoinTag, msg: 'Room Token 발급 실패' })

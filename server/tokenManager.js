@@ -49,6 +49,56 @@ function getAccessToken() {
 function setOnTokenUpdate(cb) { onTokenUpdate = cb; }
 function setOnSessionExpired(cb) { onSessionExpired = cb; }
 
+// 방 입장 시 발급되는 roomToken(x-live-authorization)은 REST API로 직접 발급받을 수 없고,
+// 실제로 방 페이지(https://www.spooncast.net/kr/live/{liveId})에 접속했을 때
+// 브라우저가 보내는 요청 헤더에서만 얻을 수 있다. (기존 Electron 에디봇과 동일한 원리)
+async function fetchRoomToken(liveId) {
+  if (!hasCookies()) {
+    console.log('[tokenManager] roomToken 발급 실패: 세션 쿠키 없음');
+    return null;
+  }
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent(CHROME_UA);
+    await page.setCookie(...sessionCookies);
+    await page.setRequestInterception(true);
+
+    let captured = '';
+    page.on('request', (req) => {
+      const headers = req.headers();
+      const live = headers['x-live-authorization'] || '';
+      if (live.startsWith('Bearer ') && live.length > 30) {
+        captured = live.slice(7);
+      }
+      req.continue();
+    });
+
+    await page.goto(`https://www.spooncast.net/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: 30000 });
+    if (!captured) await new Promise((r) => setTimeout(r, 2500));
+
+    await browser.close();
+    browser = null;
+
+    if (captured) {
+      console.log('[tokenManager] ✅ roomToken 발급 성공');
+      return captured;
+    }
+    console.log('[tokenManager] ⚠️ roomToken을 찾지 못했습니다. (방송이 이미 종료됐거나 접근 권한 문제일 수 있음)');
+    return null;
+  } catch (e) {
+    console.log('[tokenManager] roomToken 발급 오류:', e.message);
+    return null;
+  } finally {
+    if (browser) { try { await browser.close(); } catch (_) {} }
+  }
+}
+
 async function refreshAccessToken() {
   if (!hasCookies()) {
     console.log('[tokenManager] 저장된 세션 쿠키가 없습니다. /session/upload 로 먼저 업로드해주세요.');
@@ -116,6 +166,7 @@ module.exports = {
   setCookies,
   hasCookies,
   getAccessToken,
+  fetchRoomToken,
   refreshAccessToken,
   startAutoRefresh,
   stopAutoRefresh,
