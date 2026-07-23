@@ -160,6 +160,29 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .perm-chip button{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 6px}
 .perm-chip button:hover{color:var(--danger)}
 
+/* ── 단비 깃발 ── */
+.flag-toprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flag-toprow input{flex:0 0 140px}
+.radio-row{display:flex;gap:18px;margin-top:14px}
+.radio-opt{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--text);margin:0;cursor:pointer}
+.radio-opt input{width:auto}
+.check-opt{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--text);margin-top:14px;cursor:pointer}
+.check-opt input{width:auto}
+.flag-empty{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px}
+.flag-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.flag-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.flag-card-top h4{font-size:15px}
+.flag-card-actions button{padding:6px 12px;font-size:12px;margin-left:6px}
+.flag-card-sub{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.flag-progress-bar{background:var(--bg);border:1px solid var(--border);border-radius:20px;height:8px;overflow:hidden;margin-bottom:16px}
+.flag-progress-fill{height:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));transition:width .2s}
+.flag-meta-row{display:flex;gap:32px;flex-wrap:wrap;margin-bottom:14px;font-size:12.5px}
+.flag-meta-row div span.k{display:block;color:var(--muted);margin-bottom:3px}
+.flag-meta-row div span.v{color:var(--text);font-weight:600}
+.flag-amount-row{display:flex;gap:8px}
+.flag-amount-row input{flex:1}
+.flag-amount-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
+
 /* ── 로그인 / 회원가입 화면 ── */
 #authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
 .auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
@@ -230,7 +253,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="chatlog"><span class="ic">📋</span><span class="lbl">채팅 로그</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
-    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge off">OFF</span></div>
 
@@ -333,7 +356,52 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="chatlog"><div class="coming-soon"><div class="ic">📋</div><h3>채팅 로그</h3><p>지난 방송 채팅 기록을 저장하고<br>다시 볼 수 있는 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="shortcuts"><div class="coming-soon"><div class="ic">⌨️</div><h3>단축키 명령어</h3><p>자주 쓰는 멘트를 단축키로 등록하는<br>기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
-      <div class="panel" data-panel="flag"><div class="coming-soon"><div class="ic">🚩</div><h3>단비 깃발</h3><p>단비님 전용 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="flag">
+        <div class="card">
+          <div class="card-title"><span>🚩 단비 깃발</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFlagsGlobal()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:14px">깃발 목표를 만들고, 자동 적립 또는 수동 적립을 설정하며, !깃발 명령어나 주기 출력으로 상태를 보여줄 수 있습니다.</p>
+          <div class="flag-toprow">
+            <button class="btn-connect" style="white-space:nowrap" onclick="showFlagForm()">+ 새 깃발 추가</button>
+            <label style="margin:0;white-space:nowrap">호출 명령어</label>
+            <input type="text" id="flagCmd" value="!깃발" style="max-width:140px">
+            <button class="btn-gray" onclick="applyFlagCmd()">적용</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">사용 예시</div>
+          <p class="hint">
+          · !깃발 → 등록된 전체 깃발 상태 출력<br>
+          · !깃발 1 → 1번 깃발만 출력<br>
+          · !깃발 1 50 → 1번 깃발에 50 적립 (DJ 전용)<br>
+          · 자동 적립 선택 시 스푼을 받으면 선물 수량만큼 자동 누적됩니다.
+          </p>
+        </div>
+
+        <div id="flagListWrap"></div>
+
+        <div class="card" id="flagFormCard" style="display:none">
+          <div class="card-title">단비 깃발 설정</div>
+          <label>제목</label>
+          <input type="text" id="flagTitleInput" placeholder="예: 방종하기">
+          <label>목표 금액</label>
+          <input type="number" id="flagGoalInput" placeholder="목표 금액" min="0">
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="flagMode" value="manual" checked> 수동 적립</label>
+            <label class="radio-opt"><input type="radio" name="flagMode" value="auto"> 자동 적립</label>
+          </div>
+          <label class="check-opt"><input type="checkbox" id="flagUseCycle"> 주기 출력 사용 <span class="hint-inline">(5분마다 자동으로 상태를 채팅에 출력)</span></label>
+          <label>출력 템플릿</label>
+          <textarea id="flagTemplateInput">=== {title} ====
+{current}/{goal} {percent}%</textarea>
+          <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}</div>
+          <div class="hint" id="flagPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;white-space:pre-line"></div>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideFlagForm()">취소</button>
+            <button class="btn-connect" onclick="saveFlagForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="shield">
         <div class="card">
           <div class="shield-count-box">
@@ -496,7 +564,7 @@ const PANEL_META={
   chatlog:['📋 채팅 로그','준비 중인 기능입니다'],
   shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
   greet:['🙋 지정 인사','준비 중인 기능입니다'],
-  flag:['🚩 단비 깃발','준비 중인 기능입니다'],
+  flag:['🚩 단비 깃발','목표 깃발을 만들고 진행률을 관리합니다'],
   shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
   request:['🎵 신청곡 관리','준비 중인 기능입니다'],
   roulette:['🎡 룰렛 설정','준비 중인 기능입니다'],
@@ -589,6 +657,141 @@ async function saveShieldSettings(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 단비 깃발 ── */
+let flagsData={cmd:'!깃발',items:[]};
+let flagIdSeq=1;
+let flagEditingId=null;
+
+function flagTemplateRender(tpl,flag,index){
+  const goal=Number(flag.goal)||0;
+  const current=Number(flag.current)||0;
+  const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+  return (tpl||'').replace(/{index}/g,index).replace(/{title}/g,flag.title)
+    .replace(/{current}/g,current).replace(/{goal}/g,goal).replace(/{percent}/g,percent);
+}
+
+function renderFlags(){
+  document.getElementById('flagCmd').value=flagsData.cmd;
+  const wrap=document.getElementById('flagListWrap');
+  if(!flagsData.items.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 단비 깃발이 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=flagsData.items.map((f,i)=>{
+    const goal=Number(f.goal)||0;
+    const current=Number(f.current)||0;
+    const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+    const preview=flagTemplateRender(f.template,f,i+1);
+    return `
+    <div class="flag-card">
+      <div class="flag-card-top">
+        <h4>${i+1}. ${escapeHtml(f.title)}</h4>
+        <div class="flag-card-actions">
+          <button class="btn-gray" onclick="showFlagForm('${f.id}')">수정</button>
+          <button class="btn-shield-reset" onclick="deleteFlag('${f.id}')">삭제</button>
+        </div>
+      </div>
+      <div class="flag-card-sub">목표 ${goal.toLocaleString()} · 현재 ${current.toLocaleString()} · ${percent}%</div>
+      <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
+      <div class="flag-meta-row">
+        <div><span class="k">적립 방식</span><span class="v">${f.mode==='auto'?'자동 적립':'수동 적립'}</span></div>
+        <div><span class="k">주기 출력</span><span class="v">${f.useCycle?'5분마다 자동 출력':'수동 출력만 사용'}</span></div>
+        <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
+      </div>
+      <div class="flag-amount-row">
+        <input type="number" id="flagAmount-${f.id}" placeholder="숫자 입력 (음수=차감)">
+        <button class="btn-connect" onclick="applyFlagAmount('${f.id}')">적립/차감</button>
+        <button class="btn-gray" onclick="resetFlagAmount('${f.id}')">리셋</button>
+      </div>
+      <div class="hint" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:12px;white-space:pre-line">${escapeHtml(preview)}</div>
+    </div>`;
+  }).join('');
+}
+
+function showFlagForm(id){
+  flagEditingId=id||null;
+  const f=id?flagsData.items.find(x=>x.id===id):null;
+  document.getElementById('flagTitleInput').value=f?f.title:'';
+  document.getElementById('flagGoalInput').value=f?f.goal:'';
+  document.getElementById('flagUseCycle').checked=f?!!f.useCycle:false;
+  document.getElementById('flagTemplateInput').value=f?f.template:'=== {title} ====\n{current}/{goal} {percent}%';
+  document.querySelectorAll('input[name="flagMode"]').forEach(r=>r.checked=(r.value===(f?f.mode:'manual')));
+  document.getElementById('flagFormCard').style.display='block';
+  updateFlagPreview();
+}
+
+function hideFlagForm(){
+  document.getElementById('flagFormCard').style.display='none';
+  flagEditingId=null;
+}
+
+function updateFlagPreview(){
+  const tpl=document.getElementById('flagTemplateInput').value;
+  const fake={title:document.getElementById('flagTitleInput').value||'{title}',goal:Number(document.getElementById('flagGoalInput').value)||0,current:flagEditingId?(flagsData.items.find(x=>x.id===flagEditingId)?.current||0):0};
+  document.getElementById('flagPreview').textContent=flagTemplateRender(tpl,fake,flagsData.items.length+1);
+}
+document.addEventListener('input',(e)=>{
+  if(['flagTitleInput','flagGoalInput','flagTemplateInput'].includes(e.target?.id)) updateFlagPreview();
+});
+
+function saveFlagForm(){
+  const title=document.getElementById('flagTitleInput').value.trim();
+  const goal=Number(document.getElementById('flagGoalInput').value)||0;
+  if(!title)return showToast('제목을 입력해주세요');
+  const mode=document.querySelector('input[name="flagMode"]:checked').value;
+  const useCycle=document.getElementById('flagUseCycle').checked;
+  const template=document.getElementById('flagTemplateInput').value;
+
+  if(flagEditingId){
+    const f=flagsData.items.find(x=>x.id===flagEditingId);
+    Object.assign(f,{title,goal,mode,useCycle,template});
+  } else {
+    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template});
+  }
+  hideFlagForm();
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function deleteFlag(id){
+  flagsData.items=flagsData.items.filter(f=>f.id!==id);
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function applyFlagAmount(id){
+  const input=document.getElementById('flagAmount-'+id);
+  const v=Number(input.value);
+  if(!v)return showToast('숫자를 입력해주세요');
+  const f=flagsData.items.find(x=>x.id===id);
+  f.current=(f.current||0)+v;
+  input.value='';
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function resetFlagAmount(id){
+  const f=flagsData.items.find(x=>x.id===id);
+  f.current=0;
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function applyFlagCmd(){
+  flagsData.cmd=document.getElementById('flagCmd').value.trim()||'!깃발';
+  renderFlags();
+  saveFlagsGlobal();
+  showToast('호출 명령어 적용됨');
+}
+
+async function saveFlagsGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({flags:flagsData})});
+    showToast('깃발 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+
 /* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
 const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
 let entryTab='entry';
@@ -678,6 +881,7 @@ function escapeAttr(s){return (s||'').replace(/"/g,'&quot;');}
 document.addEventListener('DOMContentLoaded',()=>{
   if(document.getElementById('entryMsgList')) renderEntryList();
   if(document.getElementById('shieldNumber')) renderShield();
+  if(document.getElementById('flagListWrap')) renderFlags();
 });
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
@@ -708,7 +912,13 @@ async function loadDjSettings(){
 
       if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
       if(s.shield){ Object.assign(shieldData, s.shield); }
+      if(s.flags){
+        Object.assign(flagsData, s.flags);
+        const nums=flagsData.items.map(f=>parseInt(String(f.id).replace('f',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) flagIdSeq=Math.max(...nums)+1;
+      }
       renderShield();
+      renderFlags();
       renderEntryList();
     }
   }catch(e){}
@@ -820,6 +1030,7 @@ function startSSE(){
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
     else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
+    else if(d.type==='flags'){ flagsData.items=d.items; if(document.getElementById('flagListWrap')) renderFlags(); }
   };
   es.onerror=()=>setTimeout(startSSE,3000);
 }

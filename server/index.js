@@ -159,6 +159,74 @@ function handleShieldCommand(djId, room, settings, author, authorId, text) {
   setTimeout(() => sendChatToRoom(djId, reply), 400)
 }
 
+function renderFlagTemplate(tpl, flag, index) {
+  const goal = Number(flag.goal) || 0
+  const current = Number(flag.current) || 0
+  const percent = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
+  return String(tpl || '')
+    .replace(/{index}/g, index)
+    .replace(/{title}/g, flag.title)
+    .replace(/{current}/g, current)
+    .replace(/{goal}/g, goal)
+    .replace(/{percent}/g, percent)
+}
+
+// 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
+function handleFlagCommand(djId, room, settings, author, authorId, text) {
+  const flags = settings.flags
+  if (!flags || !flags.cmd || !flags.items || !flags.items.length) return
+
+  const cmd = flags.cmd.trim()
+  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s+(\\d+))?(?:\\s+(-?\\d+))?\\s*$`)
+  const m = String(text || '').trim().match(re)
+  if (!m) return
+
+  const idx1 = m[1] ? parseInt(m[1], 10) : null   // 1-based
+  const delta = m[2] ? parseInt(m[2], 10) : null
+
+  // 인자 없음 → 전체 출력
+  if (idx1 === null) {
+    const lines = flags.items.map((f, i) => renderFlagTemplate(f.template, f, i + 1))
+    setTimeout(() => sendChatToRoom(djId, lines.join('\n')), 400)
+    return
+  }
+
+  const flag = flags.items[idx1 - 1]
+  if (!flag) return
+
+  // 조회만 (숫자 하나만) → 누구나 가능
+  if (delta === null) {
+    setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
+    return
+  }
+
+  // 적립/차감 → DJ 본인만 가능 (매니저 목록 조회는 아직 미지원)
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) {
+    setTimeout(() => sendChatToRoom(djId, '❌ 깃발 조절 권한이 없어요'), 400)
+    return
+  }
+
+  flag.current = (flag.current || 0) + delta
+  store.saveSettings(djId, { flags })
+  broadcast({ type: 'flags', djId, items: flags.items })
+  setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
+}
+
+// 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
+function handleFlagAutoDonation(djId, settings, amount) {
+  const flags = settings.flags
+  if (!flags || !flags.items || !flags.items.length || !amount) return
+  let changed = false
+  flags.items.forEach(f => {
+    if (f.mode === 'auto') { f.current = (f.current || 0) + amount; changed = true }
+  })
+  if (changed) {
+    store.saveSettings(djId, { flags })
+    broadcast({ type: 'flags', djId, items: flags.items })
+  }
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -200,6 +268,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const text = eventPayload.message || ''
         broadcast({ type: 'chat', djId, nick: author, text })
         handleShieldCommand(djId, room, settings, author, authorId, text)
+        handleFlagCommand(djId, room, settings, author, authorId, text)
 
       } else if (eventName === 'RoomJoin') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
@@ -218,6 +287,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
+
+      } else if (eventName === 'LiveDonation') {
+        const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
+        const amount = Number(eventPayload.amount) || 0
+        broadcast({ type: 'donation', djId, nick: author, amount })
+        handleFlagAutoDonation(djId, settings, amount)
       }
     } catch (e) {
       console.log(`[${djId}] WS 파싱 오류`, e.message)
@@ -290,6 +365,19 @@ async function checkAutoJoinAll() {
 
 setInterval(checkAutoJoinAll, 5000)
 
+// 5분마다 "주기 출력" 켜진 깃발의 현재 상태를 채팅으로 자동 출력
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId)
+    const items = settings?.flags?.items || []
+    items.forEach((f, i) => {
+      if (f.useCycle) sendChatToRoom(djId, renderFlagTemplate(f.template, f, i + 1))
+    })
+  }
+}, 5 * 60 * 1000)
+
 // ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
 app.post('/auth/signup', (req, res) => {
@@ -319,7 +407,7 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -327,6 +415,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
   if (funding) patch.funding = funding
   if (shield) patch.shield = shield
+  if (flags) patch.flags = flags
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })

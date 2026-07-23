@@ -50,6 +50,10 @@ function defaultSettings() {
       msgSub: '▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',
       perms: [],
     },
+    flags: {
+      cmd: '!깃발',
+      items: [], // { id, title, goal, current, mode: 'manual'|'auto', useCycle, template }
+    },
   };
 }
 
