@@ -1,10 +1,11 @@
 const WebSocket = require('ws')
 const express = require('express')
 const cors = require('cors')
+const tokenManager = require('./tokenManager')
 
 const app = express()
 app.use(cors({ origin: '*' }))
-app.use(express.json())
+app.use(express.json({ limit: '5mb' }))
 app.use(require('express').static(__dirname + '/public'))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
@@ -24,6 +25,17 @@ let autoJoinTag = ''
 let autoJoinWatcher = null
 let autoJoinedFor = ''
 let autoJoinChecking = false
+
+// ══════════════════════════════════════════════════════
+// 세션 쿠키 기반 accessToken 자동 갱신 (PC 없이 유지)
+tokenManager.setOnTokenUpdate((token) => {
+  if (!settings) settings = {}
+  settings.accessToken = token
+  broadcast({ type: 'session', status: 'connected' })
+})
+tokenManager.setOnSessionExpired(() => {
+  broadcast({ type: 'session', status: 'expired' })
+})
 
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'
@@ -204,6 +216,13 @@ async function connectSpoon(s) {
 
 // 자동입장 감시
 async function checkAutoJoin() {
+  // 매 체크마다 tokenManager가 갱신해둔 최신 accessToken을 반영
+  const latestToken = tokenManager.getAccessToken()
+  if (latestToken) {
+    if (!settings) settings = {}
+    settings.accessToken = latestToken
+  }
+
   if (!autoJoinTag || !settings?.accessToken) return
   if (autoJoinChecking) return
   autoJoinChecking = true
@@ -292,11 +311,34 @@ app.post('/disconnect', (req, res) => {
 })
 
 app.get('/status', (req, res) => {
-  res.json({ isConnected, channelId: settings?.channelId, autoJoinTag })
+  res.json({
+    isConnected,
+    channelId: settings?.channelId,
+    autoJoinTag,
+    hasSession: tokenManager.hasCookies(),
+    hasToken: !!tokenManager.getAccessToken(),
+  })
+})
+
+// ══════════════════════════════════════════════════════
+// 세션 쿠키 업로드 (PC에서 get_session_cookies.js로 추출한 파일 내용)
+app.post('/session/upload', (req, res) => {
+  const { cookies } = req.body
+  if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
+    return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
+  }
+  tokenManager.setCookies(cookies)
+  tokenManager.startAutoRefresh(10) // 10분마다 자동 갱신
+  console.log(`[세션] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
+})
+
+app.get('/session/status', (req, res) => {
+  res.json({ hasSession: tokenManager.hasCookies(), hasToken: !!tokenManager.getAccessToken() })
 })
 
 app.post('/autojoin', (req, res) => {
-  const { tag, accessToken } = req.body
+  const { tag } = req.body
   if (!tag) {
     stopAutoJoinWatcher()
     autoJoinTag = ''
@@ -304,10 +346,18 @@ app.post('/autojoin', (req, res) => {
     return res.json({ success: true, msg: '자동입장 해제' })
   }
   autoJoinTag = String(tag).replace('@', '').trim()
-  if (accessToken) {
+
+  // accessToken은 더 이상 프론트에서 받지 않고, tokenManager가 관리하는 최신 토큰을 사용
+  const latestToken = tokenManager.getAccessToken()
+  if (latestToken) {
     if (!settings) settings = {}
-    settings.accessToken = accessToken
+    settings.accessToken = latestToken
   }
+  if (!settings?.accessToken) {
+    broadcast({ type: 'autojoin', status: 'error', tag: autoJoinTag, msg: '세션 쿠키를 먼저 업로드해주세요' })
+    return res.json({ success: false, error: '세션 쿠키가 없습니다. /session/upload 먼저 진행해주세요.' })
+  }
+
   startAutoJoinWatcher()
   console.log(`[자동입장] @${autoJoinTag} 감시 시작`)
   broadcast({ type: 'autojoin', status: 'watching', tag: autoJoinTag })

@@ -16,12 +16,16 @@ h1{font-size:20px;font-weight:700}
 .dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 .dot.off{background:var(--danger)}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
-.card-title{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:14px}
+.card-title{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.session-pill{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+.session-pill.ok{color:var(--success);border-color:var(--success)}
+.session-pill.bad{color:var(--danger);border-color:var(--danger)}
 label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;margin-top:12px}
 label:first-of-type{margin-top:0}
 input,textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color 0.2s;font-family:inherit}
 input:focus,textarea:focus{border-color:var(--accent)}
 textarea{resize:none;height:80px}
+textarea.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;height:100px}
 .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 button{padding:13px;border-radius:10px;border:none;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.15s,transform 0.1s;font-family:inherit}
 button:active{transform:scale(0.97);opacity:0.85}
@@ -30,6 +34,9 @@ button:active{transform:scale(0.97);opacity:0.85}
 .btn-full{width:100%;margin-top:12px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)}
 .btn-green{background:var(--success);color:#000}
 .btn-gray{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
+details{margin-top:10px}
+summary{font-size:13px;color:var(--accent);cursor:pointer}
 .chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:180px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
 .chat-log:empty::before{content:'채팅 로그가 여기에 표시됩니다';color:var(--muted)}
 .log-line{margin-bottom:4px}
@@ -51,6 +58,21 @@ button:active{transform:scale(0.97);opacity:0.85}
 <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
 </header>
 
+<!-- 세션 (PC 없이 자동 로그인 유지) -->
+<div class="card">
+<div class="card-title">
+  <span>🔑 세션 연결</span>
+  <span class="session-pill" id="sessionPill">확인 중...</span>
+</div>
+<label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
+<textarea id="sessionCookies" class="mono" placeholder='[{"name":"...","value":"...","domain":".spooncast.net", ...}]'></textarea>
+<button class="btn-full" onclick="uploadSession()">📤 쿠키 업로드</button>
+<details>
+<summary>쿠키는 어떻게 얻나요?</summary>
+<div class="hint">PC에서 <code>get_session_cookies.js</code>를 한 번 실행해 스푼 로그인(카카오/구글/페북 상관없음)을 완료하면 <code>session_cookies.json</code> 파일이 생성돼요. 그 파일 내용을 통째로 복사해서 위 칸에 붙여넣고 업로드하면, 이후로는 서버가 PC 없이 알아서 로그인 상태를 유지합니다. 세션이 만료되면(가끔) 이 과정을 한 번 더 반복하면 돼요.</div>
+</details>
+</div>
+
 <!-- 자동입장 -->
 <div class="card">
 <div class="card-title">🚪 자동입장</div>
@@ -63,9 +85,9 @@ button:active{transform:scale(0.97);opacity:0.85}
 <div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
 </div>
 
-<!-- 수동 연결 -->
+<!-- 수동 연결 (세션 업로드 없이 임시로 쓸 때만) -->
 <div class="card">
-<div class="card-title">수동 연결 설정</div>
+<div class="card-title">수동 연결 (선택)</div>
 <label>Access Token</label>
 <input type="password" id="accessToken" placeholder="Access 토큰 입력">
 <label>Room Token</label>
@@ -106,11 +128,39 @@ window.onload=()=>{
     const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
   });
   checkStatus();
+  checkSessionStatus();
   startSSE();
 };
 ['accessToken','roomToken','channelId','autoJoinTag'].forEach(k=>{
   document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
 });
+
+async function uploadSession(){
+  const raw=document.getElementById('sessionCookies').value.trim();
+  if(!raw)return showToast('session_cookies.json 내용을 붙여넣어주세요');
+  let cookies;
+  try{ cookies=JSON.parse(raw); }catch(e){ return showToast('JSON 형식이 아닙니다'); }
+  try{
+    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies})});
+    const d=await res.json();
+    if(d.success){
+      showToast('업로드 완료! 토큰 발급 시도 중...');
+      document.getElementById('sessionCookies').value='';
+      setTimeout(checkSessionStatus,4000);
+    } else showToast(d.error||'업로드 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function checkSessionStatus(){
+  try{
+    const res=await fetch(SERVER+'/session/status');
+    const d=await res.json();
+    const pill=document.getElementById('sessionPill');
+    if(d.hasToken){pill.textContent='연결됨';pill.className='session-pill ok';}
+    else if(d.hasSession){pill.textContent='토큰 발급 중';pill.className='session-pill';}
+    else{pill.textContent='미연결';pill.className='session-pill bad';}
+  }catch{}
+}
 
 async function connect(){
   const a=document.getElementById('accessToken').value.trim();
@@ -132,13 +182,11 @@ async function disconnect(){
 
 async function startAutoJoin(){
   const tag=document.getElementById('autoJoinTag').value.trim();
-  const accessToken=document.getElementById('accessToken').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
-  if(!accessToken)return showToast('Access Token을 먼저 입력해주세요');
   try{
-    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag,accessToken})});
+    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag})});
     const d=await res.json();
-    showToast(d.msg||'감시 시작');
+    showToast(d.msg||d.error||'감시 시작');
     await saveSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -202,8 +250,15 @@ function startSSE(){
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
+    else if(d.type==='session')updateSessionPill(d);
   };
   es.onerror=()=>setTimeout(startSSE,3000);
+}
+
+function updateSessionPill(d){
+  const pill=document.getElementById('sessionPill');
+  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
+  else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
 }
 
 function updateAutoJoinStatus(d){
