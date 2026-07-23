@@ -116,8 +116,22 @@ async function fetchRoomToken(liveId) {
       req.continue();
     });
 
+    // 진단용: 방 관련 API 응답 상태코드를 로그로 남긴다 (원인 파악용)
+    page.on('response', (res) => {
+      const u = res.url();
+      if (u.includes('/lives/') || u.includes('/entrance') || u.includes('/auth')) {
+        console.log(`[tokenManager][diag] ${res.status()} ${u.slice(0, 120)}`);
+      }
+    });
+
     await page.goto(`${ORIGIN}/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: 30000 });
-    if (!captured) await new Promise((r) => setTimeout(r, 2500));
+    if (!captured) await new Promise((r) => setTimeout(r, 4000));
+
+    const finalUrl = page.url();
+    console.log('[tokenManager][diag] 최종 페이지 URL:', finalUrl);
+    if (/login|signin/i.test(finalUrl)) {
+      console.log('[tokenManager] ⚠️ 로그인 화면으로 리다이렉트됨 — 세션이 만료된 것으로 보입니다.');
+    }
 
     await browser.close();
     browser = null;
