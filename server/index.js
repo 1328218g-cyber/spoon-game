@@ -18,6 +18,7 @@ let likeMsgs = []
 let commands = []
 let isConnected = false
 let sseClients = []
+let lastLikeCount = 0
 
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'
@@ -62,7 +63,7 @@ async function sendChat(message) {
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
     const data = await res.json()
-    console.log('채팅 전송:', message, '응답:', res.status, JSON.stringify(data))
+    console.log('채팅 전송:', message, '응답:', res.status)
     return data
   } catch(e) {
     console.log('채팅 전송 오류:', e.message)
@@ -71,6 +72,7 @@ async function sendChat(message) {
 
 async function connectSpoon(s) {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
+  lastLikeCount = 0
 
   const streamName = await fetchStreamName(s.channelId, s.accessToken)
   s.streamName = streamName
@@ -94,7 +96,6 @@ async function connectSpoon(s) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
-      console.log('[WS 수신] command:', msg.command)
       if (msg.command !== 'MESSAGE') return
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
@@ -107,6 +108,7 @@ async function connectSpoon(s) {
         broadcast({ type: 'chat', nick: author, text })
         const matched = commands.find(c => text.trim() === c.trigger.trim())
         if (matched) setTimeout(() => sendChat(matched.response), 500)
+
       } else if (eventName === 'RoomJoin') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
         console.log(`[입장] ${author}`)
@@ -116,6 +118,7 @@ async function connectSpoon(s) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
           setTimeout(() => sendChat(text), 500)
         }
+
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
         console.log(`[좋아요] ${author}`)
@@ -124,6 +127,21 @@ async function connectSpoon(s) {
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
           setTimeout(() => sendChat(text), 500)
+        }
+
+      } else if (eventName === 'LiveMetaUpdate') {
+        const newLikeCount = eventPayload.like_count || eventPayload.likeCount || 0
+        if (newLikeCount > lastLikeCount) {
+          console.log(`[좋아요 감지] ${lastLikeCount} → ${newLikeCount}`)
+          lastLikeCount = newLikeCount
+          broadcast({ type: 'like', nick: '' })
+          const msgs = likeMsgs.filter(m => m.enabled)
+          if (msgs.length > 0) {
+            const text = msgs[0].text.replace(/{nickname}/g, '')
+            setTimeout(() => sendChat(text), 500)
+          }
+        } else {
+          lastLikeCount = newLikeCount
         }
       }
     } catch(e) {
