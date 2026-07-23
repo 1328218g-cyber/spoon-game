@@ -300,13 +300,13 @@ app.get('/status', (req, res) => {
 // ══════════════════════════════════════════════════════
 // 세션 쿠키 업로드 (PC에서 get_session_cookies.js로 추출한 파일 내용)
 app.post('/session/upload', (req, res) => {
-  const { cookies } = req.body
+  const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies(cookies)
+  tokenManager.setCookies({ cookies, localStorage, sessionStorage })
   tokenManager.startAutoRefresh(10) // 10분마다 자동 갱신
-  console.log(`[세션] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  console.log(`[세션] 쿠키 업로드됨 (${cookies.length}개, localStorage ${localStorage ? Object.keys(localStorage).length : 0}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
 

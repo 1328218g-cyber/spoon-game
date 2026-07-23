@@ -1,23 +1,27 @@
 // server/tokenManager.js
-// PC에서 추출한 세션 쿠키를 이용해, 서버가 스스로 accessToken을
-// 주기적으로 재발급받아 유지하는 모듈. (구글/카카오/페북 로그인을
-// 서버가 직접 자동화하지 않고, 이미 로그인된 세션을 재사용하는 방식)
+// PC에서 추출한 세션 쿠키 + localStorage/sessionStorage를 이용해,
+// 서버가 스스로 accessToken/roomToken을 재발급받아 유지하는 모듈.
+// (구글/카카오/페북 로그인을 서버가 직접 자동화하지 않고,
+//  이미 로그인된 세션을 그대로 재사용하는 방식)
 
 const puppeteer = require('puppeteer');
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const ORIGIN = 'https://www.spooncast.net';
 
-let sessionCookies = null;      // 업로드된 쿠키 배열
-let currentAccessToken = '';    // 캡처된 최신 accessToken
+let sessionCookies = null;         // 업로드된 쿠키 배열
+let storedLocalStorage = null;     // 업로드된 localStorage 스냅샷
+let storedSessionStorage = null;   // 업로드된 sessionStorage 스냅샷
+let currentAccessToken = '';       // 캡처된 최신 accessToken
 let refreshTimer = null;
 let refreshing = false;
-let onTokenUpdate = null;       // 토큰 갱신 성공 시 콜백 (index.js에서 등록)
-let onSessionExpired = null;    // 세션 만료(재로그인 필요) 감지 시 콜백
+let onTokenUpdate = null;          // 토큰 갱신 성공 시 콜백 (index.js에서 등록)
+let onSessionExpired = null;       // 세션 만료(재로그인 필요) 감지 시 콜백
 
 // Chrome 개발자도구/확장으로 내보낸 쿠키 JSON에는 puppeteer의 setCookie()가
 // 모르는 필드(size 등)가 섞여 있을 수 있어, 필요한 필드만 남기고 정리한다.
 function sanitizeCookies(cookies) {
-  return cookies
+  return (cookies || [])
     .filter(c => c && c.name && c.value)
     .map(c => {
       const out = {
@@ -34,8 +38,18 @@ function sanitizeCookies(cookies) {
     });
 }
 
-function setCookies(cookies) {
-  sessionCookies = sanitizeCookies(cookies || []);
+// data: get_session_cookies.js가 만든 { cookies, localStorage, sessionStorage } 객체.
+// 구버전 파일(쿠키 배열만)도 하위호환으로 허용.
+function setCookies(data) {
+  if (Array.isArray(data)) {
+    sessionCookies = sanitizeCookies(data);
+    storedLocalStorage = null;
+    storedSessionStorage = null;
+    return;
+  }
+  sessionCookies = sanitizeCookies(data && data.cookies);
+  storedLocalStorage = (data && data.localStorage) || null;
+  storedSessionStorage = (data && data.sessionStorage) || null;
 }
 
 function hasCookies() {
@@ -48,6 +62,31 @@ function getAccessToken() {
 
 function setOnTokenUpdate(cb) { onTokenUpdate = cb; }
 function setOnSessionExpired(cb) { onSessionExpired = cb; }
+
+// 쿠키만으로는 로그인 상태가 재현되지 않는 사이트가 많다 (localStorage에
+// 로그인 상태를 별도로 들고 있는 경우). 그래서:
+//   1) 먼저 쿠키를 심고 홈으로 가볍게 로드(domcontentloaded)
+//   2) 그 문서 컨텍스트에서 localStorage/sessionStorage 주입
+//   3) 이후 실제 목적지로 이동(reload 또는 goto) — 이때부터 로그인 상태로 인식됨
+async function newAuthenticatedPage(browser) {
+  const page = await browser.newPage();
+  await page.setUserAgent(CHROME_UA);
+  if (sessionCookies && sessionCookies.length) {
+    await page.setCookie(...sessionCookies);
+  }
+  await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+  if (storedLocalStorage || storedSessionStorage) {
+    await page.evaluate((ls, ss) => {
+      try {
+        if (ls) for (const k in ls) window.localStorage.setItem(k, ls[k]);
+        if (ss) for (const k in ss) window.sessionStorage.setItem(k, ss[k]);
+      } catch (e) { /* ignore */ }
+    }, storedLocalStorage || {}, storedSessionStorage || {});
+  }
+
+  return page;
+}
 
 // 방 입장 시 발급되는 roomToken(x-live-authorization)은 REST API로 직접 발급받을 수 없고,
 // 실제로 방 페이지(https://www.spooncast.net/kr/live/{liveId})에 접속했을 때
@@ -64,9 +103,7 @@ async function fetchRoomToken(liveId) {
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
-    const page = await browser.newPage();
-    await page.setUserAgent(CHROME_UA);
-    await page.setCookie(...sessionCookies);
+    const page = await newAuthenticatedPage(browser);
     await page.setRequestInterception(true);
 
     let captured = '';
@@ -79,7 +116,7 @@ async function fetchRoomToken(liveId) {
       req.continue();
     });
 
-    await page.goto(`https://www.spooncast.net/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(`${ORIGIN}/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: 30000 });
     if (!captured) await new Promise((r) => setTimeout(r, 2500));
 
     await browser.close();
@@ -89,7 +126,7 @@ async function fetchRoomToken(liveId) {
       console.log('[tokenManager] ✅ roomToken 발급 성공');
       return captured;
     }
-    console.log('[tokenManager] ⚠️ roomToken을 찾지 못했습니다. (방송이 이미 종료됐거나 접근 권한 문제일 수 있음)');
+    console.log('[tokenManager] ⚠️ roomToken을 찾지 못했습니다. (로그인 상태 재현 실패이거나 방송이 종료됐을 수 있음)');
     return null;
   } catch (e) {
     console.log('[tokenManager] roomToken 발급 오류:', e.message);
@@ -113,14 +150,10 @@ async function refreshAccessToken() {
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
-    const page = await browser.newPage();
-    await page.setUserAgent(CHROME_UA);
-    await page.setCookie(...sessionCookies);
+    const page = await newAuthenticatedPage(browser);
 
-    // 요청 헤더를 가로채는 대신, 방문 후 브라우저에 저장된 쿠키를 직접 읽는다.
-    // 스푼은 accessToken 자체를 spoon_at_kr 쿠키 값으로 사용하므로
-    // 이 쿠키만 읽으면 API 호출 발생 여부와 상관없이 안정적으로 토큰을 얻을 수 있다.
-    await page.goto('https://www.spooncast.net', { waitUntil: 'networkidle2', timeout: 30000 });
+    // localStorage 주입 후 다시 로드해야 사이트가 로그인 상태로 인식한다.
+    await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
     // 사이트 자체 로직이 토큰을 조용히 재발급하는 경우를 대비해 약간 대기
     await new Promise((r) => setTimeout(r, 2000));
 

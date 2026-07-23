@@ -138,10 +138,13 @@ window.onload=()=>{
 async function uploadSession(){
   const raw=document.getElementById('sessionCookies').value.trim();
   if(!raw)return showToast('session_cookies.json 내용을 붙여넣어주세요');
-  let cookies;
-  try{ cookies=JSON.parse(raw); }catch(e){ return showToast('JSON 형식이 아닙니다'); }
+  let parsed;
+  try{ parsed=JSON.parse(raw); }catch(e){ return showToast('JSON 형식이 아닙니다'); }
+  // 구버전 파일(쿠키 배열만) 호환
+  const payload = Array.isArray(parsed) ? { cookies: parsed } : parsed;
+  if(!payload.cookies || !payload.cookies.length) return showToast('쿠키 데이터를 찾을 수 없습니다');
   try{
-    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies})});
+    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(d.success){
       showToast('업로드 완료! 토큰 발급 시도 중...');
