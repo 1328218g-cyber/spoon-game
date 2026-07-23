@@ -144,6 +144,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sound-row .btn-gray{padding:9px 14px;font-size:12.5px;white-space:nowrap}
 .sound-row .hint{margin:0}
 
+/* ── 실드 관리 ── */
+.shield-count-box{text-align:center;padding:20px 0}
+.shield-label{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.shield-number{font-size:40px;font-weight:800;color:var(--accent)}
+.shield-input-row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.shield-input-row input{flex:1;min-width:140px}
+.shield-input-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
+.btn-shield-reset{background:rgba(225,29,72,.1);border:1px solid var(--danger);color:var(--danger)}
+.chip-input-row{display:flex;gap:8px}
+.chip-input-row input{flex:1}
+.chip-input-row button{white-space:nowrap;padding:11px 18px}
+.chip-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.perm-chip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:6px 8px 6px 14px;font-size:13px}
+.perm-chip button{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 6px}
+.perm-chip button:hover{color:var(--danger)}
+
 /* ── 로그인 / 회원가입 화면 ── */
 #authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
 .auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
@@ -215,7 +231,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge off">OFF</span></div>
-    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge off">OFF</span></div>
 
     <div class="nav-group-label">이벤트 / 게임</div>
@@ -318,7 +334,61 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="shortcuts"><div class="coming-soon"><div class="ic">⌨️</div><h3>단축키 명령어</h3><p>자주 쓰는 멘트를 단축키로 등록하는<br>기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="flag"><div class="coming-soon"><div class="ic">🚩</div><h3>단비 깃발</h3><p>단비님 전용 기능은 준비 중이에요.</p></div></div>
-      <div class="panel" data-panel="shield"><div class="coming-soon"><div class="ic">🛡️</div><h3>실드 관리</h3><p>악성 유저 자동 차단/제재 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="shield">
+        <div class="card">
+          <div class="shield-count-box">
+            <div class="shield-label">현재 보유 실드</div>
+            <div class="shield-number" id="shieldNumber">0</div>
+          </div>
+          <div class="shield-input-row">
+            <input type="number" id="shieldInput" placeholder="변경할 숫자 입력">
+            <button class="btn-gray" onclick="setShield()">설정/변경</button>
+            <button class="btn-gray" onclick="document.getElementById('shieldInput').value=''">입력칸 비우기</button>
+            <button class="btn-shield-reset" onclick="resetShield()">실드 리셋(<span id="shieldResetCount">0</span>)</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 실드 명령어 커스텀</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="saveShieldSettings()">💾 저장</button></div>
+          <label>호출 명령어 (기본: !실드)</label>
+          <input type="text" id="shieldCmd" value="!실드">
+          <div class="hint">채팅창에서 이 명령어를 입력하면 실드 조회/관리가 실행됩니다.</div>
+
+          <label>조회 응답 문구</label>
+          <textarea id="shieldMsgView">🛡️ 현재 보유 중인 실드는 {실드}개 입니다!</textarea>
+          <div class="hint">변수: {실드}</div>
+
+          <label>✅ 적립 완료 문구</label>
+          <textarea id="shieldMsgAdd">✅ 실드 {amount}개 적립 완료!
+현재 실드: {실드}개</textarea>
+          <div class="hint">변수: {amount}=적립 개수, {실드}=현재 실드 / 호환: {icon}, {action}</div>
+
+          <label>▼ 차감 완료 문구</label>
+          <textarea id="shieldMsgSub">▼ 실드 {amount}개 차감 완료!
+현재 실드: {실드}개</textarea>
+          <div class="hint">변수: {amount}=차감 개수, {실드}=현재 실드 / 호환: {icon}, {action}</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔑 실드 조절 권한 관리 <span class="hint-inline">(DJ 전용 설정)</span></div>
+          <div class="chip-input-row">
+            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
+            <button class="btn-connect" onclick="addShieldPerm()">추가</button>
+          </div>
+          <div class="chip-list" id="shieldPermList"></div>
+          <div class="hint">※ 여기에 등록된 고유닉 사용자만 실드 적립/차감이 가능합니다. (DJ는 기본 포함)</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🛡️ 실드 명령어 안내</div>
+          <p class="hint">
+          · !실드 : 현재 남은 실드 개수를 출력합니다.<br>
+          · !실드 +5 : 실드를 5개 추가합니다. (DJ/지정 권한자 전용)<br>
+          · !실드 -3 : 실드를 3개 차감합니다. (DJ/지정 권한자 전용)
+          </p>
+        </div>
+      </div>
+
       <div class="panel" data-panel="request"><div class="coming-soon"><div class="ic">🎵</div><h3>신청곡 관리</h3><p>신청곡 대기열 관리 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="roulette"><div class="coming-soon"><div class="ic">🎡</div><h3>룰렛 설정</h3><p>룰렛 이벤트 항목/확률 설정 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="roulettelog"><div class="coming-soon"><div class="ic">📊</div><h3>룰렛 기록</h3><p>룰렛 당첨 이력 조회 기능은 준비 중이에요.</p></div></div>
@@ -427,7 +497,7 @@ const PANEL_META={
   shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
   greet:['🙋 지정 인사','준비 중인 기능입니다'],
   flag:['🚩 단비 깃발','준비 중인 기능입니다'],
-  shield:['🛡️ 실드 관리','준비 중인 기능입니다'],
+  shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
   request:['🎵 신청곡 관리','준비 중인 기능입니다'],
   roulette:['🎡 룰렛 설정','준비 중인 기능입니다'],
   roulettelog:['📊 룰렛 기록','준비 중인 기능입니다'],
@@ -448,6 +518,76 @@ function selectPanel(name){
 }
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
+
+/* ── 실드 관리 ── */
+let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]};
+
+function renderShield(){
+  document.getElementById('shieldNumber').textContent=shieldData.count;
+  document.getElementById('shieldResetCount').textContent=shieldData.resetCount;
+  document.getElementById('shieldCmd').value=shieldData.cmd;
+  document.getElementById('shieldMsgView').value=shieldData.msgView;
+  document.getElementById('shieldMsgAdd').value=shieldData.msgAdd;
+  document.getElementById('shieldMsgSub').value=shieldData.msgSub;
+  renderShieldPerms();
+}
+
+function renderShieldPerms(){
+  const wrap=document.getElementById('shieldPermList');
+  if(!shieldData.perms.length){wrap.innerHTML='<span class="hint">등록된 사용자가 없습니다</span>';return;}
+  wrap.innerHTML=shieldData.perms.map(tag=>`
+    <span class="perm-chip">${escapeHtml(tag)}<button onclick="removeShieldPerm('${escapeAttr(tag)}')">✕</button></span>
+  `).join('');
+}
+
+function addShieldPerm(){
+  const input=document.getElementById('shieldPermInput');
+  const tag=input.value.trim().replace('@','');
+  if(!tag)return;
+  if(shieldData.perms.includes(tag))return showToast('이미 등록된 고유닉이에요');
+  shieldData.perms.push(tag);
+  input.value='';
+  renderShieldPerms();
+}
+
+function removeShieldPerm(tag){
+  shieldData.perms=shieldData.perms.filter(t=>t!==tag);
+  renderShieldPerms();
+}
+
+async function persistShieldCount(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({shield:shieldData})});
+  }catch(e){}
+}
+
+function setShield(){
+  const v=Number(document.getElementById('shieldInput').value);
+  if(Number.isNaN(v))return showToast('숫자를 입력해주세요');
+  shieldData.count=v;
+  renderShield();
+  persistShieldCount();
+  showToast('실드 설정 완료 ✓');
+}
+
+function resetShield(){
+  shieldData.count=0;
+  shieldData.resetCount=(shieldData.resetCount||0)+1;
+  renderShield();
+  persistShieldCount();
+  showToast('실드가 0으로 리셋됐어요');
+}
+
+async function saveShieldSettings(){
+  shieldData.cmd=document.getElementById('shieldCmd').value.trim()||'!실드';
+  shieldData.msgView=document.getElementById('shieldMsgView').value;
+  shieldData.msgAdd=document.getElementById('shieldMsgAdd').value;
+  shieldData.msgSub=document.getElementById('shieldMsgSub').value;
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({shield:shieldData})});
+    showToast('실드 설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
 
 /* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
 const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
@@ -535,7 +675,10 @@ function chooseEntrySound(id){
 function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function escapeAttr(s){return (s||'').replace(/"/g,'&quot;');}
 
-document.addEventListener('DOMContentLoaded',()=>{ if(document.getElementById('entryMsgList')) renderEntryList(); });
+document.addEventListener('DOMContentLoaded',()=>{
+  if(document.getElementById('entryMsgList')) renderEntryList();
+  if(document.getElementById('shieldNumber')) renderShield();
+});
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
 async function initApp(){
@@ -564,6 +707,8 @@ async function loadDjSettings(){
       if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
 
       if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
+      if(s.shield){ Object.assign(shieldData, s.shield); }
+      renderShield();
       renderEntryList();
     }
   }catch(e){}
@@ -674,6 +819,7 @@ function startSSE(){
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
+    else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
   };
   es.onerror=()=>setTimeout(startSSE,3000);
 }

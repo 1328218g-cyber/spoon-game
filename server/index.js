@@ -18,7 +18,7 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', checking: false }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', checking: false, liveDjUserId: null }
   }
   return rooms[djId]
 }
@@ -68,7 +68,7 @@ async function fetchUserStatusByTag(tag) {
   }
 }
 
-async function fetchStreamName(liveId, accessToken) {
+async function fetchLiveInfo(liveId, accessToken) {
   try {
     const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
       headers: {
@@ -80,10 +80,13 @@ async function fetchStreamName(liveId, accessToken) {
     })
     const data = await res.json()
     const live = data.results?.[0] || data
-    return live.stream_name || live.streamName || String(liveId)
+    return {
+      streamName: live.stream_name || live.streamName || String(liveId),
+      djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
+    }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return String(liveId)
+    return { streamName: String(liveId), djUserId: null }
   }
 }
 
@@ -110,14 +113,61 @@ async function sendChatToRoom(djId, message) {
   }
 }
 
+function escapeRegExp(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
+function handleShieldCommand(djId, room, settings, author, authorId, text) {
+  const shield = settings.shield
+  if (!shield || !shield.cmd) return
+
+  const cmd = shield.cmd.trim()
+  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s*([+-]\\s*\\d+))?\\s*$`)
+  const m = String(text || '').trim().match(re)
+  if (!m) return
+
+  const delta = m[1] ? parseInt(m[1].replace(/\s/g, ''), 10) : null
+
+  // 조회 (인자 없음) — 누구나 가능
+  if (delta === null) {
+    const reply = (shield.msgView || '현재 실드: {실드}개').replace(/{실드}/g, shield.count)
+    setTimeout(() => sendChatToRoom(djId, reply), 400)
+    return
+  }
+
+  // 적립/차감 — DJ 본인 또는 등록된 권한자만 가능
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const perms = (shield.perms || []).map(t => String(t).replace('@', '').toLowerCase())
+  const isPermUser = perms.includes(String(author || '').toLowerCase())
+  if (!isDj && !isPermUser) {
+    setTimeout(() => sendChatToRoom(djId, '❌ 실드 조절 권한이 없어요'), 400)
+    return
+  }
+
+  shield.count = (shield.count || 0) + delta
+  store.saveSettings(djId, { shield })
+  broadcast({ type: 'shield', djId, count: shield.count })
+
+  const amount = Math.abs(delta)
+  const tpl = delta > 0 ? (shield.msgAdd || '실드 {amount}개 적립! 현재: {실드}개') : (shield.msgSub || '실드 {amount}개 차감! 현재: {실드}개')
+  const reply = tpl
+    .replace(/{amount}/g, amount)
+    .replace(/{실드}/g, shield.count)
+    .replace(/{icon}/g, delta > 0 ? '✅' : '▼')
+    .replace(/{action}/g, delta > 0 ? '적립' : '차감')
+  setTimeout(() => sendChatToRoom(djId, reply), 400)
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   const accessToken = tokenManager.getAccessToken()
-  const streamName = await fetchStreamName(liveId, accessToken)
+  const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
+  room.liveDjUserId = djUserId
 
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`)
   room.ws = ws
@@ -144,9 +194,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const settings = store.getSettings(djId) || {}
 
       if (eventName === 'ChatMessage') {
-        const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
+        const gen = eventPayload.generator || {}
+        const author = gen.nickname || eventPayload.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id) : null
         const text = eventPayload.message || ''
         broadcast({ type: 'chat', djId, nick: author, text })
+        handleShieldCommand(djId, room, settings, author, authorId, text)
 
       } else if (eventName === 'RoomJoin') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
@@ -266,13 +319,14 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
   if (entryData) patch.entryData = entryData
   if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
   if (funding) patch.funding = funding
+  if (shield) patch.shield = shield
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })

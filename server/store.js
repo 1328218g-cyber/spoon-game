@@ -41,6 +41,15 @@ function defaultSettings() {
     entryData: { entry: [], leave: [], like: [], gift: [], repeat: [] },
     entryCooldown: 0,
     funding: { items: [] },
+    shield: {
+      count: 0,
+      resetCount: 0,
+      cmd: '!실드',
+      msgView: '🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',
+      msgAdd: '✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',
+      msgSub: '▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',
+      perms: [],
+    },
   };
 }
 
