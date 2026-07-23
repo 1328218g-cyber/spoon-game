@@ -209,7 +209,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">방송 도구</div>
     <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="automent"><span class="ic">📣</span><span class="lbl">자동 멘트</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="chatlog"><span class="ic">📋</span><span class="lbl">채팅 로그</span><span class="nav-badge off">OFF</span></div>
@@ -283,18 +282,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
-      <!-- 자동 멘트 -->
-      <div class="panel" data-panel="automent">
-        <div class="card">
-          <div class="card-title">멘트 설정</div>
-          <label>입장 멘트 (줄바꿈으로 여러 개, {nickname} 사용 가능)</label>
-          <textarea id="joinMessages" placeholder="{nickname}님 환영합니다!"></textarea>
-          <label>좋아요 멘트</label>
-          <textarea id="likeMessages" placeholder="{nickname}님 감사해요 ♥"></textarea>
-          <button class="btn-full" onclick="saveSettings()">💾 멘트 저장</button>
-        </div>
-      </div>
-
       <!-- 입장 설정 -->
       <div class="panel" data-panel="entrysettings">
         <div class="card">
@@ -317,7 +304,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span id="entryListTitle">메시지 설정</span><span class="badge-inline">항상 켜짐</span></div>
           <div id="entryMsgList"></div>
-          <button class="btn-full" onclick="addEntryMessage()">+ 메시지 추가</button>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
+            <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
+          </div>
+          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b> 탭만 실제로 채팅에 전송돼요. 퇴장/선물/반복문구는 화면만 먼저 만들어둔 상태예요.</p>
         </div>
       </div>
 
@@ -430,8 +421,7 @@ const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 자동입장','등록한 DJ가 방송을 켜면 자동으로 입장합니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
-  automent:['📣 자동 멘트','입장/좋아요 시 자동으로 보낼 멘트를 설정합니다'],
-  entrysettings:['👋 입장 설정','입장/퇴장/좋아요/선물 메시지를 탭별로 설정합니다'],
+  entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','준비 중인 기능입니다'],
   chatlog:['📋 채팅 로그','준비 중인 기능입니다'],
   shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
@@ -562,9 +552,17 @@ async function loadDjSettings(){
     if(d.success && d.settings){
       const s=d.settings;
       document.getElementById('autoJoinTag').value=s.autoJoinTag||'';
-      document.getElementById('joinMessages').value=(s.joinMessages||[]).map(m=>m.text).join('\n');
-      document.getElementById('likeMessages').value=(s.likeMessages||[]).map(m=>m.text).join('\n');
-      if(s.entryData){ Object.assign(entryData, s.entryData); }
+
+      if(s.entryData && (s.entryData.entry?.length || s.entryData.like?.length || s.entryData.leave?.length || s.entryData.gift?.length || s.entryData.repeat?.length)){
+        Object.assign(entryData, s.entryData);
+      } else {
+        // 예전 방식(입장멘트/좋아요멘트)으로 저장된 게 있으면 새 구조로 변환
+        if(s.joinMessages?.length) entryData.entry = s.joinMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
+        if(s.likeMessages?.length) entryData.like = s.likeMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
+      }
+      const allIds=[].concat(entryData.entry,entryData.leave,entryData.like,entryData.gift,entryData.repeat).map(m=>m.id).filter(n=>typeof n==='number');
+      if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
+
       if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
       renderEntryList();
     }
@@ -633,10 +631,9 @@ async function sendChat(){
 }
 
 async function saveSettings(){
-  const j=document.getElementById('joinMessages').value;
-  const l=document.getElementById('likeMessages').value;
-  const jm=j.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
-  const lm=l.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
+  // 입장/좋아요 탭 = 실제로 채팅에 전송되는 멘트 (퇴장/선물/반복문구는 아직 화면만)
+  const jm=(entryData.entry||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
+  const lm=(entryData.like||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
   const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,entryData,entryCooldown})});
