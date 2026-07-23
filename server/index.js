@@ -19,10 +19,67 @@ let commands = []
 let isConnected = false
 let sseClients = []
 
+// 자동입장 상태
+let autoJoinTag = ''
+let autoJoinWatcher = null
+let autoJoinedFor = ''
+let autoJoinChecking = false
+
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'
   sseClients = sseClients.filter(c => !c.destroyed)
   sseClients.forEach(c => c.write(msg))
+}
+
+async function fetchUserStatusByTag(tag) {
+  const cleanTag = String(tag || '').replace('@', '').trim()
+  if (!cleanTag) return null
+  try {
+    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': CHROME_UA,
+        'X-Client-App': 'sopia-web',
+        'X-Client-Version': '1.0.0',
+      }
+    })
+    const json = await res.json()
+    const results = json.results || []
+    const match = results.find(u => u.tag === cleanTag)
+    if (!match || !match.id) return null
+    return {
+      id: match.id,
+      tag: match.tag,
+      nickname: match.nickname || '',
+      is_live: !!match.is_live,
+      current_live_id: match.current_live_id || null,
+    }
+  } catch(e) {
+    return null
+  }
+}
+
+async function fetchRoomToken(liveId, accessToken) {
+  try {
+    const res = await fetch(`${API_BASE}/lives/${liveId}/entrance/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+        'Referer': 'https://www.spooncast.net/',
+      },
+      body: JSON.stringify({})
+    })
+    const data = await res.json()
+    console.log('[입장 API]', res.status, JSON.stringify(data).substring(0, 200))
+    const token = data.token || data.live_token || data.room_token || data.access_token
+    return token || null
+  } catch(e) {
+    console.log('[입장 API 오류]', e.message)
+    return null
+  }
 }
 
 async function fetchStreamName(liveId, accessToken) {
@@ -133,7 +190,7 @@ async function connectSpoon(s) {
   })
 
   ws.on('close', (code, reason) => {
-    console.log('스푼 연결 종료 code:', code, 'reason:', reason?.toString())
+    console.log('스푼 연결 종료 code:', code)
     isConnected = false
     spoonWs = null
     broadcast({ type: 'status', isConnected: false })
@@ -145,6 +202,71 @@ async function connectSpoon(s) {
   })
 }
 
+// 자동입장 감시
+async function checkAutoJoin() {
+  if (!autoJoinTag || !settings?.accessToken) return
+  if (autoJoinChecking) return
+  autoJoinChecking = true
+  try {
+    const status = await fetchUserStatusByTag(autoJoinTag)
+    if (!status) return
+
+    if (!status.is_live || !status.current_live_id) {
+      if (autoJoinedFor) {
+        console.log(`[자동입장] @${autoJoinTag} 방송 종료`)
+        broadcast({ type: 'autojoin', status: 'offline', tag: autoJoinTag })
+        autoJoinedFor = ''
+        if (isConnected) {
+          if (spoonWs) { spoonWs.terminate(); spoonWs = null }
+          isConnected = false
+          broadcast({ type: 'status', isConnected: false })
+        }
+      }
+      return
+    }
+
+    const liveId = String(status.current_live_id)
+    broadcast({ type: 'autojoin', status: 'live', tag: autoJoinTag, liveId })
+
+    if (liveId === autoJoinedFor) return
+
+    console.log(`[자동입장] @${autoJoinTag} 방송 감지! live_id: ${liveId}`)
+    broadcast({ type: 'autojoin', status: 'joining', tag: autoJoinTag, liveId })
+
+    const roomToken = await fetchRoomToken(liveId, settings.accessToken)
+    if (!roomToken) {
+      console.log('[자동입장] Room Token 발급 실패')
+      broadcast({ type: 'autojoin', status: 'error', tag: autoJoinTag, msg: 'Room Token 발급 실패' })
+      return
+    }
+
+    console.log('[자동입장] Room Token 발급 성공! 연결 시작')
+    autoJoinedFor = liveId
+    await connectSpoon({
+      accessToken: settings.accessToken,
+      roomToken,
+      channelId: liveId,
+    })
+    broadcast({ type: 'autojoin', status: 'joined', tag: autoJoinTag, liveId })
+  } catch(e) {
+    console.log('[자동입장 오류]', e.message)
+  } finally {
+    autoJoinChecking = false
+  }
+}
+
+function startAutoJoinWatcher() {
+  if (autoJoinWatcher) clearInterval(autoJoinWatcher)
+  autoJoinWatcher = setInterval(checkAutoJoin, 5000)
+  checkAutoJoin()
+}
+
+function stopAutoJoinWatcher() {
+  if (autoJoinWatcher) { clearInterval(autoJoinWatcher); autoJoinWatcher = null }
+  autoJoinedFor = ''
+}
+
+// API 엔드포인트
 app.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -165,11 +287,31 @@ app.post('/disconnect', (req, res) => {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
   isConnected = false
   settings = null
+  stopAutoJoinWatcher()
   res.json({ success: true })
 })
 
 app.get('/status', (req, res) => {
-  res.json({ isConnected, channelId: settings?.channelId })
+  res.json({ isConnected, channelId: settings?.channelId, autoJoinTag })
+})
+
+app.post('/autojoin', (req, res) => {
+  const { tag, accessToken } = req.body
+  if (!tag) {
+    stopAutoJoinWatcher()
+    autoJoinTag = ''
+    broadcast({ type: 'autojoin', status: 'off' })
+    return res.json({ success: true, msg: '자동입장 해제' })
+  }
+  autoJoinTag = String(tag).replace('@', '').trim()
+  if (accessToken) {
+    if (!settings) settings = {}
+    settings.accessToken = accessToken
+  }
+  startAutoJoinWatcher()
+  console.log(`[자동입장] @${autoJoinTag} 감시 시작`)
+  broadcast({ type: 'autojoin', status: 'watching', tag: autoJoinTag })
+  res.json({ success: true, msg: `@${autoJoinTag} 감시 시작` })
 })
 
 app.post('/chat', async (req, res) => {
