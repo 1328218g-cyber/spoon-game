@@ -463,6 +463,16 @@ app.get('/admin/users', auth.requireAuth, (req, res) => {
   res.json({ success: true, users })
 })
 
+app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 차단할 수 없어요' })
+  const { blocked } = req.body || {}
+  const ok = store.setBlocked(targetId, !!blocked)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
 // ══════════════════════════════════════════════════════
 // 디제이별 설정 (로그인 필요)
 app.get('/settings', auth.requireAuth, (req, res) => {
@@ -485,6 +495,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/autojoin', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '이 기능은 관리자만 사용할 수 있어요' })
   const { tag } = req.body || {}
   const djId = req.djId
   const room = getRoom(djId)
@@ -522,6 +533,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 // 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
 // (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
 app.post('/room/leave', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '이 기능은 관리자만 사용할 수 있어요' })
   const djId = req.djId
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }

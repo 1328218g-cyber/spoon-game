@@ -4,6 +4,7 @@
 // 날아가지는 않는다 (계정/설정은 store.js가 파일에 저장).
 
 const crypto = require('crypto');
+const store = require('./store');
 
 const tokens = new Map(); // token -> djId
 
@@ -27,6 +28,10 @@ function requireAuth(req, res, next) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   const djId = verifyToken(token);
   if (!djId) return res.status(401).json({ success: false, error: '로그인이 필요합니다' });
+  if (store.isBlocked(djId)) {
+    revokeToken(token);
+    return res.status(403).json({ success: false, error: '차단된 계정이에요. 관리자에게 문의해주세요.' });
+  }
   req.djId = djId;
   next();
 }

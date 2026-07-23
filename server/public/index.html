@@ -620,10 +620,14 @@ function enterApp(){
   if(sessionPanel) sessionPanel.style.display = isAdmin ? '' : 'none';
   const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
+  const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
+  const autojoinPanel=document.querySelector('.panel[data-panel="autojoin"]');
+  if(autojoinNav) autojoinNav.style.display = isAdmin ? '' : 'none';
+  if(autojoinPanel) autojoinPanel.style.display = isAdmin ? '' : 'none';
   if(isAdmin) loadUserList();
 
   initApp();
-  selectPanel(isAdmin ? 'session' : 'autojoin');
+  selectPanel(isAdmin ? 'session' : 'entrysettings');
 }
 
 async function tryAutoLogin(){
@@ -1208,20 +1212,32 @@ async function loadUserList(){
     if(!d.users.length){wrap.innerHTML='<p class="hint">아직 가입한 디제이가 없습니다.</p>';return;}
     const rows=d.users.map(u=>{
       const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
+      const isSum=u.djId==='sum';
       return `<tr>
-        <td>${escapeHtml(u.djId)}</td>
+        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}</td>
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
+        <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
+        <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML=`<table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
+}
+
+async function toggleBlockUser(djIdTarget,blocked){
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/block',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blocked})});
+    const d=await res.json();
+    if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function startAutoJoin(){
