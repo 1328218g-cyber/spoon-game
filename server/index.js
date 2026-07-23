@@ -8,6 +8,7 @@ app.use(express.json())
 app.use(require('express').static(__dirname + '/public'))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
+const API_BASE = 'https://api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 let spoonWs = null
@@ -24,10 +25,31 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
+async function fetchStreamName(liveId, accessToken) {
+  try {
+    const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+        'Referer': 'https://www.spooncast.net/',
+      }
+    })
+    const data = await res.json()
+    const live = data.results?.[0] || data
+    const streamName = live.stream_name || live.streamName || String(liveId)
+    console.log('[stream_name]', streamName)
+    return streamName
+  } catch(e) {
+    console.log('[stream_name 오류]', e.message)
+    return String(liveId)
+  }
+}
+
 async function sendChat(message) {
   if (!settings) return
   try {
-    const res = await fetch(`${GW_BASE}/lives/${settings.channelId}/chat/message`, {
+    const res = await fetch(`${GW_BASE}/lives/${settings.streamName}/chat/message`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,30 +62,31 @@ async function sendChat(message) {
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
     const data = await res.json()
-    console.log('채팅 전송:', message, '응답:', res.status, 'body:', JSON.stringify(data))
+    console.log('채팅 전송:', message, '응답:', res.status, JSON.stringify(data))
     return data
   } catch(e) {
     console.log('채팅 전송 오류:', e.message)
   }
 }
 
-function connectSpoon(s) {
+async function connectSpoon(s) {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
+
+  const streamName = await fetchStreamName(s.channelId, s.accessToken)
+  s.streamName = streamName
   settings = s
 
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${s.accessToken}`)
   spoonWs = ws
 
   ws.on('open', () => {
-    console.log('스푼 연결됨!')
+    console.log('스푼 연결됨! streamName:', streamName)
     isConnected = true
     if (ws.readyState === WebSocket.OPEN) {
-      const payload = {
+      ws.send(JSON.stringify({
         command: 'ACTIVATE_CHANNEL',
-        payload: { channelId: s.channelId.trim(), liveToken: s.roomToken }
-      }
-      console.log('ACTIVATE 전송 channelId:', s.channelId.trim(), 'liveToken 앞20자:', s.roomToken?.substring(0, 20))
-      ws.send(JSON.stringify(payload))
+        payload: { channelId: streamName, liveToken: s.roomToken }
+      }))
     }
     broadcast({ type: 'status', isConnected: true })
   })
@@ -71,7 +94,7 @@ function connectSpoon(s) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
-      console.log('[WS 수신] command:', msg.command, 'raw:', JSON.stringify(msg).substring(0, 150))
+      console.log('[WS 수신] command:', msg.command)
       if (msg.command !== 'MESSAGE') return
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
@@ -83,9 +106,7 @@ function connectSpoon(s) {
         console.log(`[채팅] ${author}: ${text}`)
         broadcast({ type: 'chat', nick: author, text })
         const matched = commands.find(c => text.trim() === c.trigger.trim())
-        if (matched) {
-          setTimeout(() => sendChat(matched.response), 500)
-        }
+        if (matched) setTimeout(() => sendChat(matched.response), 500)
       } else if (eventName === 'RoomJoin') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
         console.log(`[입장] ${author}`)
@@ -129,17 +150,13 @@ app.get('/events', (req, res) => {
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
   sseClients.push(res)
-  req.on('close', () => {
-    sseClients = sseClients.filter(c => c !== res)
-  })
+  req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
 })
 
-app.post('/connect', (req, res) => {
+app.post('/connect', async (req, res) => {
   const { accessToken, roomToken, channelId } = req.body
-  if (!accessToken || !roomToken || !channelId) {
-    return res.json({ error: '파라미터 없음' })
-  }
-  connectSpoon({ accessToken, roomToken, channelId })
+  if (!accessToken || !roomToken || !channelId) return res.json({ error: '파라미터 없음' })
+  await connectSpoon({ accessToken, roomToken, channelId })
   res.json({ success: true })
 })
 
