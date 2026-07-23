@@ -469,7 +469,7 @@ app.post('/session/upload', auth.requireAdmin, (req, res) => {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
   tokenManager.setCookies({ cookies, localStorage, sessionStorage })
-  tokenManager.startAutoRefresh(10)
+  tokenManager.startAutoRefresh(30)
   console.log(`[세션] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
@@ -497,6 +497,6 @@ app.listen(PORT, () => {
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서 자동 갱신을 바로 재개한다.
   if (tokenManager.initFromDisk()) {
     console.log('[세션] 저장된 세션 발견 → accessToken 자동 갱신 재개')
-    tokenManager.startAutoRefresh(10)
+    tokenManager.startAutoRefresh(30)
   }
 })
