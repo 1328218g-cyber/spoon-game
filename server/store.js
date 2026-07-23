@@ -40,7 +40,14 @@ function defaultSettings() {
     likeMessages: [],
     entryData: { entry: [], leave: [], like: [], gift: [], repeat: [] },
     entryCooldown: 0,
-    funding: { items: [] },
+    funding: {
+      cmd: '!펀딩',
+      showPercent: true,
+      showDday: true,
+      titleTemplate: '🎯 진행중인 {month}월 펀딩 🎯',
+      itemTemplate: '{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',
+      items: [], // { id, title, goal, current, endDate }
+    },
     shield: {
       count: 0,
       resetCount: 0,

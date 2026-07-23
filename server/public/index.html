@@ -183,6 +183,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .flag-amount-row input{flex:1}
 .flag-amount-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
 
+/* ── 펀딩 관리 ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,15,19,.6);display:flex;align-items:center;justify-content:center;z-index:1500;padding:20px}
+.modal-box{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:26px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.modal-title{display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;margin-bottom:18px}
+.modal-box .icon-btn{background:var(--surface2);border-radius:50%;width:28px;height:28px;font-size:13px}
+.status-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;margin-right:6px}
+.status-pill.ongoing{background:rgba(74,222,128,.15);color:var(--success)}
+.status-pill.ended{background:rgba(107,107,128,.15);color:var(--muted)}
+.status-pill.dday{background:rgba(251,146,60,.15);color:#fb923c}
+
 /* ── 로그인 / 회원가입 화면 ── */
 #authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
 .auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
@@ -249,7 +259,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-group-label">방송 도구</div>
     <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="chatlog"><span class="ic">📋</span><span class="lbl">채팅 로그</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
@@ -353,7 +363,64 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
 
 
-      <div class="panel" data-panel="funding"><div class="coming-soon"><div class="ic">💰</div><h3>펀딩 관리</h3><p>펀딩을 생성하고 관리하는 기능은 준비 중이에요.<br>채팅창 명령어로 적립/차감하는 방식으로 만들 예정입니다.</p></div></div>
+      <div class="panel" data-panel="funding">
+        <div class="card">
+          <div class="card-title"><span>💰 펀딩 관리</span></div>
+          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 적립합니다.</p>
+          <button class="btn-connect" style="width:100%" onclick="showFundingModal()">+ 새 펀딩 추가하기</button>
+        </div>
+
+        <div class="card">
+          <div class="flag-toprow" style="justify-content:space-between">
+            <span style="font-size:13px;color:var(--muted)">출력 옵션:</span>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="fundingShowPercent" checked onchange="toggleFundingOption()"> 퍼센트 표시</label>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="fundingShowDday" checked onchange="toggleFundingOption()"> 디데이 표시</label>
+            <button class="btn-gray" style="margin-left:auto" onclick="toggleFundingCustom()">⚙️ 명령어 커스텀</button>
+          </div>
+        </div>
+
+        <div class="card" id="fundingCustomCard" style="display:none">
+          <div class="card-title">⚙️ 펀딩 명령어 및 문구 커스텀</div>
+          <label>호출 명령어 (기본: !펀딩)</label>
+          <input type="text" id="fundingCmd" value="!펀딩">
+          <label>상단 제목 문구</label>
+          <textarea id="fundingTitleTpl" style="height:56px">🎯 진행중인 {month}월 펀딩 🎯</textarea>
+          <div class="hint">변수: {month}</div>
+          <label>목록 출력 양식</label>
+          <textarea id="fundingItemTpl">{index}. {title}
+💰{current}/{goal} [{percent}] {dday}</textarea>
+          <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}, {dday}</div>
+          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveFundingCustom()">💾 커스텀 설정 저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 명령어 안내</div>
+          <p class="hint">
+          · !펀딩 → 진행중인 펀딩 목록 출력<br>
+          · !펀딩 2 200 → 2번 펀딩에 200 적립 (DJ 전용)<br>
+          · !펀딩 2 -50 → 2번 펀딩에서 50 차감 (DJ 전용)
+          </p>
+        </div>
+
+        <div id="fundingListWrap"></div>
+      </div>
+
+      <!-- 새 펀딩 추가 모달 -->
+      <div id="fundingModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideFundingModal()">
+        <div class="modal-box">
+          <div class="modal-title"><span>📝 <span id="fundingModalTitle">새 펀딩 추가</span></span><button class="icon-btn" onclick="hideFundingModal()">✕</button></div>
+          <label>펀딩 제목</label>
+          <input type="text" id="fundingTitleInput" placeholder="예: 오이먹방🥒, 신곡 연습 등">
+          <label>목표 금액 (스푼)</label>
+          <input type="number" id="fundingGoalInput" placeholder="목표 금액을 입력하세요" min="0">
+          <label>종료 날짜 (선택)</label>
+          <input type="date" id="fundingEndDateInput">
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideFundingModal()">취소</button>
+            <button class="btn-connect" onclick="saveFundingModal()">💾 저장하기</button>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="chatlog"><div class="coming-soon"><div class="ic">📋</div><h3>채팅 로그</h3><p>지난 방송 채팅 기록을 저장하고<br>다시 볼 수 있는 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="shortcuts"><div class="coming-soon"><div class="ic">⌨️</div><h3>단축키 명령어</h3><p>자주 쓰는 멘트를 단축키로 등록하는<br>기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
@@ -561,7 +628,7 @@ const PANEL_META={
   autojoin:['🚪 자동입장','등록한 DJ가 방송을 켜면 자동으로 입장합니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
-  funding:['💰 펀딩 관리','준비 중인 기능입니다'],
+  funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
   chatlog:['📋 채팅 로그','준비 중인 기능입니다'],
   shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
   greet:['🙋 지정 인사','준비 중인 기능입니다'],
@@ -792,6 +859,155 @@ async function saveFlagsGlobal(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 펀딩 관리 ── */
+let fundingData={cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]};
+let fundingIdSeq=1;
+let fundingEditingId=null;
+
+function calcDday(endDate){
+  if(!endDate)return '';
+  const end=new Date(endDate+'T23:59:59');
+  const diff=Math.ceil((end-new Date())/86400000);
+  if(diff<0)return '종료';
+  if(diff===0)return 'D-Day';
+  return 'D-'+diff;
+}
+
+function fundingRenderItem(tpl,item,index){
+  const goal=Number(item.goal)||0, current=Number(item.current)||0;
+  const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+  return (tpl||'').replace(/{index}/g,index).replace(/{title}/g,item.title)
+    .replace(/{current}/g,current.toLocaleString()).replace(/{goal}/g,goal.toLocaleString())
+    .replace(/{percent}/g,fundingData.showPercent?percent+'%':'')
+    .replace(/{dday}/g,fundingData.showDday?calcDday(item.endDate):'');
+}
+
+function renderFunding(){
+  document.getElementById('fundingCmd').value=fundingData.cmd;
+  document.getElementById('fundingTitleTpl').value=fundingData.titleTemplate;
+  document.getElementById('fundingItemTpl').value=fundingData.itemTemplate;
+  document.getElementById('fundingShowPercent').checked=fundingData.showPercent!==false;
+  document.getElementById('fundingShowDday').checked=fundingData.showDday!==false;
+
+  const wrap=document.getElementById('fundingListWrap');
+  if(!fundingData.items.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 펀딩이 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=fundingData.items.map((it,i)=>{
+    const goal=Number(it.goal)||0, current=Number(it.current)||0;
+    const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+    const dday=calcDday(it.endDate);
+    const ended=dday==='종료';
+    return `
+    <div class="flag-card">
+      <div class="flag-card-top">
+        <h4>${i+1}. ${escapeHtml(it.title)}</h4>
+        <div class="flag-card-actions">
+          <button class="btn-gray" onclick="showFundingModal('${it.id}')">수정</button>
+          <button class="btn-shield-reset" onclick="deleteFunding('${it.id}')">삭제</button>
+        </div>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="status-pill ${ended?'ended':'ongoing'}">${ended?'종료':'진행중'}</span>
+        ${dday && fundingData.showDday ? `<span class="status-pill dday">${dday}</span>` : ''}
+      </div>
+      <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
+      <div class="flag-card-sub" style="display:flex;justify-content:space-between">
+        <span>${current.toLocaleString()} / ${goal.toLocaleString()}</span>
+        <span>${fundingData.showPercent?percent+'%':''}</span>
+      </div>
+      <div class="flag-amount-row">
+        <input type="number" id="fundingAmount-${it.id}" placeholder="숫자 입력 (음수=차감)">
+        <button class="btn-connect" onclick="applyFundingAmount('${it.id}')">적립/차감</button>
+        <button class="btn-gray" onclick="resetFundingAmount('${it.id}')">리셋</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleFundingCustom(){
+  const el=document.getElementById('fundingCustomCard');
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+
+function toggleFundingOption(){
+  fundingData.showPercent=document.getElementById('fundingShowPercent').checked;
+  fundingData.showDday=document.getElementById('fundingShowDday').checked;
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function showFundingModal(id){
+  fundingEditingId=id||null;
+  const it=id?fundingData.items.find(x=>x.id===id):null;
+  document.getElementById('fundingModalTitle').textContent=id?'펀딩 수정':'새 펀딩 추가';
+  document.getElementById('fundingTitleInput').value=it?it.title:'';
+  document.getElementById('fundingGoalInput').value=it?it.goal:'';
+  document.getElementById('fundingEndDateInput').value=it?(it.endDate||''):'';
+  document.getElementById('fundingModalOverlay').style.display='flex';
+}
+
+function hideFundingModal(){
+  document.getElementById('fundingModalOverlay').style.display='none';
+  fundingEditingId=null;
+}
+
+function saveFundingModal(){
+  const title=document.getElementById('fundingTitleInput').value.trim();
+  const goal=Number(document.getElementById('fundingGoalInput').value)||0;
+  const endDate=document.getElementById('fundingEndDateInput').value||'';
+  if(!title)return showToast('펀딩 제목을 입력해주세요');
+
+  if(fundingEditingId){
+    const it=fundingData.items.find(x=>x.id===fundingEditingId);
+    Object.assign(it,{title,goal,endDate});
+  } else {
+    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate});
+  }
+  hideFundingModal();
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function deleteFunding(id){
+  fundingData.items=fundingData.items.filter(x=>x.id!==id);
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function applyFundingAmount(id){
+  const input=document.getElementById('fundingAmount-'+id);
+  const v=Number(input.value);
+  if(!v)return showToast('숫자를 입력해주세요');
+  const it=fundingData.items.find(x=>x.id===id);
+  it.current=(it.current||0)+v;
+  input.value='';
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function resetFundingAmount(id){
+  const it=fundingData.items.find(x=>x.id===id);
+  it.current=0;
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function saveFundingCustom(){
+  fundingData.cmd=document.getElementById('fundingCmd').value.trim()||'!펀딩';
+  fundingData.titleTemplate=document.getElementById('fundingTitleTpl').value;
+  fundingData.itemTemplate=document.getElementById('fundingItemTpl').value;
+  saveFundingGlobal();
+  showToast('커스텀 설정 저장 완료 ✓');
+}
+
+async function saveFundingGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({funding:fundingData})});
+  }catch(e){showToast('저장 실패');}
+}
+
 
 /* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
 const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
@@ -883,6 +1099,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(document.getElementById('entryMsgList')) renderEntryList();
   if(document.getElementById('shieldNumber')) renderShield();
   if(document.getElementById('flagListWrap')) renderFlags();
+  if(document.getElementById('fundingListWrap')) renderFunding();
 });
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
@@ -918,8 +1135,14 @@ async function loadDjSettings(){
         const nums=flagsData.items.map(f=>parseInt(String(f.id).replace('f',''),10)).filter(n=>!Number.isNaN(n));
         if(nums.length) flagIdSeq=Math.max(...nums)+1;
       }
+      if(s.funding){
+        Object.assign(fundingData, s.funding);
+        const nums=fundingData.items.map(f=>parseInt(String(f.id).replace('fd',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) fundingIdSeq=Math.max(...nums)+1;
+      }
       renderShield();
       renderFlags();
+      renderFunding();
       renderEntryList();
     }
   }catch(e){}
@@ -1040,6 +1263,7 @@ function startSSE(){
     else if(d.type==='session')updateSessionPill(d);
     else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
     else if(d.type==='flags'){ flagsData.items=d.items; if(document.getElementById('flagListWrap')) renderFlags(); }
+    else if(d.type==='funding'){ fundingData.items=d.items; if(document.getElementById('fundingListWrap')) renderFunding(); }
   };
   es.onerror=()=>setTimeout(startSSE,3000);
 }

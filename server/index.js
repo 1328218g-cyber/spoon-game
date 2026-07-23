@@ -250,6 +250,69 @@ function handleFlagAutoDonation(djId, settings, amount) {
   }
 }
 
+function calcDday(endDate) {
+  if (!endDate) return ''
+  const end = new Date(endDate + 'T23:59:59')
+  const diffDays = Math.ceil((end - new Date()) / 86400000)
+  if (diffDays < 0) return '종료'
+  if (diffDays === 0) return 'D-Day'
+  return `D-${diffDays}`
+}
+
+function renderFundingItem(tpl, item, index, funding) {
+  const goal = Number(item.goal) || 0
+  const current = Number(item.current) || 0
+  const percent = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
+  return String(tpl || '')
+    .replace(/{index}/g, index)
+    .replace(/{title}/g, item.title)
+    .replace(/{current}/g, current.toLocaleString())
+    .replace(/{goal}/g, goal.toLocaleString())
+    .replace(/{percent}/g, funding.showPercent === false ? '' : `${percent}%`)
+    .replace(/{dday}/g, funding.showDday === false ? '' : calcDday(item.endDate))
+}
+
+// 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
+function handleFundingCommand(djId, room, settings, author, authorId, text) {
+  const funding = settings.funding
+  if (!funding || !funding.cmd || !funding.items || !funding.items.length) return
+
+  const cmd = funding.cmd.trim()
+  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s+(\\d+))?(?:\\s+(-?\\d+))?\\s*$`)
+  const m = String(text || '').trim().match(re)
+  if (!m) return
+
+  const idx1 = m[1] ? parseInt(m[1], 10) : null
+  const delta = m[2] ? parseInt(m[2], 10) : null
+
+  if (idx1 === null) {
+    const month = new Date().getMonth() + 1
+    const header = String(funding.titleTemplate || '').replace(/{month}/g, month)
+    const lines = funding.items.map((it, i) => renderFundingItem(funding.itemTemplate, it, i + 1, funding))
+    setTimeout(() => sendChatToRoom(djId, [header, ...lines].join('\n')), 400)
+    return
+  }
+
+  const item = funding.items[idx1 - 1]
+  if (!item) return
+
+  if (delta === null) {
+    setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
+    return
+  }
+
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) {
+    setTimeout(() => sendChatToRoom(djId, '❌ 펀딩 조절 권한이 없어요'), 400)
+    return
+  }
+
+  item.current = (item.current || 0) + delta
+  store.saveSettings(djId, { funding })
+  broadcast({ type: 'funding', djId, items: funding.items })
+  setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -293,6 +356,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'chat', djId, nick: author, text })
         handleShieldCommand(djId, room, settings, author, authorId, text)
         handleFlagCommand(djId, room, settings, author, authorId, text)
+        handleFundingCommand(djId, room, settings, author, authorId, text)
 
       } else if (eventName === 'RoomJoin') {
         const gen = eventPayload.generator || {}
