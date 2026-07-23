@@ -28,6 +28,8 @@ button:active{transform:scale(0.97);opacity:0.85}
 .btn-connect{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
 .btn-disconnect{background:var(--bg);border:1px solid var(--border);color:var(--danger)}
 .btn-full{width:100%;margin-top:12px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)}
+.btn-green{background:var(--success);color:#000}
+.btn-gray{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
 .chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:180px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
 .chat-log:empty::before{content:'채팅 로그가 여기에 표시됩니다';color:var(--muted)}
 .log-line{margin-bottom:4px}
@@ -39,6 +41,7 @@ button:active{transform:scale(0.97);opacity:0.85}
 .chat-input-row{display:flex;gap:8px}
 .chat-input-row input{flex:1}
 .chat-input-row button{padding:11px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:14px;white-space:nowrap}
+.autojoin-status{font-size:13px;color:var(--muted);margin-top:10px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--border);min-height:40px}
 </style>
 </head>
 <body>
@@ -47,8 +50,22 @@ button:active{transform:scale(0.97);opacity:0.85}
 <h1>스푼 봇</h1>
 <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
 </header>
+
+<!-- 자동입장 -->
 <div class="card">
-<div class="card-title">연결 설정</div>
+<div class="card-title">🚪 자동입장</div>
+<label>DJ 고유닉 (@태그)</label>
+<input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
+<div class="btn-row">
+<button class="btn-green" onclick="startAutoJoin()">👁 감시 시작</button>
+<button class="btn-gray" onclick="stopAutoJoin()">✋ 감시 중지</button>
+</div>
+<div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
+</div>
+
+<!-- 수동 연결 -->
+<div class="card">
+<div class="card-title">수동 연결 설정</div>
 <label>Access Token</label>
 <input type="password" id="accessToken" placeholder="Access 토큰 입력">
 <label>Room Token</label>
@@ -60,6 +77,8 @@ button:active{transform:scale(0.97);opacity:0.85}
 <button class="btn-disconnect" onclick="disconnect()">✂️ 해제</button>
 </div>
 </div>
+
+<!-- 채팅 -->
 <div class="card">
 <div class="card-title">실시간 채팅</div>
 <div class="chat-log" id="chatLog"></div>
@@ -68,6 +87,8 @@ button:active{transform:scale(0.97);opacity:0.85}
 <button onclick="sendChat()">전송</button>
 </div>
 </div>
+
+<!-- 자동 멘트 -->
 <div class="card">
 <div class="card-title">자동 멘트</div>
 <label>입장 멘트 (줄바꿈으로 여러 개, {nickname} 사용 가능)</label>
@@ -76,19 +97,21 @@ button:active{transform:scale(0.97);opacity:0.85}
 <textarea id="likeMessages" placeholder="{nickname}님 감사해요 ♥"></textarea>
 <button class="btn-full" onclick="saveSettings()">💾 멘트 저장</button>
 </div>
+
 <div class="toast" id="toast"></div>
 <script>
 const SERVER='https://spoon-game-production.up.railway.app';
 window.onload=()=>{
-  ['accessToken','roomToken','channelId','joinMessages','likeMessages'].forEach(k=>{
+  ['accessToken','roomToken','channelId','joinMessages','likeMessages','autoJoinTag'].forEach(k=>{
     const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
   });
   checkStatus();
   startSSE();
 };
-['accessToken','roomToken','channelId'].forEach(k=>{
+['accessToken','roomToken','channelId','autoJoinTag'].forEach(k=>{
   document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
 });
+
 async function connect(){
   const a=document.getElementById('accessToken').value.trim();
   const r=document.getElementById('roomToken').value.trim();
@@ -101,10 +124,33 @@ async function connect(){
     else showToast('연결 실패: '+(d.error||''));
   }catch(e){showToast('서버 오류: '+e.message);}
 }
+
 async function disconnect(){
   try{await fetch(SERVER+'/disconnect',{method:'POST'});setStatus(false);showToast('연결 해제됨');}
   catch(e){showToast('오류: '+e.message);}
 }
+
+async function startAutoJoin(){
+  const tag=document.getElementById('autoJoinTag').value.trim();
+  const accessToken=document.getElementById('accessToken').value.trim();
+  if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  if(!accessToken)return showToast('Access Token을 먼저 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag,accessToken})});
+    const d=await res.json();
+    showToast(d.msg||'감시 시작');
+    await saveSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function stopAutoJoin(){
+  try{
+    await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:''})});
+    document.getElementById('autoJoinStatus').textContent='자동입장 꺼짐';
+    showToast('감시 중지됨');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function sendChat(){
   const input=document.getElementById('chatInput');
   const msg=input.value.trim();if(!msg)return;input.value='';
@@ -113,6 +159,7 @@ async function sendChat(){
     addLog('봇',msg,'bot');
   }catch(e){showToast('전송 실패');}
 }
+
 async function saveSettings(){
   const j=document.getElementById('joinMessages').value;
   const l=document.getElementById('likeMessages').value;
@@ -124,23 +171,28 @@ async function saveSettings(){
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
+
 async function checkStatus(){
   try{const res=await fetch(SERVER+'/status');const d=await res.json();setStatus(d.isConnected);}catch{}
 }
+
 function setStatus(on){
   document.getElementById('statusDot').className='dot '+(on?'on':'off');
   document.getElementById('statusText').textContent=on?'온라인':'오프라인';
 }
+
 function addLog(nick,text,type='user'){
   const log=document.getElementById('chatLog');
   const line=document.createElement('div');line.className='log-line';
   line.innerHTML='<span class="nick '+type+'">'+nick+'</span> '+text;
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
+
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
 }
+
 function startSSE(){
   const es=new EventSource(SERVER+'/events');
   es.onmessage=(e)=>{
@@ -149,8 +201,21 @@ function startSSE(){
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
     else if(d.type==='status')setStatus(d.isConnected);
+    else if(d.type==='autojoin')updateAutoJoinStatus(d);
   };
   es.onerror=()=>setTimeout(startSSE,3000);
+}
+
+function updateAutoJoinStatus(d){
+  const el=document.getElementById('autoJoinStatus');
+  if(!el)return;
+  if(d.status==='off')el.textContent='자동입장 꺼짐';
+  else if(d.status==='watching')el.textContent='⏳ @'+d.tag+' 감시 중...';
+  else if(d.status==='live')el.textContent='🔴 @'+d.tag+' 방송 중 감지!';
+  else if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
+  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 자동 입장 완료!';showToast('자동입장 성공! 🎉');}
+  else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 방송 종료 — 재방송 대기 중...';
+  else if(d.status==='error')el.textContent='❌ '+d.msg;
 }
 </script>
 </body>
