@@ -11,7 +11,6 @@ app.use(express.json({ limit: '5mb' }))
 app.use(require('express').static(__dirname + '/public'))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
-const KEEPALIVE_DJ_ID = 'hyc85' // 이 계정은 순수 시청(자리유지)만 하고 봇 명령어에 절대 반응하지 않는다
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -399,7 +398,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
 
       const settings = store.getSettings(djId) || {}
-      const isLurker = djId === KEEPALIVE_DJ_ID
+      const isLurker = settings.botEnabled === false
 
       if (eventName === 'ChatMessage') {
         const gen = eventPayload.generator || {}
@@ -543,11 +542,13 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 관리자(sum) 전용 — 등록해둔 DJ가 방송을 켜면 자동으로 입장한다. (다른 디제이는 해당 없음)
+// 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
 async function checkAdminAutoJoin() {
   const djId = 'sum'
   const settings = store.getSettings(djId)
-  if (!settings || !settings.autoJoinWatch || !settings.autoJoinTag) return
+  if (!settings || !settings.autoJoinWatch) return
+  const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
+  if (!tagList.length) return
   if (!tokenManager.getAccessToken()) return
 
   const room = getRoom(djId)
@@ -555,28 +556,24 @@ async function checkAdminAutoJoin() {
   room.checking = true
 
   try {
-    const status = await fetchUserStatusByTag(settings.autoJoinTag)
-    if (!status) return
-
-    if (!status.is_live || !status.current_live_id) {
-      if (room.autoJoinedFor) {
-        broadcast({ type: 'autojoin', djId, status: 'offline', tag: settings.autoJoinTag })
-        room.autoJoinedFor = ''
-        if (room.ws) { room.ws.terminate(); room.ws = null; room.isConnected = false }
-        broadcast({ type: 'status', djId, isConnected: false })
-      }
+    // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지만 확인하고 유지
+    if (room.isConnected && room.autoJoinedFor) {
+      room.checking = false
       return
     }
 
-    const liveId = String(status.current_live_id)
-    broadcast({ type: 'autojoin', djId, status: 'live', tag: settings.autoJoinTag, liveId })
-    if (liveId === room.autoJoinedFor) return
-
-    broadcast({ type: 'autojoin', djId, status: 'joining', tag: settings.autoJoinTag, liveId })
-    const roomToken = await tokenManager.fetchRoomToken(liveId)
-    room.autoJoinedFor = liveId
-    await connectSpoonForDj(djId, liveId, roomToken || '')
-    broadcast({ type: 'autojoin', djId, status: 'joined', tag: settings.autoJoinTag, liveId })
+    for (const tag of tagList) {
+      const status = await fetchUserStatusByTag(tag)
+      if (status && status.is_live && status.current_live_id) {
+        const liveId = String(status.current_live_id)
+        broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
+        const roomToken = await tokenManager.fetchRoomToken(liveId)
+        room.autoJoinedFor = liveId
+        await connectSpoonForDj(djId, liveId, roomToken || '')
+        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
+        break
+      }
+    }
   } catch (e) {
     console.log('[관리자 자동입장 오류]', e.message)
   } finally {
@@ -586,68 +583,28 @@ async function checkAdminAutoJoin() {
 
 setInterval(checkAdminAutoJoin, 15000)
 
-// hyc85 전용 — 등록해둔 여러 고유닉(최대 다수) 중 하나라도 방송 중이면
-// 그 방에 순수 시청자로 입장해 세션이 오래 유지되게 한다. (봇 명령어는 절대 응답하지 않음)
-async function checkKeepaliveWatch() {
-  const djId = KEEPALIVE_DJ_ID
-  const settings = store.getSettings(djId)
-  if (!settings || !settings.keepaliveWatch || !settings.keepaliveTags || !settings.keepaliveTags.length) return
-  if (!tokenManager.getAccessToken()) return
-
-  const room = getRoom(djId)
-  if (room.checking) return
-  if (room.isConnected) return // 이미 어딘가 들어가 있으면 그대로 유지 (방송 끝나면 close 이벤트로 자동 해제됨)
-  room.checking = true
-
-  try {
-    for (const tag of settings.keepaliveTags) {
-      const status = await fetchUserStatusByTag(tag)
-      if (status && status.is_live && status.current_live_id) {
-        const liveId = String(status.current_live_id)
-        const roomToken = await tokenManager.fetchRoomToken(liveId)
-        room.autoJoinedFor = liveId
-        await connectSpoonForDj(djId, liveId, roomToken || '')
-        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
-        console.log(`[${djId}] 자리유지용 입장: @${tag} (liveId: ${liveId})`)
-        break
-      }
-    }
-  } catch (e) {
-    console.log('[자리유지 감시 오류]', e.message)
-  } finally {
-    room.checking = false
-  }
-}
-
-setInterval(checkKeepaliveWatch, 60000)
-
-// hyc85 전용 — 다중 감시 목록 및 on/off
-app.post('/keepalive/watch', auth.requireAuth, (req, res) => {
-  if (req.djId !== KEEPALIVE_DJ_ID) return res.status(403).json({ success: false, error: '이 기능은 hyc85 계정만 사용할 수 있어요' })
-  const { enabled, tags } = req.body || {}
-  const patch = {}
-  if (Array.isArray(tags)) patch.keepaliveTags = tags.map(t => String(t).replace('@', '').trim()).filter(Boolean)
-  if (typeof enabled === 'boolean') patch.keepaliveWatch = enabled
-  store.saveSettings(KEEPALIVE_DJ_ID, patch)
-  res.json({ success: true, msg: enabled ? '자리유지 감시 시작' : '자리유지 감시 중지' })
+// 관리자 전용 — 봇 응답 전체 on/off (꺼두면 어떤 명령어에도 반응하지 않는 순수 시청 모드)
+app.post('/bot/toggle', auth.requireAuth, (req, res) => {
+  const { enabled } = req.body || {}
+  store.saveSettings(req.djId, { botEnabled: !!enabled })
+  res.json({ success: true, msg: enabled ? '봇 기능 켜짐' : '봇 기능 꺼짐 (순수 시청 모드)' })
 })
 
 // 관리자 전용 — 등록 방송키(고유닉) 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
-  const { enabled, tag } = req.body || {}
-  const current = store.getSettings('sum') || {}
-  const cleanTag = tag ? String(tag).replace('@', '').trim() : (current.autoJoinTag || '')
+  const { enabled, tags } = req.body || {}
+  const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
 
-  if (enabled && !cleanTag) return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
+  if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
 
-  store.saveSettings('sum', { autoJoinTag: cleanTag, autoJoinWatch: !!enabled })
+  store.saveSettings('sum', { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
   if (!enabled) {
     const room = getRoom('sum')
     room.autoJoinedFor = ''
   }
-  broadcast({ type: 'autojoin', djId: 'sum', status: enabled ? 'watching' : 'off', tag: cleanTag })
-  res.json({ success: true, msg: enabled ? `@${cleanTag} 감시 시작` : '감시 중지됨' })
+  broadcast({ type: 'autojoin', djId: 'sum', status: enabled ? 'watching' : 'off', tags: cleanTags })
+  res.json({ success: true, msg: enabled ? `${cleanTags.length}개 고유닉 감시 시작` : '감시 중지됨' })
 })
 
 app.post('/autojoin', auth.requireAuth, async (req, res) => {
