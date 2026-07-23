@@ -63,6 +63,8 @@ function defaultSettings() {
       items: [], // { id, title, goal, current, mode: 'manual'|'auto', useCycle, template }
     },
     commands: [], // { id, trigger, response, scope: 'all'|'manager'|'dj', cooldown, useCount }
+    keepaliveTags: [], // hyc85 전용: 다중 감시할 고유닉 목록
+    keepaliveWatch: false, // hyc85 전용: 자리유지 감시 on/off
   };
 }
 

@@ -11,6 +11,7 @@ app.use(express.json({ limit: '5mb' }))
 app.use(require('express').static(__dirname + '/public'))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
+const KEEPALIVE_DJ_ID = 'hyc85' // 이 계정은 순수 시청(자리유지)만 하고 봇 명령어에 절대 반응하지 않는다
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -398,6 +399,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
 
       const settings = store.getSettings(djId) || {}
+      const isLurker = djId === KEEPALIVE_DJ_ID
 
       if (eventName === 'ChatMessage') {
         const gen = eventPayload.generator || {}
@@ -405,17 +407,19 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id) : null
         const text = eventPayload.message || ''
         broadcast({ type: 'chat', djId, nick: author, text })
-        handleShieldCommand(djId, room, settings, author, authorId, text)
-        handleFlagCommand(djId, room, settings, author, authorId, text)
-        handleFundingCommand(djId, room, settings, author, authorId, text)
-        handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
+        if (!isLurker) {
+          handleShieldCommand(djId, room, settings, author, authorId, text)
+          handleFlagCommand(djId, room, settings, author, authorId, text)
+          handleFundingCommand(djId, room, settings, author, authorId, text)
+          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
+        }
 
       } else if (eventName === 'RoomJoin') {
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'join', djId, nick: author })
-        const msgs = (settings.joinMessages || []).filter(m => m.enabled)
+        const msgs = isLurker ? [] : (settings.joinMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
@@ -427,7 +431,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = eventPayload.nickname || gen.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
-        const msgs = (settings.likeMessages || []).filter(m => m.enabled)
+        const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
@@ -438,7 +442,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
         const amount = Number(eventPayload.amount) || 0
         broadcast({ type: 'donation', djId, nick: author, amount })
-        handleFlagAutoDonation(djId, settings, amount)
+        if (!isLurker) handleFlagAutoDonation(djId, settings, amount)
       }
     } catch (e) {
       console.log(`[${djId}] WS 파싱 오류`, e.message)
@@ -523,7 +527,7 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, keepaliveTags, keepaliveWatch } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -533,6 +537,8 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (shield) patch.shield = shield
   if (flags) patch.flags = flags
   if (commands) patch.commands = commands
+  if (keepaliveTags) patch.keepaliveTags = keepaliveTags
+  if (typeof keepaliveWatch === 'boolean') patch.keepaliveWatch = keepaliveWatch
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
@@ -579,6 +585,52 @@ async function checkAdminAutoJoin() {
 }
 
 setInterval(checkAdminAutoJoin, 15000)
+
+// hyc85 전용 — 등록해둔 여러 고유닉(최대 다수) 중 하나라도 방송 중이면
+// 그 방에 순수 시청자로 입장해 세션이 오래 유지되게 한다. (봇 명령어는 절대 응답하지 않음)
+async function checkKeepaliveWatch() {
+  const djId = KEEPALIVE_DJ_ID
+  const settings = store.getSettings(djId)
+  if (!settings || !settings.keepaliveWatch || !settings.keepaliveTags || !settings.keepaliveTags.length) return
+  if (!tokenManager.getAccessToken()) return
+
+  const room = getRoom(djId)
+  if (room.checking) return
+  if (room.isConnected) return // 이미 어딘가 들어가 있으면 그대로 유지 (방송 끝나면 close 이벤트로 자동 해제됨)
+  room.checking = true
+
+  try {
+    for (const tag of settings.keepaliveTags) {
+      const status = await fetchUserStatusByTag(tag)
+      if (status && status.is_live && status.current_live_id) {
+        const liveId = String(status.current_live_id)
+        const roomToken = await tokenManager.fetchRoomToken(liveId)
+        room.autoJoinedFor = liveId
+        await connectSpoonForDj(djId, liveId, roomToken || '')
+        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
+        console.log(`[${djId}] 자리유지용 입장: @${tag} (liveId: ${liveId})`)
+        break
+      }
+    }
+  } catch (e) {
+    console.log('[자리유지 감시 오류]', e.message)
+  } finally {
+    room.checking = false
+  }
+}
+
+setInterval(checkKeepaliveWatch, 60000)
+
+// hyc85 전용 — 다중 감시 목록 및 on/off
+app.post('/keepalive/watch', auth.requireAuth, (req, res) => {
+  if (req.djId !== KEEPALIVE_DJ_ID) return res.status(403).json({ success: false, error: '이 기능은 hyc85 계정만 사용할 수 있어요' })
+  const { enabled, tags } = req.body || {}
+  const patch = {}
+  if (Array.isArray(tags)) patch.keepaliveTags = tags.map(t => String(t).replace('@', '').trim()).filter(Boolean)
+  if (typeof enabled === 'boolean') patch.keepaliveWatch = enabled
+  store.saveSettings(KEEPALIVE_DJ_ID, patch)
+  res.json({ success: true, msg: enabled ? '자리유지 감시 시작' : '자리유지 감시 중지' })
+})
 
 // 관리자 전용 — 등록 방송키(고유닉) 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {

@@ -273,6 +273,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="keepalive"><span class="ic">📡</span><span class="lbl">자리유지 감시</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
 
     <div class="nav-group-label">방송 도구</div>
@@ -328,6 +329,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 자리유지 감시 (hyc85 전용) -->
+      <div class="panel" data-panel="keepalive">
+        <div class="card">
+          <div class="card-title">📡 다중 감시 목록</div>
+          <p class="hint" style="margin-bottom:12px">등록한 고유닉 중 아무나 방송을 켜면 그 방에 순수 시청자로 자동 입장해서 세션을 계속 살아있게 유지해요. 봇 명령어(!실드 등)에는 절대 반응하지 않아요.</p>
+          <label>감시할 고유닉 목록 (한 줄에 하나씩, 30개 이상 가능)</label>
+          <textarea id="keepaliveTags" style="height:160px" placeholder="tag1&#10;tag2&#10;tag3&#10;..."></textarea>
+          <div class="btn-row">
+          <button class="btn-green" onclick="startKeepaliveWatch()">👁 감시 시작</button>
+          <button class="btn-gray" onclick="stopKeepaliveWatch()">✋ 감시 중지</button>
+          </div>
+          <div class="autojoin-status" id="keepaliveStatus">감시 꺼짐</div>
         </div>
       </div>
 
@@ -661,6 +677,7 @@ function logout(){
 }
 
 const ADMIN_DJ_ID='sum';
+const KEEPALIVE_DJ_ID='hyc85';
 
 function enterApp(){
   document.getElementById('authScreen').style.display='none';
@@ -668,6 +685,7 @@ function enterApp(){
   document.getElementById('djIdLabel').textContent=djId;
 
   const isAdmin = djId===ADMIN_DJ_ID;
+  const isKeepalive = djId===KEEPALIVE_DJ_ID;
   const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
   const sessionPanel=document.querySelector('.panel[data-panel="session"]');
   if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
@@ -678,10 +696,14 @@ function enterApp(){
   const autojoinPanel=document.querySelector('.panel[data-panel="autojoin"]');
   if(autojoinNav) autojoinNav.style.display = isAdmin ? '' : 'none';
   if(autojoinPanel) autojoinPanel.style.display = isAdmin ? '' : 'none';
+  const keepaliveNav=document.querySelector('.nav-item[data-panel="keepalive"]');
+  const keepalivePanel=document.querySelector('.panel[data-panel="keepalive"]');
+  if(keepaliveNav) keepaliveNav.style.display = isKeepalive ? '' : 'none';
+  if(keepalivePanel) keepalivePanel.style.display = isKeepalive ? '' : 'none';
   if(isAdmin) loadUserList();
 
   initApp();
-  selectPanel(isAdmin ? 'session' : 'entrysettings');
+  selectPanel(isAdmin ? 'session' : (isKeepalive ? 'keepalive' : 'entrysettings'));
 }
 
 async function tryAutoLogin(){
@@ -702,6 +724,7 @@ const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','DJ 고유닉을 넣고 방송 중일 때 바로 입장합니다'],
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
+  keepalive:['📡 자리유지 감시','등록한 여러 고유닉 중 방송 중인 곳에 자동으로 자리합니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -1196,6 +1219,13 @@ async function loadDjSettings(){
       const watchEl=document.getElementById('watchStatus');
       if(watchEl) watchEl.textContent = s.autoJoinWatch ? ('⏳ @'+s.autoJoinTag+' 감시 중...') : '감시 꺼짐';
 
+      const keepaliveTagsEl=document.getElementById('keepaliveTags');
+      if(keepaliveTagsEl){
+        keepaliveTagsEl.value=(s.keepaliveTags||[]).join('\n');
+        const kEl=document.getElementById('keepaliveStatus');
+        if(kEl) kEl.textContent = s.keepaliveWatch ? ('⏳ '+(s.keepaliveTags||[]).length+'개 고유닉 감시 중...') : '감시 꺼짐';
+      }
+
       if(s.entryData && (s.entryData.entry?.length || s.entryData.like?.length || s.entryData.leave?.length || s.entryData.gift?.length || s.entryData.repeat?.length)){
         Object.assign(entryData, s.entryData);
       } else {
@@ -1423,6 +1453,27 @@ async function stopWatch(){
   try{
     await fetch(SERVER+'/autojoin/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:false})});
     document.getElementById('watchStatus').textContent='감시 꺼짐';
+    showToast('감시 중지됨');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 자리유지 감시 (hyc85 전용) ── */
+async function startKeepaliveWatch(){
+  const raw=document.getElementById('keepaliveTags').value;
+  const tags=raw.split('\n').map(t=>t.trim()).filter(Boolean);
+  if(!tags.length)return showToast('감시할 고유닉을 한 줄에 하나씩 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/keepalive/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:true,tags})});
+    const d=await res.json();
+    showToast(d.msg||d.error||'감시 시작');
+    if(d.success) document.getElementById('keepaliveStatus').textContent='⏳ '+tags.length+'개 고유닉 감시 중...';
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function stopKeepaliveWatch(){
+  try{
+    await fetch(SERVER+'/keepalive/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:false})});
+    document.getElementById('keepaliveStatus').textContent='감시 꺼짐';
     showToast('감시 중지됨');
   }catch(e){showToast('오류: '+e.message);}
 }
