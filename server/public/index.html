@@ -305,6 +305,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-green" onclick="startAutoJoin()">👁 감시 시작</button>
           <button class="btn-gray" onclick="stopAutoJoin()">✋ 감시 중지</button>
           </div>
+          <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">🚪 현재 방 나가기</button>
           <div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
         </div>
       </div>
@@ -973,6 +974,14 @@ async function stopAutoJoin(){
     await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag:''})});
     document.getElementById('autoJoinStatus').textContent='자동입장 꺼짐';
     showToast('감시 중지됨');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function leaveCurrentRoom(){
+  try{
+    const res=await fetch(SERVER+'/room/leave',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    showToast(d.msg||'방에서 나갔어요');
   }catch(e){showToast('오류: '+e.message);}
 }
 

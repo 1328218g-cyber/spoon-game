@@ -280,6 +280,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       if (msg.command !== 'MESSAGE') return
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
+      console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
 
       const settings = store.getSettings(djId) || {}
 
@@ -468,6 +469,17 @@ app.post('/autojoin', auth.requireAuth, (req, res) => {
   store.saveSettings(djId, { autoJoinTag: String(tag).replace('@', '').trim() })
   broadcast({ type: 'autojoin', djId, status: 'watching', tag })
   res.json({ success: true, msg: `@${tag} 감시 시작` })
+})
+
+// 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
+// (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
+app.post('/room/leave', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const room = getRoom(djId)
+  if (room.ws) { room.ws.terminate(); room.ws = null }
+  room.isConnected = false
+  broadcast({ type: 'status', djId, isConnected: false })
+  res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
 
 app.get('/status', auth.requireAuth, (req, res) => {
