@@ -40,7 +40,7 @@ async function sendChat(message) {
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
     const data = await res.json()
-    console.log('채팅 전송:', message, '응답:', res.status)
+    console.log('채팅 전송:', message, '응답:', res.status, 'body:', JSON.stringify(data))
     return data
   } catch(e) {
     console.log('채팅 전송 오류:', e.message)
@@ -58,10 +58,12 @@ function connectSpoon(s) {
     console.log('스푼 연결됨!')
     isConnected = true
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
+      const payload = {
         command: 'ACTIVATE_CHANNEL',
         payload: { channelId: s.channelId.trim(), liveToken: s.roomToken }
-      }))
+      }
+      console.log('ACTIVATE 전송 channelId:', s.channelId.trim(), 'liveToken 앞20자:', s.roomToken?.substring(0, 20))
+      ws.send(JSON.stringify(payload))
     }
     broadcast({ type: 'status', isConnected: true })
   })
@@ -69,6 +71,7 @@ function connectSpoon(s) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
+      console.log('[WS 수신] command:', msg.command)
       if (msg.command !== 'MESSAGE') return
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
@@ -104,8 +107,8 @@ function connectSpoon(s) {
     } catch(e) {}
   })
 
-  ws.on('close', () => {
-    console.log('스푼 연결 종료')
+  ws.on('close', (code, reason) => {
+    console.log('스푼 연결 종료 code:', code, 'reason:', reason?.toString())
     isConnected = false
     spoonWs = null
     broadcast({ type: 'status', isConnected: false })
