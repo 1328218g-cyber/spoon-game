@@ -313,6 +313,47 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
   setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
 }
 
+// 단축키 명령어 쿨타임 추적용 (메모리에만 유지, 재시작하면 초기화됨 — 큰 문제 없음)
+const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
+
+// 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
+async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text) {
+  const commands = settings.commands
+  if (!commands || !commands.length) return
+
+  const msg = String(text || '').trim()
+  const cmd = commands.find(c => c.trigger === msg)
+  if (!cmd) return
+
+  // 권한 체크
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (cmd.scope === 'dj' && !isDj) return
+  if (cmd.scope === 'manager' && !isDj) return // 매니저 목록 연동 전까지는 DJ만 허용
+
+  // 쿨타임 체크
+  const cooldownMs = (Number(cmd.cooldown) || 0) * 1000
+  if (cooldownMs > 0) {
+    const key = `${djId}:${cmd.trigger}`
+    const last = commandCooldowns.get(key) || 0
+    if (Date.now() - last < cooldownMs) return
+    commandCooldowns.set(key, Date.now())
+  }
+
+  cmd.useCount = (cmd.useCount || 0) + 1
+  store.saveSettings(djId, { commands })
+
+  let response = cmd.response || ''
+  response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
+  if (response.includes('{tag}')) {
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
+  }
+  // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
+  response = response.replace(/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/g, '')
+
+  setTimeout(() => sendChatToRoom(djId, response), 400)
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -367,6 +408,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleShieldCommand(djId, room, settings, author, authorId, text)
         handleFlagCommand(djId, room, settings, author, authorId, text)
         handleFundingCommand(djId, room, settings, author, authorId, text)
+        handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
 
       } else if (eventName === 'RoomJoin') {
         const gen = eventPayload.generator || {}
@@ -481,7 +523,7 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -490,6 +532,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (funding) patch.funding = funding
   if (shield) patch.shield = shield
   if (flags) patch.flags = flags
+  if (commands) patch.commands = commands
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })

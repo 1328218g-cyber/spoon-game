@@ -201,6 +201,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .user-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;background:var(--muted)}
 .user-dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 
+/* ── 단축키 명령어 ── */
+.cmd-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px}
+.cmd-trigger-badge{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px;white-space:nowrap;flex-shrink:0}
+.cmd-card-body{flex:1;min-width:0}
+.cmd-card-meta{font-size:12.5px;color:var(--muted);margin-bottom:3px}
+.cmd-card-meta .scope-badge{display:inline-block;background:var(--surface2);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--accent);margin-left:6px}
+.cmd-card-preview{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd-card-actions{flex-shrink:0;display:flex;gap:6px}
+.cmd-card-actions button{padding:7px 12px;font-size:12px}
+
 /* ── 로그인 / 회원가입 화면 ── */
 #authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
 .auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
@@ -269,8 +279,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="chatlog"><span class="ic">📋</span><span class="lbl">채팅 로그</span><span class="nav-badge off">OFF</span></div>
-    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
     <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
@@ -445,8 +454,43 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
-      <div class="panel" data-panel="chatlog"><div class="coming-soon"><div class="ic">📋</div><h3>채팅 로그</h3><p>지난 방송 채팅 기록을 저장하고<br>다시 볼 수 있는 기능은 준비 중이에요.</p></div></div>
-      <div class="panel" data-panel="shortcuts"><div class="coming-soon"><div class="ic">⌨️</div><h3>단축키 명령어</h3><p>자주 쓰는 멘트를 단축키로 등록하는<br>기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="shortcuts">
+        <div class="card">
+          <div class="card-title"><span>⌨️ 단축키 명령어</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showCmdForm()">+ 추가</button></div>
+          <p class="hint">단축 명령어를 등록하면 채팅창에서 등록한 단어로 빠른 메시지를 출력할 수 있습니다.</p>
+        </div>
+        <div id="cmdListWrap"></div>
+
+        <div class="card" id="cmdFormCard" style="display:none">
+          <div class="card-title" id="cmdFormTitle">새 단축키 명령어</div>
+          <label>명령어 (예: !방가)</label>
+          <input type="text" id="cmdTrigger" placeholder="!방가">
+          <label>출력할 메시지 (내용이 길면 자동으로 나누어 전송됩니다)</label>
+          <textarea id="cmdResponse" placeholder="반가워요! 어서오세요~"></textarea>
+          <div class="chip-row" style="margin-top:10px">
+            <span class="chip" onclick="insertCmdVar('{nickname}')">{nickname}</span>
+            <span class="chip" onclick="insertCmdVar('{tag}')">{tag}</span>
+            <span class="chip" onclick="insertCmdVar('{count}')">{count}</span>
+            <span class="chip" onclick="insertCmdVar('{host_nickname}')" title="준비 중">{host_nickname}</span>
+            <span class="chip" onclick="insertCmdVar('{host_tag}')" title="준비 중">{host_tag}</span>
+            <span class="chip" onclick="insertCmdVar('{rank}')" title="준비 중">{rank}</span>
+          </div>
+          <p class="hint" style="margin-top:10px">{nickname}/{tag}: 명령어를 친 시청자 정보 · {count}: 이 명령어 사용 횟수<br>{host_nickname}/{host_tag}/{rank} 등 랭킹 변수는 아직 준비 중이라 빈 값으로 출력돼요.</p>
+
+          <label>사용 권한</label>
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="all" checked> 전체</label>
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="manager"> 매니저 (매니저+DJ)</label>
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="dj"> 디제이 (DJ 전용)</label>
+          </div>
+          <label>쿨타임 (초, 0은 없음)</label>
+          <input type="number" id="cmdCooldown" value="0" min="0" style="max-width:140px">
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideCmdForm()">취소</button>
+            <button class="btn-connect" onclick="saveCmdForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="flag">
         <div class="card">
@@ -661,8 +705,7 @@ const PANEL_META={
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
-  chatlog:['📋 채팅 로그','준비 중인 기능입니다'],
-  shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
+  shortcuts:['⌨️ 단축키 명령어','채팅창 단어에 반응하는 명령어를 관리합니다'],
   greet:['🙋 지정 인사','준비 중인 기능입니다'],
   flag:['🚩 단비 깃발','목표 깃발을 만들고 진행률을 관리합니다'],
   shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
@@ -1132,6 +1175,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(document.getElementById('shieldNumber')) renderShield();
   if(document.getElementById('flagListWrap')) renderFlags();
   if(document.getElementById('fundingListWrap')) renderFunding();
+  if(document.getElementById('cmdListWrap')) renderCmdList();
 });
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
@@ -1174,9 +1218,15 @@ async function loadDjSettings(){
         const nums=fundingData.items.map(f=>parseInt(String(f.id).replace('fd',''),10)).filter(n=>!Number.isNaN(n));
         if(nums.length) fundingIdSeq=Math.max(...nums)+1;
       }
+      if(s.commands){
+        cmdData=s.commands;
+        const nums=cmdData.map(c=>parseInt(String(c.id).replace('cmd',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) cmdIdSeq=Math.max(...nums)+1;
+      }
       renderShield();
       renderFlags();
       renderFunding();
+      renderCmdList();
       renderEntryList();
     }
   }catch(e){}
@@ -1250,6 +1300,91 @@ async function toggleBlockUser(djIdTarget,blocked){
     if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 단축키 명령어 ── */
+let cmdData=[];
+let cmdIdSeq=1;
+let cmdEditingId=null;
+const CMD_SCOPE_LABEL={all:'전체',manager:'매니저',dj:'디제이'};
+
+function renderCmdList(){
+  const wrap=document.getElementById('cmdListWrap');
+  if(!cmdData.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 단축키 명령어가 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=cmdData.map(c=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">${escapeHtml(c.trigger)}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span></div>
+        <div class="cmd-card-preview">출력 내용: ${escapeHtml(c.response)}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showCmdForm('${c.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteCmd('${c.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showCmdForm(id){
+  cmdEditingId=id||null;
+  const c=id?cmdData.find(x=>x.id===id):null;
+  document.getElementById('cmdFormTitle').textContent=id?'단축키 명령어 수정':'새 단축키 명령어';
+  document.getElementById('cmdTrigger').value=c?c.trigger:'';
+  document.getElementById('cmdResponse').value=c?c.response:'';
+  document.getElementById('cmdCooldown').value=c?(c.cooldown||0):0;
+  document.querySelectorAll('input[name="cmdScope"]').forEach(r=>r.checked=(r.value===(c?c.scope:'all')));
+  document.getElementById('cmdFormCard').style.display='block';
+}
+
+function hideCmdForm(){
+  document.getElementById('cmdFormCard').style.display='none';
+  cmdEditingId=null;
+}
+
+function insertCmdVar(token){
+  const ta=document.getElementById('cmdResponse');
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+}
+
+function saveCmdForm(){
+  let trigger=document.getElementById('cmdTrigger').value.trim();
+  const response=document.getElementById('cmdResponse').value;
+  const cooldown=Number(document.getElementById('cmdCooldown').value)||0;
+  const scope=document.querySelector('input[name="cmdScope"]:checked').value;
+  if(!trigger)return showToast('명령어를 입력해주세요');
+  if(!trigger.startsWith('!'))trigger='!'+trigger;
+  if(!response.trim())return showToast('출력할 메시지를 입력해주세요');
+
+  if(cmdEditingId){
+    const c=cmdData.find(x=>x.id===cmdEditingId);
+    Object.assign(c,{trigger,response,cooldown,scope});
+  } else {
+    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,useCount:0});
+  }
+  hideCmdForm();
+  renderCmdList();
+  saveCmdGlobal();
+}
+
+function deleteCmd(id){
+  cmdData=cmdData.filter(c=>c.id!==id);
+  renderCmdList();
+  saveCmdGlobal();
+}
+
+async function saveCmdGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({commands:cmdData})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
 }
 
 async function startAutoJoin(){

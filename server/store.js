@@ -62,6 +62,7 @@ function defaultSettings() {
       cmd: '!깃발',
       items: [], // { id, title, goal, current, mode: 'manual'|'auto', useCycle, template }
     },
+    commands: [], // { id, trigger, response, scope: 'all'|'manager'|'dj', cooldown, useCount }
   };
 }
 
