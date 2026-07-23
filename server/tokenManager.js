@@ -144,12 +144,38 @@ async function fetchRoomToken(liveId) {
     const page = await newAuthenticatedPage(browser);
     await page.setRequestInterception(true);
 
+    // 진단용: 페이지가 여는 WebSocket 연결/프레임도 확인 (최신 프론트가 HTTP 헤더 대신
+    // 웹소켓 메시지로 room token을 주고받을 가능성 확인용)
+    try {
+      const client = await page.target().createCDPSession();
+      await client.send('Network.enable');
+      client.on('Network.webSocketCreated', ({ url }) => {
+        console.log('[tokenManager][diag] WS 생성:', String(url).slice(0, 150));
+      });
+      client.on('Network.webSocketFrameSent', ({ response }) => {
+        const data = response?.payloadData || '';
+        if (data) console.log('[tokenManager][diag] WS 전송:', data.slice(0, 300));
+      });
+      client.on('Network.webSocketFrameReceived', ({ response }) => {
+        const data = response?.payloadData || '';
+        if (data) console.log('[tokenManager][diag] WS 수신:', data.slice(0, 300));
+      });
+    } catch (e) {
+      console.log('[tokenManager][diag] WS 진단 설정 실패:', e.message);
+    }
+
     let captured = '';
     page.on('request', (req) => {
       const headers = req.headers();
       const live = headers['x-live-authorization'] || '';
       if (live.startsWith('Bearer ') && live.length > 30) {
         captured = live.slice(7);
+        console.log(`[tokenManager][diag] x-live-authorization 발견! URL: ${req.url().slice(0, 150)}`);
+      }
+      // 진단용: 인증 관련 헤더가 붙은 모든 요청의 URL을 남긴다 (어느 요청이 토큰을 실어보내는지 특정하기 위함)
+      const authKeys = Object.keys(headers).filter(k => /auth/i.test(k));
+      if (authKeys.length) {
+        console.log(`[tokenManager][diag] auth 헤더 요청: ${req.method()} ${req.url().slice(0, 120)} | headers: ${authKeys.join(',')}`);
       }
       req.continue();
     });
