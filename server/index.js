@@ -18,7 +18,6 @@ let likeMsgs = []
 let commands = []
 let isConnected = false
 let sseClients = []
-let lastLikeCount = 0
 
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'
@@ -72,7 +71,6 @@ async function sendChat(message) {
 
 async function connectSpoon(s) {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
-  lastLikeCount = 0
 
   const streamName = await fetchStreamName(s.channelId, s.accessToken)
   s.streamName = streamName
@@ -127,21 +125,6 @@ async function connectSpoon(s) {
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
           setTimeout(() => sendChat(text), 500)
-        }
-
-      } else if (eventName === 'LiveMetaUpdate') {
-        const newLikeCount = eventPayload.like_count || eventPayload.likeCount || 0
-        if (newLikeCount > lastLikeCount) {
-          console.log(`[좋아요 감지] ${lastLikeCount} → ${newLikeCount}`)
-          lastLikeCount = newLikeCount
-          broadcast({ type: 'like', nick: '' })
-          const msgs = likeMsgs.filter(m => m.enabled)
-          if (msgs.length > 0) {
-            const text = msgs[0].text.replace(/{nickname}/g, '')
-            setTimeout(() => sendChat(text), 500)
-          }
-        } else {
-          lastLikeCount = newLikeCount
         }
       }
     } catch(e) {
