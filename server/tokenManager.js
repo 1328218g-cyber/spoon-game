@@ -66,33 +66,30 @@ async function refreshAccessToken() {
     const page = await browser.newPage();
     await page.setUserAgent(CHROME_UA);
     await page.setCookie(...sessionCookies);
-    await page.setRequestInterception(true);
 
-    let captured = '';
-    page.on('request', (req) => {
-      const headers = req.headers();
-      const auth = headers['authorization'] || '';
-      if (auth.startsWith('Bearer ') && auth.length > 30) {
-        captured = auth.slice(7);
-      }
-      req.continue();
-    });
+    // 요청 헤더를 가로채는 대신, 방문 후 브라우저에 저장된 쿠키를 직접 읽는다.
+    // 스푼은 accessToken 자체를 spoon_at_kr 쿠키 값으로 사용하므로
+    // 이 쿠키만 읽으면 API 호출 발생 여부와 상관없이 안정적으로 토큰을 얻을 수 있다.
+    await page.goto('https://www.spooncast.net', { waitUntil: 'networkidle2', timeout: 30000 });
+    // 사이트 자체 로직이 토큰을 조용히 재발급하는 경우를 대비해 약간 대기
+    await new Promise((r) => setTimeout(r, 2000));
 
-    await page.goto('https://www.spooncast.net/my', { waitUntil: 'networkidle2', timeout: 30000 });
-    // 일부 API 호출이 약간 늦게 발생하는 경우를 대비해 잠깐 대기
-    await new Promise((r) => setTimeout(r, 3000));
-
+    const freshCookies = await page.cookies();
     await browser.close();
     browser = null;
 
-    if (captured) {
-      currentAccessToken = captured;
+    const atCookie = freshCookies.find(c => c.name === 'spoon_at_kr');
+
+    if (atCookie && atCookie.value) {
+      currentAccessToken = atCookie.value;
+      // 다음 갱신을 위해 쿠키 저장소도 최신 상태로 교체 (다른 쿠키들도 회전될 수 있음)
+      sessionCookies = sanitizeCookies(freshCookies);
       console.log('[tokenManager] ✅ accessToken 갱신 성공');
       if (onTokenUpdate) onTokenUpdate(currentAccessToken);
       return currentAccessToken;
     }
 
-    console.log('[tokenManager] ⚠️ 토큰을 찾지 못했습니다. 세션이 만료됐을 수 있습니다. (PC에서 재로그인 필요)');
+    console.log('[tokenManager] ⚠️ spoon_at_kr 쿠키를 찾지 못했습니다. 세션이 만료됐을 수 있습니다. (PC에서 재로그인 필요)');
     if (onSessionExpired) onSessionExpired();
     return null;
   } catch (e) {
