@@ -308,15 +308,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 자동입장 -->
       <div class="panel" data-panel="autojoin">
         <div class="card">
-          <div class="card-title">DJ 감시</div>
+          <div class="card-title">방 입장</div>
           <label>DJ 고유닉 (@태그)</label>
           <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
-          <div class="btn-row">
-          <button class="btn-green" onclick="startAutoJoin()">👁 감시 시작</button>
-          <button class="btn-gray" onclick="stopAutoJoin()">✋ 감시 중지</button>
-          </div>
-          <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">🚪 현재 방 나가기</button>
-          <div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
+          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 입장하기</button>
+          <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
+          <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "입장하기"를 눌러주세요</div>
         </div>
       </div>
 
@@ -625,7 +622,7 @@ tryAutoLogin();
 /* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
 const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
-  autojoin:['🚪 자동입장','등록한 DJ가 방송을 켜면 자동으로 입장합니다'],
+  autojoin:['🚪 방 입장','DJ 고유닉을 넣고 방송 중일 때 바로 입장합니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -1184,19 +1181,12 @@ async function checkSessionStatus(){
 async function startAutoJoin(){
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  document.getElementById('autoJoinStatus').textContent='🚪 입장 시도 중...';
   try{
     const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     const d=await res.json();
-    showToast(d.msg||d.error||'감시 시작');
-    await saveSettings();
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-async function stopAutoJoin(){
-  try{
-    await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag:''})});
-    document.getElementById('autoJoinStatus').textContent='자동입장 꺼짐';
-    showToast('감시 중지됨');
+    showToast(d.msg||d.error||'입장 시도');
+    if(!d.success) document.getElementById('autoJoinStatus').textContent='❌ '+(d.error||'입장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -1277,12 +1267,9 @@ function updateSessionPill(d){
 function updateAutoJoinStatus(d){
   const el=document.getElementById('autoJoinStatus');
   if(!el)return;
-  if(d.status==='off')el.textContent='자동입장 꺼짐';
-  else if(d.status==='watching')el.textContent='⏳ @'+d.tag+' 감시 중...';
-  else if(d.status==='live')el.textContent='🔴 @'+d.tag+' 방송 중 감지!';
-  else if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
-  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 자동 입장 완료!';showToast('자동입장 성공! 🎉');}
-  else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 방송 종료 — 재방송 대기 중...';
+  if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
+  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}
+  else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
   else if(d.status==='error')el.textContent='❌ '+d.msg;
 }
 </script>

@@ -1,0 +1,54 @@
+[33m5a8abaf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: reset: moving to 5a8abaf
+[33m04a7c1c[m HEAD@{1}: commit: roomToken 발급 방식 원복 + 재연결 빈도 감소
+[33meea3eea[m HEAD@{2}: commit: sdgf 입장설정에 연결
+[33md1aa777[m HEAD@{3}: commit: s트gf 입장설정에 연결
+[33m3800895[m HEAD@{4}: commit: 자동멘트gf 입장설정에 연결
+[33m4e48188[m HEAD@{5}: commit: WebSocket o헤더 복원
+[33m237975e[m HEAD@{6}: commit: WebSocket 연결 헤더 복원
+[33m47a27fe[m HEAD@{7}: commit: 펀딩 관리 기능 추가
+[33mec2887a[m HEAD@{8}: commit: roomToken 발급 단계 제거
+[33m5a8abaf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{9}: commit: roomToken 진단 로그 강화 (WS 프레임 포함)
+[33m71131a8[m HEAD@{10}: commit: 현재 방 나가기 버튼 추가
+[33mc445d84[m HEAD@{11}: commit: 자동멘트 제거하고 입장설정에 연결
+[33m56fecef[m HEAD@{12}: commit: 재배포 트리거
+[33m20a16d6[m HEAD@{13}: commit: 세션 갱신 주기 10분에서 30분으로 변경
+[33m6cc5a91[m HEAD@{14}: commit: 자동멘트 제거하고 입장설정에 연결
+[33me37a7ea[m HEAD@{15}: commit: 실드 명령어 실제 동작 추가
+[33m2211a78[m HEAD@{16}: commit: 자동멘트 제거하고 입장설정에 연결
+[33mf5ab01e[m HEAD@{17}: commit: 디제이별 가입/로그인 기능 추가
+[33m672e3f6[m HEAD@{18}: commit: 디제이별 가입/로그인 기능 추가
+[33m514c0f1[m HEAD@{19}: commit: 진단 로그 추가
+[33mfeb08e6[m HEAD@{20}: commit: localStorage 세션 추가
+[33m7c1c332[m HEAD@{21}: commit: roomToken 발급 방식 수정
+[33m2a5966e[m HEAD@{22}: commit: 쿠키에서 accessToken 직접 추출
+[33mca264fe[m HEAD@{23}: commit: server node_modules 추적 제거
+[33m8e075e8[m HEAD@{24}: commit: puppeteer 추가
+[33m0de3b18[m HEAD@{25}: commit: 쿠키 sanitize 수정
+[33mfcacf5b[m HEAD@{26}: commit: 자동입장 UI 추가
+[33m0961e2b[m HEAD@{27}: commit: 자동입장 기능 추가
+[33m2a67e13[m HEAD@{28}: commit: 좋아요 중복 제거
+[33mb19425d[m HEAD@{29}: commit: LiveMetaUpdate 좋아요 처리
+[33m026e3d2[m HEAD@{30}: commit: stream_name API 연동
+[33m6e5323c[m HEAD@{31}: commit: WS 전체 로그
+[33m1bd76de[m HEAD@{32}: commit: 디버그 로그 추가
+[33m7d612b6[m HEAD@{33}: commit: WS null 버그 수정
+[33m70f5b0b[m HEAD@{34}: commit: SSE 클라이언트 추가
+[33m11fd2e6[m HEAD@{35}: commit: SSE 수신 추가
+[33m7da0d80[m HEAD@{36}: commit: SSE 채팅 수신 추가
+[33me26c4f1[m HEAD@{37}: commit: CORS 수정
+[33m8b8fd21[m HEAD@{38}: commit: index.html 수정
+[33mfb73e61[m HEAD@{39}: commit: index.html 교체
+[33mb4cd99f[m HEAD@{40}: commit: 봇 컨트롤 UI 추가
+[33m5efb960[m HEAD@{41}: commit: Railway 봇 서버 추가
+[33m4ee28e7[m HEAD@{42}: commit: add CORS headers
+[33md7675be[m HEAD@{43}: commit: add debug logs to spoon api
+[33m866bd46[m HEAD@{44}: commit: add sidebar layout with menus
+[33mf8587b8[m HEAD@{45}: commit: fix like event name
+[33m9f25204[m HEAD@{46}: commit: add join and like auto message
+[33mf06398b[m HEAD@{47}: commit: fix share url
+[33m2fcbfc7[m HEAD@{48}: commit: add bookmark url feature
+[33md84694a[m HEAD@{49}: commit: add auto save tokens
+[33md569f6d[m HEAD@{50}: commit: add bot page
+[33mbca4bb8[m HEAD@{51}: commit: fix ws route
+[33mc1a2665[m HEAD@{52}: commit: first commit
+[33m8ca6ecc[m HEAD@{53}: clone: from https://github.com/1328218g-cyber/spoon-game
