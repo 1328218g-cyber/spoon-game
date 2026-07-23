@@ -12,6 +12,7 @@ app.use(require('express').static(__dirname + '/public'))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
+const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
@@ -64,6 +65,27 @@ async function fetchUserStatusByTag(tag) {
       current_live_id: match.current_live_id || null,
     }
   } catch (e) {
+    return null
+  }
+}
+
+async function fetchUserTag(liveId, userId, accessToken) {
+  if (!liveId || !userId || !accessToken) return null
+  try {
+    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+      }
+    })
+    const json = await res.json()
+    const profile = (json.results && json.results[0]) || json
+    let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
+    if (tag) tag = String(tag).replace('@', '').trim()
+    return tag
+  } catch (e) {
+    console.log('[tag 조회 오류]', e.message)
     return null
   }
 }
@@ -271,20 +293,26 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleFlagCommand(djId, room, settings, author, authorId, text)
 
       } else if (eventName === 'RoomJoin') {
-        const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
+        const gen = eventPayload.generator || {}
+        const author = gen.nickname || eventPayload.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'join', djId, nick: author })
         const msgs = (settings.joinMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author)
+          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
-        const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
+        const gen = eventPayload.generator || {}
+        const author = eventPayload.nickname || gen.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
         const msgs = (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author)
+          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
 
