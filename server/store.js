@@ -88,10 +88,24 @@ function login(djId, password) {
   const djs = loadDjs();
   const rec = djs[djId];
   if (!rec) return { ok: false, error: '존재하지 않는 아이디예요' };
+  if (rec.blocked) return { ok: false, error: '차단된 계정이에요. 관리자에게 문의해주세요.' };
   if (!bcrypt.compareSync(String(password || ''), rec.passwordHash)) {
     return { ok: false, error: '비밀번호가 틀렸어요' };
   }
   return { ok: true };
+}
+
+function setBlocked(djId, blocked) {
+  const djs = loadDjs();
+  if (!djs[djId]) return false;
+  djs[djId].blocked = !!blocked;
+  saveDjs(djs);
+  return true;
+}
+
+function isBlocked(djId) {
+  const djs = loadDjs();
+  return !!(djs[djId] && djs[djId].blocked);
 }
 
 function getSettings(djId) {
@@ -118,6 +132,7 @@ function listDjSummaries() {
     djId: id,
     createdAt: djs[id].createdAt || null,
     autoJoinTag: djs[id].settings?.autoJoinTag || '',
+    blocked: !!djs[id].blocked,
   }));
 }
 
@@ -133,5 +148,7 @@ module.exports = {
   saveSettings,
   listDjIds,
   listDjSummaries,
+  setBlocked,
+  isBlocked,
   exists,
 };
