@@ -328,9 +328,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">방 입장</div>
           <label>DJ 고유닉 (@태그)</label>
           <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
-          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 입장하기</button>
+          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
           <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
-          <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "입장하기"를 눌러주세요</div>
+          <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">방송 감시 (자동)</div>
+          <p class="hint" style="margin-bottom:12px">등록해둔 고유닉이 방송을 켜면 자동으로 입장해요.</p>
+          <div class="btn-row">
+          <button class="btn-green" onclick="startWatch()">👁 감시 시작</button>
+          <button class="btn-gray" onclick="stopWatch()">✋ 감시 중지</button>
+          </div>
+          <div class="autojoin-status" id="watchStatus">감시 꺼짐</div>
         </div>
       </div>
 
@@ -1139,6 +1149,8 @@ async function loadDjSettings(){
     if(d.success && d.settings){
       const s=d.settings;
       document.getElementById('autoJoinTag').value=s.autoJoinTag||'';
+      const watchEl=document.getElementById('watchStatus');
+      if(watchEl) watchEl.textContent = s.autoJoinWatch ? ('⏳ @'+s.autoJoinTag+' 감시 중...') : '감시 꺼짐';
 
       if(s.entryData && (s.entryData.entry?.length || s.entryData.like?.length || s.entryData.leave?.length || s.entryData.gift?.length || s.entryData.repeat?.length)){
         Object.assign(entryData, s.entryData);
@@ -1260,6 +1272,27 @@ async function leaveCurrentRoom(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+async function startWatch(){
+  const tag=document.getElementById('autoJoinTag').value.trim();
+  if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/autojoin/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:true,tag})});
+    const d=await res.json();
+    showToast(d.msg||d.error||'감시 시작');
+    if(!d.success)return;
+    document.getElementById('watchStatus').textContent='⏳ @'+tag+' 감시 중...';
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function stopWatch(){
+  try{
+    await fetch(SERVER+'/autojoin/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:false})});
+    document.getElementById('watchStatus').textContent='감시 꺼짐';
+    showToast('감시 중지됨');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+
 async function sendChat(){
   const input=document.getElementById('chatInput');
   const msg=input.value.trim();if(!msg)return;input.value='';
@@ -1328,6 +1361,10 @@ function updateSessionPill(d){
 
 function updateAutoJoinStatus(d){
   const el=document.getElementById('autoJoinStatus');
+  const watchEl=document.getElementById('watchStatus');
+  if(d.status==='watching'){ if(watchEl)watchEl.textContent='⏳ @'+d.tag+' 감시 중...'; return; }
+  if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
+  if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
   if(!el)return;
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
   else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}

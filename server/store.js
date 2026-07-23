@@ -36,6 +36,7 @@ function saveDjs(djs) {
 function defaultSettings() {
   return {
     autoJoinTag: '',
+    autoJoinWatch: false,
     joinMessages: [],
     likeMessages: [],
     entryData: { entry: [], leave: [], like: [], gift: [], repeat: [] },
