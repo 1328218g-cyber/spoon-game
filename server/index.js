@@ -51,19 +51,22 @@ function connectSpoon(s) {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
   settings = s
 
-  spoonWs = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${s.accessToken}`)
+  const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${s.accessToken}`)
+  spoonWs = ws
 
-  spoonWs.on('open', () => {
+  ws.on('open', () => {
     console.log('스푼 연결됨!')
     isConnected = true
-    spoonWs.send(JSON.stringify({
-      command: 'ACTIVATE_CHANNEL',
-      payload: { channelId: s.channelId.trim(), liveToken: s.roomToken }
-    }))
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        command: 'ACTIVATE_CHANNEL',
+        payload: { channelId: s.channelId.trim(), liveToken: s.roomToken }
+      }))
+    }
     broadcast({ type: 'status', isConnected: true })
   })
 
-  spoonWs.on('message', async (data) => {
+  ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
       if (msg.command !== 'MESSAGE') return
@@ -101,14 +104,14 @@ function connectSpoon(s) {
     } catch(e) {}
   })
 
-  spoonWs.on('close', () => {
+  ws.on('close', () => {
     console.log('스푼 연결 종료')
     isConnected = false
     spoonWs = null
     broadcast({ type: 'status', isConnected: false })
   })
 
-  spoonWs.on('error', (e) => {
+  ws.on('error', (e) => {
     console.log('스푼 오류:', e.message)
     isConnected = false
   })
