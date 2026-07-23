@@ -395,11 +395,21 @@ function logout(){
   document.getElementById('authScreen').style.display='flex';
 }
 
+const ADMIN_DJ_ID='sum';
+
 function enterApp(){
   document.getElementById('authScreen').style.display='none';
   document.getElementById('appRoot').classList.add('ready');
   document.getElementById('djIdLabel').textContent=djId;
+
+  const isAdmin = djId===ADMIN_DJ_ID;
+  const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
+  const sessionPanel=document.querySelector('.panel[data-panel="session"]');
+  if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
+  if(sessionPanel) sessionPanel.style.display = isAdmin ? '' : 'none';
+
   initApp();
+  selectPanel(isAdmin ? 'session' : 'autojoin');
 }
 
 async function tryAutoLogin(){

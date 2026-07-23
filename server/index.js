@@ -349,4 +349,11 @@ app.get('/', (req, res) => {
 })
 
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => console.log(`서버 실행 중: ${PORT}`))
+app.listen(PORT, () => {
+  console.log(`서버 실행 중: ${PORT}`)
+  // 디스크에 저장된 세션(Volume)이 있으면 불러와서 자동 갱신을 바로 재개한다.
+  if (tokenManager.initFromDisk()) {
+    console.log('[세션] 저장된 세션 발견 → accessToken 자동 갱신 재개')
+    tokenManager.startAutoRefresh(10)
+  }
+})

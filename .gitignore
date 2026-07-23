@@ -40,3 +40,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# 세션/디제이 데이터 (민감정보, 로컬 테스트용 폴더)
+server/data

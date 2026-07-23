@@ -5,9 +5,16 @@
 //  이미 로그인된 세션을 그대로 재사용하는 방식)
 
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const ORIGIN = 'https://www.spooncast.net';
+
+// Railway Volume(영구 디스크)에 저장해두면, 서버가 재배포/재시작돼도
+// 세션 쿠키를 다시 업로드하지 않아도 된다. (DATA_DIR 환경변수는 store.js와 동일하게 사용)
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const SESSION_FILE = path.join(DATA_DIR, 'session.json');
 
 let sessionCookies = null;         // 업로드된 쿠키 배열
 let storedLocalStorage = null;     // 업로드된 localStorage 스냅샷
@@ -17,6 +24,35 @@ let refreshTimer = null;
 let refreshing = false;
 let onTokenUpdate = null;          // 토큰 갱신 성공 시 콜백 (index.js에서 등록)
 let onSessionExpired = null;       // 세션 만료(재로그인 필요) 감지 시 콜백
+
+function persistToDisk() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({
+      cookies: sessionCookies,
+      localStorage: storedLocalStorage,
+      sessionStorage: storedSessionStorage,
+    }, null, 2), 'utf-8');
+  } catch (e) {
+    console.log('[tokenManager] 세션 저장 실패:', e.message);
+  }
+}
+
+// 서버 시작 시 호출 — 디스크에 저장된 세션이 있으면 불러와서 바로 자동 갱신을 시작한다.
+function initFromDisk() {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return false;
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+    sessionCookies = sanitizeCookies(data.cookies || []);
+    storedLocalStorage = data.localStorage || null;
+    storedSessionStorage = data.sessionStorage || null;
+    console.log(`[tokenManager] 디스크에서 세션 불러옴 (쿠키 ${sessionCookies.length}개)`);
+    return hasCookies();
+  } catch (e) {
+    console.log('[tokenManager] 세션 불러오기 실패:', e.message);
+    return false;
+  }
+}
 
 // Chrome 개발자도구/확장으로 내보낸 쿠키 JSON에는 puppeteer의 setCookie()가
 // 모르는 필드(size 등)가 섞여 있을 수 있어, 필요한 필드만 남기고 정리한다.
@@ -45,11 +81,13 @@ function setCookies(data) {
     sessionCookies = sanitizeCookies(data);
     storedLocalStorage = null;
     storedSessionStorage = null;
+    persistToDisk();
     return;
   }
   sessionCookies = sanitizeCookies(data && data.cookies);
   storedLocalStorage = (data && data.localStorage) || null;
   storedSessionStorage = (data && data.sessionStorage) || null;
+  persistToDisk();
 }
 
 function hasCookies() {
@@ -181,6 +219,7 @@ async function refreshAccessToken() {
       currentAccessToken = atCookie.value;
       // 다음 갱신을 위해 쿠키 저장소도 최신 상태로 교체 (다른 쿠키들도 회전될 수 있음)
       sessionCookies = sanitizeCookies(freshCookies);
+      persistToDisk();
       console.log('[tokenManager] ✅ accessToken 갱신 성공');
       if (onTokenUpdate) onTokenUpdate(currentAccessToken);
       return currentAccessToken;
@@ -219,4 +258,5 @@ module.exports = {
   stopAutoRefresh,
   setOnTokenUpdate,
   setOnSessionExpired,
+  initFromDisk,
 };
