@@ -71,10 +71,11 @@ function connectSpoon(s) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
-      console.log('[WS 수신] command:', msg.command)
+      console.log('[WS 수신] command:', msg.command, 'raw:', JSON.stringify(msg).substring(0, 150))
       if (msg.command !== 'MESSAGE') return
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
+      console.log('[WS 이벤트]', eventName)
 
       if (eventName === 'ChatMessage') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
@@ -104,7 +105,9 @@ function connectSpoon(s) {
           setTimeout(() => sendChat(text), 500)
         }
       }
-    } catch(e) {}
+    } catch(e) {
+      console.log('[WS 파싱 오류]', e.message)
+    }
   })
 
   ws.on('close', (code, reason) => {
