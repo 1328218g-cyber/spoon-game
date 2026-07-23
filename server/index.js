@@ -16,10 +16,16 @@ let joinMsgs = []
 let likeMsgs = []
 let commands = []
 let isConnected = false
+let sseClients = []
 
-// 스푼에 채팅 전송
+function broadcast(data) {
+  const msg = 'data: ' + JSON.stringify(data) + '\n\n'
+  sseClients = sseClients.filter(c => !c.destroyed)
+  sseClients.forEach(c => c.write(msg))
+}
+
 async function sendChat(message) {
-  if (!settings) return
+  if (!settings || !spoonWs) return
   try {
     const res = await fetch(`${GW_BASE}/lives/${settings.channelId}/chat/message`, {
       method: 'POST',
@@ -41,13 +47,12 @@ async function sendChat(message) {
   }
 }
 
-// 스푼 WebSocket 연결
 function connectSpoon(s) {
   if (spoonWs) { spoonWs.terminate(); spoonWs = null }
   settings = s
-  
+
   spoonWs = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${s.accessToken}`)
-  
+
   spoonWs.on('open', () => {
     console.log('스푼 연결됨!')
     isConnected = true
@@ -55,6 +60,7 @@ function connectSpoon(s) {
       command: 'ACTIVATE_CHANNEL',
       payload: { channelId: s.channelId.trim(), liveToken: s.roomToken }
     }))
+    broadcast({ type: 'status', isConnected: true })
   })
 
   spoonWs.on('message', async (data) => {
@@ -68,6 +74,7 @@ function connectSpoon(s) {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
         const text = eventPayload.message || ''
         console.log(`[채팅] ${author}: ${text}`)
+        broadcast({ type: 'chat', nick: author, text })
         const matched = commands.find(c => text.trim() === c.trigger.trim())
         if (matched) {
           setTimeout(() => sendChat(matched.response), 500)
@@ -75,7 +82,8 @@ function connectSpoon(s) {
       } else if (eventName === 'RoomJoin') {
         const author = eventPayload.generator?.nickname || eventPayload.nickname || '?'
         console.log(`[입장] ${author}`)
-        const msgs = joinMsgs.filter(m => m.enabled && (!m.target || m.target === author))
+        broadcast({ type: 'join', nick: author })
+        const msgs = joinMsgs.filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
           setTimeout(() => sendChat(text), 500)
@@ -83,6 +91,7 @@ function connectSpoon(s) {
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
         console.log(`[좋아요] ${author}`)
+        broadcast({ type: 'like', nick: author })
         const msgs = likeMsgs.filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author)
@@ -96,6 +105,7 @@ function connectSpoon(s) {
     console.log('스푼 연결 종료')
     isConnected = false
     spoonWs = null
+    broadcast({ type: 'status', isConnected: false })
   })
 
   spoonWs.on('error', (e) => {
@@ -104,14 +114,24 @@ function connectSpoon(s) {
   })
 }
 
-// API 엔드포인트
+app.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+  sseClients.push(res)
+  req.on('close', () => {
+    sseClients = sseClients.filter(c => c !== res)
+  })
+})
+
 app.post('/connect', (req, res) => {
   const { accessToken, roomToken, channelId } = req.body
   if (!accessToken || !roomToken || !channelId) {
     return res.json({ error: '파라미터 없음' })
   }
   connectSpoon({ accessToken, roomToken, channelId })
-  res.json({ success: true, message: '연결 시작!' })
+  res.json({ success: true })
 })
 
 app.post('/disconnect', (req, res) => {
@@ -141,7 +161,7 @@ app.post('/settings', (req, res) => {
 })
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', isConnected })
+  res.sendFile(__dirname + '/public/index.html')
 })
 
 const PORT = process.env.PORT || 3001
