@@ -6,145 +6,574 @@
 <title>스푼 봇</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f0f13;--surface:#1a1a22;--border:#2a2a36;--accent:#7c6aff;--accent2:#ff6ab0;--text:#e8e8f0;--muted:#6b6b80;--success:#4ade80;--danger:#f87171;--radius:14px}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:16px;max-width:480px;margin:0 auto}
-header{display:flex;align-items:center;gap:10px;margin-bottom:24px;padding-top:8px}
-.logo{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
-h1{font-size:20px;font-weight:700}
-.status-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--border);padding:5px 12px;border-radius:20px}
+:root{
+  --bg:#eef0f4;
+  --panel:#ffffff;
+  --surface:#ffffff;
+  --surface2:#f2f3f7;
+  --border:#e2e4ea;
+  --accent:#7c6aff;
+  --accent2:#ff6ab0;
+  --text:#20232c;
+  --muted:#8b8fa0;
+  --success:#16a34a;
+  --danger:#e11d48;
+  --warn:#d97706;
+  --radius:14px;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
+
+/* ── 레이아웃 ── */
+.app{display:flex;height:100vh}
+
+/* ── 사이드바 ── */
+.sidebar{width:250px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;box-shadow:1px 0 8px rgba(20,20,40,.04)}
+.brand{display:flex;align-items:center;gap:10px;padding:18px 16px;border-bottom:1px solid var(--border)}
+.brand .logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.brand h1{font-size:16px;font-weight:700}
+.brand .sub{font-size:11px;color:var(--muted);margin-top:1px}
+
+.nav-group-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:16px 16px 6px}
+
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:1px 8px;border-radius:9px;cursor:pointer;color:var(--text);font-size:13.5px;transition:background 0.12s;user-select:none}
+.nav-item:hover{background:var(--surface2)}
+.nav-item.active{background:linear-gradient(135deg,rgba(124,106,255,.22),rgba(255,106,176,.14));box-shadow:inset 0 0 0 1px rgba(124,106,255,.4)}
+.nav-item .ic{width:18px;text-align:center;flex-shrink:0;font-size:14px}
+.nav-item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0}
+.nav-badge.on{background:rgba(74,222,128,.15);color:var(--success)}
+.nav-badge.off{background:rgba(107,107,128,.15);color:var(--muted)}
+.nav-star{font-size:12px;color:var(--border);flex-shrink:0;cursor:pointer;transition:color .12s}
+.nav-star:hover{color:var(--warn)}
+.nav-star.filled{color:var(--warn)}
+
+/* ── 메인 영역 ── */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--border);flex-shrink:0}
+.topbar h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.topbar .desc{font-size:12px;color:var(--muted);margin-top:2px}
+.status-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:6px 14px;border-radius:20px;flex-shrink:0}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:background 0.3s}
 .dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 .dot.off{background:var(--danger)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
-.card-title{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+
+.content{flex:1;overflow-y:auto;padding:22px 26px 60px}
+.panel{display:none;max-width:640px}
+.panel.active{display:block;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,20,40,.04)}
+.card-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
 .session-pill{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--muted)}
 .session-pill.ok{color:var(--success);border-color:var(--success)}
 .session-pill.bad{color:var(--danger);border-color:var(--danger)}
+
 label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;margin-top:12px}
 label:first-of-type{margin-top:0}
 input,textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color 0.2s;font-family:inherit}
 input:focus,textarea:focus{border-color:var(--accent)}
 textarea{resize:none;height:80px}
 textarea.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;height:100px}
+
 .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-button{padding:13px;border-radius:10px;border:none;font-size:15px;font-weight:600;cursor:pointer;transition:opacity 0.15s,transform 0.1s;font-family:inherit}
+button{padding:13px;border-radius:10px;border:none;font-size:14.5px;font-weight:600;cursor:pointer;transition:opacity 0.15s,transform 0.1s;font-family:inherit}
 button:active{transform:scale(0.97);opacity:0.85}
 .btn-connect{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
 .btn-disconnect{background:var(--bg);border:1px solid var(--border);color:var(--danger)}
 .btn-full{width:100%;margin-top:12px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)}
 .btn-green{background:var(--success);color:#000}
 .btn-gray{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+
 .hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
 details{margin-top:10px}
 summary{font-size:13px;color:var(--accent);cursor:pointer}
-.chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:180px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
+
+.chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:260px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
 .chat-log:empty::before{content:'채팅 로그가 여기에 표시됩니다';color:var(--muted)}
 .log-line{margin-bottom:4px}
 .nick{color:var(--accent);font-weight:600}
 .nick.bot{color:var(--accent2)}
 .nick.sys{color:var(--muted)}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:20px;font-size:14px;transition:transform 0.3s ease;z-index:999;white-space:nowrap}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:20px;font-size:14px;transition:transform 0.3s ease;z-index:999;white-space:nowrap;box-shadow:0 4px 16px rgba(20,20,40,.12)}
 .toast.show{transform:translateX(-50%) translateY(0)}
+
 .chat-input-row{display:flex;gap:8px}
 .chat-input-row input{flex:1}
 .chat-input-row button{padding:11px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:14px;white-space:nowrap}
+
 .autojoin-status{font-size:13px;color:var(--muted);margin-top:10px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--border);min-height:40px}
+
+/* ── 준비 중 패널 ── */
+.coming-soon{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center}
+.coming-soon .ic{font-size:34px;margin-bottom:14px;opacity:.8}
+.coming-soon h3{font-size:15px;margin-bottom:6px}
+.coming-soon p{font-size:12.5px;color:var(--muted);line-height:1.6}
+
+/* ── 입장 설정: 탭바 ── */
+.tab-bar{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+.tab-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer}
+.tab-btn.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+.card-title .badge-inline{font-size:10px;font-weight:700;background:rgba(74,222,128,.15);color:var(--success);padding:2px 8px;border-radius:20px;text-transform:none;letter-spacing:0}
+.hint-inline{font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
+
+/* ── 입장 설정: 메시지 항목 카드 ── */
+.msg-entry{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.msg-entry-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+.icon-btn{background:transparent;border:none;color:var(--muted);font-size:15px;padding:4px 8px;cursor:pointer}
+.icon-btn.danger:hover{color:var(--danger)}
+.msg-entry textarea{height:64px;margin-top:8px}
+
+/* 토글 스위치 */
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.15s}
+.switch .slider::before{content:'';position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.switch input:checked + .slider{background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.switch input:checked + .slider::before{transform:translateX(18px)}
+
+/* 변수 삽입 칩 + 지연(초) */
+.chip-row{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.chip{background:var(--surface2);border:1px solid var(--border);color:var(--accent);font-size:11.5px;padding:4px 9px;border-radius:8px;cursor:pointer;font-family:ui-monospace,Consolas,monospace}
+.chip:hover{border-color:var(--accent)}
+.delay-inline{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.delay-inline input{width:52px;padding:6px 8px;font-size:13px}
+
+.sound-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+.sound-row .btn-gray{padding:9px 14px;font-size:12.5px;white-space:nowrap}
+.sound-row .hint{margin:0}
+
+/* ── 로그인 / 회원가입 화면 ── */
+#authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
+.auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
+.auth-card .logo{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 14px}
+.auth-card h2{text-align:center;font-size:18px;margin-bottom:4px}
+.auth-card .auth-sub{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:20px}
+.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--surface2);border-radius:10px;padding:4px}
+.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.auth-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(20,20,40,.08)}
+.auth-error{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px}
+.dj-tag{margin-left:12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dj-tag button{padding:4px 10px;font-size:11.5px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.app{display:none}
+.app.ready{display:flex}
+
+/* ── 모바일 ── */
+.menu-toggle{display:none}
+@media (max-width: 860px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}
+  .sidebar.open{transform:translateX(0)}
+  .menu-toggle{display:flex;align-items:center;justify-content:center;width:34px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:9px;font-size:16px;cursor:pointer;flex-shrink:0}
+  .content{padding:18px 16px 60px}
+  .topbar{padding:14px 16px}
+}
 </style>
 </head>
 <body>
-<header>
-<div class="logo">🥄</div>
-<h1>스푼 봇</h1>
-<div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
-</header>
 
-<!-- 세션 (PC 없이 자동 로그인 유지) -->
-<div class="card">
-<div class="card-title">
-  <span>🔑 세션 연결</span>
-  <span class="session-pill" id="sessionPill">확인 중...</span>
-</div>
-<label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
-<textarea id="sessionCookies" class="mono" placeholder='[{"name":"...","value":"...","domain":".spooncast.net", ...}]'></textarea>
-<button class="btn-full" onclick="uploadSession()">📤 쿠키 업로드</button>
-<details>
-<summary>쿠키는 어떻게 얻나요?</summary>
-<div class="hint">PC에서 <code>get_session_cookies.js</code>를 한 번 실행해 스푼 로그인(카카오/구글/페북 상관없음)을 완료하면 <code>session_cookies.json</code> 파일이 생성돼요. 그 파일 내용을 통째로 복사해서 위 칸에 붙여넣고 업로드하면, 이후로는 서버가 PC 없이 알아서 로그인 상태를 유지합니다. 세션이 만료되면(가끔) 이 과정을 한 번 더 반복하면 돼요.</div>
-</details>
-</div>
-
-<!-- 자동입장 -->
-<div class="card">
-<div class="card-title">🚪 자동입장</div>
-<label>DJ 고유닉 (@태그)</label>
-<input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
-<div class="btn-row">
-<button class="btn-green" onclick="startAutoJoin()">👁 감시 시작</button>
-<button class="btn-gray" onclick="stopAutoJoin()">✋ 감시 중지</button>
-</div>
-<div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
+<!-- ══════════ 로그인 / 회원가입 ══════════ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="logo">🥄</div>
+    <h2>스푼 봇</h2>
+    <div class="auth-sub">디제이 계정으로 로그인해주세요</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">로그인</div>
+      <div class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">회원가입</div>
+    </div>
+    <label>아이디</label>
+    <input type="text" id="authDjId" placeholder="영문/숫자 2~20자">
+    <label>비밀번호</label>
+    <input type="password" id="authPassword" placeholder="4자 이상" onkeydown="if(event.key==='Enter')submitAuth()">
+    <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
+    <div class="auth-error" id="authError"></div>
+  </div>
 </div>
 
-<!-- 수동 연결 (세션 업로드 없이 임시로 쓸 때만) -->
-<div class="card">
-<div class="card-title">수동 연결 (선택)</div>
-<label>Access Token</label>
-<input type="password" id="accessToken" placeholder="Access 토큰 입력">
-<label>Room Token</label>
-<input type="password" id="roomToken" placeholder="Room 토큰 입력">
-<label>Channel ID</label>
-<input type="text" id="channelId" placeholder="채널 ID 입력" inputmode="numeric">
-<div class="btn-row">
-<button class="btn-connect" onclick="connect()">🔗 연결</button>
-<button class="btn-disconnect" onclick="disconnect()">✂️ 해제</button>
-</div>
-</div>
+<div class="app" id="appRoot">
 
-<!-- 채팅 -->
-<div class="card">
-<div class="card-title">실시간 채팅</div>
-<div class="chat-log" id="chatLog"></div>
-<div class="chat-input-row">
-<input type="text" id="chatInput" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter')sendChat()">
-<button onclick="sendChat()">전송</button>
-</div>
-</div>
+  <!-- ══════════ 사이드바 ══════════ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">🥄</div>
+      <div>
+        <h1>스푼 봇</h1>
+        <div class="sub">단비의 방송 도우미</div>
+      </div>
+    </div>
 
-<!-- 자동 멘트 -->
-<div class="card">
-<div class="card-title">자동 멘트</div>
-<label>입장 멘트 (줄바꿈으로 여러 개, {nickname} 사용 가능)</label>
-<textarea id="joinMessages" placeholder="{nickname}님 환영합니다!"></textarea>
-<label>좋아요 멘트</label>
-<textarea id="likeMessages" placeholder="{nickname}님 감사해요 ♥"></textarea>
-<button class="btn-full" onclick="saveSettings()">💾 멘트 저장</button>
+    <div class="nav-group-label">연결</div>
+    <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
+
+    <div class="nav-group-label">방송 도구</div>
+    <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="automent"><span class="ic">📣</span><span class="lbl">자동 멘트</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="chatlog"><span class="ic">📋</span><span class="lbl">채팅 로그</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge off">OFF</span></div>
+
+    <div class="nav-group-label">이벤트 / 게임</div>
+    <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge off">OFF</span></div>
+
+  </nav>
+
+  <!-- ══════════ 메인 ══════════ -->
+  <div class="main">
+    <div class="topbar">
+      <div class="menu-toggle" onclick="toggleSidebar()">☰</div>
+      <div>
+        <h2 id="panelTitle">🔑 세션 연결</h2>
+        <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
+      </div>
+      <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="logout()">로그아웃</button></div>
+    </div>
+
+    <div class="content">
+
+      <!-- 세션 연결 -->
+      <div class="panel active" data-panel="session">
+        <div class="card">
+          <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
+          <label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
+          <textarea id="sessionCookies" class="mono" placeholder='{"cookies":[...],"localStorage":{...}}'></textarea>
+          <label>관리자 키 (Railway에 ADMIN_KEY를 설정한 경우에만 입력)</label>
+          <input type="password" id="adminKey" placeholder="설정 안 했으면 비워두세요">
+          <button class="btn-full" onclick="uploadSession()">📤 쿠키 업로드</button>
+          <details>
+          <summary>쿠키는 어떻게 얻나요?</summary>
+          <div class="hint">PC에서 <code>get_session_cookies.js</code>를 한 번 실행해 스푼 로그인을 완료하면 <code>session_cookies.json</code> 파일이 생성돼요. 그 파일 내용을 통째로 복사해서 위 칸에 붙여넣고 업로드하면, 이후로는 서버가 PC 없이 알아서 로그인 상태를 유지합니다. 세션이 만료되면 이 과정을 한 번 더 반복하면 돼요.</div>
+          </details>
+        </div>
+      </div>
+
+      <!-- 자동입장 -->
+      <div class="panel" data-panel="autojoin">
+        <div class="card">
+          <div class="card-title">DJ 감시</div>
+          <label>DJ 고유닉 (@태그)</label>
+          <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
+          <div class="btn-row">
+          <button class="btn-green" onclick="startAutoJoin()">👁 감시 시작</button>
+          <button class="btn-gray" onclick="stopAutoJoin()">✋ 감시 중지</button>
+          </div>
+          <div class="autojoin-status" id="autoJoinStatus">자동입장 꺼짐</div>
+        </div>
+      </div>
+
+      <!-- 채팅 -->
+      <div class="panel" data-panel="chat">
+        <div class="card">
+          <div class="card-title">실시간 채팅</div>
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-input-row">
+          <input type="text" id="chatInput" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button onclick="sendChat()">전송</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 자동 멘트 -->
+      <div class="panel" data-panel="automent">
+        <div class="card">
+          <div class="card-title">멘트 설정</div>
+          <label>입장 멘트 (줄바꿈으로 여러 개, {nickname} 사용 가능)</label>
+          <textarea id="joinMessages" placeholder="{nickname}님 환영합니다!"></textarea>
+          <label>좋아요 멘트</label>
+          <textarea id="likeMessages" placeholder="{nickname}님 감사해요 ♥"></textarea>
+          <button class="btn-full" onclick="saveSettings()">💾 멘트 저장</button>
+        </div>
+      </div>
+
+      <!-- 입장 설정 -->
+      <div class="panel" data-panel="entrysettings">
+        <div class="card">
+          <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영 메시지 음원 전용)</span></div>
+          <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도 효과음이 반복 재생되지 않도록 제한합니다.<br>
+          ※ 환영 메시지 음원에만 적용됩니다. (채팅 멘트는 그대로 출력)<br>
+          ※ 0초로 설정하면 비활성화 (입장할 때마다 매번 재생)</p>
+          <label>쿨다운 (초)</label>
+          <input type="number" id="entryCooldown" value="0" min="0" style="max-width:140px">
+        </div>
+
+        <div class="tab-bar" id="entryTabBar">
+          <button class="tab-btn active" data-tab="entry" onclick="switchEntryTab('entry')">🚪 입장</button>
+          <button class="tab-btn" data-tab="leave" onclick="switchEntryTab('leave')">🚶 퇴장</button>
+          <button class="tab-btn" data-tab="like" onclick="switchEntryTab('like')">❤️ 좋아요</button>
+          <button class="tab-btn" data-tab="gift" onclick="switchEntryTab('gift')">🎁 선물</button>
+          <button class="tab-btn" data-tab="repeat" onclick="switchEntryTab('repeat')">🔁 반복문구</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span id="entryListTitle">메시지 설정</span><span class="badge-inline">항상 켜짐</span></div>
+          <div id="entryMsgList"></div>
+          <button class="btn-full" onclick="addEntryMessage()">+ 메시지 추가</button>
+        </div>
+      </div>
+
+
+      <div class="panel" data-panel="funding"><div class="coming-soon"><div class="ic">💰</div><h3>펀딩 관리</h3><p>펀딩을 생성하고 관리하는 기능은 준비 중이에요.<br>채팅창 명령어로 적립/차감하는 방식으로 만들 예정입니다.</p></div></div>
+      <div class="panel" data-panel="chatlog"><div class="coming-soon"><div class="ic">📋</div><h3>채팅 로그</h3><p>지난 방송 채팅 기록을 저장하고<br>다시 볼 수 있는 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="shortcuts"><div class="coming-soon"><div class="ic">⌨️</div><h3>단축키 명령어</h3><p>자주 쓰는 멘트를 단축키로 등록하는<br>기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="flag"><div class="coming-soon"><div class="ic">🚩</div><h3>단비 깃발</h3><p>단비님 전용 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="shield"><div class="coming-soon"><div class="ic">🛡️</div><h3>실드 관리</h3><p>악성 유저 자동 차단/제재 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="request"><div class="coming-soon"><div class="ic">🎵</div><h3>신청곡 관리</h3><p>신청곡 대기열 관리 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="roulette"><div class="coming-soon"><div class="ic">🎡</div><h3>룰렛 설정</h3><p>룰렛 이벤트 항목/확률 설정 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="roulettelog"><div class="coming-soon"><div class="ic">📊</div><h3>룰렛 기록</h3><p>룰렛 당첨 이력 조회 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="loyalty"><div class="coming-soon"><div class="ic">⭐</div><h3>애청지수</h3><p>청취자별 애청지수 집계 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="quiz"><div class="coming-soon"><div class="ic">🧩</div><h3>퀴즈 설정</h3><p>실시간 퀴즈 이벤트 기능은 준비 중이에요.</p></div></div>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
 <script>
 const SERVER='https://spoon-game-production.up.railway.app';
-window.onload=()=>{
-  ['accessToken','roomToken','channelId','joinMessages','likeMessages','autoJoinTag'].forEach(k=>{
-    const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
-  });
+
+/* ── 인증 (디제이 로그인) ── */
+let djToken=localStorage.getItem('djToken')||'';
+let djId=localStorage.getItem('djId')||'';
+let authMode='login';
+
+function authHeaders(){
+  return djToken ? {'Authorization':'Bearer '+djToken} : {};
+}
+
+function switchAuthTab(mode){
+  authMode=mode;
+  document.getElementById('tabLogin').classList.toggle('active',mode==='login');
+  document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
+  document.getElementById('authSubmitBtn').textContent=mode==='login'?'로그인':'회원가입';
+  document.getElementById('authError').textContent='';
+}
+
+async function submitAuth(){
+  const id=document.getElementById('authDjId').value.trim();
+  const pw=document.getElementById('authPassword').value;
+  const errEl=document.getElementById('authError');
+  errEl.textContent='';
+  if(!id||!pw){errEl.textContent='아이디와 비밀번호를 입력해주세요';return;}
+
+  if(authMode==='signup'){
+    try{
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+      const d=await res.json();
+      if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
+      showToast('가입 완료! 로그인해주세요');
+      switchAuthTab('login');
+      return;
+    }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
+  }
+
+  try{
+    const res=await fetch(SERVER+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+    const d=await res.json();
+    if(!d.success){errEl.textContent=d.error||'로그인 실패';return;}
+    djToken=d.token;djId=d.djId;
+    localStorage.setItem('djToken',djToken);
+    localStorage.setItem('djId',djId);
+    enterApp();
+  }catch(e){errEl.textContent='서버 오류: '+e.message;}
+}
+
+function logout(){
+  djToken='';djId='';
+  localStorage.removeItem('djToken');
+  localStorage.removeItem('djId');
+  document.getElementById('appRoot').classList.remove('ready');
+  document.getElementById('authScreen').style.display='flex';
+}
+
+function enterApp(){
+  document.getElementById('authScreen').style.display='none';
+  document.getElementById('appRoot').classList.add('ready');
+  document.getElementById('djIdLabel').textContent=djId;
+  initApp();
+}
+
+async function tryAutoLogin(){
+  if(!djToken){document.getElementById('authScreen').style.display='flex';return;}
+  try{
+    const res=await fetch(SERVER+'/auth/me',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){enterApp();return;}
+  }catch(e){}
+  logout();
+}
+
+tryAutoLogin();
+
+
+/* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
+const PANEL_META={
+  session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
+  autojoin:['🚪 자동입장','등록한 DJ가 방송을 켜면 자동으로 입장합니다'],
+  chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
+  automent:['📣 자동 멘트','입장/좋아요 시 자동으로 보낼 멘트를 설정합니다'],
+  entrysettings:['👋 입장 설정','입장/퇴장/좋아요/선물 메시지를 탭별로 설정합니다'],
+  funding:['💰 펀딩 관리','준비 중인 기능입니다'],
+  chatlog:['📋 채팅 로그','준비 중인 기능입니다'],
+  shortcuts:['⌨️ 단축키 명령어','준비 중인 기능입니다'],
+  greet:['🙋 지정 인사','준비 중인 기능입니다'],
+  flag:['🚩 단비 깃발','준비 중인 기능입니다'],
+  shield:['🛡️ 실드 관리','준비 중인 기능입니다'],
+  request:['🎵 신청곡 관리','준비 중인 기능입니다'],
+  roulette:['🎡 룰렛 설정','준비 중인 기능입니다'],
+  roulettelog:['📊 룰렛 기록','준비 중인 기능입니다'],
+  loyalty:['⭐ 애청지수','준비 중인 기능입니다'],
+  quiz:['🧩 퀴즈 설정','준비 중인 기능입니다'],
+};
+
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click',()=>selectPanel(item.dataset.panel));
+});
+
+function selectPanel(name){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.panel===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
+  const meta=PANEL_META[name];
+  if(meta){document.getElementById('panelTitle').textContent=meta[0];document.getElementById('panelDesc').textContent=meta[1];}
+  if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
+}
+
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
+
+/* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
+const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
+let entryTab='entry';
+let entryIdSeq=1;
+const entryData={
+  entry:[{id:0,enabled:true,target:'',text:'{nickname}님 반가워요! ❤️',delay:1,sound:''}],
+  leave:[],
+  like:[],
+  gift:[],
+  repeat:[],
+};
+
+function switchEntryTab(tab){
+  entryTab=tab;
+  document.querySelectorAll('#entryTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.getElementById('entryListTitle').textContent=ENTRY_TAB_LABELS[tab];
+  renderEntryList();
+}
+
+function renderEntryList(){
+  const wrap=document.getElementById('entryMsgList');
+  const list=entryData[entryTab];
+  if(!list.length){
+    wrap.innerHTML='<p class="hint" style="margin-bottom:12px">등록된 메시지가 없습니다. 아래 버튼으로 추가해주세요.</p>';
+    return;
+  }
+  wrap.innerHTML=list.map(m=>`
+    <div class="msg-entry" data-id="${m.id}">
+      <div class="msg-entry-top">
+        <label class="switch">
+          <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked)">
+          <span class="slider"></span>
+        </label>
+        <button class="icon-btn danger" onclick="removeEntryMessage(${m.id})">🗑</button>
+      </div>
+      <label>특정 대상 설정 (닉네임 또는 고유닉)</label>
+      <input type="text" placeholder="공백 시 전체 대상 / 입력 시 해당 유저만" value="${escapeAttr(m.target)}" oninput="updateEntryMsg(${m.id},'target',this.value)">
+      <textarea id="entryText-${m.id}" placeholder="메시지 입력..." oninput="updateEntryMsg(${m.id},'text',this.value)">${escapeHtml(m.text)}</textarea>
+      <div class="chip-row">
+        <span class="chip" onclick="insertEntryVar(${m.id},'{nickname}')">{nickname}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
+        <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
+      </div>
+      <div class="sound-row">
+        <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
+        <span class="hint">${m.sound ? m.sound : '첨부된 음원 없음 (선택 사항)'}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addEntryMessage(){
+  entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+  renderEntryList();
+}
+
+function removeEntryMessage(id){
+  entryData[entryTab]=entryData[entryTab].filter(m=>m.id!==id);
+  renderEntryList();
+}
+
+function updateEntryMsg(id,field,value){
+  const m=entryData[entryTab].find(x=>x.id===id);
+  if(!m)return;
+  m[field]=field==='delay'?Number(value)||0:value;
+}
+
+function insertEntryVar(id,token){
+  const ta=document.getElementById('entryText-'+id);
+  if(!ta)return;
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+  updateEntryMsg(id,'text',ta.value);
+}
+
+function chooseEntrySound(id){
+  showToast('음원 업로드 기능은 준비 중이에요');
+}
+
+function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function escapeAttr(s){return (s||'').replace(/"/g,'&quot;');}
+
+document.addEventListener('DOMContentLoaded',()=>{ if(document.getElementById('entryMsgList')) renderEntryList(); });
+
+/* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
+async function initApp(){
+  await loadDjSettings();
   checkStatus();
   checkSessionStatus();
   startSSE();
-};
-['accessToken','roomToken','channelId','autoJoinTag'].forEach(k=>{
-  document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
-});
+}
+
+async function loadDjSettings(){
+  try{
+    const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success && d.settings){
+      const s=d.settings;
+      document.getElementById('autoJoinTag').value=s.autoJoinTag||'';
+      document.getElementById('joinMessages').value=(s.joinMessages||[]).map(m=>m.text).join('\n');
+      document.getElementById('likeMessages').value=(s.likeMessages||[]).map(m=>m.text).join('\n');
+      if(s.entryData){ Object.assign(entryData, s.entryData); }
+      if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
+      renderEntryList();
+    }
+  }catch(e){}
+}
+
 
 async function uploadSession(){
   const raw=document.getElementById('sessionCookies').value.trim();
   if(!raw)return showToast('session_cookies.json 내용을 붙여넣어주세요');
   let parsed;
   try{ parsed=JSON.parse(raw); }catch(e){ return showToast('JSON 형식이 아닙니다'); }
-  // 구버전 파일(쿠키 배열만) 호환
   const payload = Array.isArray(parsed) ? { cookies: parsed } : parsed;
   if(!payload.cookies || !payload.cookies.length) return showToast('쿠키 데이터를 찾을 수 없습니다');
   try{
-    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const adminKey=document.getElementById('adminKey').value.trim();
+    const headers={'Content-Type':'application/json'};
+    if(adminKey) headers['x-admin-key']=adminKey;
+    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers,body:JSON.stringify(payload)});
     const d=await res.json();
     if(d.success){
       showToast('업로드 완료! 토큰 발급 시도 중...');
@@ -165,29 +594,11 @@ async function checkSessionStatus(){
   }catch{}
 }
 
-async function connect(){
-  const a=document.getElementById('accessToken').value.trim();
-  const r=document.getElementById('roomToken').value.trim();
-  const c=document.getElementById('channelId').value.trim();
-  if(!a||!r||!c)return showToast('토큰과 채널ID를 입력해주세요');
-  try{
-    const res=await fetch(SERVER+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessToken:a,roomToken:r,channelId:c})});
-    const d=await res.json();
-    if(d.success){showToast('연결 중...');await saveSettings();}
-    else showToast('연결 실패: '+(d.error||''));
-  }catch(e){showToast('서버 오류: '+e.message);}
-}
-
-async function disconnect(){
-  try{await fetch(SERVER+'/disconnect',{method:'POST'});setStatus(false);showToast('연결 해제됨');}
-  catch(e){showToast('오류: '+e.message);}
-}
-
 async function startAutoJoin(){
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
   try{
-    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag})});
+    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     const d=await res.json();
     showToast(d.msg||d.error||'감시 시작');
     await saveSettings();
@@ -196,7 +607,7 @@ async function startAutoJoin(){
 
 async function stopAutoJoin(){
   try{
-    await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:''})});
+    await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag:''})});
     document.getElementById('autoJoinStatus').textContent='자동입장 꺼짐';
     showToast('감시 중지됨');
   }catch(e){showToast('오류: '+e.message);}
@@ -206,7 +617,7 @@ async function sendChat(){
   const input=document.getElementById('chatInput');
   const msg=input.value.trim();if(!msg)return;input.value='';
   try{
-    await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message:msg})});
     addLog('봇',msg,'bot');
   }catch(e){showToast('전송 실패');}
 }
@@ -214,17 +625,17 @@ async function sendChat(){
 async function saveSettings(){
   const j=document.getElementById('joinMessages').value;
   const l=document.getElementById('likeMessages').value;
-  localStorage.setItem('joinMessages',j);localStorage.setItem('likeMessages',l);
   const jm=j.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
   const lm=l.split('\n').filter(x=>x.trim()).map(x=>({text:x.trim(),enabled:true}));
+  const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
-    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({joinMessages:jm,likeMessages:lm,cmds:[]})});
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,entryData,entryCooldown})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
 
 async function checkStatus(){
-  try{const res=await fetch(SERVER+'/status');const d=await res.json();setStatus(d.isConnected);}catch{}
+  try{const res=await fetch(SERVER+'/status',{headers:authHeaders()});const d=await res.json();setStatus(d.isConnected);}catch{}
 }
 
 function setStatus(on){
@@ -248,6 +659,8 @@ function startSSE(){
   const es=new EventSource(SERVER+'/events');
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
+    // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
+    if(d.type!=='session' && d.djId && d.djId!==djId) return;
     if(d.type==='chat')addLog(d.nick,d.text,'user');
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
