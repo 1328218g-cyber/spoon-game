@@ -84,7 +84,7 @@ window.onload=()=>{
     const el=document.getElementById(k);if(el)el.value=localStorage.getItem(k)||'';
   });
   checkStatus();
-  setInterval(checkStatus,5000);
+  startSSE();
 };
 ['accessToken','roomToken','channelId'].forEach(k=>{
   document.getElementById(k)?.addEventListener('input',()=>localStorage.setItem(k,document.getElementById(k).value));
@@ -97,7 +97,7 @@ async function connect(){
   try{
     const res=await fetch(SERVER+'/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessToken:a,roomToken:r,channelId:c})});
     const d=await res.json();
-    if(d.success){showToast('연결 중...');setTimeout(checkStatus,1500);await saveSettings();}
+    if(d.success){showToast('연결 중...');await saveSettings();}
     else showToast('연결 실패: '+(d.error||''));
   }catch(e){showToast('서버 오류: '+e.message);}
 }
@@ -140,6 +140,17 @@ function addLog(nick,text,type='user'){
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
+}
+function startSSE(){
+  const es=new EventSource(SERVER+'/events');
+  es.onmessage=(e)=>{
+    const d=JSON.parse(e.data);
+    if(d.type==='chat')addLog(d.nick,d.text,'user');
+    else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
+    else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
+    else if(d.type==='status')setStatus(d.isConnected);
+  };
+  es.onerror=()=>setTimeout(startSSE,3000);
 }
 </script>
 </body>
