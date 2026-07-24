@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>스푼 봇</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#7c6aff">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="스푼봇">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -736,9 +743,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <label>작동 방식</label>
           <select id="rlTriggerMode" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
-            <option value="exact">일반 (정확히 X스푼일 때 1회)</option>
-            <option value="combo">콤보 (X스푼당 N회 실행)</option>
-            <option value="distribute">배분 (총 금액 내에서 X스푼당 1회)</option>
+            <option value="exact">일반 (단발로 정확히 X스푼일 때만 1회)</option>
+            <option value="combo">콤보 (X스푼짜리를 N번 연속 선물 시 N회)</option>
+            <option value="distribute">배분 (콤보 포함 총액이 X스푼 넘을 때마다 1회)</option>
           </select>
           <label>기준 스푼 (X)</label>
           <input type="number" id="rlTriggerAmount" value="10" min="1">
@@ -875,6 +882,12 @@ async function tryAutoLogin(){
 }
 
 tryAutoLogin();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
 
 
 /* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
