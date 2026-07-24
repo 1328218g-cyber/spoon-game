@@ -280,7 +280,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge off">OFF</span></div>
@@ -504,7 +504,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
-      <div class="panel" data-panel="greet"><div class="coming-soon"><div class="ic">🙋</div><h3>지정 인사</h3><p>특정 유저 입장 시 전용 인사 멘트를 보내는<br>기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="greet">
+        <div class="card">
+          <div class="card-title"><span>🙋 지정 인사 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showGreetForm()">+ 추가</button></div>
+          <p class="hint">특정 고유닉(Tag)을 가진 유저가 입장할 때 출력될 전용 메시지를 설정합니다. 등록해두면 일반 입장 메시지 대신 이 인사말이 나가요.</p>
+        </div>
+        <div id="greetListWrap"></div>
+
+        <div class="card" id="greetFormCard" style="display:none">
+          <div class="card-title" id="greetFormTitle">지정 인사 추가</div>
+          <label>유저 고유닉</label>
+          <input type="text" id="greetTag" placeholder="sum">
+          <label>입장 시 출력할 인사말</label>
+          <textarea id="greetMessage" placeholder="@{유저}님, 어서오세요! 기다리고 있었습니다. ✨"></textarea>
+          <div class="chip-row">
+            <span class="chip" onclick="insertGreetVar('{유저}')">{유저}</span>
+          </div>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideGreetForm()">취소</button>
+            <button class="btn-connect" onclick="saveGreetForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="flag">
         <div class="card">
           <div class="card-title"><span>🚩 단비 깃발</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFlagsGlobal()">💾 저장</button></div>
@@ -725,7 +746,7 @@ const PANEL_META={
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
   shortcuts:['⌨️ 단축키 명령어','채팅창 단어에 반응하는 명령어를 관리합니다'],
-  greet:['🙋 지정 인사','준비 중인 기능입니다'],
+  greet:['🙋 지정 인사','특정 고유닉 유저 전용 입장 인사말을 관리합니다'],
   flag:['🚩 단비 깃발','목표 깃발을 만들고 진행률을 관리합니다'],
   shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
   request:['🎵 신청곡 관리','준비 중인 기능입니다'],
@@ -1195,6 +1216,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(document.getElementById('flagListWrap')) renderFlags();
   if(document.getElementById('fundingListWrap')) renderFunding();
   if(document.getElementById('cmdListWrap')) renderCmdList();
+  if(document.getElementById('greetListWrap')) renderGreetList();
 });
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
@@ -1212,6 +1234,7 @@ async function loadDjSettings(){
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
+  greetData=[];
 
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
@@ -1255,10 +1278,16 @@ async function loadDjSettings(){
         const nums=cmdData.map(c=>parseInt(String(c.id).replace('cmd',''),10)).filter(n=>!Number.isNaN(n));
         if(nums.length) cmdIdSeq=Math.max(...nums)+1;
       }
+      if(s.greetings){
+        greetData=s.greetings;
+        const nums=greetData.map(g=>parseInt(String(g.id).replace('gr',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) greetIdSeq=Math.max(...nums)+1;
+      }
       renderShield();
       renderFlags();
       renderFunding();
       renderCmdList();
+      renderGreetList();
       renderEntryList();
     }
   }catch(e){}
@@ -1425,6 +1454,85 @@ function deleteCmd(id){
 async function saveCmdGlobal(){
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({commands:cmdData})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 지정 인사 ── */
+let greetData=[];
+let greetIdSeq=1;
+let greetEditingId=null;
+
+function renderGreetList(){
+  const wrap=document.getElementById('greetListWrap');
+  if(!greetData.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 지정 인사가 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=greetData.map(g=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}</div>
+        <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showGreetForm('${g.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteGreet('${g.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showGreetForm(id){
+  greetEditingId=id||null;
+  const g=id?greetData.find(x=>x.id===id):null;
+  document.getElementById('greetFormTitle').textContent=id?'지정 인사 수정':'지정 인사 추가';
+  document.getElementById('greetTag').value=g?g.tag:'';
+  document.getElementById('greetMessage').value=g?g.message:'';
+  document.getElementById('greetFormCard').style.display='block';
+}
+
+function hideGreetForm(){
+  document.getElementById('greetFormCard').style.display='none';
+  greetEditingId=null;
+}
+
+function insertGreetVar(token){
+  const ta=document.getElementById('greetMessage');
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+}
+
+function saveGreetForm(){
+  const tag=document.getElementById('greetTag').value.trim().replace('@','');
+  const message=document.getElementById('greetMessage').value;
+  if(!tag)return showToast('유저 고유닉을 입력해주세요');
+  if(!message.trim())return showToast('인사말을 입력해주세요');
+
+  if(greetEditingId){
+    const g=greetData.find(x=>x.id===greetEditingId);
+    Object.assign(g,{tag,message});
+  } else {
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message});
+  }
+  hideGreetForm();
+  renderGreetList();
+  saveGreetGlobal();
+}
+
+function deleteGreet(id){
+  greetData=greetData.filter(g=>g.id!==id);
+  renderGreetList();
+  saveGreetGlobal();
+}
+
+async function saveGreetGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({greetings:greetData})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }

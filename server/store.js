@@ -65,6 +65,7 @@ function defaultSettings() {
       items: [], // { id, title, goal, current, mode: 'manual'|'auto', useCycle, template }
     },
     commands: [], // { id, trigger, response, scope: 'all'|'manager'|'dj', cooldown, useCount }
+    greetings: [], // { id, tag, message } — 특정 고유닉 전용 입장 인사말
   };
 }
 

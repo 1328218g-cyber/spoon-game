@@ -418,11 +418,21 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'join', djId, nick: author })
-        const msgs = isLurker ? [] : (settings.joinMessages || []).filter(m => m.enabled)
-        if (msgs.length > 0) {
+
+        if (!isLurker) {
           const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
-          setTimeout(() => sendChatToRoom(djId, text), 500)
+          const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+
+          if (greeting) {
+            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
+            setTimeout(() => sendChatToRoom(djId, text), 500)
+          } else {
+            const msgs = (settings.joinMessages || []).filter(m => m.enabled)
+            if (msgs.length > 0) {
+              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
+              setTimeout(() => sendChatToRoom(djId, text), 500)
+            }
+          }
         }
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
@@ -541,7 +551,7 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, keepaliveTags, keepaliveWatch } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -551,8 +561,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (shield) patch.shield = shield
   if (flags) patch.flags = flags
   if (commands) patch.commands = commands
-  if (keepaliveTags) patch.keepaliveTags = keepaliveTags
-  if (typeof keepaliveWatch === 'boolean') patch.keepaliveWatch = keepaliveWatch
+  if (greetings) patch.greetings = greetings
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
