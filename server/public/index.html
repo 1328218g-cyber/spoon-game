@@ -2007,9 +2007,9 @@ async function loadRouletteHistory(tag){
       <div class="card">
         <div class="card-title"><span>👤 @${escapeHtml(tag)} 님의 기록</span></div>
       </div>
-      ${renderRlListCard('킵목록','keep',tag,d.record.keepList||[])}
-      ${renderRlListCard('기타목록','misc',tag,d.record.miscList||[])}
-      ${renderRlListCard('이벤트목록','event',tag,d.record.eventList||[])}
+      ${renderRlListCard('킵목록','keep',tag,d.record.keepList||{})}
+      ${renderRlListCard('기타목록','misc',tag,d.record.miscList||{})}
+      ${renderRlListCard('이벤트목록','event',tag,d.record.eventList||{})}
       <div class="card">
         <div class="card-title">🎡 룰렛권 보유 현황</div>
         ${couponRows||'<p class="hint">등록된 룰렛이 없습니다.</p>'}
@@ -2022,10 +2022,11 @@ async function loadRouletteHistory(tag){
 }
 
 function renderRlListCard(title,listType,tag,items){
-  const rows=items.length?items.map((txt,i)=>`
+  const entries=Object.entries(items||{});
+  const rows=entries.length?entries.map(([name,count])=>`
     <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span>${escapeHtml(txt)}</span>
-      <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove',null,${i})">✕</button>
+      <span>${escapeHtml(name)}${count>1?` (${count}개)`:''}</span>
+      <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove','${escapeAttr(name)}')">✕</button>
     </div>`).join('') : '<p class="hint" style="margin:0">기록된 항목이 없습니다.</p>';
   return `<div class="card">
     <div class="card-title">
@@ -2044,9 +2045,9 @@ function rlListAddPrompt(tag,listType){
   if(text&&text.trim()) rlListAction(tag,listType,'add',text.trim());
 }
 
-async function rlListAction(tag,listType,action,text,index){
+async function rlListAction(tag,listType,action,text){
   try{
-    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/list',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({listType,action,text,index})});
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/list',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({listType,action,text})});
     loadRouletteHistory(tag);
   }catch(e){showToast('오류: '+e.message);}
 }

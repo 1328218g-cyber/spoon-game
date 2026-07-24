@@ -462,14 +462,38 @@ function percentPick(items) {
   return items[items.length - 1]
 }
 
+const SECTION_FIELD = { '킵목록': 'keepList', '이벤트목록': 'eventList', '기타목록': 'miscList' }
+const SECTION_LABEL = { '킵목록': '킵', '이벤트목록': '이벤트', '기타목록': '내카드' }
+
 function getHistoryRec(settings, tag) {
   if (!settings.rouletteHistory) settings.rouletteHistory = {}
-  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [], keepList: [], miscList: [], eventList: [] }
+  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
   const rec = settings.rouletteHistory[tag]
-  if (!rec.keepList) rec.keepList = []
-  if (!rec.miscList) rec.miscList = []
-  if (!rec.eventList) rec.eventList = []
+  if (!rec.keepList) rec.keepList = {}
+  if (!rec.miscList) rec.miscList = {}
+  if (!rec.eventList) rec.eventList = {}
   return rec
+}
+
+// !킵, !이벤트, !내카드 [페이지] / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] 응답 문구 생성
+function formatKeepMessage(displayName, section, entries, page) {
+  const label = SECTION_LABEL[section]
+  if (!entries.length) return `📋 ${displayName}님의 ${label} 기록이 없습니다.`
+  const pageSize = 10
+  const totalPages = Math.ceil(entries.length / pageSize)
+  const cur = Math.max(1, Math.min(page, totalPages))
+  const startIdx = (cur - 1) * pageSize
+  const pageEntries = entries.slice(startIdx, startIdx + pageSize)
+  let msg = `📋 ${displayName}님의 ${label} 기록 (${cur}/${totalPages}페이지, 총 ${entries.length}개)\n`
+  pageEntries.forEach(([name, count], i) => {
+    msg += `${startIdx + i + 1}. ${name}${count > 1 ? ` (${count}개)` : ''}\n`
+  })
+  if (totalPages > 1) {
+    const cmdBase = section === '이벤트목록' ? '!이벤트' : (section === '기타목록' ? '!내카드' : '!킵')
+    const next = cur < totalPages ? cur + 1 : 1
+    msg += `\n💡 ${cmdBase} ${next} 로 다른 페이지 확인 가능`
+  }
+  return msg.trim()
 }
 
 // 지급 방식 계산: 일반(exact)=정확히 X스푼일 때 1회, 콤보/배분(combo/distribute)=X스푼당 1회(내림)
@@ -481,6 +505,129 @@ function calcAutoGrantCount(mode, triggerAmount, amount) {
 }
 
 // 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
+// !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
+// !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
+async function handleKeepCommands(djId, room, settings, author, authorId, liveId, text) {
+  const msg = String(text || '').trim()
+  const parts = msg.split(/\s+/)
+  const first = parts[0]
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+
+  const sectionByCmd = { '!킵': '킵목록', '!이벤트': '이벤트목록', '!내카드': '기타목록' }
+  if (sectionByCmd[first]) {
+    const section = sectionByCmd[first]
+    const page = parseInt(parts[1]) || 1
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    const keepKey = tag || author
+    const rec = getHistoryRec(settings, keepKey)
+    const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
+    sendChatSplit(djId, formatKeepMessage(author, section, entries, page), 150, 600)
+    return
+  }
+
+  const checkMatch = first.match(/^(!킵확인|!이벤트확인|!내카드확인)(\d*)$/)
+  if (checkMatch) {
+    const section = { '!킵확인': '킵목록', '!이벤트확인': '이벤트목록', '!내카드확인': '기타목록' }[checkMatch[1]]
+    const page = parseInt(checkMatch[2]) || 1
+    const targetTag = (parts[1] || '').replace('@', '').trim()
+    if (!targetTag) {
+      setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${checkMatch[1]} [고유닉]\n예) ${checkMatch[1]} sum`), 400)
+      return
+    }
+    const rec = getHistoryRec(settings, targetTag)
+    const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
+    sendChatSplit(djId, formatKeepMessage(targetTag, section, entries, page), 150, 600)
+    return
+  }
+
+  if (first === '!킵추가') {
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '⛔ !킵추가 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
+    if (parts.length < 3) { setTimeout(() => sendChatToRoom(djId, '📋 사용법: !킵추가 [고유닉] [내용]\n예) !킵추가 sum 리방하기'), 400); return }
+    const targetTag = parts[1].replace('@', '').trim()
+    const content = parts.slice(2).join(' ').trim()
+    if (!targetTag || !content) return
+    const rec = getHistoryRec(settings, targetTag)
+    rec.keepList[content] = (rec.keepList[content] || 0) + 1
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    broadcast({ type: 'roulette', djId, tag: targetTag })
+    const newCount = rec.keepList[content]
+    setTimeout(() => sendChatToRoom(djId, `✅ [${targetTag}] 님의 킵목록에 [${content}]${newCount > 1 ? ` (총 ${newCount}개)` : ''} 추가 완료!`), 400)
+    return
+  }
+
+  const useMatch = first.match(/^(!킵사용|!이벤트사용|!내카드사용)$/)
+  if (useMatch) {
+    const section = { '!킵사용': '킵목록', '!이벤트사용': '이벤트목록', '!내카드사용': '기타목록' }[useMatch[1]]
+    const idx = parseInt(parts[1])
+    const count = parseInt(parts[2]) || 1
+    if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    const keepKey = tag || author
+    const rec = getHistoryRec(settings, keepKey)
+    const field = SECTION_FIELD[section]
+    const data = rec[field]
+    const items = Object.keys(data)
+    const item = items[idx - 1]
+    if (!item) { setTimeout(() => sendChatToRoom(djId, `📋 ${author}님, 해당 번호(${idx})의 항목이 없습니다.`), 400); return }
+    if (data[item] < count) { setTimeout(() => sendChatToRoom(djId, `📋 ${author}님, ${item}의 수량이 부족합니다. (현재: ${data[item]}개)`), 400); return }
+    data[item] -= count
+    const remaining = data[item]
+    if (data[item] <= 0) delete data[item]
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    broadcast({ type: 'roulette', djId, tag: keepKey })
+    setTimeout(() => sendChatToRoom(djId, `✅ ${author}님의 [${item}] ${count}개 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 400)
+    return
+  }
+}
+
+// !룰렛지급N [고유닉] [수량] — DJ 전용 룰렛권 지급
+async function handleRouletteGiveCommand(djId, room, settings, author, authorId, text) {
+  const msg = String(text || '').trim()
+  const parts = msg.split(/\s+/)
+  const m = parts[0].match(/^!룰렛지급(\d+)$/)
+  if (!m) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) { setTimeout(() => sendChatToRoom(djId, '🎡 !룰렛지급 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
+
+  const idx = parseInt(m[1], 10)
+  const rt = settings.roulette && settings.roulette.list[idx - 1]
+  if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
+
+  const targetTag = (parts[1] || '').replace('@', '').trim()
+  const count = parseInt(parts[2], 10) || 1
+  if (!targetTag) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
+
+  const rec = getHistoryRec(settings, targetTag)
+  rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag: targetTag })
+  setTimeout(() => sendChatToRoom(djId, `🎡 [${targetTag}]님에게 룰렛${idx}(${rt.name}) 권 ${count}개 지급 완료! (현재: ${rec.coupons[idx]}개)`), 400)
+}
+
+// !룰렛메뉴N[-P] — 룰렛 항목 목록 확인 (페이지)
+function handleRouletteMenuCommand(djId, settings, text) {
+  const m = String(text || '').trim().match(/^!룰렛메뉴(\d+)(?:-(\d+))?$/)
+  if (!m) return
+  const idx = parseInt(m[1], 10)
+  const page = parseInt(m[2], 10) || 1
+  const rt = settings.roulette && settings.roulette.list[idx - 1]
+  if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
+  if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
+
+  const pageSize = 10
+  const totalPages = Math.ceil(rt.items.length / pageSize)
+  const cur = Math.max(1, Math.min(page, totalPages))
+  const startIdx = (cur - 1) * pageSize
+  const pageItems = rt.items.slice(startIdx, startIdx + pageSize)
+  let out = `🎡 [${rt.name}] 항목 (${cur}/${totalPages}페이지)\n`
+  pageItems.forEach((it, i) => { out += `${startIdx + i + 1}. ${it.name}\n` })
+  if (totalPages > 1) {
+    const next = cur < totalPages ? cur + 1 : 1
+    out += `\n💡 !룰렛메뉴${idx}-${next} 로 다른 페이지 확인 가능`
+  }
+  sendChatSplit(djId, out.trim(), 150, 600)
+}
+
 async function handleRouletteCommand(djId, room, settings, author, authorId, liveId, text) {
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length) return
@@ -497,6 +644,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
   if (!tag) return
   const hist = getHistoryRec(settings, tag)
+  let resultDelay = 400
 
   if (!isDj) {
     const have = Number(hist.coupons[idx] || 0)
@@ -507,6 +655,10 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
       return
     }
     hist.coupons[idx] = have - count
+    const useMsg = (rl.couponUseTemplate || '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)')
+      .replace(/{닉네임}/g, author).replace(/{번호}/g, idx).replace(/{수량}/g, count).replace(/{잔여}/g, hist.coupons[idx])
+    setTimeout(() => sendChatToRoom(djId, useMsg), 400)
+    resultDelay = 900
   }
 
   const wonCounts = {}
@@ -520,7 +672,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 
   const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
   const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
-  setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), 400)
+  setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), resultDelay)
 }
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
@@ -613,6 +765,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
           handleSongRequestCommand(djId, room, settings, author, authorId, text)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
+          handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
+          handleRouletteGiveCommand(djId, room, settings, author, authorId, text)
+          handleRouletteMenuCommand(djId, settings, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -779,7 +934,7 @@ app.get('/roulette/users', auth.requireAuth, (req, res) => {
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
-  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: [], miscList: [], eventList: [] }
+  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
   res.json({ success: true, tag, record: rec, roulette: settings.roulette })
 })
 
@@ -810,13 +965,13 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
 
 // 킵목록/기타목록/이벤트목록 관리 (add / remove / clear)
 app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
-  const { listType, action, text, index } = req.body || {}
+  const { listType, action, text } = req.body || {}
   const key = listType === 'keep' ? 'keepList' : listType === 'event' ? 'eventList' : 'miscList'
   const settings = store.getSettings(req.djId) || {}
   const rec = getHistoryRec(settings, req.params.tag)
-  if (action === 'add' && text) rec[key].push(text)
-  else if (action === 'remove' && typeof index === 'number') rec[key].splice(index, 1)
-  else if (action === 'clear') rec[key] = []
+  if (action === 'add' && text) rec[key][text] = (rec[key][text] || 0) + 1
+  else if (action === 'remove' && text) delete rec[key][text]
+  else if (action === 'clear') rec[key] = {}
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   res.json({ success: true, list: rec[key] })
 })

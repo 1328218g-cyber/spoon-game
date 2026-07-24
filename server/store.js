@@ -88,12 +88,12 @@ function defaultSettings() {
       items: [], // { id, artist, title, requester }
     },
     roulette: {
-      list: [], // { id, name, autoGrantMinAmount, autoGrantCount, items: [{id, name, weight}] }
+      list: [], // { id, name, triggerMode: 'exact'|'combo'|'distribute', triggerAmount, items: [{id, name, percent, skipHistory}] }
       resultHeaderTemplate: '[🎡{룰렛명}] {닉네임}님 당첨! 🎉',
       couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
     },
-    rouletteHistory: {}, // { [tag]: { coupons: { [idx]: count }, wins: [{ idx, rouletteName, itemName, ts }] } }
+    rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
   };
 }
 
