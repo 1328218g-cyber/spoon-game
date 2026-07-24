@@ -452,11 +452,11 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
   if (msg === sr.cmdNameOff) { sr.showRequester = false; save(); return }
 }
 
-function weightedPick(items) {
-  const total = items.reduce((s, it) => s + (Number(it.weight) || 1), 0)
+function percentPick(items) {
+  const total = items.reduce((s, it) => s + (Number(it.percent) || 1), 0)
   let r = Math.random() * total
   for (const it of items) {
-    r -= (Number(it.weight) || 1)
+    r -= (Number(it.percent) || 1)
     if (r <= 0) return it
   }
   return items[items.length - 1]
@@ -464,8 +464,20 @@ function weightedPick(items) {
 
 function getHistoryRec(settings, tag) {
   if (!settings.rouletteHistory) settings.rouletteHistory = {}
-  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [] }
-  return settings.rouletteHistory[tag]
+  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [], keepList: [], miscList: [], eventList: [] }
+  const rec = settings.rouletteHistory[tag]
+  if (!rec.keepList) rec.keepList = []
+  if (!rec.miscList) rec.miscList = []
+  if (!rec.eventList) rec.eventList = []
+  return rec
+}
+
+// 지급 방식 계산: 일반(exact)=정확히 X스푼일 때 1회, 콤보/배분(combo/distribute)=X스푼당 1회(내림)
+function calcAutoGrantCount(mode, triggerAmount, amount) {
+  const X = Number(triggerAmount) || 0
+  if (X <= 0) return 0
+  if (mode === 'exact') return amount === X ? 1 : 0
+  return Math.floor(amount / X)
 }
 
 // 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
@@ -499,9 +511,9 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 
   const wonCounts = {}
   for (let i = 0; i < count; i++) {
-    const won = weightedPick(rt.items)
+    const won = percentPick(rt.items)
     wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-    hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+    if (!won.skipHistory) hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag })
@@ -515,18 +527,31 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount) {
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length || !amount) return
-  const applicable = rl.list.map((rt, i) => ({ rt, idx: i + 1 })).filter(({ rt }) => Number(rt.autoGrantMinAmount) > 0 && amount >= Number(rt.autoGrantMinAmount))
+  const applicable = rl.list
+    .map((rt, i) => ({ rt, idx: i + 1, count: calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount) }))
+    .filter(x => x.count > 0)
   if (!applicable.length) return
 
   const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
-  if (!tag) return
-  const hist = getHistoryRec(settings, tag)
-  applicable.forEach(({ rt, idx }) => {
-    const grant = Number(rt.autoGrantCount) || 1
-    hist.coupons[idx] = Number(hist.coupons[idx] || 0) + grant
-  })
-  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-  broadcast({ type: 'roulette', djId, tag })
+  const hist = tag ? getHistoryRec(settings, tag) : null
+  let changed = false
+
+  for (const { rt, idx, count } of applicable) {
+    const wonCounts = {}
+    for (let i = 0; i < count; i++) {
+      const won = percentPick(rt.items)
+      wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
+      if (hist && !won.skipHistory) { hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() }); changed = true }
+    }
+    const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
+    const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
+    setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), 400)
+  }
+
+  if (changed) {
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    broadcast({ type: 'roulette', djId, tag })
+  }
 }
 
 async function connectSpoonForDj(djId, liveId, roomToken) {
@@ -745,23 +770,55 @@ app.get('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings })
 })
 
+app.get('/roulette/users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tags = Object.keys(settings.rouletteHistory || {})
+  res.json({ success: true, tags })
+})
+
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
-  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [] }
+  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: [], miscList: [], eventList: [] }
   res.json({ success: true, tag, record: rec, roulette: settings.roulette })
+})
+
+// 시청자를 기록 목록에 수동으로 추가(빈 기록 생성)
+app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  getHistoryRec(settings, req.params.tag)
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true })
+})
+
+app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (settings.rouletteHistory) delete settings.rouletteHistory[req.params.tag]
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
+  res.json({ success: true })
 })
 
 app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   const { idx, delta } = req.body || {}
   if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
   const settings = store.getSettings(req.djId) || {}
-  if (!settings.rouletteHistory) settings.rouletteHistory = {}
-  if (!settings.rouletteHistory[req.params.tag]) settings.rouletteHistory[req.params.tag] = { coupons: {}, wins: [] }
-  const rec = settings.rouletteHistory[req.params.tag]
+  const rec = getHistoryRec(settings, req.params.tag)
   rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   res.json({ success: true, coupons: rec.coupons })
+})
+
+// 킵목록/기타목록/이벤트목록 관리 (add / remove / clear)
+app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
+  const { listType, action, text, index } = req.body || {}
+  const key = listType === 'keep' ? 'keepList' : listType === 'event' ? 'eventList' : 'miscList'
+  const settings = store.getSettings(req.djId) || {}
+  const rec = getHistoryRec(settings, req.params.tag)
+  if (action === 'add' && text) rec[key].push(text)
+  else if (action === 'remove' && typeof index === 'number') rec[key].splice(index, 1)
+  else if (action === 'clear') rec[key] = []
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true, list: rec[key] })
 })
 
 app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
