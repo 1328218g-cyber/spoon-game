@@ -41,6 +41,7 @@ function defaultSettings() {
     botEnabled: true, // 꺼두면 이 계정은 어떤 봇 명령어/자동멘트에도 반응하지 않는 순수 시청 모드가 된다
     joinMessages: [],
     likeMessages: [],
+    leaveMessages: [],
     entryData: { entry: [], leave: [], like: [], gift: [], repeat: [] },
     entryCooldown: 0,
     funding: {
@@ -86,6 +87,13 @@ function defaultSettings() {
       msgIntervalMs: 600,
       items: [], // { id, artist, title, requester }
     },
+    roulette: {
+      list: [], // { id, name, autoGrantMinAmount, autoGrantCount, items: [{id, name, weight}] }
+      resultHeaderTemplate: '[🎡{룰렛명}] {닉네임}님 당첨! 🎉',
+      couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
+      couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
+    },
+    rouletteHistory: {}, // { [tag]: { coupons: { [idx]: count }, wins: [{ idx, rouletteName, itemName, ts }] } }
   };
 }
 

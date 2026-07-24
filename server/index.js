@@ -452,6 +452,83 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
   if (msg === sr.cmdNameOff) { sr.showRequester = false; save(); return }
 }
 
+function weightedPick(items) {
+  const total = items.reduce((s, it) => s + (Number(it.weight) || 1), 0)
+  let r = Math.random() * total
+  for (const it of items) {
+    r -= (Number(it.weight) || 1)
+    if (r <= 0) return it
+  }
+  return items[items.length - 1]
+}
+
+function getHistoryRec(settings, tag) {
+  if (!settings.rouletteHistory) settings.rouletteHistory = {}
+  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [] }
+  return settings.rouletteHistory[tag]
+}
+
+// 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
+async function handleRouletteCommand(djId, room, settings, author, authorId, liveId, text) {
+  const rl = settings.roulette
+  if (!rl || !rl.list || !rl.list.length) return
+  const msg = String(text || '').trim()
+  const m = msg.match(/^!룰렛(\d+)(?:\s+(\d+))?\s*$/)
+  if (!m) return
+
+  const idx = parseInt(m[1], 10)
+  const count = m[2] ? Math.max(1, parseInt(m[2], 10)) : 1
+  const rt = rl.list[idx - 1]
+  if (!rt || !rt.items || !rt.items.length) return
+
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+  if (!tag) return
+  const hist = getHistoryRec(settings, tag)
+
+  if (!isDj) {
+    const have = Number(hist.coupons[idx] || 0)
+    if (have < count) {
+      const lowMsg = (rl.couponLowTemplate || '').replace(/{닉네임}/g, author).replace(/{번호}/g, idx).replace(/{룰렛명}/g, rt.name)
+        .replace(/{요청}/g, count).replace(/{보유}/g, have)
+      setTimeout(() => sendChatToRoom(djId, lowMsg), 400)
+      return
+    }
+    hist.coupons[idx] = have - count
+  }
+
+  const wonCounts = {}
+  for (let i = 0; i < count; i++) {
+    const won = weightedPick(rt.items)
+    wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
+    hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+  }
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
+  const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
+  setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), 400)
+}
+
+// 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
+async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount) {
+  const rl = settings.roulette
+  if (!rl || !rl.list || !rl.list.length || !amount) return
+  const applicable = rl.list.map((rt, i) => ({ rt, idx: i + 1 })).filter(({ rt }) => Number(rt.autoGrantMinAmount) > 0 && amount >= Number(rt.autoGrantMinAmount))
+  if (!applicable.length) return
+
+  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+  if (!tag) return
+  const hist = getHistoryRec(settings, tag)
+  applicable.forEach(({ rt, idx }) => {
+    const grant = Number(rt.autoGrantCount) || 1
+    hist.coupons[idx] = Number(hist.coupons[idx] || 0) + grant
+  })
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -510,6 +587,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
           handleSongRequestCommand(djId, room, settings, author, authorId, text)
+          handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -560,10 +638,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         }
 
       } else if (eventName === 'LiveDonation') {
-        const author = eventPayload.nickname || eventPayload.generator?.nickname || '?'
+        const gen = eventPayload.generator || {}
+        const author = eventPayload.nickname || gen.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id) : null
         const amount = Number(eventPayload.amount) || 0
         broadcast({ type: 'donation', djId, nick: author, amount })
-        if (!isLurker) handleFlagAutoDonation(djId, settings, amount)
+        if (!isLurker) {
+          handleFlagAutoDonation(djId, settings, amount)
+          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount)
+        }
       }
     } catch (e) {
       console.log(`[${djId}] WS 파싱 오류`, e.message)
@@ -662,8 +745,32 @@ app.get('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings })
 })
 
+app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tag = req.params.tag
+  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [] }
+  res.json({ success: true, tag, record: rec, roulette: settings.roulette })
+})
+
+app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
+  const { idx, delta } = req.body || {}
+  if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!settings.rouletteHistory) settings.rouletteHistory = {}
+  if (!settings.rouletteHistory[req.params.tag]) settings.rouletteHistory[req.params.tag] = { coupons: {}, wins: [] }
+  const rec = settings.rouletteHistory[req.params.tag]
+  rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true, coupons: rec.coupons })
+})
+
+app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
+  store.saveSettings(req.djId, { rouletteHistory: {} })
+  res.json({ success: true })
+})
+
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -676,6 +783,8 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (commands) patch.commands = commands
   if (greetings) patch.greetings = greetings
   if (songRequest) patch.songRequest = songRequest
+  if (roulette) patch.roulette = roulette
+  if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
