@@ -283,7 +283,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge on">ON</span></div>
 
     <div class="nav-group-label">이벤트 / 게임</div>
     <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge off">OFF</span></div>
@@ -627,7 +627,81 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
-      <div class="panel" data-panel="request"><div class="coming-soon"><div class="ic">🎵</div><h3>신청곡 관리</h3><p>신청곡 대기열 관리 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="request">
+        <div class="card">
+          <div class="card-title">
+            <span>🎵 신청곡 관리</span>
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="check-opt" style="margin:0"><input type="checkbox" id="srPriority" onchange="toggleSrOption()"> 신청곡 우선 (1번 추가)</label>
+              <label class="check-opt" style="margin:0"><input type="checkbox" id="srShowRequester" checked onchange="toggleSrOption()"> 신청자 닉 표시</label>
+              <button class="btn-gray" id="srAcceptBtn" style="padding:6px 14px;font-size:12px" onclick="toggleSrAccepting()">🟢 접수 중</button>
+              <button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="resetSrQueue()">🗑️ 전체 리셋</button>
+            </div>
+          </div>
+          <p class="hint">시청자들이 !신청곡 [가수] [제목]으로 신청한 목록을 관리합니다.</p>
+        </div>
+
+        <div class="card">
+          <label>직접 추가 (가수 곡제목)</label>
+          <div class="chip-input-row">
+            <input type="text" id="srManualInput" placeholder="가수 곡제목" onkeydown="if(event.key==='Enter')addSrManual()">
+            <button class="btn-connect" onclick="addSrManual()">추가</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div id="srListWrap"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 신청곡 명령어 및 문구 커스텀</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSrCustom()">💾 설정 저장</button></div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>호출 (기본: !신청곡)</label><input type="text" id="srCmdRequest" value="!신청곡"></div>
+            <div><label>제거 (기본: !제거)</label><input type="text" id="srCmdRemove" value="!제거"></div>
+          </div>
+          <label>리셋 (기본: 리셋)</label>
+          <input type="text" id="srCmdReset" value="리셋">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>마감 (기본: !마감)</label><input type="text" id="srCmdClose" value="!마감"></div>
+            <div><label>접수 (기본: !접수)</label><input type="text" id="srCmdOpen" value="!접수"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>우선 활성화 (기본: !우선온)</label><input type="text" id="srCmdPriorityOn" value="!우선온"></div>
+            <div><label>우선 비활성화 (기본: !우선오프)</label><input type="text" id="srCmdPriorityOff" value="!우선오프"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>신청자닉 표시 ON (기본: !이름온)</label><input type="text" id="srCmdNameOn" value="!이름온"></div>
+            <div><label>신청자닉 표시 OFF (기본: !이름오프)</label><input type="text" id="srCmdNameOff" value="!이름오프"></div>
+          </div>
+          <label>신청 완료 문구</label>
+          <input type="text" id="srDoneTemplate" value="✅ [{artist} - {title}] 신청 완료! (대기: {count}번)">
+          <div class="hint">변수: {artist}, {title}, {count}</div>
+          <label>리스트 상단 제목</label>
+          <input type="text" id="srListTitle" value="🎵 현재 신청곡 목록 🎵">
+          <label>리스트 출력 양식</label>
+          <input type="text" id="srListItemTemplate" value="{index}. {artist} - {title}">
+          <div class="hint">변수: {index}, {artist}, {title}</div>
+
+          <p class="hint" style="margin-top:16px;font-weight:600">✏️ 채팅 글자 제한 분할 설정</p>
+          <p class="hint">스푼라디오 채팅창 글자 제한으로 목록이 잘릴 때, 자동으로 여러 메시지로 나눠서 전송합니다.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>메시지당 최대 글자 수 (기본: 100)</label><input type="number" id="srMaxChars" value="100" min="30" max="500"></div>
+            <div><label>메시지 간격(ms) (기본: 600)</label><input type="number" id="srMsgInterval" value="600" min="200"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 신청곡 명령어 안내</div>
+          <p class="hint">
+          · !신청곡 : 대기 중인 목록을 출력합니다.<br>
+          · !신청곡 [가수] [곡이름] : 곡을 신청합니다.<br>
+          · !제거 [번호] : 특정 곡을 제거합니다. (DJ 전용)<br>
+          · 리셋 : 목록을 초기화합니다. (DJ 전용)<br>
+          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ 전용)<br>
+          · !현재곡 : 현재 재생 중인(1번) 곡을 채팅으로 알립니다.
+          </p>
+        </div>
+      </div>
       <div class="panel" data-panel="roulette"><div class="coming-soon"><div class="ic">🎡</div><h3>룰렛 설정</h3><p>룰렛 이벤트 항목/확률 설정 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="roulettelog"><div class="coming-soon"><div class="ic">📊</div><h3>룰렛 기록</h3><p>룰렛 당첨 이력 조회 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="loyalty"><div class="coming-soon"><div class="ic">⭐</div><h3>애청지수</h3><p>청취자별 애청지수 집계 기능은 준비 중이에요.</p></div></div>
@@ -749,7 +823,7 @@ const PANEL_META={
   greet:['🙋 지정 인사','특정 고유닉 유저 전용 입장 인사말을 관리합니다'],
   flag:['🚩 단비 깃발','목표 깃발을 만들고 진행률을 관리합니다'],
   shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
-  request:['🎵 신청곡 관리','준비 중인 기능입니다'],
+  request:['🎵 신청곡 관리','시청자 신청곡 대기열과 명령어를 관리합니다'],
   roulette:['🎡 룰렛 설정','준비 중인 기능입니다'],
   roulettelog:['📊 룰렛 기록','준비 중인 기능입니다'],
   loyalty:['⭐ 애청지수','준비 중인 기능입니다'],
@@ -1217,6 +1291,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(document.getElementById('fundingListWrap')) renderFunding();
   if(document.getElementById('cmdListWrap')) renderCmdList();
   if(document.getElementById('greetListWrap')) renderGreetList();
+  if(document.getElementById('srListWrap')) renderSrList();
 });
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
@@ -1235,6 +1310,7 @@ async function loadDjSettings(){
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
+  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]});
 
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
@@ -1283,11 +1359,13 @@ async function loadDjSettings(){
         const nums=greetData.map(g=>parseInt(String(g.id).replace('gr',''),10)).filter(n=>!Number.isNaN(n));
         if(nums.length) greetIdSeq=Math.max(...nums)+1;
       }
+      if(s.songRequest) Object.assign(srData, s.songRequest);
       renderShield();
       renderFlags();
       renderFunding();
       renderCmdList();
       renderGreetList();
+      renderSrList();
       renderEntryList();
     }
   }catch(e){}
@@ -1537,6 +1615,108 @@ async function saveGreetGlobal(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 신청곡 관리 ── */
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]};
+
+function renderSrList(){
+  document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
+  document.getElementById('srPriority').checked = !!srData.priorityMode;
+  document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+
+  const wrap=document.getElementById('srListWrap');
+  if(!srData.items.length){
+    wrap.innerHTML='<div class="flag-empty">신청곡이 없습니다.</div>';
+    return;
+  }
+  const rows=srData.items.map((it,i)=>`
+    <tr>
+      <td style="white-space:nowrap">
+        <button class="icon-btn" onclick="moveSrItem(${i},-1)" ${i===0?'disabled':''}>▲</button>
+        <button class="icon-btn" onclick="moveSrItem(${i},1)" ${i===srData.items.length-1?'disabled':''}>▼</button>
+      </td>
+      <td>${i+1}</td>
+      <td>${escapeHtml(it.artist)} - ${escapeHtml(it.title)}</td>
+      <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
+      <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
+    </tr>
+  `).join('');
+  wrap.innerHTML=`<table class="user-table">
+    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function addSrManual(){
+  const raw=document.getElementById('srManualInput').value.trim();
+  if(!raw)return showToast('가수 곡제목을 입력해주세요');
+  const parts=raw.split(/\s+/);
+  const artist=parts.shift()||'';
+  const title=parts.join(' ')||artist;
+  srData.items.push({id:'sr'+Date.now(),artist,title,requester:'(직접추가)'});
+  document.getElementById('srManualInput').value='';
+  renderSrList();
+  saveSrGlobal();
+}
+
+function removeSrItem(i){
+  srData.items.splice(i,1);
+  renderSrList();
+  saveSrGlobal();
+}
+
+function moveSrItem(i,dir){
+  const j=i+dir;
+  if(j<0||j>=srData.items.length)return;
+  [srData.items[i],srData.items[j]]=[srData.items[j],srData.items[i]];
+  renderSrList();
+  saveSrGlobal();
+}
+
+function resetSrQueue(){
+  srData.items=[];
+  renderSrList();
+  saveSrGlobal();
+  showToast('신청곡 목록 초기화됨');
+}
+
+function toggleSrAccepting(){
+  srData.accepting=!srData.accepting;
+  renderSrList();
+  saveSrGlobal();
+}
+
+function toggleSrOption(){
+  srData.priorityMode=document.getElementById('srPriority').checked;
+  srData.showRequester=document.getElementById('srShowRequester').checked;
+  renderSrList();
+  saveSrGlobal();
+}
+
+function saveSrCustom(){
+  srData.cmdRequest=document.getElementById('srCmdRequest').value.trim()||'!신청곡';
+  srData.cmdRemove=document.getElementById('srCmdRemove').value.trim()||'!제거';
+  srData.cmdReset=document.getElementById('srCmdReset').value.trim()||'리셋';
+  srData.cmdClose=document.getElementById('srCmdClose').value.trim()||'!마감';
+  srData.cmdOpen=document.getElementById('srCmdOpen').value.trim()||'!접수';
+  srData.cmdPriorityOn=document.getElementById('srCmdPriorityOn').value.trim()||'!우선온';
+  srData.cmdPriorityOff=document.getElementById('srCmdPriorityOff').value.trim()||'!우선오프';
+  srData.cmdNameOn=document.getElementById('srCmdNameOn').value.trim()||'!이름온';
+  srData.cmdNameOff=document.getElementById('srCmdNameOff').value.trim()||'!이름오프';
+  srData.doneTemplate=document.getElementById('srDoneTemplate').value;
+  srData.listTitle=document.getElementById('srListTitle').value;
+  srData.listItemTemplate=document.getElementById('srListItemTemplate').value;
+  srData.maxCharsPerMsg=Number(document.getElementById('srMaxChars').value)||100;
+  srData.msgIntervalMs=Number(document.getElementById('srMsgInterval').value)||600;
+  saveSrGlobal();
+  showToast('설정 저장 완료 ✓');
+}
+
+async function saveSrGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({songRequest:srData})});
+  }catch(e){showToast('저장 실패');}
+}
+
 async function startAutoJoin(){
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
@@ -1643,6 +1823,7 @@ function startSSE(){
     else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
     else if(d.type==='flags'){ flagsData.items=d.items; if(document.getElementById('flagListWrap')) renderFlags(); }
     else if(d.type==='funding'){ fundingData.items=d.items; if(document.getElementById('fundingListWrap')) renderFunding(); }
+    else if(d.type==='songrequest'){ srData.items=d.items; if(document.getElementById('srListWrap')) renderSrList(); }
   };
   es.onerror=()=>setTimeout(startSSE,3000);
 }

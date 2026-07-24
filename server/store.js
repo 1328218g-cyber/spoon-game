@@ -66,6 +66,26 @@ function defaultSettings() {
     },
     commands: [], // { id, trigger, response, scope: 'all'|'manager'|'dj', cooldown, useCount }
     greetings: [], // { id, tag, message } — 특정 고유닉 전용 입장 인사말
+    songRequest: {
+      accepting: true,
+      priorityMode: false,
+      showRequester: true,
+      cmdRequest: '!신청곡',
+      cmdRemove: '!제거',
+      cmdReset: '리셋',
+      cmdClose: '!마감',
+      cmdOpen: '!접수',
+      cmdPriorityOn: '!우선온',
+      cmdPriorityOff: '!우선오프',
+      cmdNameOn: '!이름온',
+      cmdNameOff: '!이름오프',
+      doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
+      listTitle: '🎵 현재 신청곡 목록 🎵',
+      listItemTemplate: '{index}. {artist} - {title}',
+      maxCharsPerMsg: 100,
+      msgIntervalMs: 600,
+      items: [], // { id, artist, title, requester }
+    },
   };
 }
 

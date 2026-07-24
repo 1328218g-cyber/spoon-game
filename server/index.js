@@ -354,6 +354,104 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   setTimeout(() => sendChatToRoom(djId, response), 400)
 }
 
+// 메시지 길이 제한에 맞춰 여러 줄을 나눠서 순차 전송
+function sendChatSplit(djId, fullText, maxChars, intervalMs) {
+  const limit = Math.max(30, Math.min(500, Number(maxChars) || 100))
+  const interval = Math.max(200, Number(intervalMs) || 600)
+  const lines = String(fullText || '').split('\n')
+  const chunks = []
+  let current = ''
+  for (const line of lines) {
+    const next = current ? current + '\n' + line : line
+    if (next.length > limit && current) {
+      chunks.push(current)
+      current = line
+    } else {
+      current = next
+    }
+  }
+  if (current) chunks.push(current)
+  chunks.forEach((chunk, i) => setTimeout(() => sendChatToRoom(djId, chunk), 400 + i * interval))
+}
+
+// 신청곡 관리 명령어 처리
+function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
+  const sr = settings.songRequest
+  if (!sr) return
+  const msg = String(text || '').trim()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+
+  const save = () => store.saveSettings(djId, { songRequest: sr })
+  const reqPrefix = sr.cmdRequest + ' '
+
+  // !신청곡 [가수] [제목]
+  if (msg.startsWith(reqPrefix)) {
+    if (!sr.accepting) {
+      setTimeout(() => sendChatToRoom(djId, '🚫 지금은 신청곡을 받지 않아요'), 400)
+      return
+    }
+    const rest = msg.slice(reqPrefix.length).trim()
+    if (!rest) return
+    const parts = rest.split(/\s+/)
+    const artist = parts.shift() || ''
+    const title = parts.join(' ') || artist
+    const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist, title, requester: author }
+    if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
+    save()
+    broadcast({ type: 'songrequest', djId, items: sr.items })
+    const doneMsg = (sr.doneTemplate || '').replace(/{artist}/g, artist).replace(/{title}/g, title).replace(/{count}/g, sr.items.length)
+    setTimeout(() => sendChatToRoom(djId, doneMsg), 400)
+    return
+  }
+
+  // !신청곡 (목록 출력)
+  if (msg === sr.cmdRequest) {
+    if (!sr.items.length) {
+      setTimeout(() => sendChatToRoom(djId, '📭 신청곡이 없어요'), 400)
+      return
+    }
+    const lines = sr.items.map((it, i) => (sr.listItemTemplate || '{index}. {artist} - {title}')
+      .replace(/{index}/g, i + 1).replace(/{artist}/g, it.artist).replace(/{title}/g, it.title))
+    sendChatSplit(djId, [sr.listTitle, ...lines].join('\n'), sr.maxCharsPerMsg, sr.msgIntervalMs)
+    return
+  }
+
+  // !현재곡
+  if (msg === '!현재곡') {
+    if (!sr.items.length) return
+    const it = sr.items[0]
+    setTimeout(() => sendChatToRoom(djId, `🎧 현재 곡: ${it.artist} - ${it.title}`), 400)
+    return
+  }
+
+  // 아래는 전부 DJ 전용 관리 명령어
+  if (!isDj) return
+
+  if (msg.startsWith(sr.cmdRemove + ' ')) {
+    const idx = parseInt(msg.slice(sr.cmdRemove.length).trim(), 10)
+    if (idx >= 1 && idx <= sr.items.length) {
+      const removed = sr.items.splice(idx - 1, 1)[0]
+      save()
+      broadcast({ type: 'songrequest', djId, items: sr.items })
+      setTimeout(() => sendChatToRoom(djId, `🗑️ ${removed.artist} - ${removed.title} 제거됨`), 400)
+    }
+    return
+  }
+  if (msg === sr.cmdReset) {
+    sr.items = []
+    save()
+    broadcast({ type: 'songrequest', djId, items: sr.items })
+    setTimeout(() => sendChatToRoom(djId, '🔄 신청곡 목록이 초기화됐어요'), 400)
+    return
+  }
+  if (msg === sr.cmdClose) { sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
+  if (msg === sr.cmdOpen) { sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
+  if (msg === sr.cmdPriorityOn) { sr.priorityMode = true; save(); return }
+  if (msg === sr.cmdPriorityOff) { sr.priorityMode = false; save(); return }
+  if (msg === sr.cmdNameOn) { sr.showRequester = true; save(); return }
+  if (msg === sr.cmdNameOff) { sr.showRequester = false; save(); return }
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -411,6 +509,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
+          handleSongRequestCommand(djId, room, settings, author, authorId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -551,7 +650,7 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings } = req.body || {}
+  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -562,6 +661,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (flags) patch.flags = flags
   if (commands) patch.commands = commands
   if (greetings) patch.greetings = greetings
+  if (songRequest) patch.songRequest = songRequest
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
