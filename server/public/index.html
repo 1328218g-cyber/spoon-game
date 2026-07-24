@@ -201,6 +201,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .user-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;background:var(--muted)}
 .user-dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 
+/* ── 룰렛 기록: 모바일 친화 가로 스크롤 시청자 칩 ── */
+.rl-user-scroll{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.rl-user-scroll::-webkit-scrollbar{height:5px}
+.rl-user-chip{flex-shrink:0;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:9px 8px 9px 16px;font-size:13px;cursor:pointer;white-space:nowrap;user-select:none}
+.rl-user-chip.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
+.rl-user-chip .icon-btn{padding:4px 8px;font-size:12px;color:inherit;opacity:.75}
+.rl-user-chip.active .icon-btn{color:#fff}
+
 /* ── 단축키 명령어 ── */
 .cmd-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px}
 .cmd-trigger-badge{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px;white-space:nowrap;flex-shrink:0}
@@ -704,7 +712,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
       <div class="panel" data-panel="roulette">
         <div class="card">
-          <div class="card-title"><span>🎡 룰렛 시스템 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showRouletteForm()">+ 새 룰렛</button></div>
+          <div class="card-title"><span>🎡 룰렛 시스템 설정</span></div>
           <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급).</p>
         </div>
 
@@ -719,12 +727,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveRouletteTemplates()">💾 문구 저장</button>
         </div>
 
-        <div id="rouletteListWrap"></div>
+        <div class="tab-bar" id="rouletteTabBar"></div>
 
         <div class="card" id="rouletteFormCard" style="display:none">
-          <div class="card-title" id="rouletteFormTitle">새 룰렛</div>
-          <label>룰렛 이름</label>
-          <input type="text" id="rlName" placeholder="예: 일반룰렛">
+          <div class="card-title">
+            <input type="text" id="rlName" placeholder="예: 일반룰렛" style="max-width:220px;font-weight:700">
+            <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
+          </div>
           <label>작동 방식</label>
           <select id="rlTriggerMode" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
             <option value="exact">일반 (정확히 X스푼일 때 1회)</option>
@@ -745,30 +754,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="rouletteItemsWrap"></div>
           <button class="btn-gray" style="width:100%;margin-top:6px" onclick="addRouletteItem()">+ 항목 추가</button>
 
-          <div class="btn-row">
-            <button class="btn-gray" onclick="hideRouletteForm()">취소</button>
-            <button class="btn-connect" onclick="saveRouletteForm()">💾 저장</button>
-          </div>
+          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveRouletteForm()">💾 저장</button>
         </div>
       </div>
 
       <div class="panel" data-panel="roulettelog">
-        <div style="display:flex;gap:16px;align-items:flex-start">
-          <div class="card" style="width:260px;flex-shrink:0;padding:16px">
-            <div class="card-title" style="margin-bottom:10px"><span>👥 시청자 기록</span><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="loadRouletteUsers()">🔄</button></div>
-            <div class="chip-input-row" style="margin-bottom:10px">
-              <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()">
-            </div>
-            <div class="chip-input-row" style="margin-bottom:10px">
-              <input type="text" id="rlNewTagInput" placeholder="고유닉 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
-              <button class="btn-connect" onclick="trackRouletteUser()">+ 추가</button>
-            </div>
-            <div id="rlUserListWrap" style="max-height:480px;overflow-y:auto"></div>
+        <div class="card">
+          <div class="card-title"><span>👥 시청자 기록</span><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="loadRouletteUsers()">🔄</button></div>
+          <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:10px">
+          <div class="chip-input-row" style="margin-bottom:12px">
+            <input type="text" id="rlNewTagInput" placeholder="고유닉 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
+            <button class="btn-connect" onclick="trackRouletteUser()">+ 추가</button>
           </div>
-          <div style="flex:1;min-width:0">
-            <div id="rouletteHistoryWrap"><div class="flag-empty">왼쪽에서 시청자를 선택하거나 추가해주세요.</div></div>
-          </div>
+          <div id="rlUserListWrap" class="rl-user-scroll"></div>
         </div>
+        <div id="rouletteHistoryWrap"><div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div></div>
       </div>
       <div class="panel" data-panel="loyalty"><div class="coming-soon"><div class="ic">⭐</div><h3>애청지수</h3><p>청취자별 애청지수 집계 기능은 준비 중이에요.</p></div></div>
       <div class="panel" data-panel="quiz"><div class="coming-soon"><div class="ic">🧩</div><h3>퀴즈 설정</h3><p>실시간 퀴즈 이벤트 기능은 준비 중이에요.</p></div></div>
@@ -1379,7 +1379,7 @@ async function loadDjSettings(){
   greetData=[];
   Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]});
   Object.assign(rouletteData,{list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'});
-  rlUserTags=[]; rlSelectedTag='';
+  rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
   document.getElementById('rouletteHistoryWrap').innerHTML='';
 
   try{
@@ -1799,52 +1799,53 @@ async function saveSrGlobal(){
 let rouletteData={list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'};
 let rlIdSeq=1;
 let rlItemIdSeq=1;
-let rlEditingId=null;
+let rlSelectedId=null;
 let rlEditingItems=[];
 
 function renderRouletteList(){
   document.getElementById('rlHeaderTpl').value=rouletteData.resultHeaderTemplate;
   document.getElementById('rlLowTpl').value=rouletteData.couponLowTemplate;
+  renderRouletteTabBar();
+}
 
-  const wrap=document.getElementById('rouletteListWrap');
-  if(!rouletteData.list.length){
-    wrap.innerHTML='<div class="flag-empty">등록된 룰렛이 없습니다. 상단의 + 버튼을 눌러 새 룰렛을 추가하세요.</div>';
-    return;
+function renderRouletteTabBar(){
+  const bar=document.getElementById('rouletteTabBar');
+  if(rlSelectedId===null && rouletteData.list.length) rlSelectedId=rouletteData.list[0].id;
+  bar.innerHTML = rouletteData.list.map((r,i)=>
+    `<button class="tab-btn ${r.id===rlSelectedId?'active':''}" onclick="switchRouletteTab('${r.id}')">룰렛${i+1}</button>`
+  ).join('') + `<button class="tab-btn" style="border-style:dashed" onclick="addNewRouletteTab()">＋ 새 룰렛</button>`;
+
+  if(rlSelectedId){
+    loadRouletteFormFields(rlSelectedId);
+    document.getElementById('rouletteFormCard').style.display='block';
+  } else {
+    document.getElementById('rouletteFormCard').style.display='none';
   }
-  wrap.innerHTML=rouletteData.list.map((r,i)=>{
-    const itemsPreview=r.items.map(it=>`${escapeHtml(it.name)}(${it.percent}%)`).join(', ');
-    const modeLabel={exact:'일반',combo:'콤보',distribute:'배분'}[r.triggerMode]||'일반';
-    const auto=`${modeLabel} · ${r.triggerAmount}스푼 기준`;
-    return `
-    <div class="flag-card">
-      <div class="flag-card-top">
-        <h4>${i+1}. ${escapeHtml(r.name)} <span class="hint" style="margin:0">(명령어: !룰렛${i+1})</span></h4>
-        <div class="flag-card-actions">
-          <button class="btn-gray" onclick="showRouletteForm('${r.id}')">수정</button>
-          <button class="btn-shield-reset" onclick="deleteRoulette('${r.id}')">삭제</button>
-        </div>
-      </div>
-      <div class="flag-card-sub">항목: ${itemsPreview||'없음'}</div>
-      <div class="flag-card-sub">${auto}</div>
-    </div>`;
-  }).join('');
 }
 
-function showRouletteForm(id){
-  rlEditingId=id||null;
-  const r=id?rouletteData.list.find(x=>x.id===id):null;
-  document.getElementById('rouletteFormTitle').textContent=id?'룰렛 수정':'새 룰렛';
-  document.getElementById('rlName').value=r?r.name:'';
-  document.getElementById('rlTriggerMode').value=r?(r.triggerMode||'exact'):'exact';
-  document.getElementById('rlTriggerAmount').value=r?(r.triggerAmount||10):10;
-  rlEditingItems=r?JSON.parse(JSON.stringify(r.items)):[];
+function switchRouletteTab(id){
+  rlSelectedId=id;
+  renderRouletteTabBar();
+}
+
+function addNewRouletteTab(){
+  if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
+  const idx=rouletteData.list.length+1;
+  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,items:[]};
+  rouletteData.list.push(r);
+  rlSelectedId=r.id;
+  renderRouletteTabBar();
+  saveRouletteGlobal();
+}
+
+function loadRouletteFormFields(id){
+  const r=rouletteData.list.find(x=>x.id===id);
+  if(!r)return;
+  document.getElementById('rlName').value=r.name;
+  document.getElementById('rlTriggerMode').value=r.triggerMode||'exact';
+  document.getElementById('rlTriggerAmount').value=r.triggerAmount||10;
+  rlEditingItems=JSON.parse(JSON.stringify(r.items||[]));
   renderRouletteItems();
-  document.getElementById('rouletteFormCard').style.display='block';
-}
-
-function hideRouletteForm(){
-  document.getElementById('rouletteFormCard').style.display='none';
-  rlEditingId=null;
 }
 
 function renderRouletteItems(){
@@ -1898,21 +1899,19 @@ function saveRouletteForm(){
   const triggerMode=document.getElementById('rlTriggerMode').value;
   const triggerAmount=Number(document.getElementById('rlTriggerAmount').value)||10;
 
-  if(rlEditingId){
-    const r=rouletteData.list.find(x=>x.id===rlEditingId);
-    Object.assign(r,{name,triggerMode,triggerAmount,items:validItems});
-  } else {
-    if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
-    rouletteData.list.push({id:'rl'+(rlIdSeq++),name,triggerMode,triggerAmount,items:validItems});
-  }
-  hideRouletteForm();
-  renderRouletteList();
+  const r=rouletteData.list.find(x=>x.id===rlSelectedId);
+  if(!r)return;
+  Object.assign(r,{name,triggerMode,triggerAmount,items:validItems});
+  renderRouletteTabBar();
   saveRouletteGlobal();
 }
 
-function deleteRoulette(id){
-  rouletteData.list=rouletteData.list.filter(r=>r.id!==id);
-  renderRouletteList();
+function deleteCurrentRoulette(){
+  if(!rlSelectedId)return;
+  if(!confirm('정말 이 룰렛을 삭제하시겠습니까?'))return;
+  rouletteData.list=rouletteData.list.filter(r=>r.id!==rlSelectedId);
+  rlSelectedId=rouletteData.list.length?rouletteData.list[0].id:null;
+  renderRouletteTabBar();
   saveRouletteGlobal();
 }
 
@@ -1920,6 +1919,7 @@ function saveRouletteTemplates(){
   rouletteData.resultHeaderTemplate=document.getElementById('rlHeaderTpl').value;
   rouletteData.couponLowTemplate=document.getElementById('rlLowTpl').value;
   saveRouletteGlobal();
+
   showToast('문구 저장 완료 ✓');
 }
 
@@ -1951,9 +1951,9 @@ function renderRouletteUserList(){
     return;
   }
   wrap.innerHTML=filtered.map(t=>`
-    <div class="nav-item ${t===rlSelectedTag?'active':''}" style="margin:1px 0" onclick="loadRouletteHistory('${escapeAttr(t)}')">
-      <span class="lbl">@${escapeHtml(t)}</span>
-      <button class="icon-btn danger" style="margin-left:auto" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
+    <div class="rl-user-chip ${t===rlSelectedTag?'active':''}" onclick="loadRouletteHistory('${escapeAttr(t)}')">
+      <span>@${escapeHtml(t)}</span>
+      <button class="icon-btn danger" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
     </div>
   `).join('');
 }
@@ -1973,7 +1973,7 @@ async function deleteRouletteUser(tag){
   if(!confirm('@'+tag+'님의 모든 룰렛 기록을 삭제할까요?'))return;
   try{
     await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/delete',{method:'POST',headers:authHeaders()});
-    if(rlSelectedTag===tag){rlSelectedTag='';document.getElementById('rouletteHistoryWrap').innerHTML='<div class="flag-empty">왼쪽에서 시청자를 선택하거나 추가해주세요.</div>';}
+    if(rlSelectedTag===tag){rlSelectedTag='';document.getElementById('rouletteHistoryWrap').innerHTML='<div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div>';}
     await loadRouletteUsers();
   }catch(e){showToast('오류: '+e.message);}
 }
