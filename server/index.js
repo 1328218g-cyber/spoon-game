@@ -497,11 +497,18 @@ function formatKeepMessage(displayName, section, entries, page) {
 }
 
 // 지급 방식 계산: 일반(exact)=정확히 X스푼일 때 1회, 콤보/배분(combo/distribute)=X스푼당 1회(내림)
-function calcAutoGrantCount(mode, triggerAmount, amount) {
+// mode: exact(일반)=단발(콤보X)로 정확히 X스푼일 때만 1회
+//       combo(콤보)=X스푼짜리 아이템을 comboCount번 연속 선물 시 comboCount회
+//       distribute(배분)=총합(amount*comboCount) 안에서 X스푼당 1회 (내림, 단가 무관)
+function calcAutoGrantCount(mode, triggerAmount, amount, comboCount) {
   const X = Number(triggerAmount) || 0
+  const combo = Math.max(1, Number(comboCount) || 1)
   if (X <= 0) return 0
-  if (mode === 'exact') return amount === X ? 1 : 0
-  return Math.floor(amount / X)
+  if (mode === 'exact') return (amount === X && combo === 1) ? 1 : 0
+  if (mode === 'combo') return amount === X ? combo : 0
+  // distribute
+  const total = amount * combo
+  return total >= X ? Math.floor(total / X) : 0
 }
 
 // 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
@@ -676,11 +683,11 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 }
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
-async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount) {
+async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount) {
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length || !amount) return
   const applicable = rl.list
-    .map((rt, i) => ({ rt, idx: i + 1, count: calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount) }))
+    .map((rt, i) => ({ rt, idx: i + 1, count: calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount) }))
     .filter(x => x.count > 0)
   if (!applicable.length) return
 
@@ -817,15 +824,16 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
 
-      } else if (eventName === 'LiveDonation') {
+      } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
         const gen = eventPayload.generator || {}
         const author = eventPayload.nickname || gen.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
-        const amount = Number(eventPayload.amount) || 0
-        broadcast({ type: 'donation', djId, nick: author, amount })
+        const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
+        const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount })
         if (!isLurker) {
-          handleFlagAutoDonation(djId, settings, amount)
-          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount)
+          handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
+          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount)
         }
       }
     } catch (e) {
