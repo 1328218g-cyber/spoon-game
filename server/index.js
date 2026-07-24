@@ -534,6 +534,19 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           }
         }
 
+      } else if (eventName === 'RoomLeave' || eventName === 'RoomExit' || eventName === 'LiveLeave') {
+        const gen = eventPayload.generator || {}
+        const author = gen.nickname || eventPayload.nickname || '?'
+        broadcast({ type: 'leave', djId, nick: author })
+        if (!isLurker) {
+          const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
+          if (msgs.length > 0) {
+            // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
+            const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, '')
+            setTimeout(() => sendChatToRoom(djId, text), 500)
+          }
+        }
+
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const gen = eventPayload.generator || {}
         const author = eventPayload.nickname || gen.nickname || '?'
@@ -650,10 +663,11 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
+  if (leaveMessages) patch.leaveMessages = leaveMessages
   if (entryData) patch.entryData = entryData
   if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
   if (funding) patch.funding = funding

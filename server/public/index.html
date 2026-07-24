@@ -404,7 +404,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
             <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
           </div>
-          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b> 탭만 실제로 채팅에 전송돼요. 퇴장/선물/반복문구는 화면만 먼저 만들어둔 상태예요.</p>
+          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b>·<b>퇴장</b> 탭만 실제로 채팅에 전송돼요. 선물/반복문구는 화면만 먼저 만들어둔 상태예요.</p>
         </div>
       </div>
 
@@ -1238,7 +1238,7 @@ function renderEntryList(){
       <textarea id="entryText-${m.id}" placeholder="메시지 입력..." oninput="updateEntryMsg(${m.id},'text',this.value)">${escapeHtml(m.text)}</textarea>
       <div class="chip-row">
         <span class="chip" onclick="insertEntryVar(${m.id},'{nickname}')">{nickname}</span>
-        <span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>
+        ${entryTab!=='leave'?`<span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>`:''}
         <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
         <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
       </div>
@@ -1333,6 +1333,7 @@ async function loadDjSettings(){
         // 예전 방식(입장멘트/좋아요멘트)으로 저장된 게 있으면 새 구조로 변환
         if(s.joinMessages?.length) entryData.entry = s.joinMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
         if(s.likeMessages?.length) entryData.like = s.likeMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
+        if(s.leaveMessages?.length) entryData.leave = s.leaveMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
       }
       const allIds=[].concat(entryData.entry,entryData.leave,entryData.like,entryData.gift,entryData.repeat).map(m=>m.id).filter(n=>typeof n==='number');
       if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
@@ -1777,12 +1778,13 @@ async function sendChat(){
 }
 
 async function saveSettings(){
-  // 입장/좋아요 탭 = 실제로 채팅에 전송되는 멘트 (퇴장/선물/반복문구는 아직 화면만)
+  // 입장/좋아요/퇴장 탭 = 실제로 채팅에 전송되는 멘트 (선물/반복문구는 아직 화면만)
   const jm=(entryData.entry||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
   const lm=(entryData.like||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
+  const leaveM=(entryData.leave||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
   const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
-    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,entryData,entryCooldown})});
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
