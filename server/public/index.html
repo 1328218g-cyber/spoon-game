@@ -335,7 +335,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="autojoin">
         <div class="card">
           <div class="card-title"><span>🤖 봇 기능</span><label class="switch"><input type="checkbox" id="botEnabledToggle" checked onchange="toggleBotEnabled()"><span class="slider"></span></label></div>
-          <p class="hint">꺼두면 이 계정(sum)은 어떤 명령어에도 반응하지 않는 순수 시청자 모드가 돼요. 방송 사이를 자연스럽게 돌아다니고 싶을 때 꺼두세요.</p>
+          <p class="hint">꺼두면 이 계정은 어떤 명령어에도 반응하지 않는 순수 시청자 모드가 돼요.</p>
         </div>
 
         <div class="card">
@@ -347,7 +347,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
         </div>
 
-        <div class="card">
+        <div class="card" id="watchCard" style="display:none">
           <div class="card-title">다중 감시 (자동)</div>
           <p class="hint" style="margin-bottom:12px">등록한 고유닉 중 누구든 방송을 켜면 자동으로 그 방에 입장해요. (봇 기능이 꺼져있으면 순수 시청만 해요)</p>
           <label>감시할 고유닉 목록 (한 줄에 하나씩)</label>
@@ -357,6 +357,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-gray" onclick="stopWatch()">✋ 감시 중지</button>
           </div>
           <div class="autojoin-status" id="watchStatus">감시 꺼짐</div>
+        </div>
+
+        <div class="coming-soon" id="watchLockedNote" style="display:none">
+          <div class="ic">🔒</div>
+          <h3>다중 감시</h3>
+          <p>여러 고유닉을 등록해서 자동으로 감시하는 기능은<br>관리자가 권한을 켜줘야 사용할 수 있어요.</p>
         </div>
       </div>
 
@@ -686,9 +692,11 @@ function enterApp(){
   const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
-  const autojoinPanel=document.querySelector('.panel[data-panel="autojoin"]');
-  if(autojoinNav) autojoinNav.style.display = canAutoJoin ? '' : 'none';
-  if(autojoinPanel) autojoinPanel.style.display = canAutoJoin ? '' : 'none';
+  if(autojoinNav) autojoinNav.style.display = '';
+  const watchCard=document.getElementById('watchCard');
+  if(watchCard) watchCard.style.display = canAutoJoin ? '' : 'none';
+  const watchLockedNote=document.getElementById('watchLockedNote');
+  if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   if(isAdmin) loadUserList();
 
   initApp();

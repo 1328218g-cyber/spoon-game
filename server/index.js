@@ -623,7 +623,6 @@ app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
 })
 
 app.post('/autojoin', auth.requireAuth, async (req, res) => {
-  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
   const { tag } = req.body || {}
   const djId = req.djId
   const room = getRoom(djId)
@@ -661,7 +660,6 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 // 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
 // (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
 app.post('/room/leave', auth.requireAuth, (req, res) => {
-  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
   const djId = req.djId
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
