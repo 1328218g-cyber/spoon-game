@@ -1513,10 +1513,11 @@ async function loadUserList(){
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
+        <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML=`<table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }catch(e){
@@ -1538,6 +1539,16 @@ async function toggleBlockUser(djIdTarget,blocked){
     const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/block',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blocked})});
     const d=await res.json();
     if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteUser(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정을 완전히 삭제할까요?\n가입정보와 모든 설정이 사라지고 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('삭제했어요');loadUserList();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -2204,4 +2215,6 @@ function updateAutoJoinStatus(d){
   else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
   else if(d.status==='error')el.textContent='❌ '+d.msg;
 }
-</scr
+</script>
+</body>
+</html>
