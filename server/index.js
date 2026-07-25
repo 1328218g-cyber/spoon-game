@@ -745,10 +745,15 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
 const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지
 const LEAVE_ABSENCE_THRESHOLD = 1   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1=즉시)
 
-function registerJoinSnapshot(room, nickname, tag) {
+function registerJoinSnapshot(room, nickname, tag, prevKey) {
   if (!room._lastLiveMembers) return
   const key = (tag || nickname || '').toString().toLowerCase()
   if (!key) return
+  // 태그가 나중에 확인되면서 키가 바뀌는 경우, 이전 닉네임 기준 키는 지워서 중복 등록(유령 엔트리) 방지
+  if (prevKey && prevKey !== key) {
+    room._lastLiveMembers.delete(prevKey)
+    if (room._memberAbsenceCount) room._memberAbsenceCount.delete(prevKey)
+  }
   room._lastLiveMembers.set(key, { nickname, tag: tag || null })
   if (room._memberAbsenceCount) room._memberAbsenceCount.delete(key)
 }
@@ -896,11 +901,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'join', djId, nick: author })
 
         // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머문 유저도 잡히도록)
+        const joinSnapshotKey = author.toString().toLowerCase()
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
           const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
-          if (tag) registerJoinSnapshot(room, author, tag) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신
+          if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
           if (greeting) {
