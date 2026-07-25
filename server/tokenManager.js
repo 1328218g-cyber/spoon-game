@@ -25,6 +25,15 @@ let refreshing = false;
 let onTokenUpdate = null;          // 토큰 갱신 성공 시 콜백 (index.js에서 등록)
 let onSessionExpired = null;       // 세션 만료(재로그인 필요) 감지 시 콜백
 
+// accessToken 갱신용 크롬과 roomToken 발급용 크롬이 동시에 뜨면
+// Railway의 적은 메모리로는 크롬이 죽어버릴 수 있다. 그래서 항상 하나씩만 실행되도록 줄 세운다.
+let puppeteerQueue = Promise.resolve();
+function withPuppeteerLock(fn) {
+  const run = puppeteerQueue.then(() => fn());
+  puppeteerQueue = run.catch(() => {}); // 실패해도 다음 작업은 계속 진행되게
+  return run;
+}
+
 function persistToDisk() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -94,6 +103,12 @@ function hasCookies() {
   return !!(sessionCookies && sessionCookies.length > 0);
 }
 
+// WebSocket 핸드셰이크 등에서 실제 브라우저처럼 Cookie 헤더를 그대로 실어 보내기 위한 문자열
+function getCookieHeader() {
+  if (!sessionCookies || !sessionCookies.length) return '';
+  return sessionCookies.map(c => `${c.name}=${c.value}`).join('; ');
+}
+
 function getAccessToken() {
   return currentAccessToken;
 }
@@ -134,7 +149,10 @@ async function fetchRoomToken(liveId) {
     console.log('[tokenManager] roomToken 발급 실패: 세션 쿠키 없음');
     return null;
   }
+  return withPuppeteerLock(() => fetchRoomTokenInner(liveId));
+}
 
+async function fetchRoomTokenInner(liveId) {
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -221,7 +239,14 @@ async function refreshAccessToken() {
   }
   if (refreshing) return currentAccessToken;
   refreshing = true;
+  try {
+    return await withPuppeteerLock(() => refreshAccessTokenInner());
+  } finally {
+    refreshing = false;
+  }
+}
 
+async function refreshAccessTokenInner() {
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -260,7 +285,6 @@ async function refreshAccessToken() {
     return null;
   } finally {
     if (browser) { try { await browser.close(); } catch (_) {} }
-    refreshing = false;
   }
 }
 
@@ -277,6 +301,7 @@ function stopAutoRefresh() {
 module.exports = {
   setCookies,
   hasCookies,
+  getCookieHeader,
   getAccessToken,
   fetchRoomToken,
   refreshAccessToken,
