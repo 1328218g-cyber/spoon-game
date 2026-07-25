@@ -19,7 +19,7 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', checking: false, liveDjUserId: null }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null }
   }
   return rooms[djId]
 }
@@ -1035,10 +1035,24 @@ async function checkAdminAutoJoin() {
 
     const room = getRoom(djId)
     if (room.checking) continue
-    if (room.isConnected && room.autoJoinedFor) continue // 이미 어딘가 들어가 있으면 유지
     room.checking = true
 
     try {
+      // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지 확인만 하고 유지 (끝났으면 연결 해제)
+      if (room.isConnected && room.watchingTag) {
+        const cur = await fetchUserStatusByTag(room.watchingTag)
+        if (!cur || !cur.is_live || !cur.current_live_id) {
+          console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
+          if (room.ws) { room.ws.terminate(); room.ws = null }
+          room.isConnected = false
+          room.autoJoinedFor = ''
+          room.watchingTag = ''
+          broadcast({ type: 'status', djId, isConnected: false })
+          broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
+        }
+        continue
+      }
+
       for (const tag of tagList) {
         const status = await fetchUserStatusByTag(tag)
         if (status && status.is_live && status.current_live_id) {
@@ -1046,6 +1060,7 @@ async function checkAdminAutoJoin() {
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
           const roomToken = await tokenManager.fetchRoomToken(liveId)
           room.autoJoinedFor = liveId
+          room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
           broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
           break
@@ -1112,6 +1127,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     const liveId = String(status.current_live_id)
     const roomToken = await tokenManager.fetchRoomToken(liveId)
     room.autoJoinedFor = liveId
+    room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
     broadcast({ type: 'autojoin', djId, status: 'joined', tag: cleanTag, liveId })
     res.json({ success: true, msg: `@${cleanTag} 방 입장 완료` })
@@ -1128,6 +1144,8 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
   room.isConnected = false
+  room.autoJoinedFor = ''
+  room.watchingTag = ''
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
