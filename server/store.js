@@ -138,6 +138,14 @@ function setBlocked(djId, blocked) {
   return true;
 }
 
+function deleteDj(djId) {
+  const djs = loadDjs();
+  if (!djs[djId]) return false;
+  delete djs[djId];
+  saveDjs(djs);
+  return true;
+}
+
 function isBlocked(djId) {
   const djs = loadDjs();
   return !!(djs[djId] && djs[djId].blocked);
@@ -198,6 +206,7 @@ module.exports = {
   listDjIds,
   listDjSummaries,
   setBlocked,
+  deleteDj,
   isBlocked,
   setAutoJoinEnabled,
   getAutoJoinEnabled,

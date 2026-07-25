@@ -915,6 +915,18 @@ app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 삭제할 수 없어요' })
+  const room = getRoom(targetId)
+  if (room.ws) { room.ws.terminate() }
+  delete rooms[targetId]
+  const ok = store.deleteDj(targetId)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
 app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
