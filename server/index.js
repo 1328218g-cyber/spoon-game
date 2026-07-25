@@ -90,6 +90,32 @@ async function fetchUserTag(liveId, userId, accessToken) {
   }
 }
 
+// 방송 실시간 시청자 명단 조회 (퇴장 감지용 폴링에 사용) — 스푼은 퇴장 소켓 이벤트를 보내지 않음
+async function fetchLiveMembers(liveId, accessToken) {
+  if (!liveId || !accessToken) return []
+  try {
+    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/members/`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+      }
+    })
+    const json = await res.json()
+    const members = json.results || []
+    return members.map(m => {
+      let tag = m.tag || m.tag_name || m.username || m.id_name || null
+      let nickname = m.nickname || m.name || m.display_name || null
+      if (tag) tag = String(tag).replace('@', '').trim()
+      if (!tag && !nickname) return null
+      return { tag, nickname: nickname || tag }
+    }).filter(Boolean)
+  } catch (e) {
+    console.log('[fetchLiveMembers 오류]', e.message)
+    return []
+  }
+}
+
 async function fetchLiveInfo(liveId, accessToken) {
   try {
     const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
@@ -713,6 +739,90 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 🚪 퇴장 감지 폴링 — 스푼은 소켓으로 퇴장 이벤트를 보내지 않으므로,
+// 시청자 명단 API를 주기적으로 조회해서 직전 스냅샷과 비교하는 방식으로 판정한다.
+const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지
+const LEAVE_ABSENCE_THRESHOLD = 1   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1=즉시)
+
+function registerJoinSnapshot(room, nickname, tag) {
+  if (!room._lastLiveMembers) return
+  const key = (tag || nickname || '').toString().toLowerCase()
+  if (!key) return
+  room._lastLiveMembers.set(key, { nickname, tag: tag || null })
+  if (room._memberAbsenceCount) room._memberAbsenceCount.delete(key)
+}
+
+function sendLeaveMessage(djId, settings, nickname) {
+  broadcast({ type: 'leave', djId, nick: nickname })
+  if (settings.botEnabled === false) return
+  const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
+  if (msgs.length > 0) {
+    // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
+    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, '')
+    setTimeout(() => sendChatToRoom(djId, text), 500)
+  }
+}
+
+function startLeavePolling(djId, liveId) {
+  const room = getRoom(djId)
+  stopLeavePolling(djId)
+  room._lastLiveMembers = new Map()
+  room._memberAbsenceCount = new Map()
+  room._leavePollInFlight = false
+
+  room._leavePollTimer = setInterval(async () => {
+    if (room._leavePollInFlight) return
+    room._leavePollInFlight = true
+    try {
+      const accessToken = tokenManager.getAccessToken()
+      const users = await fetchLiveMembers(liveId, accessToken)
+      if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
+
+      const currentMembers = new Map()
+      for (const u of users) {
+        const key = (u.tag || u.nickname || '').toString().toLowerCase()
+        if (!key) continue
+        currentMembers.set(key, u)
+      }
+
+      const leftCandidates = []
+      for (const [key, info] of room._lastLiveMembers.entries()) {
+        if (currentMembers.has(key)) {
+          room._memberAbsenceCount.delete(key)
+        } else {
+          const absent = (room._memberAbsenceCount.get(key) || 0) + 1
+          room._memberAbsenceCount.set(key, absent)
+          if (absent >= LEAVE_ABSENCE_THRESHOLD) leftCandidates.push({ key, info })
+        }
+      }
+
+      for (const { key, info } of leftCandidates) {
+        room._lastLiveMembers.delete(key)
+        room._memberAbsenceCount.delete(key)
+        const settings = store.getSettings(djId) || {}
+        sendLeaveMessage(djId, settings, info.nickname)
+      }
+
+      for (const [key, info] of currentMembers.entries()) {
+        room._lastLiveMembers.set(key, info)
+      }
+    } catch (e) {
+      console.log(`[${djId}] 퇴장감지 폴링 오류`, e.message)
+    } finally {
+      room._leavePollInFlight = false
+    }
+  }, LEAVE_POLL_MS)
+}
+
+function stopLeavePolling(djId) {
+  const room = getRoom(djId)
+  if (room._leavePollTimer) {
+    clearInterval(room._leavePollTimer)
+    room._leavePollTimer = null
+  }
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -746,6 +856,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       }))
     }
     broadcast({ type: 'status', djId, isConnected: true })
+    // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
+    startLeavePolling(djId, liveId)
   })
 
   ws.on('message', async (data) => {
@@ -783,8 +895,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'join', djId, nick: author })
 
+        // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머문 유저도 잡히도록)
+        registerJoinSnapshot(room, author, null)
+
         if (!isLurker) {
           const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+          if (tag) registerJoinSnapshot(room, author, tag) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
           if (greeting) {
@@ -796,19 +912,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
-          }
-        }
-
-      } else if (eventName === 'RoomLeave' || eventName === 'RoomExit' || eventName === 'LiveLeave') {
-        const gen = eventPayload.generator || {}
-        const author = gen.nickname || eventPayload.nickname || '?'
-        broadcast({ type: 'leave', djId, nick: author })
-        if (!isLurker) {
-          const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
-          if (msgs.length > 0) {
-            // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
-            const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, '')
-            setTimeout(() => sendChatToRoom(djId, text), 500)
           }
         }
 
@@ -845,6 +948,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[${djId}] 스푼 연결 종료 code:`, code)
     room.isConnected = false
     room.ws = null
+    stopLeavePolling(djId)
     broadcast({ type: 'status', djId, isConnected: false })
   })
 
@@ -1047,6 +1151,7 @@ async function checkAdminAutoJoin() {
           room.isConnected = false
           room.autoJoinedFor = ''
           room.watchingTag = ''
+          stopLeavePolling(djId)
           broadcast({ type: 'status', djId, isConnected: false })
           broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
         }
@@ -1146,6 +1251,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.isConnected = false
   room.autoJoinedFor = ''
   room.watchingTag = ''
+  stopLeavePolling(djId)
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
