@@ -15,6 +15,11 @@ const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+// ⚠️ 지금은 djId별 멀티 계정 대신, 모든 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
+// (tokenManager 자체는 계속 djId 기반 멀티 계정을 지원하므로, 나중에 다시 DJ별로 나누고 싶으면
+//  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
+const SHARED_TOKEN_DJID = 'sum'
+
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
 const rooms = {}
 function getRoom(djId) {
@@ -28,11 +33,11 @@ let sseClients = []
 
 // ══════════════════════════════════════════════════════
 // 세션 쿠키 기반 accessToken 자동 갱신 (스푼 계정은 단비님 것 하나만 공용으로 사용)
-tokenManager.setOnTokenUpdate(() => {
-  broadcast({ type: 'session', status: 'connected' })
+tokenManager.setOnTokenUpdate((djId) => {
+  broadcast({ type: 'session', djId, status: 'connected' })
 })
-tokenManager.setOnSessionExpired(() => {
-  broadcast({ type: 'session', status: 'expired' })
+tokenManager.setOnSessionExpired((djId) => {
+  broadcast({ type: 'session', djId, status: 'expired' })
 })
 
 function broadcast(data) {
@@ -140,7 +145,7 @@ async function fetchLiveInfo(liveId, accessToken) {
 
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
-  const accessToken = tokenManager.getAccessToken()
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   if (!room.streamName || !accessToken) return
   try {
     const headers = {
@@ -371,7 +376,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   let response = cmd.response || ''
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
   }
   // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
@@ -550,7 +555,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     const keepKey = tag || author
     const rec = getHistoryRec(settings, keepKey)
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
@@ -594,7 +599,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     const keepKey = tag || author
     const rec = getHistoryRec(settings, keepKey)
     const field = SECTION_FIELD[section]
@@ -674,7 +679,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
   if (!tag) return
   const hist = getHistoryRec(settings, tag)
   let resultDelay = 400
@@ -717,7 +722,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
     .filter(x => x.count > 0)
   if (!applicable.length) return
 
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
   const hist = tag ? getHistoryRec(settings, tag) : null
   let changed = false
 
@@ -780,7 +785,7 @@ function startLeavePolling(djId, liveId) {
     if (room._leavePollInFlight) return
     room._leavePollInFlight = true
     try {
-      const accessToken = tokenManager.getAccessToken()
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
       const users = await fetchLiveMembers(liveId, accessToken)
       if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
 
@@ -832,7 +837,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
-  const accessToken = tokenManager.getAccessToken()
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
@@ -905,7 +910,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
@@ -928,7 +933,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'like', djId, nick: author })
         const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken())
+          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
@@ -1133,10 +1138,9 @@ app.post('/settings', auth.requireAuth, (req, res) => {
 
 // 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
 async function checkAdminAutoJoin() {
-  if (!tokenManager.getAccessToken()) return
-
   for (const djId of store.listDjIds()) {
     if (!canAutoJoin(djId)) continue
+    if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) continue // 관리자 계정에 아직 발급된 토큰이 없으면 건너뜀
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
@@ -1169,7 +1173,7 @@ async function checkAdminAutoJoin() {
         if (status && status.is_live && status.current_live_id) {
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(liveId)
+          const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -1221,8 +1225,8 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
-  if (!tokenManager.getAccessToken()) {
-    return res.json({ success: false, error: '스푼 세션이 아직 준비되지 않았어요. 관리자에게 문의해주세요.' })
+  if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
+    return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
 
   store.saveSettings(djId, { autoJoinTag: cleanTag })
@@ -1236,7 +1240,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     }
 
     const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(liveId)
+    const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -1268,8 +1272,8 @@ app.get('/status', auth.requireAuth, (req, res) => {
   res.json({
     isConnected: room.isConnected,
     autoJoinTag: settings?.autoJoinTag || '',
-    hasSession: tokenManager.hasCookies(),
-    hasToken: !!tokenManager.getAccessToken(),
+    hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
+    hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID),
   })
 })
 
@@ -1281,21 +1285,22 @@ app.post('/chat', auth.requireAuth, async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 스푼 세션 쿠키 업로드 — 단비님(관리자) 전용.
-// Railway 환경변수 ADMIN_KEY를 설정하면 x-admin-key 헤더가 필요해진다.
-app.post('/session/upload', auth.requireAdmin, (req, res) => {
+// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에만 연결된다. (djId별 멀티 계정 구조)
+// ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
+app.post('/session/upload', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies({ cookies, localStorage, sessionStorage })
-  tokenManager.startAutoRefresh(30)
-  console.log(`[세션] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
+  tokenManager.startAutoRefresh(SHARED_TOKEN_DJID, 30)
+  console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
 
-app.get('/session/status', (req, res) => {
-  res.json({ hasSession: tokenManager.hasCookies(), hasToken: !!tokenManager.getAccessToken() })
+app.get('/session/status', auth.requireAuth, (req, res) => {
+  res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
 })
 
 app.get('/events', (req, res) => {
@@ -1314,9 +1319,10 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
-  // 디스크에 저장된 세션(Volume)이 있으면 불러와서 자동 갱신을 바로 재개한다.
-  if (tokenManager.initFromDisk()) {
-    console.log('[세션] 저장된 세션 발견 → accessToken 자동 갱신 재개')
-    tokenManager.startAutoRefresh(30)
+  // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
+  const loadedDjIds = tokenManager.initFromDisk()
+  if (loadedDjIds.length) {
+    console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
+    tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
   }
 })
