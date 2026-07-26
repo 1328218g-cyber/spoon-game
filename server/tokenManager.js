@@ -175,12 +175,20 @@ function setCookies(djId, data) {
     a.cookies = sanitizeCookies(data)
     a.localStorage = null
     a.sessionStorage = null
-    persistToDisk()
-    return
+  } else {
+    a.cookies = sanitizeCookies(data && data.cookies)
+    a.localStorage = (data && data.localStorage) || null
+    a.sessionStorage = (data && data.sessionStorage) || null
   }
-  a.cookies = sanitizeCookies(data && data.cookies)
-  a.localStorage = (data && data.localStorage) || null
-  a.sessionStorage = (data && data.sessionStorage) || null
+  // 업로드된 쿠키 안에 이미 최신 accessToken(spoon_at_kr)이 들어있으면,
+  // Puppeteer를 다시 띄워 재확인할 필요 없이 그 값을 바로 사용한다.
+  // (PC의 2_auto_sync.js처럼 이미 갱신된 세션을 올려주는 경우 특히 유용 — 서버 쪽 Chrome 실행 횟수를 줄여줌)
+  const atCookie = (a.cookies || []).find(c => c.name === 'spoon_at_kr')
+  if (atCookie && atCookie.value) {
+    a.accessToken = atCookie.value
+    console.log(`[tokenManager:${djId}] ✅ 업로드된 쿠키에서 accessToken 즉시 반영 (Puppeteer 재확인 생략)`)
+    if (onTokenUpdate) onTokenUpdate(djId, a.accessToken)
+  }
   persistToDisk()
 }
 
@@ -356,6 +364,16 @@ function stopAutoRefresh(djId) {
   if (a && a.refreshTimer) { clearInterval(a.refreshTimer); a.refreshTimer = null }
 }
 
+// startAutoRefresh와 달리, 이미 타이머가 돌고 있으면 건드리지 않는다(=즉시 재실행 안 함).
+// PC 자동동기화(2_auto_sync.js)가 자주(예: 25분마다) 세션을 올려주는 경우, 그때마다 서버가
+// 매번 Puppeteer를 재실행하면 자원 소모가 커지므로, 이 함수는 "혹시 PC 쪽이 멈췄을 때를 대비한
+// 백업용 타이머"만 최초 1회 걸어두는 용도로 쓴다.
+function ensureAutoRefresh(djId, intervalMinutes = 10) {
+  const a = getAccount(djId)
+  if (a.refreshTimer) return // 이미 돌고 있으면 그대로 둠
+  a.refreshTimer = setInterval(() => refreshAccessToken(djId), intervalMinutes * 60 * 1000)
+}
+
 // 서버 시작 시: initFromDisk()가 돌려준 djId 목록 전부에 대해 자동 갱신을 시작하는 헬퍼
 function startAutoRefreshForAll(djIds, intervalMinutes = 10) {
   djIds.forEach(djId => startAutoRefresh(djId, intervalMinutes))
@@ -370,6 +388,7 @@ module.exports = {
   refreshAccessToken,
   startAutoRefresh,
   stopAutoRefresh,
+  ensureAutoRefresh,
   startAutoRefreshForAll,
   setOnTokenUpdate,
   setOnSessionExpired,

@@ -1294,7 +1294,9 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
   tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
-  tokenManager.startAutoRefresh(SHARED_TOKEN_DJID, 30)
+  // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
+  // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
+  tokenManager.ensureAutoRefresh(SHARED_TOKEN_DJID, 180)
   console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
