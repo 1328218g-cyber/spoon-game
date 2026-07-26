@@ -250,6 +250,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   .content{padding:18px 16px 60px}
   .topbar{padding:14px 16px}
 }
+
+/* ── 스티커 선택 모달 (룰렛: 지정 스티커) ── */
+.sticker-modal-box{width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.sticker-toolbar{display:flex;gap:8px;margin-bottom:12px}
+.sticker-toolbar select{flex:0 0 140px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 10px;color:var(--text);font-size:13px}
+.sticker-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;padding-right:2px}
+.sticker-card{position:relative;background:var(--bg);border:2px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;text-align:center;transition:all .15s}
+.sticker-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.sticker-card.selected{border-color:var(--accent)}
+.sticker-card img{width:56px;height:56px;object-fit:contain;margin:0 auto 6px;display:block}
+.sticker-card .sname{font-size:10.5px;font-weight:700;color:var(--text);line-height:1.3;min-height:26px;word-break:break-all}
+.sticker-card .sprice{font-size:9.5px;color:var(--accent);font-weight:700;margin-top:3px}
+.sticker-preview-chip{display:none;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:6px 10px;margin-top:8px}
+.sticker-preview-chip img{width:28px;height:28px;object-fit:contain}
+.sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 </head>
 <body>
@@ -720,7 +735,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="roulette">
         <div class="card">
           <div class="card-title"><span>🎡 룰렛 시스템 설정</span></div>
-          <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급).</p>
+          <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받거나, 지정한 스티커를 선물 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급).</p>
         </div>
 
         <div class="card">
@@ -742,13 +757,32 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
           </div>
           <label>작동 방식</label>
-          <select id="rlTriggerMode" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
+          <select id="rlTriggerMode" onchange="updateRouletteTriggerUI()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
             <option value="exact">일반 (단발로 정확히 X스푼일 때만 1회)</option>
             <option value="combo">콤보 (X스푼짜리를 N번 연속 선물 시 N회)</option>
             <option value="distribute">배분 (콤보 포함 총액이 X스푼 넘을 때마다 1회)</option>
+            <option value="sticker">🎀 지정 스티커 (해당 스티커를 선물하면 실행)</option>
           </select>
-          <label>기준 스푼 (X)</label>
-          <input type="number" id="rlTriggerAmount" value="10" min="1">
+          <p class="hint" id="rlTriggerDesc">기준 스푼(X)만큼 선물이 들어오면 설정한 지급 방식대로 룰렛이 실행돼요.</p>
+
+          <div id="rlAmountField">
+            <label>기준 스푼 (X)</label>
+            <input type="number" id="rlTriggerAmount" value="10" min="1">
+          </div>
+
+          <div id="rlStickerField" style="display:none">
+            <label>대상 스티커</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="rlTriggerSticker" placeholder="스티커 이름 검색 또는 직접 입력" oninput="handleRlStickerInput(this.value)" autocomplete="off">
+              <button type="button" class="btn-gray" style="white-space:nowrap;padding:11px 14px" onclick="openRlStickerPicker()">🖼️ 스티커 선택</button>
+            </div>
+            <div id="rlStickerSearchResults" style="display:none;position:relative;z-index:5;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(20,20,40,.1)"></div>
+            <div class="sticker-preview-chip" id="rlStickerPreview">
+              <img id="rlStickerPreviewImg" src="">
+              <span id="rlStickerPreviewTitle"></span>
+            </div>
+            <p class="hint">스푼 공식 스티커 목록에서 골라도 되고, 이름을 직접 입력해도 돼요. 콤보로 같은 스티커를 연속 선물하면 그 횟수만큼 룰렛이 실행돼요.</p>
+          </div>
 
           <label style="margin-top:14px">🎰 룰렛 항목 (이름 / 확률%)</label>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
@@ -762,6 +796,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-gray" style="width:100%;margin-top:6px" onclick="addRouletteItem()">+ 항목 추가</button>
 
           <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveRouletteForm()">💾 저장</button>
+        </div>
+      </div>
+
+      <!-- 스티커 선택 모달 (룰렛 전용) -->
+      <div id="rlStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeRlStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 스티커 선택</span><button class="icon-btn" onclick="closeRlStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="rlStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderRlStickerPicker()" style="flex:1">
+            <select id="rlStickerPickerCategory" onchange="renderRlStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div class="hint" id="rlStickerPickerCount" style="margin:0 0 8px">0개</div>
+          <div class="sticker-grid" id="rlStickerPickerGrid"></div>
         </div>
       </div>
 
@@ -1826,6 +1875,151 @@ let rlItemIdSeq=1;
 let rlSelectedId=null;
 let rlEditingItems=[];
 
+/* ── 룰렛: 지정 스티커 선택용 (스푼 공식 스티커 목록) ── */
+let rlStickerData=[];
+let rlStickerLoadPromise=null;
+
+async function loadRlStickerData(){
+  if(rlStickerData.length) return rlStickerData;
+  if(rlStickerLoadPromise) return rlStickerLoadPromise;
+  rlStickerLoadPromise=(async()=>{
+    try{
+      const res=await fetch('https://static.spooncast.net/kr/stickers/index.json');
+      const data=await res.json();
+      const list=[];
+      (data.categories||[]).forEach(cat=>{
+        if(cat.is_used===false) return;
+        (cat.stickers||[]).forEach(s=>{
+          if(s.is_used===false) return;
+          if(s.end_date){
+            try{ if(new Date(s.end_date) < new Date()) return; }catch(e){}
+          }
+          list.push({
+            name:s.name,
+            title:s.title||s.name,
+            image:s.image_thumbnail_web||s.image_thumbnail||s.image_url_web||'',
+            price:s.price||0,
+            category:cat.title||cat.name||''
+          });
+        });
+      });
+      rlStickerData=list;
+    }catch(e){
+      console.log('[스티커 목록 로드 실패]',e.message);
+    }
+    return rlStickerData;
+  })();
+  return rlStickerLoadPromise;
+}
+
+function updateRouletteTriggerUI(){
+  const mode=document.getElementById('rlTriggerMode').value;
+  const isSticker=mode==='sticker';
+  document.getElementById('rlAmountField').style.display=isSticker?'none':'block';
+  document.getElementById('rlStickerField').style.display=isSticker?'block':'none';
+
+  const descEl=document.getElementById('rlTriggerDesc');
+  if(mode==='exact') descEl.textContent='정확히 X스푼짜리 선물을 단발(콤보X)로 받았을 때만 1회 실행돼요.';
+  else if(mode==='combo') descEl.textContent='X스푼짜리 선물을 N번 연속(콤보)으로 받으면 N회 실행돼요.';
+  else if(mode==='distribute') descEl.textContent='콤보를 포함한 총 선물 금액이 X스푼을 넘을 때마다 1회씩 실행돼요. (내림 계산)';
+  else descEl.textContent='지정한 스티커를 선물 받으면 실행돼요. 콤보로 연속 선물하면 그 횟수만큼 실행돼요.';
+
+  if(isSticker) loadRlStickerData();
+}
+
+function handleRlStickerInput(val){
+  const resDiv=document.getElementById('rlStickerSearchResults');
+  if(!val){ resDiv.style.display='none'; return; }
+  loadRlStickerData().then(()=>{
+    const q=val.toLowerCase();
+    const results=rlStickerData.filter(s=>s.name.toLowerCase().includes(q)||s.title.toLowerCase().includes(q)).slice(0,20);
+    if(!results.length){ resDiv.style.display='none'; return; }
+    resDiv.innerHTML=results.map(s=>`
+      <div onclick="selectRlSticker('${escapeAttr(s.name)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border)">
+        <img src="${escapeAttr(s.image)}" style="width:28px;height:28px;object-fit:contain" onerror="this.style.visibility='hidden'">
+        <div style="flex:1">
+          <div style="font-size:12.5px;font-weight:700">${escapeHtml(s.title)}</div>
+          <div style="font-size:10.5px;color:var(--muted)">${s.price}스푼</div>
+        </div>
+      </div>
+    `).join('');
+    resDiv.style.display='block';
+  });
+}
+
+function selectRlSticker(name){
+  document.getElementById('rlTriggerSticker').value=name;
+  document.getElementById('rlStickerSearchResults').style.display='none';
+  updateRlStickerPreview();
+}
+
+function updateRlStickerPreview(){
+  const curName=(document.getElementById('rlTriggerSticker').value||'').trim();
+  const preview=document.getElementById('rlStickerPreview');
+  const img=document.getElementById('rlStickerPreviewImg');
+  const title=document.getElementById('rlStickerPreviewTitle');
+  if(!curName){ preview.style.display='none'; return; }
+  const match=rlStickerData.find(s=>s.name===curName||s.title===curName);
+  if(match){
+    img.src=match.image||'';
+    title.textContent=match.title||match.name;
+  } else {
+    img.src='';
+    title.textContent=curName+' (직접 입력)';
+  }
+  preview.style.display='flex';
+}
+
+async function openRlStickerPicker(){
+  document.getElementById('rlStickerModalOverlay').style.display='flex';
+  document.getElementById('rlStickerPickerSearch').value='';
+  await loadRlStickerData();
+  const catSelect=document.getElementById('rlStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderRlStickerPicker();
+}
+
+function closeRlStickerPicker(){
+  document.getElementById('rlStickerModalOverlay').style.display='none';
+}
+
+function renderRlStickerPicker(){
+  const grid=document.getElementById('rlStickerPickerGrid');
+  const countEl=document.getElementById('rlStickerPickerCount');
+  const keyword=(document.getElementById('rlStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('rlStickerPickerCategory').value;
+
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+
+  const curName=(document.getElementById('rlTriggerSticker').value||'').trim();
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const isSelected=s.name===curName||s.title===curName;
+    const card=document.createElement('div');
+    card.className='sticker-card'+(isSelected?' selected':'');
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>{
+      selectRlSticker(s.name);
+      closeRlStickerPicker();
+    });
+    grid.appendChild(card);
+  });
+}
+
 function renderRouletteList(){
   document.getElementById('rlHeaderTpl').value=rouletteData.resultHeaderTemplate;
   document.getElementById('rlLowTpl').value=rouletteData.couponLowTemplate;
@@ -1855,7 +2049,7 @@ function switchRouletteTab(id){
 function addNewRouletteTab(){
   if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
   const idx=rouletteData.list.length+1;
-  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,items:[]};
+  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,triggerSticker:'',items:[]};
   rouletteData.list.push(r);
   rlSelectedId=r.id;
   renderRouletteTabBar();
@@ -1868,6 +2062,9 @@ function loadRouletteFormFields(id){
   document.getElementById('rlName').value=r.name;
   document.getElementById('rlTriggerMode').value=r.triggerMode||'exact';
   document.getElementById('rlTriggerAmount').value=r.triggerAmount||10;
+  document.getElementById('rlTriggerSticker').value=r.triggerSticker||'';
+  updateRouletteTriggerUI();
+  updateRlStickerPreview();
   rlEditingItems=JSON.parse(JSON.stringify(r.items||[]));
   renderRouletteItems();
 }
@@ -1922,10 +2119,12 @@ function saveRouletteForm(){
   if(!validItems.length)return showToast('룰렛 항목을 1개 이상 등록해주세요');
   const triggerMode=document.getElementById('rlTriggerMode').value;
   const triggerAmount=Number(document.getElementById('rlTriggerAmount').value)||10;
+  const triggerSticker=document.getElementById('rlTriggerSticker').value.trim();
+  if(triggerMode==='sticker' && !triggerSticker) return showToast('대상 스티커를 선택하거나 입력해주세요');
 
   const r=rouletteData.list.find(x=>x.id===rlSelectedId);
   if(!r)return;
-  Object.assign(r,{name,triggerMode,triggerAmount,items:validItems});
+  Object.assign(r,{name,triggerMode,triggerAmount,triggerSticker,items:validItems});
   renderRouletteTabBar();
   saveRouletteGlobal();
 }

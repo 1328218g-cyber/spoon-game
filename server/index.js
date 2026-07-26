@@ -542,6 +542,18 @@ function calcAutoGrantCount(mode, triggerAmount, amount, comboCount) {
   return total >= X ? Math.floor(total / X) : 0
 }
 
+// 지정 스티커 매칭: 선물로 들어온 스티커 이름이 등록해둔 이름과 같거나 일부만 포함돼도 매칭.
+// (콤보로 같은 스티커를 여러 번 연속 선물하면 그 횟수만큼 실행)
+function checkStickerTrigger(triggerSticker, sticker, comboCount) {
+  const target = String(triggerSticker || '').trim().toLowerCase()
+  const current = String(sticker || '').trim().toLowerCase()
+  if (!target || !current) return 0
+  if (current === target || current.includes(target)) {
+    return Math.max(1, Number(comboCount) || 1)
+  }
+  return 0
+}
+
 // 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
 // !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
 // !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
@@ -714,11 +726,17 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 }
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
-async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount) {
+// sticker: 선물로 들어온 스티커 이름 (지정 스티커 트리거용, 없으면 빈 문자열)
+async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
   const rl = settings.roulette
-  if (!rl || !rl.list || !rl.list.length || !amount) return
+  if (!rl || !rl.list || !rl.list.length) return
   const applicable = rl.list
-    .map((rt, i) => ({ rt, idx: i + 1, count: calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount) }))
+    .map((rt, i) => {
+      const count = rt.triggerMode === 'sticker'
+        ? checkStickerTrigger(rt.triggerSticker, sticker, comboCount)
+        : calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount)
+      return { rt, idx: i + 1, count }
+    })
     .filter(x => x.count > 0)
   if (!applicable.length) return
 
@@ -944,10 +962,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id) : null
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount })
+        const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker })
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
-          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount)
+          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker)
         }
       }
     } catch (e) {
