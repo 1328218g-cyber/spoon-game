@@ -1887,6 +1887,7 @@ async function loadRlStickerData(){
       const res=await fetch('https://static.spooncast.net/kr/stickers/index.json');
       const data=await res.json();
       const list=[];
+      const now=new Date();
       (data.categories||[]).forEach(cat=>{
         // 주의: 카테고리 레벨의 is_used는 스푼 API에서 카테고리 진열 여부와 무관하게 거의 항상 false로 내려오므로
         // (실제로 스티커가 들어있는 카테고리도 false) 이 값으로 카테고리 전체를 걸러내면 안 됨.
@@ -1894,12 +1895,17 @@ async function loadRlStickerData(){
         (cat.stickers||[]).forEach(s=>{
           if(s.is_used===false) return;
           if(!s.name) return;
+          // 판매 종료일이 지난 스티커는 목록에서 제외 (로컬봇과 동일 정책)
+          if(s.end_date){
+            try{ if(new Date(s.end_date) < now) return; }catch(e){}
+          }
           list.push({
             name:s.name,
             title:s.title||s.name,
             image:s.image_thumbnail_web||s.image_thumbnail||s.image_url_web||'',
             price:s.price||0,
-            category:cat.title||cat.name||''
+            category:cat.title||cat.name||'',
+            endDate:s.end_date||''
           });
         });
       });
