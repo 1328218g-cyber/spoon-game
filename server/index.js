@@ -1299,7 +1299,7 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
 
-app.get('/session/status', auth.requireAuth, (req, res) => {
+app.get('/session/status', (req, res) => {
   res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
 })
 
