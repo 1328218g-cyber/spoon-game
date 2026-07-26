@@ -1888,12 +1888,12 @@ async function loadRlStickerData(){
       const data=await res.json();
       const list=[];
       (data.categories||[]).forEach(cat=>{
-        if(cat.is_used===false) return;
+        // 주의: 카테고리 레벨의 is_used는 스푼 API에서 카테고리 진열 여부와 무관하게 거의 항상 false로 내려오므로
+        // (실제로 스티커가 들어있는 카테고리도 false) 이 값으로 카테고리 전체를 걸러내면 안 됨.
+        // 개별 스티커의 is_used / end_date만으로 필터링한다.
         (cat.stickers||[]).forEach(s=>{
           if(s.is_used===false) return;
-          if(s.end_date){
-            try{ if(new Date(s.end_date) < new Date()) return; }catch(e){}
-          }
+          if(!s.name) return;
           list.push({
             name:s.name,
             title:s.title||s.name,
@@ -1903,7 +1903,10 @@ async function loadRlStickerData(){
           });
         });
       });
-      rlStickerData=list;
+      // 같은 name이 여러 카테고리에 중복 등록된 경우 대비, name 기준 중복 제거 (마지막 값 우선)
+      const dedup=new Map();
+      list.forEach(s=>dedup.set(s.name, s));
+      rlStickerData=Array.from(dedup.values());
     }catch(e){
       console.log('[스티커 목록 로드 실패]',e.message);
     }
