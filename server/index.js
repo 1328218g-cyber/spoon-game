@@ -1,1349 +1,2236 @@
-const WebSocket = require('ws')
-const express = require('express')
-const cors = require('cors')
-const tokenManager = require('./tokenManager')
-const store = require('./store')
-const auth = require('./auth')
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>스푼 봇</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#7c6aff">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="스푼봇">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#eef0f4;
+  --panel:#ffffff;
+  --surface:#ffffff;
+  --surface2:#f2f3f7;
+  --border:#e2e4ea;
+  --accent:#7c6aff;
+  --accent2:#ff6ab0;
+  --text:#20232c;
+  --muted:#8b8fa0;
+  --success:#16a34a;
+  --danger:#e11d48;
+  --warn:#d97706;
+  --radius:14px;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
 
-const app = express()
-app.use(cors({ origin: '*' }))
-app.use(express.json({ limit: '5mb' }))
-app.use(require('express').static(__dirname + '/public'))
+/* ── 레이아웃 ── */
+.app{display:flex;height:100vh}
 
-const GW_BASE = 'https://kr-gw.spooncast.net'
-const API_BASE = 'https://api.spooncast.net'
-const KR_API_BASE = 'https://kr-api.spooncast.net'
-const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+/* ── 사이드바 ── */
+.sidebar{width:250px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;box-shadow:1px 0 8px rgba(20,20,40,.04)}
+.brand{display:flex;align-items:center;gap:10px;padding:18px 16px;border-bottom:1px solid var(--border)}
+.brand .logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.brand h1{font-size:16px;font-weight:700}
+.brand .sub{font-size:11px;color:var(--muted);margin-top:1px}
 
-// ⚠️ 지금은 djId별 멀티 계정 대신, 모든 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
-// (tokenManager 자체는 계속 djId 기반 멀티 계정을 지원하므로, 나중에 다시 DJ별로 나누고 싶으면
-//  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
-const SHARED_TOKEN_DJID = 'sum'
+.nav-group-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:16px 16px 6px}
 
-// 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
-const rooms = {}
-function getRoom(djId) {
-  if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null }
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:1px 8px;border-radius:9px;cursor:pointer;color:var(--text);font-size:13.5px;transition:background 0.12s;user-select:none}
+.nav-item:hover{background:var(--surface2)}
+.nav-item.active{background:linear-gradient(135deg,rgba(124,106,255,.22),rgba(255,106,176,.14));box-shadow:inset 0 0 0 1px rgba(124,106,255,.4)}
+.nav-item .ic{width:18px;text-align:center;flex-shrink:0;font-size:14px}
+.nav-item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0}
+.nav-badge.on{background:rgba(74,222,128,.15);color:var(--success)}
+.nav-badge.off{background:rgba(107,107,128,.15);color:var(--muted)}
+.nav-star{font-size:12px;color:var(--border);flex-shrink:0;cursor:pointer;transition:color .12s}
+.nav-star:hover{color:var(--warn)}
+.nav-star.filled{color:var(--warn)}
+
+/* ── 메인 영역 ── */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--border);flex-shrink:0}
+.topbar h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.topbar .desc{font-size:12px;color:var(--muted);margin-top:2px}
+.status-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:6px 14px;border-radius:20px;flex-shrink:0}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:background 0.3s}
+.dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
+.dot.off{background:var(--danger)}
+
+.content{flex:1;overflow-y:auto;padding:22px 26px 60px}
+.panel{display:none;max-width:640px}
+.panel.active{display:block;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,20,40,.04)}
+.card-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.session-pill{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+.session-pill.ok{color:var(--success);border-color:var(--success)}
+.session-pill.bad{color:var(--danger);border-color:var(--danger)}
+
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;margin-top:12px}
+label:first-of-type{margin-top:0}
+input,textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color 0.2s;font-family:inherit}
+input:focus,textarea:focus{border-color:var(--accent)}
+textarea{resize:none;height:80px}
+textarea.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;height:100px}
+
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+button{padding:13px;border-radius:10px;border:none;font-size:14.5px;font-weight:600;cursor:pointer;transition:opacity 0.15s,transform 0.1s;font-family:inherit}
+button:active{transform:scale(0.97);opacity:0.85}
+.btn-connect{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-disconnect{background:var(--bg);border:1px solid var(--border);color:var(--danger)}
+.btn-full{width:100%;margin-top:12px;background:var(--bg);border:1px solid var(--accent);color:var(--accent)}
+.btn-green{background:var(--success);color:#000}
+.btn-gray{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+
+.hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
+details{margin-top:10px}
+summary{font-size:13px;color:var(--accent);cursor:pointer}
+
+.chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:260px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
+.chat-log:empty::before{content:'채팅 로그가 여기에 표시됩니다';color:var(--muted)}
+.log-line{margin-bottom:4px}
+.nick{color:var(--accent);font-weight:600}
+.nick.bot{color:var(--accent2)}
+.nick.sys{color:var(--muted)}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:20px;font-size:14px;transition:transform 0.3s ease;z-index:999;white-space:nowrap;box-shadow:0 4px 16px rgba(20,20,40,.12)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{flex:1}
+.chat-input-row button{padding:11px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:14px;white-space:nowrap}
+
+.autojoin-status{font-size:13px;color:var(--muted);margin-top:10px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--border);min-height:40px}
+
+/* ── 준비 중 패널 ── */
+.coming-soon{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center}
+.coming-soon .ic{font-size:34px;margin-bottom:14px;opacity:.8}
+.coming-soon h3{font-size:15px;margin-bottom:6px}
+.coming-soon p{font-size:12.5px;color:var(--muted);line-height:1.6}
+
+/* ── 입장 설정: 탭바 ── */
+.tab-bar{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+.tab-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer}
+.tab-btn.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+.card-title .badge-inline{font-size:10px;font-weight:700;background:rgba(74,222,128,.15);color:var(--success);padding:2px 8px;border-radius:20px;text-transform:none;letter-spacing:0}
+.hint-inline{font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
+
+/* ── 입장 설정: 메시지 항목 카드 ── */
+.msg-entry{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.msg-entry-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+.icon-btn{background:transparent;border:none;color:var(--muted);font-size:15px;padding:4px 8px;cursor:pointer}
+.icon-btn.danger:hover{color:var(--danger)}
+.msg-entry textarea{height:64px;margin-top:8px}
+
+/* 토글 스위치 */
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.15s}
+.switch .slider::before{content:'';position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.switch input:checked + .slider{background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.switch input:checked + .slider::before{transform:translateX(18px)}
+
+/* 변수 삽입 칩 + 지연(초) */
+.chip-row{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.chip{background:var(--surface2);border:1px solid var(--border);color:var(--accent);font-size:11.5px;padding:4px 9px;border-radius:8px;cursor:pointer;font-family:ui-monospace,Consolas,monospace}
+.chip:hover{border-color:var(--accent)}
+.delay-inline{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.delay-inline input{width:52px;padding:6px 8px;font-size:13px}
+
+.sound-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+.sound-row .btn-gray{padding:9px 14px;font-size:12.5px;white-space:nowrap}
+.sound-row .hint{margin:0}
+
+/* ── 실드 관리 ── */
+.shield-count-box{text-align:center;padding:20px 0}
+.shield-label{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.shield-number{font-size:40px;font-weight:800;color:var(--accent)}
+.shield-input-row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.shield-input-row input{flex:1;min-width:140px}
+.shield-input-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
+.btn-shield-reset{background:rgba(225,29,72,.1);border:1px solid var(--danger);color:var(--danger)}
+.chip-input-row{display:flex;gap:8px}
+.chip-input-row input{flex:1}
+.chip-input-row button{white-space:nowrap;padding:11px 18px}
+.chip-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.perm-chip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:6px 8px 6px 14px;font-size:13px}
+.perm-chip button{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 6px}
+.perm-chip button:hover{color:var(--danger)}
+
+/* ── 단비 깃발 ── */
+.flag-toprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flag-toprow input{flex:0 0 140px}
+.radio-row{display:flex;gap:18px;margin-top:14px}
+.radio-opt{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--text);margin:0;cursor:pointer}
+.radio-opt input{width:auto}
+.check-opt{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--text);margin-top:14px;cursor:pointer}
+.check-opt input{width:auto}
+.flag-empty{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px}
+.flag-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.flag-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.flag-card-top h4{font-size:15px}
+.flag-card-actions button{padding:6px 12px;font-size:12px;margin-left:6px}
+.flag-card-sub{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.flag-progress-bar{background:var(--bg);border:1px solid var(--border);border-radius:20px;height:8px;overflow:hidden;margin-bottom:16px}
+.flag-progress-fill{height:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));transition:width .2s}
+.flag-meta-row{display:flex;gap:32px;flex-wrap:wrap;margin-bottom:14px;font-size:12.5px}
+.flag-meta-row div span.k{display:block;color:var(--muted);margin-bottom:3px}
+.flag-meta-row div span.v{color:var(--text);font-weight:600}
+.flag-amount-row{display:flex;gap:8px}
+.flag-amount-row input{flex:1}
+.flag-amount-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
+
+/* ── 펀딩 관리 ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,15,19,.6);display:flex;align-items:center;justify-content:center;z-index:1500;padding:20px}
+.modal-box{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:26px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.modal-title{display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;margin-bottom:18px}
+.modal-box .icon-btn{background:var(--surface2);border-radius:50%;width:28px;height:28px;font-size:13px}
+.status-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;margin-right:6px}
+.status-pill.ongoing{background:rgba(74,222,128,.15);color:var(--success)}
+.status-pill.ended{background:rgba(107,107,128,.15);color:var(--muted)}
+.status-pill.dday{background:rgba(251,146,60,.15);color:#fb923c}
+
+/* ── 유저 관리 ── */
+.user-table{width:100%;border-collapse:collapse;font-size:13px}
+.user-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border)}
+.user-table td{padding:10px;border-bottom:1px solid var(--border)}
+.user-table tr:last-child td{border-bottom:none}
+.user-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;background:var(--muted)}
+.user-dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
+
+/* ── 룰렛 기록: 모바일 친화 가로 스크롤 시청자 칩 ── */
+.rl-user-scroll{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.rl-user-scroll::-webkit-scrollbar{height:5px}
+.rl-user-chip{flex-shrink:0;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:9px 8px 9px 16px;font-size:13px;cursor:pointer;white-space:nowrap;user-select:none}
+.rl-user-chip.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
+.rl-user-chip .icon-btn{padding:4px 8px;font-size:12px;color:inherit;opacity:.75}
+.rl-user-chip.active .icon-btn{color:#fff}
+
+/* ── 단축키 명령어 ── */
+.cmd-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px}
+.cmd-trigger-badge{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px;white-space:nowrap;flex-shrink:0}
+.cmd-card-body{flex:1;min-width:0}
+.cmd-card-meta{font-size:12.5px;color:var(--muted);margin-bottom:3px}
+.cmd-card-meta .scope-badge{display:inline-block;background:var(--surface2);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--accent);margin-left:6px}
+.cmd-card-preview{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd-card-actions{flex-shrink:0;display:flex;gap:6px}
+.cmd-card-actions button{padding:7px 12px;font-size:12px}
+
+/* ── 로그인 / 회원가입 화면 ── */
+#authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
+.auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
+.auth-card .logo{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 14px}
+.auth-card h2{text-align:center;font-size:18px;margin-bottom:4px}
+.auth-card .auth-sub{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:20px}
+.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--surface2);border-radius:10px;padding:4px}
+.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.auth-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(20,20,40,.08)}
+.auth-error{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px}
+.dj-tag{margin-left:12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dj-tag button{padding:4px 10px;font-size:11.5px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.app{display:none}
+.app.ready{display:flex}
+
+/* ── 모바일 ── */
+.menu-toggle{display:none}
+@media (max-width: 860px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}
+  .sidebar.open{transform:translateX(0)}
+  .menu-toggle{display:flex;align-items:center;justify-content:center;width:34px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:9px;font-size:16px;cursor:pointer;flex-shrink:0}
+  .content{padding:18px 16px 60px}
+  .topbar{padding:14px 16px}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════ 로그인 / 회원가입 ══════════ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="logo">🥄</div>
+    <h2>스푼 봇</h2>
+    <div class="auth-sub">디제이 계정으로 로그인해주세요</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">로그인</div>
+      <div class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">회원가입</div>
+    </div>
+    <label>아이디</label>
+    <input type="text" id="authDjId" placeholder="영문/숫자 2~20자">
+    <label>비밀번호</label>
+    <input type="password" id="authPassword" placeholder="4자 이상" onkeydown="if(event.key==='Enter')submitAuth()">
+    <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
+    <div class="auth-error" id="authError"></div>
+  </div>
+</div>
+
+<div class="app" id="appRoot">
+
+  <!-- ══════════ 사이드바 ══════════ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">🥄</div>
+      <div>
+        <h1>스푼 봇</h1>
+        <div class="sub">단비의 방송 도우미</div>
+      </div>
+    </div>
+
+    <div class="nav-group-label">연결</div>
+    <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
+
+    <div class="nav-group-label">방송 도구</div>
+    <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge on">ON</span></div>
+
+    <div class="nav-group-label">이벤트 / 게임</div>
+    <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge off">OFF</span></div>
+
+  </nav>
+
+  <!-- ══════════ 메인 ══════════ -->
+  <div class="main">
+    <div class="topbar">
+      <div class="menu-toggle" onclick="toggleSidebar()">☰</div>
+      <div>
+        <h2 id="panelTitle">🔑 세션 연결</h2>
+        <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
+      </div>
+      <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="logout()">로그아웃</button></div>
+    </div>
+
+    <div class="content">
+
+      <!-- 세션 연결 -->
+      <div class="panel active" data-panel="session">
+        <div class="card">
+          <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
+          <label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
+          <textarea id="sessionCookies" class="mono" placeholder='{"cookies":[...],"localStorage":{...}}'></textarea>
+          <label>관리자 키 (Railway에 ADMIN_KEY를 설정한 경우에만 입력)</label>
+          <input type="password" id="adminKey" placeholder="설정 안 했으면 비워두세요">
+          <button class="btn-full" onclick="uploadSession()">📤 쿠키 업로드</button>
+          <details>
+          <summary>쿠키는 어떻게 얻나요?</summary>
+          <div class="hint">PC에서 <code>get_session_cookies.js</code>를 한 번 실행해 스푼 로그인을 완료하면 <code>session_cookies.json</code> 파일이 생성돼요. 그 파일 내용을 통째로 복사해서 위 칸에 붙여넣고 업로드하면, 이후로는 서버가 PC 없이 알아서 로그인 상태를 유지합니다. 세션이 만료되면 이 과정을 한 번 더 반복하면 돼요.</div>
+          </details>
+        </div>
+      </div>
+
+      <!-- 유저 관리 (관리자 전용) -->
+      <div class="panel" data-panel="userlist">
+        <div class="card">
+          <div class="card-title"><span>👥 가입 유저 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 자동입장 -->
+      <div class="panel" data-panel="autojoin">
+        <div class="card">
+          <div class="card-title"><span>🤖 봇 기능</span><label class="switch"><input type="checkbox" id="botEnabledToggle" checked onchange="toggleBotEnabled()"><span class="slider"></span></label></div>
+          <p class="hint">꺼두면 이 계정은 어떤 명령어에도 반응하지 않는 순수 시청자 모드가 돼요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">방 입장</div>
+          <label>DJ 고유닉 (@태그)</label>
+          <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
+          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
+          <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
+          <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
+        </div>
+
+        <div class="card" id="watchCard" style="display:none">
+          <div class="card-title">다중 감시 (자동)</div>
+          <p class="hint" style="margin-bottom:12px">등록한 고유닉 중 누구든 방송을 켜면 자동으로 그 방에 입장해요. (봇 기능이 꺼져있으면 순수 시청만 해요)</p>
+          <label>감시할 고유닉 목록 (한 줄에 하나씩)</label>
+          <textarea id="watchTags" style="height:140px" placeholder="tag1&#10;tag2&#10;tag3&#10;..."></textarea>
+          <div class="btn-row">
+          <button class="btn-green" onclick="startWatch()">👁 감시 시작</button>
+          <button class="btn-gray" onclick="stopWatch()">✋ 감시 중지</button>
+          </div>
+          <div class="autojoin-status" id="watchStatus">감시 꺼짐</div>
+        </div>
+
+        <div class="coming-soon" id="watchLockedNote" style="display:none">
+          <div class="ic">🔒</div>
+          <h3>다중 감시</h3>
+          <p>여러 고유닉을 등록해서 자동으로 감시하는 기능은<br>관리자가 권한을 켜줘야 사용할 수 있어요.</p>
+        </div>
+      </div>
+
+      <!-- 채팅 -->
+      <div class="panel" data-panel="chat">
+        <div class="card">
+          <div class="card-title">실시간 채팅</div>
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-input-row">
+          <input type="text" id="chatInput" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button onclick="sendChat()">전송</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 입장 설정 -->
+      <div class="panel" data-panel="entrysettings">
+        <div class="card">
+          <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영 메시지 음원 전용)</span></div>
+          <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도 효과음이 반복 재생되지 않도록 제한합니다.<br>
+          ※ 환영 메시지 음원에만 적용됩니다. (채팅 멘트는 그대로 출력)<br>
+          ※ 0초로 설정하면 비활성화 (입장할 때마다 매번 재생)</p>
+          <label>쿨다운 (초)</label>
+          <input type="number" id="entryCooldown" value="0" min="0" style="max-width:140px">
+        </div>
+
+        <div class="tab-bar" id="entryTabBar">
+          <button class="tab-btn active" data-tab="entry" onclick="switchEntryTab('entry')">🚪 입장</button>
+          <button class="tab-btn" data-tab="leave" onclick="switchEntryTab('leave')">🚶 퇴장</button>
+          <button class="tab-btn" data-tab="like" onclick="switchEntryTab('like')">❤️ 좋아요</button>
+          <button class="tab-btn" data-tab="gift" onclick="switchEntryTab('gift')">🎁 선물</button>
+          <button class="tab-btn" data-tab="repeat" onclick="switchEntryTab('repeat')">🔁 반복문구</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span id="entryListTitle">메시지 설정</span><span class="badge-inline">항상 켜짐</span></div>
+          <div id="entryMsgList"></div>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
+            <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
+          </div>
+          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b>·<b>퇴장</b> 탭만 실제로 채팅에 전송돼요. 선물/반복문구는 화면만 먼저 만들어둔 상태예요.</p>
+        </div>
+      </div>
+
+
+      <div class="panel" data-panel="funding">
+        <div class="card">
+          <div class="card-title"><span>💰 펀딩 관리</span></div>
+          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 적립합니다.</p>
+          <button class="btn-connect" style="width:100%" onclick="showFundingModal()">+ 새 펀딩 추가하기</button>
+        </div>
+
+        <div class="card">
+          <div class="flag-toprow" style="justify-content:space-between">
+            <span style="font-size:13px;color:var(--muted)">출력 옵션:</span>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="fundingShowPercent" checked onchange="toggleFundingOption()"> 퍼센트 표시</label>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="fundingShowDday" checked onchange="toggleFundingOption()"> 디데이 표시</label>
+            <button class="btn-gray" style="margin-left:auto" onclick="toggleFundingCustom()">⚙️ 명령어 커스텀</button>
+          </div>
+        </div>
+
+        <div class="card" id="fundingCustomCard" style="display:none">
+          <div class="card-title">⚙️ 펀딩 명령어 및 문구 커스텀</div>
+          <label>호출 명령어 (기본: !펀딩)</label>
+          <input type="text" id="fundingCmd" value="!펀딩">
+          <label>상단 제목 문구</label>
+          <textarea id="fundingTitleTpl" style="height:56px">🎯 진행중인 {month}월 펀딩 🎯</textarea>
+          <div class="hint">변수: {month}</div>
+          <label>목록 출력 양식</label>
+          <textarea id="fundingItemTpl">{index}. {title}
+💰{current}/{goal} [{percent}] {dday}</textarea>
+          <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}, {dday}</div>
+          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveFundingCustom()">💾 커스텀 설정 저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 명령어 안내</div>
+          <p class="hint">
+          · !펀딩 → 진행중인 펀딩 목록 출력<br>
+          · !펀딩 2 200 → 2번 펀딩에 200 적립 (DJ 전용)<br>
+          · !펀딩 2 -50 → 2번 펀딩에서 50 차감 (DJ 전용)
+          </p>
+        </div>
+
+        <div id="fundingListWrap"></div>
+      </div>
+
+      <!-- 새 펀딩 추가 모달 -->
+      <div id="fundingModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideFundingModal()">
+        <div class="modal-box">
+          <div class="modal-title"><span>📝 <span id="fundingModalTitle">새 펀딩 추가</span></span><button class="icon-btn" onclick="hideFundingModal()">✕</button></div>
+          <label>펀딩 제목</label>
+          <input type="text" id="fundingTitleInput" placeholder="예: 오이먹방🥒, 신곡 연습 등">
+          <label>목표 금액 (스푼)</label>
+          <input type="number" id="fundingGoalInput" placeholder="목표 금액을 입력하세요" min="0">
+          <label>종료 날짜 (선택)</label>
+          <input type="date" id="fundingEndDateInput">
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideFundingModal()">취소</button>
+            <button class="btn-connect" onclick="saveFundingModal()">💾 저장하기</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" data-panel="shortcuts">
+        <div class="card">
+          <div class="card-title"><span>⌨️ 단축키 명령어</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showCmdForm()">+ 추가</button></div>
+          <p class="hint">단축 명령어를 등록하면 채팅창에서 등록한 단어로 빠른 메시지를 출력할 수 있습니다.</p>
+        </div>
+        <div id="cmdListWrap"></div>
+
+        <div class="card" id="cmdFormCard" style="display:none">
+          <div class="card-title" id="cmdFormTitle">새 단축키 명령어</div>
+          <label>명령어 (예: !방가)</label>
+          <input type="text" id="cmdTrigger" placeholder="!방가">
+          <label>출력할 메시지 (내용이 길면 자동으로 나누어 전송됩니다)</label>
+          <textarea id="cmdResponse" placeholder="반가워요! 어서오세요~"></textarea>
+          <div class="chip-row" style="margin-top:10px">
+            <span class="chip" onclick="insertCmdVar('{nickname}')">{nickname}</span>
+            <span class="chip" onclick="insertCmdVar('{tag}')">{tag}</span>
+            <span class="chip" onclick="insertCmdVar('{count}')">{count}</span>
+            <span class="chip" onclick="insertCmdVar('{host_nickname}')" title="준비 중">{host_nickname}</span>
+            <span class="chip" onclick="insertCmdVar('{host_tag}')" title="준비 중">{host_tag}</span>
+            <span class="chip" onclick="insertCmdVar('{rank}')" title="준비 중">{rank}</span>
+          </div>
+          <p class="hint" style="margin-top:10px">{nickname}/{tag}: 명령어를 친 시청자 정보 · {count}: 이 명령어 사용 횟수<br>{host_nickname}/{host_tag}/{rank} 등 랭킹 변수는 아직 준비 중이라 빈 값으로 출력돼요.</p>
+
+          <label>사용 권한</label>
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="all" checked> 전체</label>
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="manager"> 매니저 (매니저+DJ)</label>
+            <label class="radio-opt"><input type="radio" name="cmdScope" value="dj"> 디제이 (DJ 전용)</label>
+          </div>
+          <label>쿨타임 (초, 0은 없음)</label>
+          <input type="number" id="cmdCooldown" value="0" min="0" style="max-width:140px">
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideCmdForm()">취소</button>
+            <button class="btn-connect" onclick="saveCmdForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" data-panel="greet">
+        <div class="card">
+          <div class="card-title"><span>🙋 지정 인사 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showGreetForm()">+ 추가</button></div>
+          <p class="hint">특정 고유닉(Tag)을 가진 유저가 입장할 때 출력될 전용 메시지를 설정합니다. 등록해두면 일반 입장 메시지 대신 이 인사말이 나가요.</p>
+        </div>
+        <div id="greetListWrap"></div>
+
+        <div class="card" id="greetFormCard" style="display:none">
+          <div class="card-title" id="greetFormTitle">지정 인사 추가</div>
+          <label>유저 고유닉</label>
+          <input type="text" id="greetTag" placeholder="sum">
+          <label>입장 시 출력할 인사말</label>
+          <textarea id="greetMessage" placeholder="@{유저}님, 어서오세요! 기다리고 있었습니다. ✨"></textarea>
+          <div class="chip-row">
+            <span class="chip" onclick="insertGreetVar('{유저}')">{유저}</span>
+          </div>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideGreetForm()">취소</button>
+            <button class="btn-connect" onclick="saveGreetForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" data-panel="flag">
+        <div class="card">
+          <div class="card-title"><span>🚩 단비 깃발</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFlagsGlobal()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:14px">깃발 목표를 만들고, 자동 적립 또는 수동 적립을 설정하며, !깃발 명령어나 주기 출력으로 상태를 보여줄 수 있습니다.</p>
+          <div class="flag-toprow">
+            <button class="btn-connect" style="white-space:nowrap" onclick="showFlagForm()">+ 새 깃발 추가</button>
+            <label style="margin:0;white-space:nowrap">호출 명령어</label>
+            <input type="text" id="flagCmd" value="!깃발" style="max-width:140px">
+            <button class="btn-gray" onclick="applyFlagCmd()">적용</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">사용 예시</div>
+          <p class="hint">
+          · !깃발 → 등록된 전체 깃발 상태 출력<br>
+          · !깃발 1 → 1번 깃발만 출력<br>
+          · !깃발 1 50 → 1번 깃발에 50 적립 (DJ 전용)<br>
+          · 자동 적립 선택 시 스푼을 받으면 선물 수량만큼 자동 누적됩니다.
+          </p>
+        </div>
+
+        <div id="flagListWrap"></div>
+
+        <div class="card" id="flagFormCard" style="display:none">
+          <div class="card-title">단비 깃발 설정</div>
+          <label>제목</label>
+          <input type="text" id="flagTitleInput" placeholder="예: 방종하기">
+          <label>목표 금액</label>
+          <input type="number" id="flagGoalInput" placeholder="목표 금액" min="0">
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="flagMode" value="manual" checked> 수동 적립</label>
+            <label class="radio-opt"><input type="radio" name="flagMode" value="auto"> 자동 적립</label>
+          </div>
+          <label class="check-opt"><input type="checkbox" id="flagUseCycle"> 주기 출력 사용 <span class="hint-inline">(5분마다 자동으로 상태를 채팅에 출력)</span></label>
+          <label>출력 템플릿</label>
+          <textarea id="flagTemplateInput">=== {title} ====
+{current}/{goal} {percent}%</textarea>
+          <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}</div>
+          <div class="hint" id="flagPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;white-space:pre-line"></div>
+          <div class="btn-row">
+            <button class="btn-gray" onclick="hideFlagForm()">취소</button>
+            <button class="btn-connect" onclick="saveFlagForm()">💾 저장</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" data-panel="shield">
+        <div class="card">
+          <div class="shield-count-box">
+            <div class="shield-label">현재 보유 실드</div>
+            <div class="shield-number" id="shieldNumber">0</div>
+          </div>
+          <div class="shield-input-row">
+            <input type="number" id="shieldInput" placeholder="변경할 숫자 입력">
+            <button class="btn-gray" onclick="setShield()">설정/변경</button>
+            <button class="btn-gray" onclick="document.getElementById('shieldInput').value=''">입력칸 비우기</button>
+            <button class="btn-shield-reset" onclick="resetShield()">실드 리셋(<span id="shieldResetCount">0</span>)</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 실드 명령어 커스텀</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="saveShieldSettings()">💾 저장</button></div>
+          <label>호출 명령어 (기본: !실드)</label>
+          <input type="text" id="shieldCmd" value="!실드">
+          <div class="hint">채팅창에서 이 명령어를 입력하면 실드 조회/관리가 실행됩니다.</div>
+
+          <label>조회 응답 문구</label>
+          <textarea id="shieldMsgView">🛡️ 현재 보유 중인 실드는 {실드}개 입니다!</textarea>
+          <div class="hint">변수: {실드}</div>
+
+          <label>✅ 적립 완료 문구</label>
+          <textarea id="shieldMsgAdd">✅ 실드 {amount}개 적립 완료!
+현재 실드: {실드}개</textarea>
+          <div class="hint">변수: {amount}=적립 개수, {실드}=현재 실드 / 호환: {icon}, {action}</div>
+
+          <label>▼ 차감 완료 문구</label>
+          <textarea id="shieldMsgSub">▼ 실드 {amount}개 차감 완료!
+현재 실드: {실드}개</textarea>
+          <div class="hint">변수: {amount}=차감 개수, {실드}=현재 실드 / 호환: {icon}, {action}</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔑 실드 조절 권한 관리 <span class="hint-inline">(DJ 전용 설정)</span></div>
+          <div class="chip-input-row">
+            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
+            <button class="btn-connect" onclick="addShieldPerm()">추가</button>
+          </div>
+          <div class="chip-list" id="shieldPermList"></div>
+          <div class="hint">※ 여기에 등록된 고유닉 사용자만 실드 적립/차감이 가능합니다. (DJ는 기본 포함)</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🛡️ 실드 명령어 안내</div>
+          <p class="hint">
+          · !실드 : 현재 남은 실드 개수를 출력합니다.<br>
+          · !실드 +5 : 실드를 5개 추가합니다. (DJ/지정 권한자 전용)<br>
+          · !실드 -3 : 실드를 3개 차감합니다. (DJ/지정 권한자 전용)
+          </p>
+        </div>
+      </div>
+
+      <div class="panel" data-panel="request">
+        <div class="card">
+          <div class="card-title">
+            <span>🎵 신청곡 관리</span>
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="check-opt" style="margin:0"><input type="checkbox" id="srPriority" onchange="toggleSrOption()"> 신청곡 우선 (1번 추가)</label>
+              <label class="check-opt" style="margin:0"><input type="checkbox" id="srShowRequester" checked onchange="toggleSrOption()"> 신청자 닉 표시</label>
+              <button class="btn-gray" id="srAcceptBtn" style="padding:6px 14px;font-size:12px" onclick="toggleSrAccepting()">🟢 접수 중</button>
+              <button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="resetSrQueue()">🗑️ 전체 리셋</button>
+            </div>
+          </div>
+          <p class="hint">시청자들이 !신청곡 [가수] [제목]으로 신청한 목록을 관리합니다.</p>
+        </div>
+
+        <div class="card">
+          <label>직접 추가 (가수 곡제목)</label>
+          <div class="chip-input-row">
+            <input type="text" id="srManualInput" placeholder="가수 곡제목" onkeydown="if(event.key==='Enter')addSrManual()">
+            <button class="btn-connect" onclick="addSrManual()">추가</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div id="srListWrap"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 신청곡 명령어 및 문구 커스텀</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSrCustom()">💾 설정 저장</button></div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>호출 (기본: !신청곡)</label><input type="text" id="srCmdRequest" value="!신청곡"></div>
+            <div><label>제거 (기본: !제거)</label><input type="text" id="srCmdRemove" value="!제거"></div>
+          </div>
+          <label>리셋 (기본: 리셋)</label>
+          <input type="text" id="srCmdReset" value="리셋">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>마감 (기본: !마감)</label><input type="text" id="srCmdClose" value="!마감"></div>
+            <div><label>접수 (기본: !접수)</label><input type="text" id="srCmdOpen" value="!접수"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>우선 활성화 (기본: !우선온)</label><input type="text" id="srCmdPriorityOn" value="!우선온"></div>
+            <div><label>우선 비활성화 (기본: !우선오프)</label><input type="text" id="srCmdPriorityOff" value="!우선오프"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>신청자닉 표시 ON (기본: !이름온)</label><input type="text" id="srCmdNameOn" value="!이름온"></div>
+            <div><label>신청자닉 표시 OFF (기본: !이름오프)</label><input type="text" id="srCmdNameOff" value="!이름오프"></div>
+          </div>
+          <label>신청 완료 문구</label>
+          <input type="text" id="srDoneTemplate" value="✅ [{artist} - {title}] 신청 완료! (대기: {count}번)">
+          <div class="hint">변수: {artist}, {title}, {count}</div>
+          <label>리스트 상단 제목</label>
+          <input type="text" id="srListTitle" value="🎵 현재 신청곡 목록 🎵">
+          <label>리스트 출력 양식</label>
+          <input type="text" id="srListItemTemplate" value="{index}. {artist} - {title}">
+          <div class="hint">변수: {index}, {artist}, {title}</div>
+
+          <p class="hint" style="margin-top:16px;font-weight:600">✏️ 채팅 글자 제한 분할 설정</p>
+          <p class="hint">스푼라디오 채팅창 글자 제한으로 목록이 잘릴 때, 자동으로 여러 메시지로 나눠서 전송합니다.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>메시지당 최대 글자 수 (기본: 100)</label><input type="number" id="srMaxChars" value="100" min="30" max="500"></div>
+            <div><label>메시지 간격(ms) (기본: 600)</label><input type="number" id="srMsgInterval" value="600" min="200"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 신청곡 명령어 안내</div>
+          <p class="hint">
+          · !신청곡 : 대기 중인 목록을 출력합니다.<br>
+          · !신청곡 [가수] [곡이름] : 곡을 신청합니다.<br>
+          · !제거 [번호] : 특정 곡을 제거합니다. (DJ 전용)<br>
+          · 리셋 : 목록을 초기화합니다. (DJ 전용)<br>
+          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ 전용)<br>
+          · !현재곡 : 현재 재생 중인(1번) 곡을 채팅으로 알립니다.
+          </p>
+        </div>
+      </div>
+      <div class="panel" data-panel="roulette">
+        <div class="card">
+          <div class="card-title"><span>🎡 룰렛 시스템 설정</span></div>
+          <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급).</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎉 결과 문구 커스텀</div>
+          <label>당첨 헤더</label>
+          <input type="text" id="rlHeaderTpl" value="[🎡{룰렛명}] {닉네임}님 당첨! 🎉">
+          <div class="hint">변수: {룰렛명}, {닉네임}</div>
+          <label>룰렛권 부족 알림</label>
+          <textarea id="rlLowTpl" style="height:56px">🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.</textarea>
+          <div class="hint">변수: {닉네임}, {번호}, {룰렛명}, {요청}, {보유}</div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveRouletteTemplates()">💾 문구 저장</button>
+        </div>
+
+        <div class="tab-bar" id="rouletteTabBar"></div>
+
+        <div class="card" id="rouletteFormCard" style="display:none">
+          <div class="card-title">
+            <input type="text" id="rlName" placeholder="예: 일반룰렛" style="max-width:220px;font-weight:700">
+            <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
+          </div>
+          <label>작동 방식</label>
+          <select id="rlTriggerMode" onchange="toggleRouletteTriggerFields()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
+            <option value="exact">일반 (단발로 정확히 X스푼일 때만 1회)</option>
+            <option value="combo">콤보 (X스푼짜리를 N번 연속 선물 시 N회)</option>
+            <option value="distribute">배분 (콤보 포함 총액이 X스푼 넘을 때마다 1회)</option>
+            <option value="sticker">지정 스티커 (특정 스티커 선물 시 실행)</option>
+          </select>
+          <div id="rlTriggerAmountWrap">
+            <label>기준 스푼 (X)</label>
+            <input type="number" id="rlTriggerAmount" value="10" min="1">
+          </div>
+          <div id="rlTriggerStickerWrap" style="display:none">
+            <label>지정 스티커 이름</label>
+            <input type="text" id="rlTriggerSticker" placeholder="예: 하트 (스티커 이름 일부만 입력해도 매칭돼요)">
+          </div>
+
+          <label style="margin-top:14px">🎰 룰렛 항목 (이름 / 확률%)</label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+            <span class="hint" id="rlPercentSum" style="margin:0">현재 확률 합계: 0%</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetRoulettePercents()">확률 리셋</button>
+              <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="autoDistributePercents()">확률 자동 분배</button>
+            </div>
+          </div>
+          <div id="rouletteItemsWrap"></div>
+          <button class="btn-gray" style="width:100%;margin-top:6px" onclick="addRouletteItem()">+ 항목 추가</button>
+
+          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveRouletteForm()">💾 저장</button>
+        </div>
+      </div>
+
+      <div class="panel" data-panel="roulettelog">
+        <div class="card">
+          <div class="card-title"><span>👥 시청자 기록</span><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="loadRouletteUsers()">🔄</button></div>
+          <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:10px">
+          <div class="chip-input-row" style="margin-bottom:12px">
+            <input type="text" id="rlNewTagInput" placeholder="고유닉 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
+            <button class="btn-connect" onclick="trackRouletteUser()">+ 추가</button>
+          </div>
+          <div id="rlUserListWrap" class="rl-user-scroll"></div>
+        </div>
+        <div id="rouletteHistoryWrap"><div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div></div>
+      </div>
+      <div class="panel" data-panel="loyalty"><div class="coming-soon"><div class="ic">⭐</div><h3>애청지수</h3><p>청취자별 애청지수 집계 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="quiz"><div class="coming-soon"><div class="ic">🧩</div><h3>퀴즈 설정</h3><p>실시간 퀴즈 이벤트 기능은 준비 중이에요.</p></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+const SERVER='https://spoon-game-production.up.railway.app';
+
+/* ── 인증 (디제이 로그인) ── */
+let djToken=localStorage.getItem('djToken')||'';
+let djId=localStorage.getItem('djId')||'';
+let djAutoJoinEnabled=false;
+let authMode='login';
+
+function authHeaders(){
+  return djToken ? {'Authorization':'Bearer '+djToken} : {};
+}
+
+function switchAuthTab(mode){
+  authMode=mode;
+  document.getElementById('tabLogin').classList.toggle('active',mode==='login');
+  document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
+  document.getElementById('authSubmitBtn').textContent=mode==='login'?'로그인':'회원가입';
+  document.getElementById('authError').textContent='';
+}
+
+async function submitAuth(){
+  const id=document.getElementById('authDjId').value.trim();
+  const pw=document.getElementById('authPassword').value;
+  const errEl=document.getElementById('authError');
+  errEl.textContent='';
+  if(!id||!pw){errEl.textContent='아이디와 비밀번호를 입력해주세요';return;}
+
+  if(authMode==='signup'){
+    try{
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+      const d=await res.json();
+      if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
+      showToast('가입 완료! 로그인해주세요');
+      switchAuthTab('login');
+      return;
+    }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
   }
-  return rooms[djId]
+
+  try{
+    const res=await fetch(SERVER+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+    const d=await res.json();
+    if(!d.success){errEl.textContent=d.error||'로그인 실패';return;}
+    djToken=d.token;djId=d.djId;djAutoJoinEnabled=!!d.autoJoinEnabled;
+    localStorage.setItem('djToken',djToken);
+    localStorage.setItem('djId',djId);
+    enterApp();
+  }catch(e){errEl.textContent='서버 오류: '+e.message;}
 }
 
-let sseClients = []
-
-// ══════════════════════════════════════════════════════
-// 세션 쿠키 기반 accessToken 자동 갱신 (스푼 계정은 단비님 것 하나만 공용으로 사용)
-tokenManager.setOnTokenUpdate((djId) => {
-  broadcast({ type: 'session', djId, status: 'connected' })
-})
-tokenManager.setOnSessionExpired((djId) => {
-  broadcast({ type: 'session', djId, status: 'expired' })
-})
-
-function broadcast(data) {
-  const msg = 'data: ' + JSON.stringify(data) + '\n\n'
-  sseClients = sseClients.filter(c => !c.destroyed)
-  sseClients.forEach(c => c.write(msg))
+function logout(){
+  djToken='';djId='';
+  localStorage.removeItem('djToken');
+  localStorage.removeItem('djId');
+  const chatLog=document.getElementById('chatLog');
+  if(chatLog) chatLog.innerHTML='';
+  document.getElementById('appRoot').classList.remove('ready');
+  document.getElementById('authScreen').style.display='flex';
 }
 
-async function fetchUserStatusByTag(tag) {
-  const cleanTag = String(tag || '').replace('@', '').trim()
-  if (!cleanTag) return null
-  try {
-    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': CHROME_UA,
-        'X-Client-App': 'sopia-web',
-        'X-Client-Version': '1.0.0',
+const ADMIN_DJ_ID='sum';
+
+function enterApp(){
+  document.getElementById('authScreen').style.display='none';
+  document.getElementById('appRoot').classList.add('ready');
+  document.getElementById('djIdLabel').textContent=djId;
+
+  const isAdmin = djId===ADMIN_DJ_ID;
+  const canAutoJoin = isAdmin || djAutoJoinEnabled;
+  const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
+  const sessionPanel=document.querySelector('.panel[data-panel="session"]');
+  if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
+  if(sessionPanel) sessionPanel.style.display = isAdmin ? '' : 'none';
+  const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
+  if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
+  const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
+  if(autojoinNav) autojoinNav.style.display = '';
+  const watchCard=document.getElementById('watchCard');
+  if(watchCard) watchCard.style.display = canAutoJoin ? '' : 'none';
+  const watchLockedNote=document.getElementById('watchLockedNote');
+  if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
+  if(isAdmin) loadUserList();
+
+  initApp();
+  selectPanel(isAdmin ? 'session' : 'entrysettings');
+}
+
+async function tryAutoLogin(){
+  if(!djToken){document.getElementById('authScreen').style.display='flex';return;}
+  try{
+    const res=await fetch(SERVER+'/auth/me',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){djAutoJoinEnabled=!!d.autoJoinEnabled;enterApp();return;}
+  }catch(e){}
+  logout();
+}
+
+tryAutoLogin();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
+
+
+/* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
+const PANEL_META={
+  session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
+  autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
+  userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
+  chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
+  entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
+  funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
+  shortcuts:['⌨️ 단축키 명령어','채팅창 단어에 반응하는 명령어를 관리합니다'],
+  greet:['🙋 지정 인사','특정 고유닉 유저 전용 입장 인사말을 관리합니다'],
+  flag:['🚩 단비 깃발','목표 깃발을 만들고 진행률을 관리합니다'],
+  shield:['🛡️ 실드 관리','실드 개수와 명령어, 권한을 관리합니다'],
+  request:['🎵 신청곡 관리','시청자 신청곡 대기열과 명령어를 관리합니다'],
+  roulette:['🎡 룰렛 설정','룰렛 항목/확률과 자동지급 조건을 관리합니다'],
+  roulettelog:['📊 룰렛 기록','시청자별 룰렛권과 당첨 기록을 조회합니다'],
+  loyalty:['⭐ 애청지수','준비 중인 기능입니다'],
+  quiz:['🧩 퀴즈 설정','준비 중인 기능입니다'],
+};
+
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click',()=>selectPanel(item.dataset.panel));
+});
+
+function selectPanel(name){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.panel===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
+  const meta=PANEL_META[name];
+  if(meta){document.getElementById('panelTitle').textContent=meta[0];document.getElementById('panelDesc').textContent=meta[1];}
+  if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
+}
+
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
+
+/* ── 실드 관리 ── */
+let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]};
+
+function renderShield(){
+  document.getElementById('shieldNumber').textContent=shieldData.count;
+  document.getElementById('shieldResetCount').textContent=shieldData.resetCount;
+  document.getElementById('shieldCmd').value=shieldData.cmd;
+  document.getElementById('shieldMsgView').value=shieldData.msgView;
+  document.getElementById('shieldMsgAdd').value=shieldData.msgAdd;
+  document.getElementById('shieldMsgSub').value=shieldData.msgSub;
+  renderShieldPerms();
+}
+
+function renderShieldPerms(){
+  const wrap=document.getElementById('shieldPermList');
+  if(!shieldData.perms.length){wrap.innerHTML='<span class="hint">등록된 사용자가 없습니다</span>';return;}
+  wrap.innerHTML=shieldData.perms.map(tag=>`
+    <span class="perm-chip">${escapeHtml(tag)}<button onclick="removeShieldPerm('${escapeAttr(tag)}')">✕</button></span>
+  `).join('');
+}
+
+function addShieldPerm(){
+  const input=document.getElementById('shieldPermInput');
+  const tag=input.value.trim().replace('@','');
+  if(!tag)return;
+  if(shieldData.perms.includes(tag))return showToast('이미 등록된 고유닉이에요');
+  shieldData.perms.push(tag);
+  input.value='';
+  renderShieldPerms();
+}
+
+function removeShieldPerm(tag){
+  shieldData.perms=shieldData.perms.filter(t=>t!==tag);
+  renderShieldPerms();
+}
+
+async function persistShieldCount(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({shield:shieldData})});
+  }catch(e){}
+}
+
+function setShield(){
+  const v=Number(document.getElementById('shieldInput').value);
+  if(Number.isNaN(v))return showToast('숫자를 입력해주세요');
+  shieldData.count=v;
+  renderShield();
+  persistShieldCount();
+  showToast('실드 설정 완료 ✓');
+}
+
+function resetShield(){
+  shieldData.count=0;
+  shieldData.resetCount=(shieldData.resetCount||0)+1;
+  renderShield();
+  persistShieldCount();
+  showToast('실드가 0으로 리셋됐어요');
+}
+
+async function saveShieldSettings(){
+  shieldData.cmd=document.getElementById('shieldCmd').value.trim()||'!실드';
+  shieldData.msgView=document.getElementById('shieldMsgView').value;
+  shieldData.msgAdd=document.getElementById('shieldMsgAdd').value;
+  shieldData.msgSub=document.getElementById('shieldMsgSub').value;
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({shield:shieldData})});
+    showToast('실드 설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 단비 깃발 ── */
+let flagsData={cmd:'!깃발',items:[]};
+let flagIdSeq=1;
+let flagEditingId=null;
+
+function flagTemplateRender(tpl,flag,index){
+  const goal=Number(flag.goal)||0;
+  const current=Number(flag.current)||0;
+  const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+  return (tpl||'').replace(/{index}/g,index).replace(/{title}/g,flag.title)
+    .replace(/{current}/g,current).replace(/{goal}/g,goal).replace(/{percent}/g,percent);
+}
+
+function renderFlags(){
+  document.getElementById('flagCmd').value=flagsData.cmd;
+  const wrap=document.getElementById('flagListWrap');
+  if(!flagsData.items.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 단비 깃발이 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=flagsData.items.map((f,i)=>{
+    const goal=Number(f.goal)||0;
+    const current=Number(f.current)||0;
+    const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+    const preview=flagTemplateRender(f.template,f,i+1);
+    return `
+    <div class="flag-card">
+      <div class="flag-card-top">
+        <h4>${i+1}. ${escapeHtml(f.title)}</h4>
+        <div class="flag-card-actions">
+          <button class="btn-gray" onclick="showFlagForm('${f.id}')">수정</button>
+          <button class="btn-shield-reset" onclick="deleteFlag('${f.id}')">삭제</button>
+        </div>
+      </div>
+      <div class="flag-card-sub">목표 ${goal.toLocaleString()} · 현재 ${current.toLocaleString()} · ${percent}%</div>
+      <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
+      <div class="flag-meta-row">
+        <div><span class="k">적립 방식</span><span class="v">${f.mode==='auto'?'자동 적립':'수동 적립'}</span></div>
+        <div><span class="k">주기 출력</span><span class="v">${f.useCycle?'5분마다 자동 출력':'수동 출력만 사용'}</span></div>
+        <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
+      </div>
+      <div class="flag-amount-row">
+        <input type="number" id="flagAmount-${f.id}" placeholder="숫자 입력 (음수=차감)">
+        <button class="btn-connect" onclick="applyFlagAmount('${f.id}')">적립/차감</button>
+        <button class="btn-gray" onclick="resetFlagAmount('${f.id}')">리셋</button>
+      </div>
+      <div class="hint" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:12px;white-space:pre-line">${escapeHtml(preview)}</div>
+    </div>`;
+  }).join('');
+}
+
+function showFlagForm(id){
+  flagEditingId=id||null;
+  const f=id?flagsData.items.find(x=>x.id===id):null;
+  document.getElementById('flagTitleInput').value=f?f.title:'';
+  document.getElementById('flagGoalInput').value=f?f.goal:'';
+  document.getElementById('flagUseCycle').checked=f?!!f.useCycle:false;
+  document.getElementById('flagTemplateInput').value=f?f.template:'=== {title} ====\n{current}/{goal} {percent}%';
+  document.querySelectorAll('input[name="flagMode"]').forEach(r=>r.checked=(r.value===(f?f.mode:'manual')));
+  document.getElementById('flagFormCard').style.display='block';
+  updateFlagPreview();
+}
+
+function hideFlagForm(){
+  document.getElementById('flagFormCard').style.display='none';
+  flagEditingId=null;
+}
+
+function updateFlagPreview(){
+  const tpl=document.getElementById('flagTemplateInput').value;
+  const fake={title:document.getElementById('flagTitleInput').value||'{title}',goal:Number(document.getElementById('flagGoalInput').value)||0,current:flagEditingId?(flagsData.items.find(x=>x.id===flagEditingId)?.current||0):0};
+  document.getElementById('flagPreview').textContent=flagTemplateRender(tpl,fake,flagsData.items.length+1);
+}
+document.addEventListener('input',(e)=>{
+  if(['flagTitleInput','flagGoalInput','flagTemplateInput'].includes(e.target?.id)) updateFlagPreview();
+});
+
+function saveFlagForm(){
+  const title=document.getElementById('flagTitleInput').value.trim();
+  const goal=Number(document.getElementById('flagGoalInput').value)||0;
+  if(!title)return showToast('제목을 입력해주세요');
+  const mode=document.querySelector('input[name="flagMode"]:checked').value;
+  const useCycle=document.getElementById('flagUseCycle').checked;
+  const template=document.getElementById('flagTemplateInput').value;
+
+  if(flagEditingId){
+    const f=flagsData.items.find(x=>x.id===flagEditingId);
+    Object.assign(f,{title,goal,mode,useCycle,template});
+  } else {
+    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template});
+  }
+  hideFlagForm();
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function deleteFlag(id){
+  flagsData.items=flagsData.items.filter(f=>f.id!==id);
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function applyFlagAmount(id){
+  const input=document.getElementById('flagAmount-'+id);
+  const v=Number(input.value);
+  if(!v)return showToast('숫자를 입력해주세요');
+  const f=flagsData.items.find(x=>x.id===id);
+  f.current=(f.current||0)+v;
+  input.value='';
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function resetFlagAmount(id){
+  const f=flagsData.items.find(x=>x.id===id);
+  f.current=0;
+  renderFlags();
+  saveFlagsGlobal();
+}
+
+function applyFlagCmd(){
+  flagsData.cmd=document.getElementById('flagCmd').value.trim()||'!깃발';
+  renderFlags();
+  saveFlagsGlobal();
+  showToast('호출 명령어 적용됨');
+}
+
+async function saveFlagsGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({flags:flagsData})});
+    showToast('깃발 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 펀딩 관리 ── */
+let fundingData={cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]};
+let fundingIdSeq=1;
+let fundingEditingId=null;
+
+function calcDday(endDate){
+  if(!endDate)return '';
+  const end=new Date(endDate+'T23:59:59');
+  const diff=Math.ceil((end-new Date())/86400000);
+  if(diff<0)return '종료';
+  if(diff===0)return 'D-Day';
+  return 'D-'+diff;
+}
+
+function fundingRenderItem(tpl,item,index){
+  const goal=Number(item.goal)||0, current=Number(item.current)||0;
+  const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+  return (tpl||'').replace(/{index}/g,index).replace(/{title}/g,item.title)
+    .replace(/{current}/g,current.toLocaleString()).replace(/{goal}/g,goal.toLocaleString())
+    .replace(/{percent}/g,fundingData.showPercent?percent+'%':'')
+    .replace(/{dday}/g,fundingData.showDday?calcDday(item.endDate):'');
+}
+
+function renderFunding(){
+  document.getElementById('fundingCmd').value=fundingData.cmd;
+  document.getElementById('fundingTitleTpl').value=fundingData.titleTemplate;
+  document.getElementById('fundingItemTpl').value=fundingData.itemTemplate;
+  document.getElementById('fundingShowPercent').checked=fundingData.showPercent!==false;
+  document.getElementById('fundingShowDday').checked=fundingData.showDday!==false;
+
+  const wrap=document.getElementById('fundingListWrap');
+  if(!fundingData.items.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 펀딩이 없습니다.</div>';
+    return;
+  }
+  wrap.innerHTML=fundingData.items.map((it,i)=>{
+    const goal=Number(it.goal)||0, current=Number(it.current)||0;
+    const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
+    const dday=calcDday(it.endDate);
+    const ended=dday==='종료';
+    return `
+    <div class="flag-card">
+      <div class="flag-card-top">
+        <h4>${i+1}. ${escapeHtml(it.title)}</h4>
+        <div class="flag-card-actions">
+          <button class="btn-gray" onclick="showFundingModal('${it.id}')">수정</button>
+          <button class="btn-shield-reset" onclick="deleteFunding('${it.id}')">삭제</button>
+        </div>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="status-pill ${ended?'ended':'ongoing'}">${ended?'종료':'진행중'}</span>
+        ${dday && fundingData.showDday ? `<span class="status-pill dday">${dday}</span>` : ''}
+      </div>
+      <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
+      <div class="flag-card-sub" style="display:flex;justify-content:space-between">
+        <span>${current.toLocaleString()} / ${goal.toLocaleString()}</span>
+        <span>${fundingData.showPercent?percent+'%':''}</span>
+      </div>
+      <div class="flag-amount-row">
+        <input type="number" id="fundingAmount-${it.id}" placeholder="숫자 입력 (음수=차감)">
+        <button class="btn-connect" onclick="applyFundingAmount('${it.id}')">적립/차감</button>
+        <button class="btn-gray" onclick="resetFundingAmount('${it.id}')">리셋</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleFundingCustom(){
+  const el=document.getElementById('fundingCustomCard');
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+
+function toggleFundingOption(){
+  fundingData.showPercent=document.getElementById('fundingShowPercent').checked;
+  fundingData.showDday=document.getElementById('fundingShowDday').checked;
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function showFundingModal(id){
+  fundingEditingId=id||null;
+  const it=id?fundingData.items.find(x=>x.id===id):null;
+  document.getElementById('fundingModalTitle').textContent=id?'펀딩 수정':'새 펀딩 추가';
+  document.getElementById('fundingTitleInput').value=it?it.title:'';
+  document.getElementById('fundingGoalInput').value=it?it.goal:'';
+  document.getElementById('fundingEndDateInput').value=it?(it.endDate||''):'';
+  document.getElementById('fundingModalOverlay').style.display='flex';
+}
+
+function hideFundingModal(){
+  document.getElementById('fundingModalOverlay').style.display='none';
+  fundingEditingId=null;
+}
+
+function saveFundingModal(){
+  const title=document.getElementById('fundingTitleInput').value.trim();
+  const goal=Number(document.getElementById('fundingGoalInput').value)||0;
+  const endDate=document.getElementById('fundingEndDateInput').value||'';
+  if(!title)return showToast('펀딩 제목을 입력해주세요');
+
+  if(fundingEditingId){
+    const it=fundingData.items.find(x=>x.id===fundingEditingId);
+    Object.assign(it,{title,goal,endDate});
+  } else {
+    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate});
+  }
+  hideFundingModal();
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function deleteFunding(id){
+  fundingData.items=fundingData.items.filter(x=>x.id!==id);
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function applyFundingAmount(id){
+  const input=document.getElementById('fundingAmount-'+id);
+  const v=Number(input.value);
+  if(!v)return showToast('숫자를 입력해주세요');
+  const it=fundingData.items.find(x=>x.id===id);
+  it.current=(it.current||0)+v;
+  input.value='';
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function resetFundingAmount(id){
+  const it=fundingData.items.find(x=>x.id===id);
+  it.current=0;
+  renderFunding();
+  saveFundingGlobal();
+}
+
+function saveFundingCustom(){
+  fundingData.cmd=document.getElementById('fundingCmd').value.trim()||'!펀딩';
+  fundingData.titleTemplate=document.getElementById('fundingTitleTpl').value;
+  fundingData.itemTemplate=document.getElementById('fundingItemTpl').value;
+  saveFundingGlobal();
+  showToast('커스텀 설정 저장 완료 ✓');
+}
+
+async function saveFundingGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({funding:fundingData})});
+  }catch(e){showToast('저장 실패');}
+}
+
+
+/* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
+const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
+let entryTab='entry';
+let entryIdSeq=1;
+const entryData={
+  entry:[{id:0,enabled:true,target:'',text:'{nickname}님 반가워요! ❤️',delay:1,sound:''}],
+  leave:[],
+  like:[],
+  gift:[],
+  repeat:[],
+};
+
+function switchEntryTab(tab){
+  entryTab=tab;
+  document.querySelectorAll('#entryTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.getElementById('entryListTitle').textContent=ENTRY_TAB_LABELS[tab];
+  renderEntryList();
+}
+
+function renderEntryList(){
+  const wrap=document.getElementById('entryMsgList');
+  const list=entryData[entryTab];
+  if(!list.length){
+    wrap.innerHTML='<p class="hint" style="margin-bottom:12px">등록된 메시지가 없습니다. 아래 버튼으로 추가해주세요.</p>';
+    return;
+  }
+  wrap.innerHTML=list.map(m=>`
+    <div class="msg-entry" data-id="${m.id}">
+      <div class="msg-entry-top">
+        <label class="switch">
+          <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked)">
+          <span class="slider"></span>
+        </label>
+        <button class="icon-btn danger" onclick="removeEntryMessage(${m.id})">🗑</button>
+      </div>
+      <label>특정 대상 설정 (닉네임 또는 고유닉)</label>
+      <input type="text" placeholder="공백 시 전체 대상 / 입력 시 해당 유저만" value="${escapeAttr(m.target)}" oninput="updateEntryMsg(${m.id},'target',this.value)">
+      <textarea id="entryText-${m.id}" placeholder="메시지 입력..." oninput="updateEntryMsg(${m.id},'text',this.value)">${escapeHtml(m.text)}</textarea>
+      <div class="chip-row">
+        <span class="chip" onclick="insertEntryVar(${m.id},'{nickname}')">{nickname}</span>
+        ${entryTab!=='leave'?`<span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>`:''}
+        <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
+        <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
+      </div>
+      <div class="sound-row">
+        <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
+        <span class="hint">${m.sound ? m.sound : '첨부된 음원 없음 (선택 사항)'}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addEntryMessage(){
+  entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+  renderEntryList();
+}
+
+function removeEntryMessage(id){
+  entryData[entryTab]=entryData[entryTab].filter(m=>m.id!==id);
+  renderEntryList();
+}
+
+function updateEntryMsg(id,field,value){
+  const m=entryData[entryTab].find(x=>x.id===id);
+  if(!m)return;
+  m[field]=field==='delay'?Number(value)||0:value;
+}
+
+function insertEntryVar(id,token){
+  const ta=document.getElementById('entryText-'+id);
+  if(!ta)return;
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+  updateEntryMsg(id,'text',ta.value);
+}
+
+function chooseEntrySound(id){
+  showToast('음원 업로드 기능은 준비 중이에요');
+}
+
+function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function escapeAttr(s){return (s||'').replace(/"/g,'&quot;');}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  if(document.getElementById('entryMsgList')) renderEntryList();
+  if(document.getElementById('shieldNumber')) renderShield();
+  if(document.getElementById('flagListWrap')) renderFlags();
+  if(document.getElementById('fundingListWrap')) renderFunding();
+  if(document.getElementById('cmdListWrap')) renderCmdList();
+  if(document.getElementById('greetListWrap')) renderGreetList();
+  if(document.getElementById('srListWrap')) renderSrList();
+  if(document.getElementById('rouletteListWrap')) renderRouletteList();
+});
+
+/* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
+async function initApp(){
+  await loadDjSettings();
+  checkStatus();
+  checkSessionStatus();
+  startSSE();
+}
+
+async function loadDjSettings(){
+  // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
+  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
+  Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]});
+  Object.assign(flagsData,{cmd:'!깃발',items:[]});
+  Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
+  cmdData=[];
+  greetData=[];
+  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]});
+  Object.assign(rouletteData,{list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'});
+  rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
+  document.getElementById('rouletteHistoryWrap').innerHTML='';
+
+  try{
+    const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success && d.settings){
+      const s=d.settings;
+      document.getElementById('autoJoinTag').value=s.autoJoinTag||'';
+      const watchTagsEl=document.getElementById('watchTags');
+      if(watchTagsEl){
+        watchTagsEl.value=(s.autoJoinTags||[]).join('\n');
+        const watchEl=document.getElementById('watchStatus');
+        if(watchEl) watchEl.textContent = s.autoJoinWatch ? ('⏳ '+(s.autoJoinTags||[]).length+'개 고유닉 감시 중...') : '감시 꺼짐';
       }
-    })
-    const json = await res.json()
-    const results = json.results || []
-    const match = results.find(u => u.tag === cleanTag)
-    if (!match || !match.id) return null
-    return {
-      id: match.id,
-      tag: match.tag,
-      nickname: match.nickname || '',
-      is_live: !!match.is_live,
-      current_live_id: match.current_live_id || null,
-    }
-  } catch (e) {
-    return null
-  }
-}
+      const botToggleEl=document.getElementById('botEnabledToggle');
+      if(botToggleEl) botToggleEl.checked = s.botEnabled!==false;
 
-async function fetchUserTag(liveId, userId, accessToken) {
-  if (!liveId || !userId || !accessToken) return null
-  try {
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
+      if(s.entryData && (s.entryData.entry?.length || s.entryData.like?.length || s.entryData.leave?.length || s.entryData.gift?.length || s.entryData.repeat?.length)){
+        Object.assign(entryData, s.entryData);
+      } else {
+        // 예전 방식(입장멘트/좋아요멘트)으로 저장된 게 있으면 새 구조로 변환
+        if(s.joinMessages?.length) entryData.entry = s.joinMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
+        if(s.likeMessages?.length) entryData.like = s.likeMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
+        if(s.leaveMessages?.length) entryData.leave = s.leaveMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
       }
-    })
-    const json = await res.json()
-    const profile = (json.results && json.results[0]) || json
-    let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
-    if (tag) tag = String(tag).replace('@', '').trim()
-    return tag
-  } catch (e) {
-    console.log('[tag 조회 오류]', e.message)
-    return null
-  }
-}
+      const allIds=[].concat(entryData.entry,entryData.leave,entryData.like,entryData.gift,entryData.repeat).map(m=>m.id).filter(n=>typeof n==='number');
+      if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
 
-// 방송 실시간 시청자 명단 조회 (퇴장 감지용 폴링에 사용) — 스푼은 퇴장 소켓 이벤트를 보내지 않음
-async function fetchLiveMembers(liveId, accessToken) {
-  if (!liveId || !accessToken) return []
-  try {
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/members/`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
+      if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
+      if(s.shield){ Object.assign(shieldData, s.shield); }
+      if(s.flags){
+        Object.assign(flagsData, s.flags);
+        const nums=flagsData.items.map(f=>parseInt(String(f.id).replace('f',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) flagIdSeq=Math.max(...nums)+1;
       }
-    })
-    const json = await res.json()
-    const members = json.results || []
-    return members.map(m => {
-      let tag = m.tag || m.tag_name || m.username || m.id_name || null
-      let nickname = m.nickname || m.name || m.display_name || null
-      if (tag) tag = String(tag).replace('@', '').trim()
-      if (!tag && !nickname) return null
-      return { tag, nickname: nickname || tag }
-    }).filter(Boolean)
-  } catch (e) {
-    console.log('[fetchLiveMembers 오류]', e.message)
-    return []
-  }
-}
-
-async function fetchLiveInfo(liveId, accessToken) {
-  try {
-    const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
-        'Referer': 'https://www.spooncast.net/',
+      if(s.funding){
+        Object.assign(fundingData, s.funding);
+        const nums=fundingData.items.map(f=>parseInt(String(f.id).replace('fd',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) fundingIdSeq=Math.max(...nums)+1;
       }
-    })
-    const data = await res.json()
-    const live = data.results?.[0] || data
-    return {
-      streamName: live.stream_name || live.streamName || String(liveId),
-      djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
-    }
-  } catch (e) {
-    console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null }
-  }
-}
-
-async function sendChatToRoom(djId, message) {
-  const room = getRoom(djId)
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-  if (!room.streamName || !accessToken) return
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': CHROME_UA,
-      'Origin': 'https://www.spooncast.net',
-      'Referer': 'https://www.spooncast.net/',
-    }
-    if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
-    const res = await fetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
-    })
-    console.log(`[채팅:${djId}]`, message, '응답:', res.status)
-  } catch (e) {
-    console.log(`[채팅:${djId} 오류]`, e.message)
-  }
-}
-
-function escapeRegExp(s) {
-  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-// 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
-function handleShieldCommand(djId, room, settings, author, authorId, text) {
-  const shield = settings.shield
-  if (!shield || !shield.cmd) return
-
-  const cmd = shield.cmd.trim()
-  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s*([+-]\\s*\\d+))?\\s*$`)
-  const m = String(text || '').trim().match(re)
-  if (!m) return
-
-  const delta = m[1] ? parseInt(m[1].replace(/\s/g, ''), 10) : null
-
-  // 조회 (인자 없음) — 누구나 가능
-  if (delta === null) {
-    const reply = (shield.msgView || '현재 실드: {실드}개').replace(/{실드}/g, shield.count)
-    setTimeout(() => sendChatToRoom(djId, reply), 400)
-    return
-  }
-
-  // 적립/차감 — DJ 본인 또는 등록된 권한자만 가능
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const perms = (shield.perms || []).map(t => String(t).replace('@', '').toLowerCase())
-  const isPermUser = perms.includes(String(author || '').toLowerCase())
-  if (!isDj && !isPermUser) {
-    setTimeout(() => sendChatToRoom(djId, '❌ 실드 조절 권한이 없어요'), 400)
-    return
-  }
-
-  shield.count = (shield.count || 0) + delta
-  store.saveSettings(djId, { shield })
-  broadcast({ type: 'shield', djId, count: shield.count })
-
-  const amount = Math.abs(delta)
-  const tpl = delta > 0 ? (shield.msgAdd || '실드 {amount}개 적립! 현재: {실드}개') : (shield.msgSub || '실드 {amount}개 차감! 현재: {실드}개')
-  const reply = tpl
-    .replace(/{amount}/g, amount)
-    .replace(/{실드}/g, shield.count)
-    .replace(/{icon}/g, delta > 0 ? '✅' : '▼')
-    .replace(/{action}/g, delta > 0 ? '적립' : '차감')
-  setTimeout(() => sendChatToRoom(djId, reply), 400)
-}
-
-function renderFlagTemplate(tpl, flag, index) {
-  const goal = Number(flag.goal) || 0
-  const current = Number(flag.current) || 0
-  const percent = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
-  return String(tpl || '')
-    .replace(/{index}/g, index)
-    .replace(/{title}/g, flag.title)
-    .replace(/{current}/g, current)
-    .replace(/{goal}/g, goal)
-    .replace(/{percent}/g, percent)
-}
-
-// 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
-function handleFlagCommand(djId, room, settings, author, authorId, text) {
-  const flags = settings.flags
-  if (!flags || !flags.cmd || !flags.items || !flags.items.length) return
-
-  const cmd = flags.cmd.trim()
-  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s+(\\d+))?(?:\\s+(-?\\d+))?\\s*$`)
-  const m = String(text || '').trim().match(re)
-  if (!m) return
-
-  const idx1 = m[1] ? parseInt(m[1], 10) : null   // 1-based
-  const delta = m[2] ? parseInt(m[2], 10) : null
-
-  // 인자 없음 → 전체 출력
-  if (idx1 === null) {
-    const lines = flags.items.map((f, i) => renderFlagTemplate(f.template, f, i + 1))
-    setTimeout(() => sendChatToRoom(djId, lines.join('\n')), 400)
-    return
-  }
-
-  const flag = flags.items[idx1 - 1]
-  if (!flag) return
-
-  // 조회만 (숫자 하나만) → 누구나 가능
-  if (delta === null) {
-    setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
-    return
-  }
-
-  // 적립/차감 → DJ 본인만 가능 (매니저 목록 조회는 아직 미지원)
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (!isDj) {
-    setTimeout(() => sendChatToRoom(djId, '❌ 깃발 조절 권한이 없어요'), 400)
-    return
-  }
-
-  flag.current = (flag.current || 0) + delta
-  store.saveSettings(djId, { flags })
-  broadcast({ type: 'flags', djId, items: flags.items })
-  setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
-}
-
-// 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
-function handleFlagAutoDonation(djId, settings, amount) {
-  const flags = settings.flags
-  if (!flags || !flags.items || !flags.items.length || !amount) return
-  let changed = false
-  flags.items.forEach(f => {
-    if (f.mode === 'auto') { f.current = (f.current || 0) + amount; changed = true }
-  })
-  if (changed) {
-    store.saveSettings(djId, { flags })
-    broadcast({ type: 'flags', djId, items: flags.items })
-  }
-}
-
-function calcDday(endDate) {
-  if (!endDate) return ''
-  const end = new Date(endDate + 'T23:59:59')
-  const diffDays = Math.ceil((end - new Date()) / 86400000)
-  if (diffDays < 0) return '종료'
-  if (diffDays === 0) return 'D-Day'
-  return `D-${diffDays}`
-}
-
-function renderFundingItem(tpl, item, index, funding) {
-  const goal = Number(item.goal) || 0
-  const current = Number(item.current) || 0
-  const percent = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
-  return String(tpl || '')
-    .replace(/{index}/g, index)
-    .replace(/{title}/g, item.title)
-    .replace(/{current}/g, current.toLocaleString())
-    .replace(/{goal}/g, goal.toLocaleString())
-    .replace(/{percent}/g, funding.showPercent === false ? '' : `${percent}%`)
-    .replace(/{dday}/g, funding.showDday === false ? '' : calcDday(item.endDate))
-}
-
-// 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
-function handleFundingCommand(djId, room, settings, author, authorId, text) {
-  const funding = settings.funding
-  if (!funding || !funding.cmd || !funding.items || !funding.items.length) return
-
-  const cmd = funding.cmd.trim()
-  const re = new RegExp(`^${escapeRegExp(cmd)}(?:\\s+(\\d+))?(?:\\s+(-?\\d+))?\\s*$`)
-  const m = String(text || '').trim().match(re)
-  if (!m) return
-
-  const idx1 = m[1] ? parseInt(m[1], 10) : null
-  const delta = m[2] ? parseInt(m[2], 10) : null
-
-  if (idx1 === null) {
-    const month = new Date().getMonth() + 1
-    const header = String(funding.titleTemplate || '').replace(/{month}/g, month)
-    const lines = funding.items.map((it, i) => renderFundingItem(funding.itemTemplate, it, i + 1, funding))
-    setTimeout(() => sendChatToRoom(djId, [header, ...lines].join('\n')), 400)
-    return
-  }
-
-  const item = funding.items[idx1 - 1]
-  if (!item) return
-
-  if (delta === null) {
-    setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
-    return
-  }
-
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (!isDj) {
-    setTimeout(() => sendChatToRoom(djId, '❌ 펀딩 조절 권한이 없어요'), 400)
-    return
-  }
-
-  item.current = (item.current || 0) + delta
-  store.saveSettings(djId, { funding })
-  broadcast({ type: 'funding', djId, items: funding.items })
-  setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
-}
-
-// 단축키 명령어 쿨타임 추적용 (메모리에만 유지, 재시작하면 초기화됨 — 큰 문제 없음)
-const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
-
-// 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
-async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text) {
-  const commands = settings.commands
-  if (!commands || !commands.length) return
-
-  const msg = String(text || '').trim()
-  const cmd = commands.find(c => c.trigger === msg)
-  if (!cmd) return
-
-  // 권한 체크
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (cmd.scope === 'dj' && !isDj) return
-  if (cmd.scope === 'manager' && !isDj) return // 매니저 목록 연동 전까지는 DJ만 허용
-
-  // 쿨타임 체크
-  const cooldownMs = (Number(cmd.cooldown) || 0) * 1000
-  if (cooldownMs > 0) {
-    const key = `${djId}:${cmd.trigger}`
-    const last = commandCooldowns.get(key) || 0
-    if (Date.now() - last < cooldownMs) return
-    commandCooldowns.set(key, Date.now())
-  }
-
-  cmd.useCount = (cmd.useCount || 0) + 1
-  store.saveSettings(djId, { commands })
-
-  let response = cmd.response || ''
-  response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
-  if (response.includes('{tag}')) {
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
-  }
-  // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
-  response = response.replace(/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/g, '')
-
-  setTimeout(() => sendChatToRoom(djId, response), 400)
-}
-
-// 메시지 길이 제한에 맞춰 여러 줄을 나눠서 순차 전송
-function sendChatSplit(djId, fullText, maxChars, intervalMs) {
-  const limit = Math.max(30, Math.min(500, Number(maxChars) || 100))
-  const interval = Math.max(200, Number(intervalMs) || 600)
-  const lines = String(fullText || '').split('\n')
-  const chunks = []
-  let current = ''
-  for (const line of lines) {
-    const next = current ? current + '\n' + line : line
-    if (next.length > limit && current) {
-      chunks.push(current)
-      current = line
-    } else {
-      current = next
-    }
-  }
-  if (current) chunks.push(current)
-  chunks.forEach((chunk, i) => setTimeout(() => sendChatToRoom(djId, chunk), 400 + i * interval))
-}
-
-// 신청곡 관리 명령어 처리
-function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
-  const sr = settings.songRequest
-  if (!sr) return
-  const msg = String(text || '').trim()
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-
-  const save = () => store.saveSettings(djId, { songRequest: sr })
-  const reqPrefix = sr.cmdRequest + ' '
-
-  // !신청곡 [가수] [제목]
-  if (msg.startsWith(reqPrefix)) {
-    if (!sr.accepting) {
-      setTimeout(() => sendChatToRoom(djId, '🚫 지금은 신청곡을 받지 않아요'), 400)
-      return
-    }
-    const rest = msg.slice(reqPrefix.length).trim()
-    if (!rest) return
-    const parts = rest.split(/\s+/)
-    const artist = parts.shift() || ''
-    const title = parts.join(' ') || artist
-    const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist, title, requester: author }
-    if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
-    save()
-    broadcast({ type: 'songrequest', djId, items: sr.items })
-    const doneMsg = (sr.doneTemplate || '').replace(/{artist}/g, artist).replace(/{title}/g, title).replace(/{count}/g, sr.items.length)
-    setTimeout(() => sendChatToRoom(djId, doneMsg), 400)
-    return
-  }
-
-  // !신청곡 (목록 출력)
-  if (msg === sr.cmdRequest) {
-    if (!sr.items.length) {
-      setTimeout(() => sendChatToRoom(djId, '📭 신청곡이 없어요'), 400)
-      return
-    }
-    const lines = sr.items.map((it, i) => (sr.listItemTemplate || '{index}. {artist} - {title}')
-      .replace(/{index}/g, i + 1).replace(/{artist}/g, it.artist).replace(/{title}/g, it.title))
-    sendChatSplit(djId, [sr.listTitle, ...lines].join('\n'), sr.maxCharsPerMsg, sr.msgIntervalMs)
-    return
-  }
-
-  // !현재곡
-  if (msg === '!현재곡') {
-    if (!sr.items.length) return
-    const it = sr.items[0]
-    setTimeout(() => sendChatToRoom(djId, `🎧 현재 곡: ${it.artist} - ${it.title}`), 400)
-    return
-  }
-
-  // 아래는 전부 DJ 전용 관리 명령어
-  if (!isDj) return
-
-  if (msg.startsWith(sr.cmdRemove + ' ')) {
-    const idx = parseInt(msg.slice(sr.cmdRemove.length).trim(), 10)
-    if (idx >= 1 && idx <= sr.items.length) {
-      const removed = sr.items.splice(idx - 1, 1)[0]
-      save()
-      broadcast({ type: 'songrequest', djId, items: sr.items })
-      setTimeout(() => sendChatToRoom(djId, `🗑️ ${removed.artist} - ${removed.title} 제거됨`), 400)
-    }
-    return
-  }
-  if (msg === sr.cmdReset) {
-    sr.items = []
-    save()
-    broadcast({ type: 'songrequest', djId, items: sr.items })
-    setTimeout(() => sendChatToRoom(djId, '🔄 신청곡 목록이 초기화됐어요'), 400)
-    return
-  }
-  if (msg === sr.cmdClose) { sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
-  if (msg === sr.cmdOpen) { sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
-  if (msg === sr.cmdPriorityOn) { sr.priorityMode = true; save(); return }
-  if (msg === sr.cmdPriorityOff) { sr.priorityMode = false; save(); return }
-  if (msg === sr.cmdNameOn) { sr.showRequester = true; save(); return }
-  if (msg === sr.cmdNameOff) { sr.showRequester = false; save(); return }
-}
-
-function percentPick(items) {
-  const total = items.reduce((s, it) => s + (Number(it.percent) || 1), 0)
-  let r = Math.random() * total
-  for (const it of items) {
-    r -= (Number(it.percent) || 1)
-    if (r <= 0) return it
-  }
-  return items[items.length - 1]
-}
-
-const SECTION_FIELD = { '킵목록': 'keepList', '이벤트목록': 'eventList', '기타목록': 'miscList' }
-const SECTION_LABEL = { '킵목록': '킵', '이벤트목록': '이벤트', '기타목록': '내카드' }
-
-function getHistoryRec(settings, tag) {
-  if (!settings.rouletteHistory) settings.rouletteHistory = {}
-  if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
-  const rec = settings.rouletteHistory[tag]
-  if (!rec.keepList) rec.keepList = {}
-  if (!rec.miscList) rec.miscList = {}
-  if (!rec.eventList) rec.eventList = {}
-  return rec
-}
-
-// !킵, !이벤트, !내카드 [페이지] / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] 응답 문구 생성
-function formatKeepMessage(displayName, section, entries, page) {
-  const label = SECTION_LABEL[section]
-  if (!entries.length) return `📋 ${displayName}님의 ${label} 기록이 없습니다.`
-  const pageSize = 10
-  const totalPages = Math.ceil(entries.length / pageSize)
-  const cur = Math.max(1, Math.min(page, totalPages))
-  const startIdx = (cur - 1) * pageSize
-  const pageEntries = entries.slice(startIdx, startIdx + pageSize)
-  let msg = `📋 ${displayName}님의 ${label} 기록 (${cur}/${totalPages}페이지, 총 ${entries.length}개)\n`
-  pageEntries.forEach(([name, count], i) => {
-    msg += `${startIdx + i + 1}. ${name}${count > 1 ? ` (${count}개)` : ''}\n`
-  })
-  if (totalPages > 1) {
-    const cmdBase = section === '이벤트목록' ? '!이벤트' : (section === '기타목록' ? '!내카드' : '!킵')
-    const next = cur < totalPages ? cur + 1 : 1
-    msg += `\n💡 ${cmdBase} ${next} 로 다른 페이지 확인 가능`
-  }
-  return msg.trim()
-}
-
-// 지급 방식 계산: 일반(exact)=정확히 X스푼일 때 1회, 콤보/배분(combo/distribute)=X스푼당 1회(내림)
-// mode: exact(일반)=단발(콤보X)로 정확히 X스푼일 때만 1회
-//       combo(콤보)=X스푼짜리 아이템을 comboCount번 연속 선물 시 comboCount회
-//       distribute(배분)=총합(amount*comboCount) 안에서 X스푼당 1회 (내림, 단가 무관)
-function calcAutoGrantCount(mode, triggerAmount, amount, comboCount) {
-  const X = Number(triggerAmount) || 0
-  const combo = Math.max(1, Number(comboCount) || 1)
-  if (X <= 0) return 0
-  if (mode === 'exact') return (amount === X && combo === 1) ? 1 : 0
-  if (mode === 'combo') return amount === X ? combo : 0
-  // distribute
-  const total = amount * combo
-  return total >= X ? Math.floor(total / X) : 0
-}
-
-// 지정 스티커 매칭: 선물로 들어온 스티커 이름이 등록해둔 이름과 같거나 일부만 포함돼도 매칭.
-// (콤보로 같은 스티커를 여러 번 연속 선물하면 그 횟수만큼 실행)
-function checkStickerTrigger(triggerSticker, sticker, comboCount) {
-  const target = String(triggerSticker || '').trim().toLowerCase()
-  const current = String(sticker || '').trim().toLowerCase()
-  if (!target || !current) return 0
-  if (current === target || current.includes(target)) {
-    return Math.max(1, Number(comboCount) || 1)
-  }
-  return 0
-}
-
-// 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
-// !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
-// !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
-async function handleKeepCommands(djId, room, settings, author, authorId, liveId, text) {
-  const msg = String(text || '').trim()
-  const parts = msg.split(/\s+/)
-  const first = parts[0]
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-
-  const sectionByCmd = { '!킵': '킵목록', '!이벤트': '이벤트목록', '!내카드': '기타목록' }
-  if (sectionByCmd[first]) {
-    const section = sectionByCmd[first]
-    const page = parseInt(parts[1]) || 1
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    const keepKey = tag || author
-    const rec = getHistoryRec(settings, keepKey)
-    const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(author, section, entries, page), 150, 600)
-    return
-  }
-
-  const checkMatch = first.match(/^(!킵확인|!이벤트확인|!내카드확인)(\d*)$/)
-  if (checkMatch) {
-    const section = { '!킵확인': '킵목록', '!이벤트확인': '이벤트목록', '!내카드확인': '기타목록' }[checkMatch[1]]
-    const page = parseInt(checkMatch[2]) || 1
-    const targetTag = (parts[1] || '').replace('@', '').trim()
-    if (!targetTag) {
-      setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${checkMatch[1]} [고유닉]\n예) ${checkMatch[1]} sum`), 400)
-      return
-    }
-    const rec = getHistoryRec(settings, targetTag)
-    const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(targetTag, section, entries, page), 150, 600)
-    return
-  }
-
-  if (first === '!킵추가') {
-    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '⛔ !킵추가 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
-    if (parts.length < 3) { setTimeout(() => sendChatToRoom(djId, '📋 사용법: !킵추가 [고유닉] [내용]\n예) !킵추가 sum 리방하기'), 400); return }
-    const targetTag = parts[1].replace('@', '').trim()
-    const content = parts.slice(2).join(' ').trim()
-    if (!targetTag || !content) return
-    const rec = getHistoryRec(settings, targetTag)
-    rec.keepList[content] = (rec.keepList[content] || 0) + 1
-    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    broadcast({ type: 'roulette', djId, tag: targetTag })
-    const newCount = rec.keepList[content]
-    setTimeout(() => sendChatToRoom(djId, `✅ [${targetTag}] 님의 킵목록에 [${content}]${newCount > 1 ? ` (총 ${newCount}개)` : ''} 추가 완료!`), 400)
-    return
-  }
-
-  const useMatch = first.match(/^(!킵사용|!이벤트사용|!내카드사용)$/)
-  if (useMatch) {
-    const section = { '!킵사용': '킵목록', '!이벤트사용': '이벤트목록', '!내카드사용': '기타목록' }[useMatch[1]]
-    const idx = parseInt(parts[1])
-    const count = parseInt(parts[2]) || 1
-    if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    const keepKey = tag || author
-    const rec = getHistoryRec(settings, keepKey)
-    const field = SECTION_FIELD[section]
-    const data = rec[field]
-    const items = Object.keys(data)
-    const item = items[idx - 1]
-    if (!item) { setTimeout(() => sendChatToRoom(djId, `📋 ${author}님, 해당 번호(${idx})의 항목이 없습니다.`), 400); return }
-    if (data[item] < count) { setTimeout(() => sendChatToRoom(djId, `📋 ${author}님, ${item}의 수량이 부족합니다. (현재: ${data[item]}개)`), 400); return }
-    data[item] -= count
-    const remaining = data[item]
-    if (data[item] <= 0) delete data[item]
-    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    broadcast({ type: 'roulette', djId, tag: keepKey })
-    setTimeout(() => sendChatToRoom(djId, `✅ ${author}님의 [${item}] ${count}개 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 400)
-    return
-  }
-}
-
-// !룰렛지급N [고유닉] [수량] — DJ 전용 룰렛권 지급
-async function handleRouletteGiveCommand(djId, room, settings, author, authorId, text) {
-  const msg = String(text || '').trim()
-  const parts = msg.split(/\s+/)
-  const m = parts[0].match(/^!룰렛지급(\d+)$/)
-  if (!m) return
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (!isDj) { setTimeout(() => sendChatToRoom(djId, '🎡 !룰렛지급 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
-
-  const idx = parseInt(m[1], 10)
-  const rt = settings.roulette && settings.roulette.list[idx - 1]
-  if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
-
-  const targetTag = (parts[1] || '').replace('@', '').trim()
-  const count = parseInt(parts[2], 10) || 1
-  if (!targetTag) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
-
-  const rec = getHistoryRec(settings, targetTag)
-  rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
-  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-  broadcast({ type: 'roulette', djId, tag: targetTag })
-  setTimeout(() => sendChatToRoom(djId, `🎡 [${targetTag}]님에게 룰렛${idx}(${rt.name}) 권 ${count}개 지급 완료! (현재: ${rec.coupons[idx]}개)`), 400)
-}
-
-// !룰렛메뉴N[-P] — 룰렛 항목 목록 확인 (페이지)
-function handleRouletteMenuCommand(djId, settings, text) {
-  const m = String(text || '').trim().match(/^!룰렛메뉴(\d+)(?:-(\d+))?$/)
-  if (!m) return
-  const idx = parseInt(m[1], 10)
-  const page = parseInt(m[2], 10) || 1
-  const rt = settings.roulette && settings.roulette.list[idx - 1]
-  if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
-  if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
-
-  const pageSize = 10
-  const totalPages = Math.ceil(rt.items.length / pageSize)
-  const cur = Math.max(1, Math.min(page, totalPages))
-  const startIdx = (cur - 1) * pageSize
-  const pageItems = rt.items.slice(startIdx, startIdx + pageSize)
-  let out = `🎡 [${rt.name}] 항목 (${cur}/${totalPages}페이지)\n`
-  pageItems.forEach((it, i) => { out += `${startIdx + i + 1}. ${it.name}\n` })
-  if (totalPages > 1) {
-    const next = cur < totalPages ? cur + 1 : 1
-    out += `\n💡 !룰렛메뉴${idx}-${next} 로 다른 페이지 확인 가능`
-  }
-  sendChatSplit(djId, out.trim(), 150, 600)
-}
-
-async function handleRouletteCommand(djId, room, settings, author, authorId, liveId, text) {
-  const rl = settings.roulette
-  if (!rl || !rl.list || !rl.list.length) return
-  const msg = String(text || '').trim()
-  const m = msg.match(/^!룰렛(\d+)(?:\s+(\d+))?\s*$/)
-  if (!m) return
-
-  const idx = parseInt(m[1], 10)
-  const count = m[2] ? Math.max(1, parseInt(m[2], 10)) : 1
-  const rt = rl.list[idx - 1]
-  if (!rt || !rt.items || !rt.items.length) return
-
-  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-  if (!tag) return
-  const hist = getHistoryRec(settings, tag)
-  let resultDelay = 400
-
-  if (!isDj) {
-    const have = Number(hist.coupons[idx] || 0)
-    if (have < count) {
-      const lowMsg = (rl.couponLowTemplate || '').replace(/{닉네임}/g, author).replace(/{번호}/g, idx).replace(/{룰렛명}/g, rt.name)
-        .replace(/{요청}/g, count).replace(/{보유}/g, have)
-      setTimeout(() => sendChatToRoom(djId, lowMsg), 400)
-      return
-    }
-    hist.coupons[idx] = have - count
-    const useMsg = (rl.couponUseTemplate || '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)')
-      .replace(/{닉네임}/g, author).replace(/{번호}/g, idx).replace(/{수량}/g, count).replace(/{잔여}/g, hist.coupons[idx])
-    setTimeout(() => sendChatToRoom(djId, useMsg), 400)
-    resultDelay = 900
-  }
-
-  const wonCounts = {}
-  for (let i = 0; i < count; i++) {
-    const won = percentPick(rt.items)
-    wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-    if (!won.skipHistory) hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
-  }
-  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-  broadcast({ type: 'roulette', djId, tag })
-
-  const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
-  const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
-  setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), resultDelay)
-}
-
-// 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
-// sticker: 선물로 들어온 스티커 이름 (지정 스티커 트리거용, 없으면 빈 문자열)
-async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
-  const rl = settings.roulette
-  if (!rl || !rl.list || !rl.list.length) return
-  const applicable = rl.list
-    .map((rt, i) => {
-      const count = rt.triggerMode === 'sticker'
-        ? checkStickerTrigger(rt.triggerSticker, sticker, comboCount)
-        : calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount)
-      return { rt, idx: i + 1, count }
-    })
-    .filter(x => x.count > 0)
-  if (!applicable.length) return
-
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-  const hist = tag ? getHistoryRec(settings, tag) : null
-  let changed = false
-
-  for (const { rt, idx, count } of applicable) {
-    const wonCounts = {}
-    for (let i = 0; i < count; i++) {
-      const won = percentPick(rt.items)
-      wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-      if (hist && !won.skipHistory) { hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() }); changed = true }
-    }
-    const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
-    const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
-    setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), 400)
-  }
-
-  if (changed) {
-    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    broadcast({ type: 'roulette', djId, tag })
-  }
-}
-
-// ══════════════════════════════════════════════════════
-// 🚪 퇴장 감지 폴링 — 스푼은 소켓으로 퇴장 이벤트를 보내지 않으므로,
-// 시청자 명단 API를 주기적으로 조회해서 직전 스냅샷과 비교하는 방식으로 판정한다.
-const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지
-const LEAVE_ABSENCE_THRESHOLD = 1   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1=즉시)
-
-function registerJoinSnapshot(room, nickname, tag, prevKey) {
-  if (!room._lastLiveMembers) return
-  const key = (tag || nickname || '').toString().toLowerCase()
-  if (!key) return
-  // 태그가 나중에 확인되면서 키가 바뀌는 경우, 이전 닉네임 기준 키는 지워서 중복 등록(유령 엔트리) 방지
-  if (prevKey && prevKey !== key) {
-    room._lastLiveMembers.delete(prevKey)
-    if (room._memberAbsenceCount) room._memberAbsenceCount.delete(prevKey)
-  }
-  room._lastLiveMembers.set(key, { nickname, tag: tag || null })
-  if (room._memberAbsenceCount) room._memberAbsenceCount.delete(key)
-}
-
-function sendLeaveMessage(djId, settings, nickname) {
-  broadcast({ type: 'leave', djId, nick: nickname })
-  if (settings.botEnabled === false) return
-  const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
-  if (msgs.length > 0) {
-    // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
-    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, '')
-    setTimeout(() => sendChatToRoom(djId, text), 500)
-  }
-}
-
-function startLeavePolling(djId, liveId) {
-  const room = getRoom(djId)
-  stopLeavePolling(djId)
-  room._lastLiveMembers = new Map()
-  room._memberAbsenceCount = new Map()
-  room._leavePollInFlight = false
-
-  room._leavePollTimer = setInterval(async () => {
-    if (room._leavePollInFlight) return
-    room._leavePollInFlight = true
-    try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-      const users = await fetchLiveMembers(liveId, accessToken)
-      if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
-
-      const currentMembers = new Map()
-      for (const u of users) {
-        const key = (u.tag || u.nickname || '').toString().toLowerCase()
-        if (!key) continue
-        currentMembers.set(key, u)
+      if(s.commands){
+        cmdData=s.commands;
+        const nums=cmdData.map(c=>parseInt(String(c.id).replace('cmd',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) cmdIdSeq=Math.max(...nums)+1;
       }
-
-      const leftCandidates = []
-      for (const [key, info] of room._lastLiveMembers.entries()) {
-        if (currentMembers.has(key)) {
-          room._memberAbsenceCount.delete(key)
-        } else {
-          const absent = (room._memberAbsenceCount.get(key) || 0) + 1
-          room._memberAbsenceCount.set(key, absent)
-          if (absent >= LEAVE_ABSENCE_THRESHOLD) leftCandidates.push({ key, info })
-        }
+      if(s.greetings){
+        greetData=s.greetings;
+        const nums=greetData.map(g=>parseInt(String(g.id).replace('gr',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) greetIdSeq=Math.max(...nums)+1;
       }
-
-      for (const { key, info } of leftCandidates) {
-        room._lastLiveMembers.delete(key)
-        room._memberAbsenceCount.delete(key)
-        const settings = store.getSettings(djId) || {}
-        sendLeaveMessage(djId, settings, info.nickname)
+      if(s.songRequest) Object.assign(srData, s.songRequest);
+      if(s.roulette){
+        Object.assign(rouletteData, s.roulette);
+        const nums=rouletteData.list.map(r=>parseInt(String(r.id).replace('rl',''),10)).filter(n=>!Number.isNaN(n));
+        if(nums.length) rlIdSeq=Math.max(...nums)+1;
       }
-
-      for (const [key, info] of currentMembers.entries()) {
-        room._lastLiveMembers.set(key, info)
-      }
-    } catch (e) {
-      console.log(`[${djId}] 퇴장감지 폴링 오류`, e.message)
-    } finally {
-      room._leavePollInFlight = false
+      renderShield();
+      renderFlags();
+      renderFunding();
+      renderCmdList();
+      renderGreetList();
+      renderSrList();
+      renderRouletteList();
+      if(document.getElementById('rlUserListWrap')) loadRouletteUsers();
+      renderEntryList();
     }
-  }, LEAVE_POLL_MS)
+  }catch(e){}
 }
 
-function stopLeavePolling(djId) {
-  const room = getRoom(djId)
-  if (room._leavePollTimer) {
-    clearInterval(room._leavePollTimer)
-    room._leavePollTimer = null
-  }
+
+async function uploadSession(){
+  const raw=document.getElementById('sessionCookies').value.trim();
+  if(!raw)return showToast('session_cookies.json 내용을 붙여넣어주세요');
+  let parsed;
+  try{ parsed=JSON.parse(raw); }catch(e){ return showToast('JSON 형식이 아닙니다'); }
+  const payload = Array.isArray(parsed) ? { cookies: parsed } : parsed;
+  if(!payload.cookies || !payload.cookies.length) return showToast('쿠키 데이터를 찾을 수 없습니다');
+  try{
+    const adminKey=document.getElementById('adminKey').value.trim();
+    const headers={'Content-Type':'application/json',...authHeaders()};
+    if(adminKey) headers['x-admin-key']=adminKey;
+    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers,body:JSON.stringify(payload)});
+    const d=await res.json();
+    if(d.success){
+      showToast('업로드 완료! 토큰 발급 시도 중...');
+      document.getElementById('sessionCookies').value='';
+      setTimeout(checkSessionStatus,4000);
+    } else showToast(d.error||'업로드 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
-async function connectSpoonForDj(djId, liveId, roomToken) {
-  const room = getRoom(djId)
-  if (room.ws) { room.ws.terminate(); room.ws = null }
-
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-  const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
-  room.streamName = streamName
-  room.roomToken = roomToken
-  room.liveDjUserId = djUserId
-
-  const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
-    headers: {
-      'Origin': 'https://www.spooncast.net',
-      'User-Agent': CHROME_UA,
-      'Cache-Control': 'no-cache',
-    }
-  })
-  room.ws = ws
-
-  ws.on('unexpected-response', (req, res) => {
-    console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
-  })
-
-  ws.on('open', () => {
-    console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName)
-    room.isConnected = true
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        command: 'ACTIVATE_CHANNEL',
-        payload: { channelId: streamName, liveToken: roomToken || '' }
-      }))
-    }
-    broadcast({ type: 'status', djId, isConnected: true })
-    // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
-    startLeavePolling(djId, liveId)
-  })
-
-  ws.on('message', async (data) => {
-    try {
-      const msg = JSON.parse(data)
-      if (msg.command !== 'MESSAGE') return
-      const body = JSON.parse(msg.payload?.body || '{}')
-      const { eventName, eventPayload = {} } = body
-      console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
-
-      const settings = store.getSettings(djId) || {}
-      const isLurker = settings.botEnabled === false
-
-      if (eventName === 'ChatMessage') {
-        const gen = eventPayload.generator || {}
-        const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
-        const text = eventPayload.message || ''
-        broadcast({ type: 'chat', djId, nick: author, text })
-        if (!isLurker) {
-          handleShieldCommand(djId, room, settings, author, authorId, text)
-          handleFlagCommand(djId, room, settings, author, authorId, text)
-          handleFundingCommand(djId, room, settings, author, authorId, text)
-          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
-          handleSongRequestCommand(djId, room, settings, author, authorId, text)
-          handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
-          handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
-          handleRouletteGiveCommand(djId, room, settings, author, authorId, text)
-          handleRouletteMenuCommand(djId, settings, text)
-        }
-
-      } else if (eventName === 'RoomJoin') {
-        const gen = eventPayload.generator || {}
-        const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
-        broadcast({ type: 'join', djId, nick: author })
-
-        // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머문 유저도 잡히도록)
-        const joinSnapshotKey = author.toString().toLowerCase()
-        registerJoinSnapshot(room, author, null)
-
-        if (!isLurker) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-          if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
-          const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
-
-          if (greeting) {
-            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
-            setTimeout(() => sendChatToRoom(djId, text), 500)
-          } else {
-            const msgs = (settings.joinMessages || []).filter(m => m.enabled)
-            if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
-              setTimeout(() => sendChatToRoom(djId, text), 500)
-            }
-          }
-        }
-
-      } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
-        const gen = eventPayload.generator || {}
-        const author = eventPayload.nickname || gen.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
-        broadcast({ type: 'like', djId, nick: author })
-        const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
-        if (msgs.length > 0) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
-          setTimeout(() => sendChatToRoom(djId, text), 500)
-        }
-
-      } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
-        const gen = eventPayload.generator || {}
-        const author = eventPayload.nickname || gen.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
-        const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
-        const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
-        const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker })
-        if (!isLurker) {
-          handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
-          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker)
-        }
-      }
-    } catch (e) {
-      console.log(`[${djId}] WS 파싱 오류`, e.message)
-    }
-  })
-
-  ws.on('close', (code) => {
-    console.log(`[${djId}] 스푼 연결 종료 code:`, code)
-    room.isConnected = false
-    room.ws = null
-    stopLeavePolling(djId)
-    broadcast({ type: 'status', djId, isConnected: false })
-  })
-
-  ws.on('error', (e) => {
-    console.log(`[${djId}] 스푼 오류:`, e.message)
-    room.isConnected = false
-  })
+async function checkSessionStatus(){
+  try{
+    const res=await fetch(SERVER+'/session/status');
+    const d=await res.json();
+    const pill=document.getElementById('sessionPill');
+    if(d.hasToken){pill.textContent='연결됨';pill.className='session-pill ok';}
+    else if(d.hasSession){pill.textContent='토큰 발급 중';pill.className='session-pill';}
+    else{pill.textContent='미연결';pill.className='session-pill bad';}
+  }catch{}
 }
 
-// ══════════════════════════════════════════════════════
-// (실시간 방송 감시 폴링은 제거됨 — 이제 고유닉으로 즉시 1회 입장하는 방식만 사용)
-
-// 5분마다 "주기 출력" 켜진 깃발의 현재 상태를 채팅으로 자동 출력
-setInterval(() => {
-  for (const djId of store.listDjIds()) {
-    const room = getRoom(djId)
-    if (!room.isConnected) continue
-    const settings = store.getSettings(djId)
-    const items = settings?.flags?.items || []
-    items.forEach((f, i) => {
-      if (f.useCycle) sendChatToRoom(djId, renderFlagTemplate(f.template, f, i + 1))
-    })
-  }
-}, 5 * 60 * 1000)
-
-// ══════════════════════════════════════════════════════
-// 계정 (디제이별 가입/로그인)
-app.post('/auth/signup', (req, res) => {
-  const { djId, password } = req.body || {}
-  const result = store.signup(djId, password)
-  if (!result.ok) return res.json({ success: false, error: result.error })
-  res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
-})
-
-function canAutoJoin(djId) {
-  return djId === 'sum' || store.getAutoJoinEnabled(djId)
-}
-
-app.post('/auth/login', (req, res) => {
-  const { djId, password } = req.body || {}
-  const result = store.login(djId, password)
-  if (!result.ok) return res.json({ success: false, error: result.error })
-  const token = auth.issueToken(djId)
-  res.json({ success: true, token, djId, autoJoinEnabled: canAutoJoin(djId) })
-})
-
-app.get('/auth/me', auth.requireAuth, (req, res) => {
-  res.json({ success: true, djId: req.djId, autoJoinEnabled: canAutoJoin(req.djId) })
-})
-
-// 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
-app.get('/admin/users', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const users = store.listDjSummaries().map(u => {
-    const room = getRoom(u.djId)
-    return { ...u, isConnected: room.isConnected }
-  })
-  res.json({ success: true, users })
-})
-
-app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const targetId = req.params.djId
-  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 차단할 수 없어요' })
-  const { blocked } = req.body || {}
-  const ok = store.setBlocked(targetId, !!blocked)
-  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
-  res.json({ success: true })
-})
-
-app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const targetId = req.params.djId
-  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 삭제할 수 없어요' })
-  const room = getRoom(targetId)
-  if (room.ws) { room.ws.terminate() }
-  delete rooms[targetId]
-  const ok = store.deleteDj(targetId)
-  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
-  res.json({ success: true })
-})
-
-// 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
-app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const targetId = req.params.djId
-  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 항상 사용 가능해요' })
-  const { enabled } = req.body || {}
-  const ok = store.setAutoJoinEnabled(targetId, !!enabled)
-  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
-  res.json({ success: true })
-})
-
-// ══════════════════════════════════════════════════════
-// 디제이별 설정 (로그인 필요)
-app.get('/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId)
-  res.json({ success: true, settings })
-})
-
-app.get('/roulette/users', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const tags = Object.keys(settings.rouletteHistory || {})
-  res.json({ success: true, tags })
-})
-
-app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const tag = req.params.tag
-  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
-  res.json({ success: true, tag, record: rec, roulette: settings.roulette })
-})
-
-// 시청자를 기록 목록에 수동으로 추가(빈 기록 생성)
-app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  getHistoryRec(settings, req.params.tag)
-  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
-  res.json({ success: true })
-})
-
-app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (settings.rouletteHistory) delete settings.rouletteHistory[req.params.tag]
-  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
-  res.json({ success: true })
-})
-
-app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
-  const { idx, delta } = req.body || {}
-  if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
-  const settings = store.getSettings(req.djId) || {}
-  const rec = getHistoryRec(settings, req.params.tag)
-  rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
-  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
-  res.json({ success: true, coupons: rec.coupons })
-})
-
-// 킵목록/기타목록/이벤트목록 관리 (add / remove / clear)
-app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
-  const { listType, action, text } = req.body || {}
-  const key = listType === 'keep' ? 'keepList' : listType === 'event' ? 'eventList' : 'miscList'
-  const settings = store.getSettings(req.djId) || {}
-  const rec = getHistoryRec(settings, req.params.tag)
-  if (action === 'add' && text) rec[key][text] = (rec[key][text] || 0) + 1
-  else if (action === 'remove' && text) delete rec[key][text]
-  else if (action === 'clear') rec[key] = {}
-  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
-  res.json({ success: true, list: rec[key] })
-})
-
-app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
-  store.saveSettings(req.djId, { rouletteHistory: {} })
-  res.json({ success: true })
-})
-
-app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory } = req.body || {}
-  const patch = {}
-  if (joinMessages) patch.joinMessages = joinMessages
-  if (likeMessages) patch.likeMessages = likeMessages
-  if (leaveMessages) patch.leaveMessages = leaveMessages
-  if (entryData) patch.entryData = entryData
-  if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
-  if (funding) patch.funding = funding
-  if (shield) patch.shield = shield
-  if (flags) patch.flags = flags
-  if (commands) patch.commands = commands
-  if (greetings) patch.greetings = greetings
-  if (songRequest) patch.songRequest = songRequest
-  if (roulette) patch.roulette = roulette
-  if (rouletteHistory) patch.rouletteHistory = rouletteHistory
-  store.saveSettings(req.djId, patch)
-  res.json({ success: true })
-})
-
-// 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
-async function checkAdminAutoJoin() {
-  for (const djId of store.listDjIds()) {
-    if (!canAutoJoin(djId)) continue
-    if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) continue // 관리자 계정에 아직 발급된 토큰이 없으면 건너뜀
-
-    const settings = store.getSettings(djId)
-    if (!settings || !settings.autoJoinWatch) continue
-    const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
-    if (!tagList.length) continue
-
-    const room = getRoom(djId)
-    if (room.checking) continue
-    room.checking = true
-
-    try {
-      // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지 확인만 하고 유지 (끝났으면 연결 해제)
-      if (room.isConnected && room.watchingTag) {
-        const cur = await fetchUserStatusByTag(room.watchingTag)
-        if (!cur || !cur.is_live || !cur.current_live_id) {
-          console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
-          if (room.ws) { room.ws.terminate(); room.ws = null }
-          room.isConnected = false
-          room.autoJoinedFor = ''
-          room.watchingTag = ''
-          stopLeavePolling(djId)
-          broadcast({ type: 'status', djId, isConnected: false })
-          broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
-        }
-        continue
-      }
-
-      for (const tag of tagList) {
-        const status = await fetchUserStatusByTag(tag)
-        if (status && status.is_live && status.current_live_id) {
-          const liveId = String(status.current_live_id)
-          broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
-          room.autoJoinedFor = liveId
-          room.watchingTag = tag
-          await connectSpoonForDj(djId, liveId, roomToken || '')
-          broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
-          break
-        }
-      }
-    } catch (e) {
-      console.log(`[자동입장:${djId} 오류]`, e.message)
-    } finally {
-      room.checking = false
-    }
+async function loadUserList(){
+  const wrap=document.getElementById('userListWrap');
+  try{
+    const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){wrap.innerHTML='<p class="hint">불러오지 못했어요: '+(d.error||'')+'</p>';return;}
+    if(!d.users.length){wrap.innerHTML='<p class="hint">아직 가입한 디제이가 없습니다.</p>';return;}
+    const rows=d.users.map(u=>{
+      const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
+      const isSum=u.djId==='sum';
+      return `<tr>
+        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}</td>
+        <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
+        <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
+        <td>${created}</td>
+        <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
+        <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
+        <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
+        <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML=`<table class="user-table">
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }catch(e){
+    wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
 }
 
-setInterval(checkAdminAutoJoin, 15000)
+async function toggleUserAutoJoin(djIdTarget,enabled){
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    if(d.success){showToast(enabled?'자동입장 허용함':'자동입장 차단함');loadUserList();}
+    else {showToast(d.error||'처리 실패');loadUserList();}
+  }catch(e){showToast('오류: '+e.message);}
+}
 
-// 관리자 전용 — 봇 응답 전체 on/off (꺼두면 어떤 명령어에도 반응하지 않는 순수 시청 모드)
-app.post('/bot/toggle', auth.requireAuth, (req, res) => {
-  const { enabled } = req.body || {}
-  store.saveSettings(req.djId, { botEnabled: !!enabled })
-  res.json({ success: true, msg: enabled ? '봇 기능 켜짐' : '봇 기능 꺼짐 (순수 시청 모드)' })
-})
+async function toggleBlockUser(djIdTarget,blocked){
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/block',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blocked})});
+    const d=await res.json();
+    if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
 
-// 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
-app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
-  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
-  const djId = req.djId
-  const { enabled, tags } = req.body || {}
-  const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
+async function deleteUser(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정을 완전히 삭제할까요?\n가입정보와 모든 설정이 사라지고 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('삭제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
 
-  if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
+/* ── 단축키 명령어 ── */
+let cmdData=[];
+let cmdIdSeq=1;
+let cmdEditingId=null;
+const CMD_SCOPE_LABEL={all:'전체',manager:'매니저',dj:'디제이'};
 
-  store.saveSettings(djId, { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
-  if (!enabled) {
-    const room = getRoom(djId)
-    room.autoJoinedFor = ''
+function renderCmdList(){
+  const wrap=document.getElementById('cmdListWrap');
+  if(!cmdData.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 단축키 명령어가 없습니다.</div>';
+    return;
   }
-  broadcast({ type: 'autojoin', djId, status: enabled ? 'watching' : 'off', tags: cleanTags })
-  res.json({ success: true, msg: enabled ? `${cleanTags.length}개 고유닉 감시 시작` : '감시 중지됨' })
-})
+  wrap.innerHTML=cmdData.map(c=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">${escapeHtml(c.trigger)}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span></div>
+        <div class="cmd-card-preview">출력 내용: ${escapeHtml(c.response)}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showCmdForm('${c.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteCmd('${c.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
 
-app.post('/autojoin', auth.requireAuth, async (req, res) => {
-  const { tag } = req.body || {}
-  const djId = req.djId
-  const room = getRoom(djId)
-  const cleanTag = String(tag || '').replace('@', '').trim()
+function showCmdForm(id){
+  cmdEditingId=id||null;
+  const c=id?cmdData.find(x=>x.id===id):null;
+  document.getElementById('cmdFormTitle').textContent=id?'단축키 명령어 수정':'새 단축키 명령어';
+  document.getElementById('cmdTrigger').value=c?c.trigger:'';
+  document.getElementById('cmdResponse').value=c?c.response:'';
+  document.getElementById('cmdCooldown').value=c?(c.cooldown||0):0;
+  document.querySelectorAll('input[name="cmdScope"]').forEach(r=>r.checked=(r.value===(c?c.scope:'all')));
+  document.getElementById('cmdFormCard').style.display='block';
+}
 
-  if (!cleanTag) {
-    return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
+function hideCmdForm(){
+  document.getElementById('cmdFormCard').style.display='none';
+  cmdEditingId=null;
+}
+
+function insertCmdVar(token){
+  const ta=document.getElementById('cmdResponse');
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+}
+
+function saveCmdForm(){
+  let trigger=document.getElementById('cmdTrigger').value.trim();
+  const response=document.getElementById('cmdResponse').value;
+  const cooldown=Number(document.getElementById('cmdCooldown').value)||0;
+  const scope=document.querySelector('input[name="cmdScope"]:checked').value;
+  if(!trigger)return showToast('명령어를 입력해주세요');
+  if(!trigger.startsWith('!'))trigger='!'+trigger;
+  if(!response.trim())return showToast('출력할 메시지를 입력해주세요');
+
+  if(cmdEditingId){
+    const c=cmdData.find(x=>x.id===cmdEditingId);
+    Object.assign(c,{trigger,response,cooldown,scope});
+  } else {
+    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,useCount:0});
   }
-  if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
-    return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
+  hideCmdForm();
+  renderCmdList();
+  saveCmdGlobal();
+}
+
+function deleteCmd(id){
+  cmdData=cmdData.filter(c=>c.id!==id);
+  renderCmdList();
+  saveCmdGlobal();
+}
+
+async function saveCmdGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({commands:cmdData})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 지정 인사 ── */
+let greetData=[];
+let greetIdSeq=1;
+let greetEditingId=null;
+
+function renderGreetList(){
+  const wrap=document.getElementById('greetListWrap');
+  if(!greetData.length){
+    wrap.innerHTML='<div class="flag-empty">등록된 지정 인사가 없습니다.</div>';
+    return;
   }
+  wrap.innerHTML=greetData.map(g=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}</div>
+        <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showGreetForm('${g.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteGreet('${g.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
 
-  store.saveSettings(djId, { autoJoinTag: cleanTag })
-  broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
+function showGreetForm(id){
+  greetEditingId=id||null;
+  const g=id?greetData.find(x=>x.id===id):null;
+  document.getElementById('greetFormTitle').textContent=id?'지정 인사 수정':'지정 인사 추가';
+  document.getElementById('greetTag').value=g?g.tag:'';
+  document.getElementById('greetMessage').value=g?g.message:'';
+  document.getElementById('greetFormCard').style.display='block';
+}
 
-  try {
-    const status = await fetchUserStatusByTag(cleanTag)
-    if (!status || !status.is_live || !status.current_live_id) {
-      broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
-      return res.json({ success: false, error: '현재 방송 중이 아니에요' })
-    }
+function hideGreetForm(){
+  document.getElementById('greetFormCard').style.display='none';
+  greetEditingId=null;
+}
 
-    const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
-    room.autoJoinedFor = liveId
-    room.watchingTag = cleanTag
-    await connectSpoonForDj(djId, liveId, roomToken || '')
-    broadcast({ type: 'autojoin', djId, status: 'joined', tag: cleanTag, liveId })
-    res.json({ success: true, msg: `@${cleanTag} 방 입장 완료` })
-  } catch (e) {
-    broadcast({ type: 'autojoin', djId, status: 'error', tag: cleanTag, msg: e.message })
-    res.json({ success: false, error: '입장 중 오류: ' + e.message })
+function insertGreetVar(token){
+  const ta=document.getElementById('greetMessage');
+  const start=ta.selectionStart||ta.value.length;
+  const end=ta.selectionEnd||ta.value.length;
+  ta.value=ta.value.slice(0,start)+token+ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart=ta.selectionEnd=start+token.length;
+}
+
+function saveGreetForm(){
+  const tag=document.getElementById('greetTag').value.trim().replace('@','');
+  const message=document.getElementById('greetMessage').value;
+  if(!tag)return showToast('유저 고유닉을 입력해주세요');
+  if(!message.trim())return showToast('인사말을 입력해주세요');
+
+  if(greetEditingId){
+    const g=greetData.find(x=>x.id===greetEditingId);
+    Object.assign(g,{tag,message});
+  } else {
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message});
   }
-})
+  hideGreetForm();
+  renderGreetList();
+  saveGreetGlobal();
+}
 
-// 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
-// (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
-app.post('/room/leave', auth.requireAuth, (req, res) => {
-  const djId = req.djId
-  const room = getRoom(djId)
-  if (room.ws) { room.ws.terminate(); room.ws = null }
-  room.isConnected = false
-  room.autoJoinedFor = ''
-  room.watchingTag = ''
-  stopLeavePolling(djId)
-  broadcast({ type: 'status', djId, isConnected: false })
-  res.json({ success: true, msg: '현재 방에서 나갔어요' })
-})
+function deleteGreet(id){
+  greetData=greetData.filter(g=>g.id!==id);
+  renderGreetList();
+  saveGreetGlobal();
+}
 
-app.get('/status', auth.requireAuth, (req, res) => {
-  const room = getRoom(req.djId)
-  const settings = store.getSettings(req.djId)
-  res.json({
-    isConnected: room.isConnected,
-    autoJoinTag: settings?.autoJoinTag || '',
-    hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
-    hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID),
-  })
-})
+async function saveGreetGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({greetings:greetData})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
 
-app.post('/chat', auth.requireAuth, async (req, res) => {
-  const { message } = req.body || {}
-  if (!message) return res.json({ error: '메시지 없음' })
-  await sendChatToRoom(req.djId, message)
-  res.json({ success: true })
-})
+/* ── 신청곡 관리 ── */
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]};
 
-// ══════════════════════════════════════════════════════
-// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에만 연결된다. (djId별 멀티 계정 구조)
-// ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
-app.post('/session/upload', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
-  const { cookies, localStorage, sessionStorage } = req.body
-  if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
-    return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
+function renderSrList(){
+  document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
+  document.getElementById('srPriority').checked = !!srData.priorityMode;
+  document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+
+  const wrap=document.getElementById('srListWrap');
+  if(!srData.items.length){
+    wrap.innerHTML='<div class="flag-empty">신청곡이 없습니다.</div>';
+    return;
   }
-  tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
-  // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
-  // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  tokenManager.ensureAutoRefresh(SHARED_TOKEN_DJID, 180)
-  console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
-  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
-})
+  const rows=srData.items.map((it,i)=>`
+    <tr>
+      <td style="white-space:nowrap">
+        <button class="icon-btn" onclick="moveSrItem(${i},-1)" ${i===0?'disabled':''}>▲</button>
+        <button class="icon-btn" onclick="moveSrItem(${i},1)" ${i===srData.items.length-1?'disabled':''}>▼</button>
+      </td>
+      <td>${i+1}</td>
+      <td>${escapeHtml(it.artist)} - ${escapeHtml(it.title)}</td>
+      <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
+      <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
+    </tr>
+  `).join('');
+  wrap.innerHTML=`<table class="user-table">
+    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
 
-app.get('/session/status', (req, res) => {
-  res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
-})
+function addSrManual(){
+  const raw=document.getElementById('srManualInput').value.trim();
+  if(!raw)return showToast('가수 곡제목을 입력해주세요');
+  const parts=raw.split(/\s+/);
+  const artist=parts.shift()||'';
+  const title=parts.join(' ')||artist;
+  srData.items.push({id:'sr'+Date.now(),artist,title,requester:'(직접추가)'});
+  document.getElementById('srManualInput').value='';
+  renderSrList();
+  saveSrGlobal();
+}
 
-app.get('/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
-  res.flushHeaders()
-  sseClients.push(res)
-  req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
-})
+function removeSrItem(i){
+  srData.items.splice(i,1);
+  renderSrList();
+  saveSrGlobal();
+}
 
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html')
-})
+function moveSrItem(i,dir){
+  const j=i+dir;
+  if(j<0||j>=srData.items.length)return;
+  [srData.items[i],srData.items[j]]=[srData.items[j],srData.items[i]];
+  renderSrList();
+  saveSrGlobal();
+}
 
-const PORT = process.env.PORT || 3001
-app.listen(PORT, () => {
-  console.log(`서버 실행 중: ${PORT}`)
-  // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
-  const loadedDjIds = tokenManager.initFromDisk()
-  if (loadedDjIds.length) {
-    console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
-    tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
+function resetSrQueue(){
+  srData.items=[];
+  renderSrList();
+  saveSrGlobal();
+  showToast('신청곡 목록 초기화됨');
+}
+
+function toggleSrAccepting(){
+  srData.accepting=!srData.accepting;
+  renderSrList();
+  saveSrGlobal();
+}
+
+function toggleSrOption(){
+  srData.priorityMode=document.getElementById('srPriority').checked;
+  srData.showRequester=document.getElementById('srShowRequester').checked;
+  renderSrList();
+  saveSrGlobal();
+}
+
+function saveSrCustom(){
+  srData.cmdRequest=document.getElementById('srCmdRequest').value.trim()||'!신청곡';
+  srData.cmdRemove=document.getElementById('srCmdRemove').value.trim()||'!제거';
+  srData.cmdReset=document.getElementById('srCmdReset').value.trim()||'리셋';
+  srData.cmdClose=document.getElementById('srCmdClose').value.trim()||'!마감';
+  srData.cmdOpen=document.getElementById('srCmdOpen').value.trim()||'!접수';
+  srData.cmdPriorityOn=document.getElementById('srCmdPriorityOn').value.trim()||'!우선온';
+  srData.cmdPriorityOff=document.getElementById('srCmdPriorityOff').value.trim()||'!우선오프';
+  srData.cmdNameOn=document.getElementById('srCmdNameOn').value.trim()||'!이름온';
+  srData.cmdNameOff=document.getElementById('srCmdNameOff').value.trim()||'!이름오프';
+  srData.doneTemplate=document.getElementById('srDoneTemplate').value;
+  srData.listTitle=document.getElementById('srListTitle').value;
+  srData.listItemTemplate=document.getElementById('srListItemTemplate').value;
+  srData.maxCharsPerMsg=Number(document.getElementById('srMaxChars').value)||100;
+  srData.msgIntervalMs=Number(document.getElementById('srMsgInterval').value)||600;
+  saveSrGlobal();
+  showToast('설정 저장 완료 ✓');
+}
+
+async function saveSrGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({songRequest:srData})});
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 룰렛 설정 ── */
+let rouletteData={list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'};
+let rlIdSeq=1;
+let rlItemIdSeq=1;
+let rlSelectedId=null;
+let rlEditingItems=[];
+
+function renderRouletteList(){
+  document.getElementById('rlHeaderTpl').value=rouletteData.resultHeaderTemplate;
+  document.getElementById('rlLowTpl').value=rouletteData.couponLowTemplate;
+  renderRouletteTabBar();
+}
+
+function renderRouletteTabBar(){
+  const bar=document.getElementById('rouletteTabBar');
+  if(rlSelectedId===null && rouletteData.list.length) rlSelectedId=rouletteData.list[0].id;
+  bar.innerHTML = rouletteData.list.map((r,i)=>
+    `<button class="tab-btn ${r.id===rlSelectedId?'active':''}" onclick="switchRouletteTab('${r.id}')">룰렛${i+1}</button>`
+  ).join('') + `<button class="tab-btn" style="border-style:dashed" onclick="addNewRouletteTab()">＋ 새 룰렛</button>`;
+
+  if(rlSelectedId){
+    loadRouletteFormFields(rlSelectedId);
+    document.getElementById('rouletteFormCard').style.display='block';
+  } else {
+    document.getElementById('rouletteFormCard').style.display='none';
   }
-})
+}
+
+function switchRouletteTab(id){
+  rlSelectedId=id;
+  renderRouletteTabBar();
+}
+
+function addNewRouletteTab(){
+  if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
+  const idx=rouletteData.list.length+1;
+  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,triggerSticker:'',items:[]};
+  rouletteData.list.push(r);
+  rlSelectedId=r.id;
+  renderRouletteTabBar();
+  saveRouletteGlobal();
+}
+
+function toggleRouletteTriggerFields(){
+  const mode=document.getElementById('rlTriggerMode').value;
+  document.getElementById('rlTriggerAmountWrap').style.display = mode==='sticker' ? 'none' : 'block';
+  document.getElementById('rlTriggerStickerWrap').style.display = mode==='sticker' ? 'block' : 'none';
+}
+
+function loadRouletteFormFields(id){
+  const r=rouletteData.list.find(x=>x.id===id);
+  if(!r)return;
+  document.getElementById('rlName').value=r.name;
+  document.getElementById('rlTriggerMode').value=r.triggerMode||'exact';
+  document.getElementById('rlTriggerAmount').value=r.triggerAmount||10;
+  document.getElementById('rlTriggerSticker').value=r.triggerSticker||'';
+  toggleRouletteTriggerFields();
+  rlEditingItems=JSON.parse(JSON.stringify(r.items||[]));
+  renderRouletteItems();
+}
+
+function renderRouletteItems(){
+  const wrap=document.getElementById('rouletteItemsWrap');
+  const sum=rlEditingItems.reduce((s,it)=>s+(Number(it.percent)||0),0);
+  document.getElementById('rlPercentSum').textContent='현재 확률 합계: '+sum.toFixed(2)+'%';
+  document.getElementById('rlPercentSum').style.color = Math.abs(sum-100)<0.01 ? 'var(--success)' : 'var(--danger)';
+  if(!rlEditingItems.length){
+    wrap.innerHTML='<p class="hint">등록된 항목이 없습니다. 아래 버튼으로 추가해주세요.</p>';
+    return;
+  }
+  wrap.innerHTML=rlEditingItems.map((it,i)=>`
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <span style="width:22px;height:22px;border-radius:50%;background:var(--success);color:#000;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin:0;white-space:nowrap"><input type="checkbox" style="width:auto" ${it.skipHistory?'checked':''} onchange="rlEditingItems[${i}].skipHistory=this.checked">기록안함</label>
+      <input type="text" value="${escapeAttr(it.name)}" placeholder="항목 이름" oninput="rlEditingItems[${i}].name=this.value" style="flex:2">
+      <input type="number" value="${it.percent}" min="0" step="0.01" placeholder="확률" oninput="rlEditingItems[${i}].percent=Number(this.value)||0;renderRouletteItems()" style="flex:1">
+      <span style="font-size:12px;color:var(--muted)">%</span>
+      <button class="icon-btn danger" onclick="removeRouletteItem(${i})">🗑</button>
+    </div>
+  `).join('');
+}
+
+function addRouletteItem(){
+  rlEditingItems.push({id:'ri'+(rlItemIdSeq++),name:'',percent:0,skipHistory:false});
+  renderRouletteItems();
+}
+
+function removeRouletteItem(i){
+  rlEditingItems.splice(i,1);
+  renderRouletteItems();
+}
+
+function autoDistributePercents(){
+  if(!rlEditingItems.length)return;
+  const each=Math.floor((100/rlEditingItems.length)*100)/100;
+  rlEditingItems.forEach((it,i)=>{ it.percent = i===rlEditingItems.length-1 ? Math.round((100-each*(rlEditingItems.length-1))*100)/100 : each; });
+  renderRouletteItems();
+}
+
+function resetRoulettePercents(){
+  rlEditingItems.forEach(it=>it.percent=0);
+  renderRouletteItems();
+}
+
+function saveRouletteForm(){
+  const name=document.getElementById('rlName').value.trim();
+  if(!name)return showToast('룰렛 이름을 입력해주세요');
+  const validItems=rlEditingItems.filter(it=>it.name && it.name.trim());
+  if(!validItems.length)return showToast('룰렛 항목을 1개 이상 등록해주세요');
+  const triggerMode=document.getElementById('rlTriggerMode').value;
+  const triggerAmount=Number(document.getElementById('rlTriggerAmount').value)||10;
+  const triggerSticker=document.getElementById('rlTriggerSticker').value.trim();
+
+  const r=rouletteData.list.find(x=>x.id===rlSelectedId);
+  if(!r)return;
+  Object.assign(r,{name,triggerMode,triggerAmount,triggerSticker,items:validItems});
+  renderRouletteTabBar();
+  saveRouletteGlobal();
+}
+
+function deleteCurrentRoulette(){
+  if(!rlSelectedId)return;
+  if(!confirm('정말 이 룰렛을 삭제하시겠습니까?'))return;
+  rouletteData.list=rouletteData.list.filter(r=>r.id!==rlSelectedId);
+  rlSelectedId=rouletteData.list.length?rouletteData.list[0].id:null;
+  renderRouletteTabBar();
+  saveRouletteGlobal();
+}
+
+function saveRouletteTemplates(){
+  rouletteData.resultHeaderTemplate=document.getElementById('rlHeaderTpl').value;
+  rouletteData.couponLowTemplate=document.getElementById('rlLowTpl').value;
+  saveRouletteGlobal();
+
+  showToast('문구 저장 완료 ✓');
+}
+
+async function saveRouletteGlobal(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({roulette:rouletteData})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 룰렛 기록 ── */
+let rlUserTags=[];
+let rlSelectedTag='';
+
+async function loadRouletteUsers(){
+  try{
+    const res=await fetch(SERVER+'/roulette/users',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ rlUserTags=d.tags; renderRouletteUserList(); }
+  }catch(e){}
+}
+
+function renderRouletteUserList(){
+  const q=(document.getElementById('rlSearchInput').value||'').trim().toLowerCase();
+  const wrap=document.getElementById('rlUserListWrap');
+  const filtered=rlUserTags.filter(t=>t.toLowerCase().includes(q));
+  if(!filtered.length){
+    wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';
+    return;
+  }
+  wrap.innerHTML=filtered.map(t=>`
+    <div class="rl-user-chip ${t===rlSelectedTag?'active':''}" onclick="loadRouletteHistory('${escapeAttr(t)}')">
+      <span>@${escapeHtml(t)}</span>
+      <button class="icon-btn danger" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
+    </div>
+  `).join('');
+}
+
+async function trackRouletteUser(){
+  const tag=document.getElementById('rlNewTagInput').value.trim().replace('@','');
+  if(!tag)return showToast('고유닉을 입력해주세요');
+  try{
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:authHeaders()});
+    document.getElementById('rlNewTagInput').value='';
+    await loadRouletteUsers();
+    loadRouletteHistory(tag);
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteRouletteUser(tag){
+  if(!confirm('@'+tag+'님의 모든 룰렛 기록을 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/delete',{method:'POST',headers:authHeaders()});
+    if(rlSelectedTag===tag){rlSelectedTag='';document.getElementById('rouletteHistoryWrap').innerHTML='<div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div>';}
+    await loadRouletteUsers();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadRouletteHistory(tag){
+  rlSelectedTag=tag;
+  renderRouletteUserList();
+  const wrap=document.getElementById('rouletteHistoryWrap');
+  try{
+    const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag),{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){wrap.innerHTML='';return showToast('조회 실패');}
+    const list=(d.roulette&&d.roulette.list)||[];
+    const coupons=d.record.coupons||{};
+    const wins=(d.record.wins||[]).slice().reverse();
+
+    const couponRows=list.map((r,i)=>{
+      const idx=i+1;
+      const cur=Number(coupons[idx]||0);
+      return `<div class="flag-amount-row" style="margin-top:8px">
+        <span style="flex:1;font-size:13px">🎡 룰렛${idx} <b>${escapeHtml(r.name)}</b> — 보유 ${cur}개</span>
+        <button class="btn-gray" onclick="adjustCoupon('${escapeAttr(tag)}',${idx},1)">+1</button>
+        <button class="btn-gray" onclick="adjustCoupon('${escapeAttr(tag)}',${idx},-1)">-1</button>
+      </div>`;
+    }).join('');
+
+    const winRows=wins.length?wins.map(w=>`<div class="cmd-card-preview" style="margin-top:4px">🎉 ${new Date(w.ts).toLocaleString('ko-KR')} — ${escapeHtml(w.rouletteName)}: ${escapeHtml(w.itemName)}</div>`).join('')
+      :'<p class="hint">당첨 기록이 없습니다.</p>';
+
+    wrap.innerHTML=`
+      <div class="card">
+        <div class="card-title"><span>👤 @${escapeHtml(tag)} 님의 기록</span></div>
+      </div>
+      ${renderRlListCard('킵목록','keep',tag,d.record.keepList||{})}
+      ${renderRlListCard('기타목록','misc',tag,d.record.miscList||{})}
+      ${renderRlListCard('이벤트목록','event',tag,d.record.eventList||{})}
+      <div class="card">
+        <div class="card-title">🎡 룰렛권 보유 현황</div>
+        ${couponRows||'<p class="hint">등록된 룰렛이 없습니다.</p>'}
+      </div>
+      <div class="card">
+        <div class="card-title">🎉 당첨 기록</div>
+        ${winRows}
+      </div>`;
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function renderRlListCard(title,listType,tag,items){
+  const entries=Object.entries(items||{});
+  const rows=entries.length?entries.map(([name,count])=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span>${escapeHtml(name)}${count>1?` (${count}개)`:''}</span>
+      <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove','${escapeAttr(name)}')">✕</button>
+    </div>`).join('') : '<p class="hint" style="margin:0">기록된 항목이 없습니다.</p>';
+  return `<div class="card">
+    <div class="card-title">
+      <span>${title}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn-gray" style="padding:5px 10px;font-size:11px" onclick="rlListAction('${escapeAttr(tag)}','${listType}','clear')">🗑️ 전체삭제</button>
+        <button class="btn-connect" style="padding:5px 12px;font-size:14px" onclick="rlListAddPrompt('${escapeAttr(tag)}','${listType}')">+</button>
+      </div>
+    </div>
+    ${rows}
+  </div>`;
+}
+
+function rlListAddPrompt(tag,listType){
+  const text=prompt('추가할 내용을 입력하세요');
+  if(text&&text.trim()) rlListAction(tag,listType,'add',text.trim());
+}
+
+async function rlListAction(tag,listType,action,text){
+  try{
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/list',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({listType,action,text})});
+    loadRouletteHistory(tag);
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function adjustCoupon(tag,idx,delta){
+  try{
+    const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/coupon',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({idx,delta})});
+    const d=await res.json();
+    if(d.success){showToast('반영됨');loadRouletteHistory(tag);}
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function startAutoJoin(){
+  const tag=document.getElementById('autoJoinTag').value.trim();
+  if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  document.getElementById('autoJoinStatus').textContent='🚪 입장 시도 중...';
+  try{
+    const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
+    const d=await res.json();
+    showToast(d.msg||d.error||'입장 시도');
+    if(!d.success) document.getElementById('autoJoinStatus').textContent='❌ '+(d.error||'입장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function leaveCurrentRoom(){
+  try{
+    const res=await fetch(SERVER+'/room/leave',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    showToast(d.msg||'방에서 나갔어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function startWatch(){
+  const raw=document.getElementById('watchTags').value;
+  const tags=raw.split('\n').map(t=>t.trim()).filter(Boolean);
+  if(!tags.length)return showToast('감시할 고유닉을 한 줄에 하나씩 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/autojoin/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:true,tags})});
+    const d=await res.json();
+    showToast(d.msg||d.error||'감시 시작');
+    if(!d.success)return;
+    document.getElementById('watchStatus').textContent='⏳ '+tags.length+'개 고유닉 감시 중...';
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function stopWatch(){
+  try{
+    await fetch(SERVER+'/autojoin/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:false})});
+    document.getElementById('watchStatus').textContent='감시 꺼짐';
+    showToast('감시 중지됨');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function toggleBotEnabled(){
+  const enabled=document.getElementById('botEnabledToggle').checked;
+  try{
+    const res=await fetch(SERVER+'/bot/toggle',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    showToast(d.msg||(enabled?'봇 기능 켜짐':'봇 기능 꺼짐'));
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const msg=input.value.trim();if(!msg)return;input.value='';
+  try{
+    await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message:msg})});
+    addLog('봇',msg,'bot');
+  }catch(e){showToast('전송 실패');}
+}
+
+async function saveSettings(){
+  // 입장/좋아요/퇴장 탭 = 실제로 채팅에 전송되는 멘트 (선물/반복문구는 아직 화면만)
+  const jm=(entryData.entry||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
+  const lm=(entryData.like||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
+  const leaveM=(entryData.leave||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
+  const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+async function checkStatus(){
+  try{const res=await fetch(SERVER+'/status',{headers:authHeaders()});const d=await res.json();setStatus(d.isConnected);}catch{}
+}
+
+function setStatus(on){
+  document.getElementById('statusDot').className='dot '+(on?'on':'off');
+  document.getElementById('statusText').textContent=on?'온라인':'오프라인';
+}
+
+function addLog(nick,text,type='user'){
+  const log=document.getElementById('chatLog');
+  const line=document.createElement('div');line.className='log-line';
+  line.innerHTML='<span class="nick '+type+'">'+nick+'</span> '+text;
+  log.appendChild(line);log.scrollTop=log.scrollHeight;
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+function startSSE(){
+  const es=new EventSource(SERVER+'/events');
+  es.onmessage=(e)=>{
+    const d=JSON.parse(e.data);
+    // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
+    if(d.type!=='session' && d.djId && d.djId!==djId) return;
+    if(d.type==='chat')addLog(d.nick,d.text,'user');
+    else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
+    else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
+    else if(d.type==='status')setStatus(d.isConnected);
+    else if(d.type==='autojoin')updateAutoJoinStatus(d);
+    else if(d.type==='session')updateSessionPill(d);
+    else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
+    else if(d.type==='flags'){ flagsData.items=d.items; if(document.getElementById('flagListWrap')) renderFlags(); }
+    else if(d.type==='funding'){ fundingData.items=d.items; if(document.getElementById('fundingListWrap')) renderFunding(); }
+    else if(d.type==='songrequest'){ srData.items=d.items; if(document.getElementById('srListWrap')) renderSrList(); }
+  };
+  es.onerror=()=>setTimeout(startSSE,3000);
+}
+
+function updateSessionPill(d){
+  const pill=document.getElementById('sessionPill');
+  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
+  else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
+}
+
+function updateAutoJoinStatus(d){
+  const el=document.getElementById('autoJoinStatus');
+  const watchEl=document.getElementById('watchStatus');
+  if(d.status==='watching'){ if(watchEl)watchEl.textContent='⏳ @'+d.tag+' 감시 중...'; return; }
+  if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
+  if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
+  if(!el)return;
+  if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
+  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}
+  else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
+  else if(d.status==='error')el.textContent='❌ '+d.msg;
+}
+</script>
+</body>
+</html>
