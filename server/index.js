@@ -1005,6 +1005,59 @@ setInterval(() => {
 }, 5 * 60 * 1000)
 
 // ══════════════════════════════════════════════════════
+// 🎀 스티커 목록 프록시 — 브라우저에서 static.spooncast.net을 직접 fetch하면
+// CDN이 CORS 헤더를 안 내려줘서 막히는 경우가 있어, 서버가 대신 가져와 내려준다.
+// 결과는 메모리에 잠깐 캐싱해서 매번 스푼 CDN에 다시 요청하지 않도록 한다.
+let stickerCache = { data: null, fetchedAt: 0 }
+const STICKER_CACHE_TTL_MS = 30 * 60 * 1000 // 30분
+
+app.get('/stickers', async (req, res) => {
+  try {
+    const now = Date.now()
+    if (stickerCache.data && (now - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+      return res.json({ success: true, cached: true, stickers: stickerCache.data })
+    }
+
+    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+      headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+    })
+    if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+    const raw = await upstream.json()
+
+    const list = []
+    ;(raw.categories || []).forEach(cat => {
+      // 주의: 카테고리 레벨의 is_used는 스푼 API에서 실제 노출 여부와 무관하게 거의 항상 false로 내려오므로
+      // 이 값으로 카테고리 전체를 거르면 안 된다. 개별 스티커의 is_used만 기준으로 삼는다.
+      ;(cat.stickers || []).forEach(s => {
+        if (s.is_used === false) return
+        if (!s.name) return
+        list.push({
+          name: s.name,
+          title: s.title || s.name,
+          image: s.image_thumbnail_web || s.image_thumbnail || s.image_url_web || '',
+          price: s.price || 0,
+          category: cat.title || cat.name || ''
+        })
+      })
+    })
+    // 같은 name이 여러 카테고리에 중복 등록된 경우 대비, name 기준 중복 제거
+    const dedup = new Map()
+    list.forEach(s => dedup.set(s.name, s))
+    const stickers = Array.from(dedup.values())
+
+    stickerCache = { data: stickers, fetchedAt: now }
+    res.json({ success: true, cached: false, stickers })
+  } catch (e) {
+    console.log('[스티커 목록 조회 오류]', e.message)
+    // 실패해도 이전에 캐시된 값이 있으면 그거라도 내려준다.
+    if (stickerCache.data) {
+      return res.json({ success: true, cached: true, stale: true, stickers: stickerCache.data })
+    }
+    res.status(502).json({ success: false, error: '스티커 목록을 가져오지 못했어요: ' + e.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
 app.post('/auth/signup', (req, res) => {
   const { djId, password } = req.body || {}
