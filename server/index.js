@@ -595,7 +595,9 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const page = parseInt(parts[1]) || 1
     const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     const keepKey = tag || author
+    console.log(`[킵디버그:${djId}] author=${author} tag조회결과=${tag} keepKey=${keepKey}`)
     const rec = getHistoryRec(settings, keepKey)
+    console.log(`[킵디버그:${djId}] 저장된 rouletteHistory 키 목록=`, Object.keys(settings.rouletteHistory || {}))
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
     sendChatSplit(djId, formatKeepMessage(author, section, entries, page), 150, 600)
     return
@@ -762,7 +764,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 // sticker: 선물로 들어온 스티커 이름 (지정 스티커 트리거용, 없으면 빈 문자열)
 async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
   const rl = settings.roulette
-  if (!rl || !rl.list || !rl.list.length) return
+  if (!rl || !rl.list || !rl.list.length) { console.log(`[룰렛디버그:${djId}] 등록된 룰렛 없음`); return }
   const applicable = rl.list
     .map((rt, i) => {
       const count = rt.triggerMode === 'sticker'
@@ -771,12 +773,14 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
       return { rt, idx: i + 1, count }
     })
     .filter(x => x.count > 0)
+  console.log(`[룰렛디버그:${djId}] author=${author} amount=${amount} combo=${comboCount} sticker=${sticker} 적용될 룰렛수=${applicable.length}`)
   if (!applicable.length) return
 
   const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
   // 태그 조회가 실패해도(가끔 스푼 API 응답이 늦거나 실패함) 닉네임으로라도 기록을 남긴다.
   // (여기서 tag가 없다고 기록 자체를 건너뛰면, 채팅엔 당첨 메시지가 나가지만 킵목록/당첨기록엔 전혀 안 쌓이는 불일치가 생김)
   const histKey = tag || author
+  console.log(`[룰렛디버그:${djId}] tag조회결과=${tag} histKey=${histKey}`)
   const hist = getHistoryRec(settings, histKey)
   let changed = false
 
@@ -795,6 +799,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
     setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), 400)
   }
+  console.log(`[룰렛디버그:${djId}] changed=${changed} keepList=`, JSON.stringify(hist.keepList))
 
   if (changed) {
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
