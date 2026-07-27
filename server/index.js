@@ -1502,11 +1502,7 @@ app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   const loadedDjIds = tokenManager.initFromDisk()
-  if (loadedDjIds.length) {git add .
-git commit -m "수정14"
-git push
-
-
+  if (loadedDjIds.length) {
     console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
   }
