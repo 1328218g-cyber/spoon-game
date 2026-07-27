@@ -846,97 +846,118 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint">채팅·좋아요·출석·선물로 경험치를 쌓아 레벨업하고, 복권 미니게임까지 즐길 수 있는 시청자 활동 시스템이에요. 시청자가 <b>!내정보 생성</b>으로 먼저 등록해야 적립이 시작돼요.</p>
         </div>
 
-        <div class="card">
-          <div class="card-title"><span>🕐 자동 출석</span><label class="switch"><input type="checkbox" id="actAutoAttendEnabled" checked onchange="saveActivitySettings()"><span class="slider"></span></label></div>
-          <p class="hint">켜두면 등록된 시청자가 방송에 접속해 있기만 해도 설정한 간격마다 자동으로 출석 처리돼요. (한 명당 최소 30분 간격)</p>
-          <label>간격 (분)</label>
-          <input type="number" id="actAutoAttendInterval" value="30" min="5" style="max-width:140px" onchange="saveActivitySettings()">
+        <div class="tab-bar" id="actTabBar">
+          <button class="tab-btn active" data-tab="users" onclick="switchActTab('users')">👤 유저 관리</button>
+          <button class="tab-btn" data-tab="score" onclick="switchActTab('score')">🎯 점수 설정</button>
+          <button class="tab-btn" data-tab="cmd" onclick="switchActTab('cmd')">⚙️ 명령어 커스텀</button>
         </div>
 
-        <div class="card">
-          <div class="card-title"><span>⌨️ 명령어 커스텀</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>내정보 (기본: !내정보)</label><input type="text" id="actCmdMyInfo" value="!내정보"></div>
-            <div><label>랭킹 (기본: !랭킹)</label><input type="text" id="actCmdRank" value="!랭킹"></div>
-          </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>정보 생성 (기본: !내정보 생성)</label><input type="text" id="actCmdCreate" value="!내정보 생성"></div>
-            <div><label>정보 삭제 (기본: !내정보 삭제)</label><input type="text" id="actCmdDelete" value="!내정보 삭제"></div>
-          </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>출석 (기본: !출석)</label><input type="text" id="actCmdAttend" value="!출석"></div>
-            <div><label>복권 (기본: !복권)</label><input type="text" id="actCmdLotto" value="!복권"></div>
-          </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>복권지급 (기본: !복권지급, DJ전용)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
-            <div><label>상점(경험치지급) (기본: !상점, DJ전용)</label><input type="text" id="actCmdShop" value="!상점"></div>
-          </div>
-          <label>타인 조회 접두사 (기본: @, DJ전용 — 예: @닉네임)</label>
-          <input type="text" id="actCmdAt" value="@" style="max-width:140px">
-          <p class="hint" style="margin-top:10px">
-          · {cmdMyInfo} : 내 활동정보 조회 · {cmdCreate} : 애청지수 정보 최초 등록 · {cmdDelete} : 내 정보 삭제<br>
-          · {cmdRank} : TOP5 랭킹 출력 · {cmdAttend} : 수동 출석 (30분 쿨타임) · {cmdLotto} [수량|번호 3개] : 복권 사용<br>
-          · {cmdLottoGive} [닉네임|전체] [수량] : 복권 지급/차감 (DJ 전용) · {cmdShop} [닉네임] [경험치] : 경험치 지급/차감 (DJ 전용)
-          </p>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><span>🎯 경험치 · 레벨 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
-          <label>레벨업 기준값 (레벨업에 필요한 EXP가 커지는 정도, 기본 100)</label>
-          <input type="number" id="actLvBase" value="100" min="1" style="max-width:160px">
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>무료 좋아요 1회당 EXP (기본 1)</label><input type="number" id="actScoreHeart" value="1"></div>
-            <div><label>유료 하트 1개당 EXP (비워두면 무료 좋아요와 동일)</label><input type="number" id="actScorePaidHeart" placeholder="비워두면 위 값과 동일"></div>
-          </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>채팅 1회당 EXP (기본 2)</label><input type="number" id="actScoreChat" value="2"></div>
-            <div><label>출석 1회당 EXP (기본 10)</label><input type="number" id="actScoreAttend" value="10"></div>
-          </div>
-          <label>복권포인트 1점당 EXP (기본 5)</label>
-          <input type="number" id="actScoreLottoPoint" value="5" style="max-width:160px">
-          <div class="check-opt" style="margin-top:16px;font-weight:600">🎉 레벨업 복권 보상</div>
-          <label class="check-opt"><input type="checkbox" id="actLvUpLottoEnabled" checked> 일정 레벨마다 복권 자동 지급</label>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>몇 레벨마다 (기본 10)</label><input type="number" id="actLvUpLottoInterval" value="10" min="1"></div>
-            <div><label>지급 복권 수 (기본 1)</label><input type="number" id="actLvUpLottoAmount" value="1" min="1"></div>
+        <!-- ═══ 유저 관리 ═══ -->
+        <div id="actPanelUsers">
+          <div class="card" style="padding:0;overflow:hidden;display:flex;align-items:stretch">
+            <div style="width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">⭐ 시청자 목록</span>
+                <button class="icon-btn" style="font-size:14px" onclick="loadActivityUsers()">🔄</button>
+              </div>
+              <input type="text" id="actUserSearch" placeholder="시청자 검색" oninput="renderActUserSideList()" style="margin-bottom:8px">
+              <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0;margin-bottom:10px">
+                <button class="btn-connect" style="padding:9px;font-size:12px" onclick="showActAddUser()">+ 추가</button>
+                <button class="btn-shield-reset" style="padding:9px;font-size:12px" onclick="deleteAllActivityUsers()">🗑️ 전체삭제</button>
+              </div>
+              <div id="actUserSideList"><p class="hint">불러오는 중...</p></div>
+            </div>
+            <div style="flex:1;padding:22px;min-width:0" id="actUserDetailWrap">
+              <p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-title"><span>🎰 복권 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
-          <p class="hint">스푼 선물 1개당 복권포인트 1점이 쌓이고, 아래 교환 기준에 도달하면 복권 1장이 자동 지급돼요. 복권 1장을 쓰면 0~9 중 3개를 맞히는 미니게임을 해요.</p>
-          <label>복권 교환 기준 (복권포인트 몇 점당 복권 1장, 기본 22)</label>
-          <input type="number" id="actLottoExchange" value="22" min="1" style="max-width:160px">
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>1등(3개 적중) 보상 EXP</label><input type="number" id="actLotto1st" value="3000"></div>
-            <div><label>2등(2개 적중) 보상 EXP</label><input type="number" id="actLotto2nd" value="500"></div>
+        <!-- ═══ 점수 설정 ═══ -->
+        <div id="actPanelScore" style="display:none">
+          <div class="card">
+            <div class="card-title"><span>❤️ 하트 · 채팅 · 출석 점수 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+              <div><label>하트 클릭 1회 EXP</label><input type="number" id="actScoreHeart" value="1"></div>
+              <div style="background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.3);border-radius:10px;padding:10px 12px">
+                <label style="margin-top:0;color:var(--warn);display:flex;align-items:center;gap:4px">💎 유료 하트 1개 EXP</label>
+                <input type="number" id="actScorePaidHeart" placeholder="비워두면 위 값과 동일">
+              </div>
+              <div><label>채팅 1회 EXP</label><input type="number" id="actScoreChat" value="2"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+              <div><label>출석 1회 EXP</label><input type="number" id="actScoreAttend" value="10"></div>
+              <div><label>복권포인트 1개당 EXP</label><input type="number" id="actScoreLottoPoint" value="5"></div>
+              <div><label>레벨업 기준값 (기본 100)</label><input type="number" id="actLvBase" value="100" min="1"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+              <div><label>복권 1등 EXP</label><input type="number" id="actLotto1st" value="3000"></div>
+              <div><label>복권 2등 EXP</label><input type="number" id="actLotto2nd" value="500"></div>
+              <div><label>복권 3등 EXP</label><input type="number" id="actLotto3rd" value="100"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>복권 꽝 EXP</label><input type="number" id="actLottoFail" value="1"></div>
+              <div><label>복권 교환 기준 포인트</label><input type="number" id="actLottoExchange" value="22" min="1"></div>
+            </div>
+            <p class="hint">포인트 이 수만큼 = 복권 1장 (스푼 선물 1개당 복권포인트 1점 적립)</p>
           </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>3등(1개 적중) 보상 EXP</label><input type="number" id="actLotto3rd" value="100"></div>
-            <div><label>꽝(0개 적중) 보상 EXP</label><input type="number" id="actLottoFail" value="1"></div>
+
+          <div class="card">
+            <div class="card-title"><span>🎉 레벨업 복권 보상</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
+            <label class="check-opt" style="margin-top:0"><input type="checkbox" id="actLvUpLottoEnabled" checked> 레벨업 시 복권 자동 지급 활성화</label>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>보상 주기 (레벨)</label><input type="number" id="actLvUpLottoInterval" value="10" min="1"><div class="hint">예: 10 → Lv10,20,30..마다 지급</div></div>
+              <div><label>지급 복권 수</label><input type="number" id="actLvUpLottoAmount" value="1" min="1"><div class="hint">주기 도달 시 한 번에 지급할 장수</div></div>
+            </div>
+            <label>지급 알림 메시지</label>
+            <textarea id="actMsgLvUpLotto" style="height:56px">🎉 {nickname}님 Lv.{level} 달성! 복권 {amount}장 지급! (보유: {lotto}장)</textarea>
+            <div class="hint">사용 가능한 변수: {nickname} {level} {amount} {lotto}</div>
+            <p class="hint" style="margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px">💡 하트/채팅/출석/복권당첨/상점EXP 모두에서 레벨이 오를 때 자동 감지됩니다. 한 번에 여러 주기를 넘으면 넘은 만큼 지급됩니다 (예: Lv9→25, 주기 10 → 2장).</p>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-title">🔑 복권지급 · 상점 명령어 권한 <span class="hint-inline">(DJ 전용 설정)</span></div>
-          <div class="chip-input-row">
-            <input type="text" id="actGrantInput" placeholder="권한을 줄 사용자 닉네임 입력" onkeydown="if(event.key==='Enter')addActGrantNickname()">
-            <button class="btn-connect" onclick="addActGrantNickname()">추가</button>
-          </div>
-          <div class="chip-list" id="actGrantList"></div>
-          <div class="hint">※ 여기에 등록된 닉네임 사용자만 !복권지급, !상점 명령어를 쓸 수 있어요. (DJ는 기본 포함)</div>
-        </div>
+        <!-- ═══ 명령어 커스텀 ═══ -->
+        <div id="actPanelCmd" style="display:none">
+          <div class="card">
+            <div class="card-title"><span>⚙️ 명령어 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveActivitySettings()">💾 저장</button></div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>!내정보 명령어</label><input type="text" id="actCmdMyInfo" value="!내정보"></div>
+              <div><label>!내정보 생성 명령어</label><input type="text" id="actCmdCreate" value="!내정보 생성"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>!내정보 삭제 명령어</label><input type="text" id="actCmdDelete" value="!내정보 삭제"></div>
+              <div><label>!랭킹 명령어</label><input type="text" id="actCmdRank" value="!랭킹"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>!복권 [수량] 명령어</label><input type="text" id="actCmdLotto" value="!복권"></div>
+              <div><label>!출석 명령어 (30분 쿨다운)</label><input type="text" id="actCmdAttend" value="!출석"></div>
+            </div>
+            <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="actAutoAttendEnabled" checked> 🕐 자동 출석</label>
+            <div class="delay-inline" style="margin-top:8px">주기: <input type="number" id="actAutoAttendInterval" value="30" min="5" style="width:70px"> 분마다</div>
+            <p class="hint">켜두면 봇 실행 중 설정한 주기마다 현재 시청자 명단을 받아와 등록 유저들에게 자동 출석 처리합니다. 출석 EXP는 위에서 설정한 값과 동일하며, 채팅 출석 없이는 안 됩니다. (각 유저별 30분 쿨다운 자동 적용)</p>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>@[닉네임] 조회 명령어 (DJ용)</label><input type="text" id="actCmdAt" value="@"></div>
+              <div><label>!복권지급 명령어 (DJ + 지정 권한자)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
+            </div>
+            <label>!상점 명령어 (DJ + 지정 권한자)</label>
+            <input type="text" id="actCmdShop" value="!상점" style="max-width:260px">
 
-        <div class="card">
-          <div class="card-title">💬 메시지 문구 커스텀</div>
-          <label>등록 완료 문구</label>
-          <textarea id="actMsgCreate" style="height:56px">✅ {nickname}님의 애청지수 정보가 생성되었습니다!</textarea>
-          <label>삭제 완료 문구</label>
-          <textarea id="actMsgDeleteOk" style="height:56px">🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.</textarea>
-          <label>미등록 안내 문구</label>
-          <textarea id="actMsgNoInfo" style="height:56px">⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.</textarea>
-          <label>내정보 출력 양식</label>
-          <textarea id="actMsgMyInfo" style="height:120px">[ '{nickname}'님 활동정보 ]
+            <div class="card-title" style="margin-top:20px"><span>🔑 복권/상점 지급 권한자 (닉네임)</span></div>
+            <p class="hint" style="margin-top:0">매니저 아님 · 아래 등록된 닉네임만 실행 가능</p>
+            <div class="chip-input-row">
+              <input type="text" id="actGrantInput" placeholder="닉네임 입력 (예: 단비)" onkeydown="if(event.key==='Enter')addActGrantNickname()">
+              <button class="btn-connect" onclick="addActGrantNickname()">+ 추가</button>
+            </div>
+            <div class="chip-list" id="actGrantList"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">💬 출력 메시지 커스텀</div>
+            <label>정보 미등록 안내 메시지</label>
+            <textarea id="actMsgNoInfo" style="height:56px">⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.</textarea>
+            <div class="hint">{nickname} {tag}</div>
+            <label>!내정보 출력 형식</label>
+            <textarea id="actMsgMyInfo" style="height:130px">[ '{nickname}'님 활동정보 ]
 순위 : {rank}위
 레벨 : {level} ({exp}/{nextExp})
 하트 : {heart}
@@ -944,31 +965,41 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 출석 : {attend}
 복권포인트 : {lp}/{lpMax}
 복권 : {lotto}</textarea>
-          <div class="hint">변수: {nickname} {rank} {level} {exp} {nextExp} {heart} {chat} {attend} {lp} {lpMax} {lotto}</div>
-          <label>랭킹 상단 제목</label>
-          <input type="text" id="actMsgRankHeader" value="🏆 애청지수 TOP 5 🏆">
-          <label>랭킹 항목 양식</label>
-          <input type="text" id="actMsgRankLine" value="{rank}위: {nickname} (Lv.{level})">
-          <label>레벨업 복권 지급 문구</label>
-          <textarea id="actMsgLvUpLotto" style="height:56px">🎉 {nickname}님 Lv.{level} 달성! 복권 {amount}장 지급! (보유: {lotto}장)</textarea>
-          <label>복권(지정) 상단 문구</label>
-          <input type="text" id="actMsgLottoHeader" value="🎰 {nickname}님의 복권 {count}개 지정 결과">
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>당첨번호 문구</label><input type="text" id="actMsgLottoWin" value="🎊당첨번호:{winNums}"></div>
-            <div><label>내번호 문구</label><input type="text" id="actMsgLottoMy" value="✨나의번호:{myNums}"></div>
+            <div class="hint">{nickname} {rank} {level} {exp} {nextExp} {heart} {chat} {attend} {lp} {lpMax} {lotto}</div>
+            <label>!내정보 생성 완료 메시지</label>
+            <textarea id="actMsgCreate" style="height:56px">✅ {nickname}님의 애청지수 정보가 생성되었습니다!</textarea>
+            <div class="hint">{nickname} {tag}</div>
+            <label>!내정보 삭제 완료 메시지</label>
+            <textarea id="actMsgDeleteOk" style="height:56px">🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.</textarea>
+            <div class="hint">{nickname} {tag}</div>
+            <label>!랭킹 출력 형식 (헤더)</label>
+            <input type="text" id="actMsgRankHeader" value="🏆 애청지수 TOP 5 🏆">
+            <label>!랭킹 각 줄 형식</label>
+            <input type="text" id="actMsgRankLine" value="{rank}위: {nickname} (Lv.{level})">
+            <div class="hint">{rank} {nickname} {level} {exp}</div>
+            <label>!복권 [수량] 지정 결과 헤더</label>
+            <input type="text" id="actMsgLottoHeader" value="🎰 {nickname}님의 복권 {count}개 지정 결과">
+            <div class="hint">{nickname} {count}</div>
+            <label>!복권 자동(전체) 결과 헤더</label>
+            <input type="text" id="actMsgLottoAutoHeader" value="🎰 {nickname}님의 복권 {count}개 자동 결과">
+            <div class="hint">{nickname} {count}</div>
+            <label>복권 당첨번호 안내</label>
+            <input type="text" id="actMsgLottoWin" value="🎊당첨번호:{winNums}">
+            <div class="hint">{winNums} = 당첨번호 (지정 복권만)</div>
+            <label>복권 내 번호 안내</label>
+            <input type="text" id="actMsgLottoMy" value="✨나의번호:{myNums}">
+            <div class="hint">{myNums} = 내 번호 (지정 복권만)</div>
+            <label>복권 결과 요약 (총 획득)</label>
+            <input type="text" id="actMsgLottoTotal" value="🎁 총 획득 경험치: +{totalExp} EXP">
+            <div class="hint">{totalExp}</div>
+            <label>복권포인트 달성 시 멘트</label>
+            <textarea id="actMsgLottoFull" style="height:56px">🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})</textarea>
+            <div class="hint">{nickname} {gained} {lotto} {lp} {lpMax}</div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <button class="btn-connect" onclick="saveActivitySettings()">💾 명령어/메시지 저장</button>
+              <button class="btn-gray" onclick="restoreActivityDefaults()">↩️ 기본값 복원</button>
+            </div>
           </div>
-          <label>복권(자동) 상단 문구</label>
-          <input type="text" id="actMsgLottoAutoHeader" value="🎰 {nickname}님의 복권 {count}개 자동 결과">
-          <label>복권 결과 총합 문구</label>
-          <input type="text" id="actMsgLottoTotal" value="🎁 총 획득 경험치: +{totalExp} EXP">
-          <label>복권포인트 가득참(자동지급) 문구</label>
-          <textarea id="actMsgLottoFull" style="height:56px">🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})</textarea>
-          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveActivitySettings()">💾 문구 저장</button>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><span>🏆 랭킹 / 유저 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadActivityUsers()">🔄 새로고침</button></div>
-          <div id="actUserListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
       <div class="panel" data-panel="quiz"><div class="coming-soon"><div class="ic">🧩</div><h3>퀴즈 설정</h3><p>실시간 퀴즈 이벤트 기능은 준비 중이에요.</p></div></div>
@@ -1612,6 +1643,7 @@ async function loadDjSettings(){
   rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
   document.getElementById('rouletteHistoryWrap').innerHTML='';
   Object.assign(activityData, JSON.parse(JSON.stringify(ACT_DEFAULT)));
+  actUsersCache=[]; actSelectedKey=null;
 
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
@@ -2089,44 +2121,142 @@ async function saveActivitySettings(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 애청지수: 유저 관리 (사이드바 + 상세 편집) ── */
+let actUsersCache=[];
+let actSelectedKey=null;
+let actLottoExchangeCache=22;
+
+function switchActTab(tab){
+  document.querySelectorAll('#actTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.getElementById('actPanelUsers').style.display = tab==='users' ? 'block' : 'none';
+  document.getElementById('actPanelScore').style.display = tab==='score' ? 'block' : 'none';
+  document.getElementById('actPanelCmd').style.display = tab==='cmd' ? 'block' : 'none';
+  if(tab==='users' && !actUsersCache.length) loadActivityUsers();
+}
+
 async function loadActivityUsers(){
-  const wrap=document.getElementById('actUserListWrap');
   try{
     const res=await fetch(SERVER+'/activity/users',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success){wrap.innerHTML='<p class="hint">불러오지 못했어요</p>';return;}
-    if(!d.users.length){wrap.innerHTML='<p class="hint">등록된 애청지수 유저가 없습니다.</p>';return;}
-    const rows=d.users.map(u=>`
-      <tr>
-        <td>${escapeHtml(u.nickname)}</td>
-        <td>Lv.${u.level} (${u.curExp}/${u.nextExp})</td>
-        <td>${u.heart}</td>
-        <td>${u.chat}</td>
-        <td>${u.attend}</td>
-        <td>${u.lp}/${d.lottoExchange}</td>
-        <td>${u.lotto}장</td>
-        <td style="white-space:nowrap">
-          <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="adjustActivityUser('${escapeAttr(u.key)}','exp',100)">+100EXP</button>
-          <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="adjustActivityUser('${escapeAttr(u.key)}','lotto',1)">+복권1</button>
-          <button class="btn-shield-reset" style="padding:5px 8px;font-size:11px" onclick="deleteActivityUser('${escapeAttr(u.key)}')">삭제</button>
-        </td>
-      </tr>
-    `).join('');
-    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>닉네임</th><th>레벨</th><th>하트</th><th>채팅</th><th>출석</th><th>복권P</th><th>복권</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
-  }catch(e){
-    wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
-  }
+    if(!d.success)return;
+    actUsersCache=d.users;
+    actLottoExchangeCache=d.lottoExchange||22;
+    renderActUserSideList();
+    if(actSelectedKey){
+      const still=actUsersCache.find(u=>u.key===actSelectedKey);
+      if(still) renderActUserDetail(actSelectedKey); else { actSelectedKey=null; renderActUserDetailEmpty(); }
+    }
+  }catch(e){}
 }
 
-async function adjustActivityUser(key,type,amount){
+function renderActUserSideList(){
+  const wrap=document.getElementById('actUserSideList');
+  if(!wrap)return;
+  const q=(document.getElementById('actUserSearch')?.value||'').trim().toLowerCase();
+  const list=actUsersCache.filter(u=>u.nickname.toLowerCase().includes(q));
+  if(!list.length){wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';return;}
+  const sorted=list.slice().sort((a,b)=>b.exp-a.exp);
+  wrap.innerHTML=sorted.map((u,i)=>{
+    const rank=actUsersCache.slice().sort((a,b)=>b.exp-a.exp).findIndex(x=>x.key===u.key)+1;
+    const active=u.key===actSelectedKey;
+    return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="selectActUser('${escapeAttr(u.key)}')">
+      <span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((u.nickname||'?')[0])}</span>
+      <span class="lbl" style="line-height:1.3">${escapeHtml(u.nickname)}<br><span style="font-size:11px;color:var(--muted)">Lv.${u.level} · ${rank}위</span></span>
+    </div>`;
+  }).join('');
+}
+
+function renderActUserDetailEmpty(){
+  document.getElementById('actUserDetailWrap').innerHTML='<p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>';
+}
+
+function selectActUser(key){
+  actSelectedKey=key;
+  renderActUserSideList();
+  renderActUserDetail(key);
+}
+
+function renderActUserDetail(key){
+  const u=actUsersCache.find(x=>x.key===key);
+  const wrap=document.getElementById('actUserDetailWrap');
+  if(!u){renderActUserDetailEmpty();return;}
+  const rank=actUsersCache.slice().sort((a,b)=>b.exp-a.exp).findIndex(x=>x.key===u.key)+1;
+  const pct=u.nextExp>0?Math.min(100,Math.round(u.curExp/u.nextExp*100)):0;
+  wrap.innerHTML=`
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0">${escapeHtml((u.nickname||'?')[0])}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:17px;font-weight:700">${escapeHtml(u.nickname)}</div>
+        <div class="hint" style="margin:2px 0 0">${rank}위</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;font-weight:800;color:var(--accent)">Lv.${u.level}</div>
+        <div class="hint" style="margin:0">${u.curExp} / ${u.nextExp} EXP</div>
+      </div>
+    </div>
+    <div class="flag-progress-bar" style="margin-bottom:20px"><div class="flag-progress-fill" style="width:${pct}%"></div></div>
+
+    <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">❤️ 하트</div><div style="font-size:20px;font-weight:700">${u.heart}</div></div>
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">💬 채팅</div><div style="font-size:20px;font-weight:700">${u.chat}</div></div>
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">📅 출석</div><div style="font-size:20px;font-weight:700">${u.attend}</div></div>
+    </div>
+    <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">🎫 복권포인트</div><div style="font-size:20px;font-weight:700">${u.lp}</div><div class="hint" style="margin:0">/ ${actLottoExchangeCache} (복권 1장)</div></div>
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">🎰 복권</div><div style="font-size:20px;font-weight:700">${u.lotto}</div></div>
+      <div class="card" style="margin-bottom:0;padding:14px"><div class="hint" style="margin:0">✨ 총 EXP</div><div style="font-size:20px;font-weight:700">${u.exp}</div></div>
+    </div>
+
+    <div class="card-title" style="margin-top:10px">✏️ 수동 점수 편집</div>
+    <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
+      <div><label>❤️ 하트</label><input type="number" id="actEditHeart" value="${u.heart}"></div>
+      <div><label>💬 채팅</label><input type="number" id="actEditChat" value="${u.chat}"></div>
+      <div><label>📅 출석</label><input type="number" id="actEditAttend" value="${u.attend}"></div>
+    </div>
+    <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
+      <div><label>🎫 복권포인트</label><input type="number" id="actEditLp" value="${u.lp}"></div>
+      <div><label>🎰 복권</label><input type="number" id="actEditLotto" value="${u.lotto}"></div>
+      <div><label>✨ EXP 추가</label><input type="number" id="actEditExpAdd" value="0"></div>
+    </div>
+    <label>🏆 레벨 직접 설정</label>
+    <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
+    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)</p>
+
+    <div class="btn-row" style="grid-template-columns:1fr 1fr">
+      <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 닉네임(키) 변경</button>
+      <button class="btn-connect" onclick="saveActUserEdit('${escapeAttr(u.key)}')">💾 저장</button>
+    </div>
+    <button class="btn-shield-reset" style="width:100%;margin-top:10px" onclick="deleteActivityUser('${escapeAttr(u.key)}')">🗑️ 삭제</button>
+  `;
+}
+
+async function saveActUserEdit(key){
+  const body={
+    heart:Number(document.getElementById('actEditHeart').value)||0,
+    chat:Number(document.getElementById('actEditChat').value)||0,
+    attend:Number(document.getElementById('actEditAttend').value)||0,
+    lp:Number(document.getElementById('actEditLp').value)||0,
+    lotto:Number(document.getElementById('actEditLotto').value)||0,
+    expAdd:Number(document.getElementById('actEditExpAdd').value)||0,
+  };
+  const lvlRaw=document.getElementById('actEditLevel').value;
+  if(lvlRaw) body.setLevel=Number(lvlRaw);
   try{
-    const body=type==='exp'?{expDelta:amount}:{lottoDelta:amount};
-    const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/adjust',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/edit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
-    if(d.success){showToast('반영됨');loadActivityUsers();}
+    if(d.success){showToast('저장 완료 ✓');loadActivityUsers();}
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function renameActUser(key){
+  const cur=actUsersCache.find(u=>u.key===key);
+  const next=prompt('새 닉네임을 입력하세요',cur?cur.nickname:key);
+  if(!next||!next.trim())return;
+  try{
+    const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newKey:next.trim()})});
+    const d=await res.json();
+    if(d.success){showToast('닉네임이 변경됐어요');actSelectedKey=d.key;loadActivityUsers();}
     else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -2136,8 +2266,41 @@ async function deleteActivityUser(key){
   try{
     await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/delete',{method:'POST',headers:authHeaders()});
     showToast('삭제했어요');
+    if(actSelectedKey===key)actSelectedKey=null;
     loadActivityUsers();
+    renderActUserDetailEmpty();
   }catch(e){showToast('오류: '+e.message);}
+}
+
+async function showActAddUser(){
+  const nick=prompt('추가할 시청자 닉네임을 입력하세요');
+  if(!nick||!nick.trim())return;
+  try{
+    const res=await fetch(SERVER+'/activity/users',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname:nick.trim()})});
+    const d=await res.json();
+    if(d.success){showToast('추가했어요');actSelectedKey=nick.trim();loadActivityUsers();}
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteAllActivityUsers(){
+  if(!confirm('등록된 모든 애청지수 유저 정보를 삭제할까요? 되돌릴 수 없어요.'))return;
+  try{
+    await fetch(SERVER+'/activity/users/delete-all',{method:'POST',headers:authHeaders()});
+    showToast('전체 삭제했어요');
+    actSelectedKey=null;
+    loadActivityUsers();
+    renderActUserDetailEmpty();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function restoreActivityDefaults(){
+  if(!confirm('점수/명령어/메시지 설정을 기본값으로 되돌릴까요? (유저 데이터는 유지됩니다)'))return;
+  const keepUsers=activityData.users;
+  Object.assign(activityData, JSON.parse(JSON.stringify(ACT_DEFAULT)));
+  activityData.users=keepUsers;
+  renderActivitySettings();
+  saveActivitySettings();
 }
 
 function renderSrList(){

@@ -617,6 +617,29 @@ function actGrantExp(djId, act, key, delta) {
   setTimeout(() => sendChatToRoom(djId, msg), 400)
 }
 
+// DJ가 명령어에 입력한 닉네임과 실제 등록된 키가 대소문자/공백 차이로 어긋나는 걸 방지하기 위한 관대한 검색.
+// 정확히 일치하는 키가 없으면 대소문자 무시 비교로 재시도한다.
+function findActUserKey(act, input) {
+  if (!input) return null
+  if (act.users[input]) return input
+  const norm = String(input).trim().toLowerCase()
+  const foundKey = Object.keys(act.users).find(k => k.trim().toLowerCase() === norm)
+  return foundKey || null
+}
+
+// 유저를 못 찾았을 때, 등록된 닉네임 중 입력값을 포함하는 후보가 있으면 같이 안내해준다.
+// (DJ가 고유닉/태그를 입력해서 못 찾는 경우가 많아서, 닉네임으로 입력해야 한다는 안내도 덧붙인다.)
+function actNoUserMsg(act, input) {
+  const norm = String(input || '').trim().toLowerCase()
+  const candidates = Object.values(act.users)
+    .map(d => d.nickname)
+    .filter(n => n && String(n).toLowerCase().includes(norm))
+    .slice(0, 3)
+  let msg = `⚠️ '${input}' 유저의 정보가 없습니다. (닉네임을 정확히 입력해주세요 — 고유닉/태그가 아니에요)`
+  if (candidates.length) msg += `\n혹시 이 사람인가요? ${candidates.join(', ')}`
+  return msg
+}
+
 function actEnsureUser(act, key, nickname) {
   if (!act.users[key]) {
     act.users[key] = { nickname, heart: 0, chat: 0, attend: 0, lp: 0, lotto: 0, exp: 0, lastAttendTime: 0 }
@@ -832,34 +855,37 @@ function handleActivityCommand(djId, room, settings, author, authorId, text) {
     const targetNick = parts[1]
     const amount = parseInt(parts[2], 10)
     if (!targetNick || isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} [닉네임] [수량] (음수 입력 시 차감)`), 400); return }
-    const d = act.users[targetNick]
-    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
+    const key = findActUserKey(act, targetNick)
+    const d = key ? act.users[key] : null
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actNoUserMsg(act, targetNick)), 400); return }
     d.lotto = Math.max(0, (d.lotto || 0) + amount)
     save()
     const action = amount > 0 ? '지급' : '차감'
-    setTimeout(() => sendChatToRoom(djId, `🎁 ${d.nickname || targetNick}님의 복권이 ${Math.abs(amount)}장 ${action}되었습니다. (현재: ${d.lotto}장)`), 400)
+    setTimeout(() => sendChatToRoom(djId, `🎁 ${d.nickname || key}님의 복권이 ${Math.abs(amount)}장 ${action}되었습니다. (현재: ${d.lotto}장)`), 400)
     return
   }
   if (canGrant && first === cmdShop) {
     const targetNick = parts[1]
     const expAmount = parseInt(parts[2], 10)
     if (!targetNick || isNaN(expAmount)) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdShop} [닉네임] [경험치]`), 400); return }
-    const d = act.users[targetNick]
-    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
-    actGrantExp(djId, act, targetNick, expAmount)
+    const key = findActUserKey(act, targetNick)
+    const d = key ? act.users[key] : null
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actNoUserMsg(act, targetNick)), 400); return }
+    actGrantExp(djId, act, key, expAmount)
     save()
     const action = expAmount >= 0 ? '지급' : '차감'
-    setTimeout(() => sendChatToRoom(djId, `🛍️ ${d.nickname || targetNick}님의 경험치가 ${Math.abs(expAmount)}만큼 ${action}되었습니다. (현재: ${d.exp} EXP)`), 400)
+    setTimeout(() => sendChatToRoom(djId, `🛍️ ${d.nickname || key}님의 경험치가 ${Math.abs(expAmount)}만큼 ${action}되었습니다. (현재: ${d.exp} EXP)`), 400)
     return
   }
   if (isDj && first.startsWith(cmdAt) && first.length > cmdAt.length) {
     const targetNick = first.slice(cmdAt.length)
-    const d = act.users[targetNick]
-    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
+    const key = findActUserKey(act, targetNick)
+    const d = key ? act.users[key] : null
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actNoUserMsg(act, targetNick)), 400); return }
     const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
-    const rank = actRank(act.users, targetNick)
+    const rank = actRank(act.users, key)
     const lpMax = Number(act.lottoExchange) || 22
-    const out = actFormat(act.msgMyInfo, { nickname: d.nickname || targetNick, rank, level, exp: curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lpMax, lotto: d.lotto || 0 })
+    const out = actFormat(act.msgMyInfo, { nickname: d.nickname || key, rank, level, exp: curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lpMax, lotto: d.lotto || 0 })
     sendChatSplit(djId, out, 150, 600)
     return
   }
@@ -1650,6 +1676,67 @@ app.post('/activity/users/:key/delete', auth.requireAuth, (req, res) => {
   delete act.users[req.params.key]
   store.saveSettings(req.djId, { activity: act })
   res.json({ success: true })
+})
+
+// ⭐ 새 유저 수동 추가 (웹 화면 "+ 추가")
+app.post('/activity/users', auth.requireAuth, (req, res) => {
+  const nickname = String((req.body || {}).nickname || '').trim()
+  if (!nickname) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  if (act.users[nickname]) return res.json({ success: false, error: '이미 등록된 닉네임이에요' })
+  actEnsureUser(act, nickname, nickname)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 전체 유저 삭제
+app.post('/activity/users/delete-all', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  act.users = {}
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 유저 점수 수동 편집 (웹 화면 상세 카드의 "수동 점수 편집" 저장 버튼)
+// heart/chat/attend/lp/lotto는 절대값으로 덮어쓰고, expAdd는 기존 EXP에 더하고,
+// setLevel이 있으면(>0) 그 레벨의 시작 EXP로 먼저 맞춘 뒤 expAdd를 추가로 더한다.
+app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
+  const { heart, chat, attend, lp, lotto, expAdd, setLevel } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (heart != null) d.heart = Math.max(0, Number(heart) || 0)
+  if (chat != null) d.chat = Math.max(0, Number(chat) || 0)
+  if (attend != null) d.attend = Math.max(0, Number(attend) || 0)
+  if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
+  if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
+  if (setLevel != null && Number(setLevel) > 0) {
+    const base = Number(act.lvBase) || 100
+    const lvl = Math.max(1, Math.floor(Number(setLevel)))
+    d.exp = base * lvl * (lvl - 1) / 2
+  }
+  if (expAdd) actGrantExp(req.djId, act, req.params.key, Number(expAdd) || 0)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 유저 닉네임(키) 변경 — 저장된 키가 실제 닉네임과 어긋났을 때 DJ가 직접 고칠 수 있게
+app.post('/activity/users/:key/rename', auth.requireAuth, (req, res) => {
+  const newKey = String((req.body || {}).newKey || '').trim()
+  if (!newKey) return res.json({ success: false, error: '새 닉네임을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (newKey !== req.params.key && act.users[newKey]) return res.json({ success: false, error: '이미 그 닉네임으로 등록된 유저가 있어요' })
+  delete act.users[req.params.key]
+  d.nickname = newKey
+  act.users[newKey] = d
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true, key: newKey })
 })
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
