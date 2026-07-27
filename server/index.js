@@ -240,8 +240,10 @@ function handleShieldCommand(djId, room, settings, author, authorId, text) {
 
   // 적립/차감 — DJ 본인 또는 등록된 권한자만 가능
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  // 권한 목록엔 닉네임을 등록하는 게 정확하지만, DJ가 태그를 입력한 경우도 관측된 매핑으로 함께 허용한다.
   const perms = (shield.perms || []).map(t => String(t).replace('@', '').toLowerCase())
-  const isPermUser = perms.includes(String(author || '').toLowerCase())
+  const authorNorm = String(author || '').toLowerCase()
+  const isPermUser = perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)
   if (!isDj && !isPermUser) {
     setTimeout(() => sendChatToRoom(djId, '❌ 실드 조절 권한이 없어요'), 400)
     return

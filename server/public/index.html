@@ -656,11 +656,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title">🔑 실드 조절 권한 관리 <span class="hint-inline">(DJ 전용 설정)</span></div>
           <div class="chip-input-row">
-            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
+            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 닉네임 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
             <button class="btn-connect" onclick="addShieldPerm()">추가</button>
           </div>
           <div class="chip-list" id="shieldPermList"></div>
-          <div class="hint">※ 여기에 등록된 고유닉 사용자만 실드 적립/차감이 가능합니다. (DJ는 기본 포함)</div>
+          <div class="hint">※ 여기에 등록된 닉네임 사용자만 실드 적립/차감이 가능합니다. (DJ는 기본 포함, 태그를 입력해도 최근 관측된 적이 있으면 인식돼요)</div>
         </div>
 
         <div class="card">
