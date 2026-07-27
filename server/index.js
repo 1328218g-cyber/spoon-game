@@ -24,7 +24,7 @@ const SHARED_TOKEN_DJID = 'sum'
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map() }
   }
   return rooms[djId]
 }
@@ -101,6 +101,22 @@ async function fetchUserTag(liveId, userId, accessToken) {
     console.log('[tag 조회 오류]', e.message)
     return null
   }
+}
+
+// 한 번 성공적으로 확인된 유저의 태그는 room별로 캐시해서 계속 재사용한다.
+// (스푼 프로필 조회 API가 가끔 결과가 오락가락하는 문제가 있어서, 매번 새로 조회하면
+//  선물 시점과 명령어 입력 시점에 서로 다른 값이 나와 기록이 어긋나는 문제가 생김.
+//  한 번 확실하게(요청 userId와 응답 id가 일치) 확인된 값만 캐시하고, 이후엔 API를 다시 부르지 않는다.)
+async function getCachedUserTag(room, liveId, userId, accessToken) {
+  if (userId == null) return null
+  if (room && room.tagCache && room.tagCache.has(userId)) {
+    return room.tagCache.get(userId)
+  }
+  const tag = await fetchUserTag(liveId, userId, accessToken)
+  if (tag && room && room.tagCache) {
+    room.tagCache.set(userId, tag)
+  }
+  return tag
 }
 
 // 방송 실시간 시청자 명단 조회 (퇴장 감지용 폴링에 사용) — 스푼은 퇴장 소켓 이벤트를 보내지 않음
@@ -384,7 +400,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   let response = cmd.response || ''
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
   }
   // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
@@ -601,7 +617,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     const keepKey = tag || author
     console.log(`[킵디버그:${djId}] author=${author} tag조회결과=${tag} keepKey=${keepKey}`)
     const rec = getHistoryRec(settings, keepKey)
@@ -647,7 +663,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     const keepKey = tag || author
     const rec = getHistoryRec(settings, keepKey)
     const field = SECTION_FIELD[section]
@@ -727,7 +743,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+  const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
 
   // 시청자는 룰렛권 차감/기록에 태그가 꼭 필요하므로, 태그 조회 실패 시 실행하지 않는다.
   // DJ는 태그 조회가 실패해도(네트워크 이슈 등) 명령어가 무시되지 않도록 닉네임을 키로 대체해서라도 항상 실행한다.
@@ -770,7 +786,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
 // sticker: 선물로 들어온 스티커 이름 (지정 스티커 트리거용, 없으면 빈 문자열)
-async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
+async function handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length) { console.log(`[룰렛디버그:${djId}] 등록된 룰렛 없음`); return }
   const applicable = rl.list
@@ -784,7 +800,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
   console.log(`[룰렛디버그:${djId}] author=${author} amount=${amount} combo=${comboCount} sticker=${sticker} 적용될 룰렛수=${applicable.length}`)
   if (!applicable.length) return
 
-  const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+  const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
   // 태그 조회가 실패해도(가끔 스푼 API 응답이 늦거나 실패함) 닉네임으로라도 기록을 남긴다.
   // (여기서 tag가 없다고 기록 자체를 건너뛰면, 채팅엔 당첨 메시지가 나가지만 킵목록/당첨기록엔 전혀 안 쌓이는 불일치가 생김)
   const histKey = tag || author
@@ -983,7 +999,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
@@ -1006,7 +1022,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'like', djId, nick: author })
         const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
@@ -1021,7 +1037,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker })
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
-          handleRouletteAutoGrant(djId, settings, author, authorId, liveId, amount, comboCount, sticker)
+          handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
         }
       }
     } catch (e) {
