@@ -725,8 +725,8 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   broadcast({ type: 'roulette', djId, tag: histKey })
 
   const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
-  const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
-  setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), resultDelay)
+  const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
+  setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), resultDelay)
 }
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
@@ -756,8 +756,8 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
       if (hist && !won.skipHistory) { hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() }); changed = true }
     }
     const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
-    const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
-    setTimeout(() => sendChatToRoom(djId, `${header} → ${resultLine}`), 400)
+    const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
+    setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), 400)
   }
 
   if (changed) {
