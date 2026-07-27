@@ -655,12 +655,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title">🔑 실드 조절 권한 관리 <span class="hint-inline">(DJ 전용 설정)</span></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="shieldStrictPerms" onchange="saveShieldSettings()"> 🔒 등록된 권한자만 허용 (현재 방 DJ 뱃지를 가진 사람이라도 아래 목록에 없으면 거부)</label>
+          <p class="hint">기본은 꺼져있어서 "지금 방송 중인 DJ"면 자동으로 허용돼요. 공동방송·부방장 등 다른 사람이 DJ 권한으로 실드를 건드리는 게 걱정되면 이 옵션을 켜고, 아래에 정말 믿을 수 있는 닉네임만 등록해주세요.</p>
           <div class="chip-input-row">
-            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 닉네임 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
+            <input type="text" id="shieldPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addShieldPerm()">
             <button class="btn-connect" onclick="addShieldPerm()">추가</button>
           </div>
           <div class="chip-list" id="shieldPermList"></div>
-          <div class="hint">※ 여기에 등록된 닉네임 사용자만 실드 적립/차감이 가능합니다. (DJ는 기본 포함, 태그를 입력해도 최근 관측된 적이 있으면 인식돼요)</div>
+          <div class="hint">※ 여기에 등록된 고유닉 사용자만 실드 적립/차감이 가능합니다. (위 옵션을 안 켰으면 DJ는 이 목록과 상관없이 항상 가능. 명령어 입력 시점에 그 사람의 실제 고유닉을 즉시 재조회해서 확인해요)</div>
         </div>
 
         <div class="card">
@@ -1253,7 +1255,7 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 실드 관리 ── */
-let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]};
+let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false};
 
 function renderShield(){
   document.getElementById('shieldNumber').textContent=(shieldData.count||0).toLocaleString();
@@ -1262,6 +1264,7 @@ function renderShield(){
   document.getElementById('shieldMsgView').value=shieldData.msgView;
   document.getElementById('shieldMsgAdd').value=shieldData.msgAdd;
   document.getElementById('shieldMsgSub').value=shieldData.msgSub;
+  document.getElementById('shieldStrictPerms').checked=!!shieldData.strictPerms;
   renderShieldPerms();
 }
 
@@ -1326,6 +1329,7 @@ async function saveShieldSettings(){
   shieldData.msgView=document.getElementById('shieldMsgView').value;
   shieldData.msgAdd=document.getElementById('shieldMsgAdd').value;
   shieldData.msgSub=document.getElementById('shieldMsgSub').value;
+  shieldData.strictPerms=document.getElementById('shieldStrictPerms').checked;
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({shield:shieldData})});
     showToast('실드 설정 저장 완료 ✓');
@@ -1750,7 +1754,7 @@ async function initApp(){
 async function loadDjSettings(){
   // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
   entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
-  Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]});
+  Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];

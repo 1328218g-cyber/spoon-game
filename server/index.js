@@ -220,7 +220,7 @@ function escapeRegExp(s) {
 }
 
 // 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
-function handleShieldCommand(djId, room, settings, author, authorId, text) {
+async function handleShieldCommand(djId, room, settings, author, authorId, liveId, text) {
   const shield = settings.shield
   if (!shield || !shield.cmd) return
 
@@ -238,18 +238,36 @@ function handleShieldCommand(djId, room, settings, author, authorId, text) {
     return
   }
 
-  // 적립/차감 — DJ 본인 또는 등록된 권한자만 가능
+  // 적립/차감 — DJ 본인 또는 등록된 권한자(고유닉/태그)만 가능 (단, strictPerms가 켜져있으면 DJ 자동 허용 자체를 끔)
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  // 권한 목록엔 닉네임을 등록하는 게 정확하지만, DJ가 태그를 입력한 경우도 관측된 매핑으로 함께 허용한다.
   const perms = (shield.perms || []).map(t => String(t).replace('@', '').toLowerCase())
   const authorNorm = String(author || '').toLowerCase()
-  const isPermUser = perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)
-  if (!isDj && !isPermUser) {
+
+  // 1) 그동안 관측된 태그↔닉네임 매핑으로 먼저 확인
+  let isPermUser = perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)
+
+  // 2) 못 찾았으면, 그 자리에서 시청자 명단(더 안정적인 API)을 다시 조회해서 이 사람의 실제 태그를 확인한다.
+  if (!isPermUser && perms.length && liveId) {
+    try {
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
+      const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
+      if (me && me.tag) {
+        rememberTagNickname(room, me.tag, author)
+        isPermUser = perms.includes(me.tag.toLowerCase())
+      }
+    } catch (e) {
+      console.log('[실드 권한 재조회 오류]', e.message)
+    }
+  }
+
+  const allowed = shield.strictPerms ? isPermUser : (isDj || isPermUser)
+  if (!allowed) {
     setTimeout(() => sendChatToRoom(djId, '❌ 실드 조절 권한이 없어요'), 400)
     return
   }
 
-  shield.count = (shield.count || 0) + delta
+  shield.count = Math.max(0, (shield.count || 0) + delta)
   store.saveSettings(djId, { shield })
   broadcast({ type: 'shield', djId, count: shield.count })
 
@@ -1572,7 +1590,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const text = eventPayload.message || ''
         broadcast({ type: 'chat', djId, nick: author, text })
         if (!isLurker) {
-          handleShieldCommand(djId, room, settings, author, authorId, text)
+          // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
+          // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
+          //  '고유닉'으로 등록해둔 권한자 목록과 못 맞는 문제가 생김)
+          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          rememberTagNickname(room, actTag, author)
+
+          await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
@@ -1581,9 +1605,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
           handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
           handleRouletteMenuCommand(djId, settings, text)
-          // 애청지수: 태그는 참고용으로만 쓰이므로(신뢰 가능할 때만 채워짐) 캐시된 값을 가볍게 조회해서 같이 넘긴다.
-          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-          rememberTagNickname(room, actTag, author)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag)
           handleActChatHook(djId, settings, author, actTag)
           handleQuizAnswer(djId, settings, author, text)
