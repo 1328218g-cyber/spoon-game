@@ -781,8 +781,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <img id="rlStickerPreviewImg" src="">
               <span id="rlStickerPreviewTitle"></span>
             </div>
-            <p class="hint">스푼 공식 스티커 목록에서 골라도 되고, 이름을 직접 입력해도 돼요. 콤보로 같은 스티커를 연속 선물하면 그 횟수만큼 룰렛이 실행돼요.</p>
+
+            <label style="margin-top:14px">지급 방식</label>
+            <select id="rlStickerPayout" onchange="updateStickerPayoutUI()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
+              <option value="combo">콤보 (연속 선물한 개수만큼 그대로 N회)</option>
+              <option value="exact">일반 (단발로 딱 1개 선물했을 때만 1회)</option>
+              <option value="distribute">배분 (기준 개수(X)당 1회씩, 콤보 포함)</option>
+            </select>
+            <div id="rlStickerCountField" style="display:none">
+              <label>기준 개수 (X)</label>
+              <input type="number" id="rlStickerCount" value="1" min="1">
+            </div>
+            <p class="hint" id="rlStickerPayoutDesc">지정한 스티커를 연속(콤보)으로 선물한 개수만큼 그대로 룰렛이 실행돼요.</p>
+
+            <p class="hint">스푼 공식 스티커 목록에서 골라도 되고, 이름을 직접 입력해도 돼요.</p>
           </div>
+
 
           <label style="margin-top:14px">🎰 룰렛 항목 (이름 / 확률%)</label>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
@@ -1937,9 +1951,18 @@ function updateRouletteTriggerUI(){
   if(mode==='exact') descEl.textContent='정확히 X스푼짜리 선물을 단발(콤보X)로 받았을 때만 1회 실행돼요.';
   else if(mode==='combo') descEl.textContent='X스푼짜리 선물을 N번 연속(콤보)으로 받으면 N회 실행돼요.';
   else if(mode==='distribute') descEl.textContent='콤보를 포함한 총 선물 금액이 X스푼을 넘을 때마다 1회씩 실행돼요. (내림 계산)';
-  else descEl.textContent='지정한 스티커를 선물 받으면 실행돼요. 콤보로 연속 선물하면 그 횟수만큼 실행돼요.';
+  else descEl.textContent='지정한 스티커를 선물 받으면 실행돼요. 아래 지급 방식에 따라 실행 횟수가 달라져요.';
 
-  if(isSticker) loadRlStickerData();
+  if(isSticker){ loadRlStickerData(); updateStickerPayoutUI(); }
+}
+
+function updateStickerPayoutUI(){
+  const payout=document.getElementById('rlStickerPayout').value;
+  document.getElementById('rlStickerCountField').style.display = payout==='distribute' ? 'block' : 'none';
+  const descEl=document.getElementById('rlStickerPayoutDesc');
+  if(payout==='exact') descEl.textContent='지정한 스티커를 단발(콤보X)로 딱 1개만 선물했을 때만 1회 실행돼요.';
+  else if(payout==='distribute') descEl.textContent='지정한 스티커를 콤보 포함 총 개수가 기준 개수(X)를 넘을 때마다 1회씩 실행돼요. (내림 계산)';
+  else descEl.textContent='지정한 스티커를 연속(콤보)으로 선물한 개수만큼 그대로 룰렛이 실행돼요.';
 }
 
 function handleRlStickerInput(val){
@@ -2067,7 +2090,7 @@ function switchRouletteTab(id){
 function addNewRouletteTab(){
   if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
   const idx=rouletteData.list.length+1;
-  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,triggerSticker:'',items:[]};
+  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,triggerSticker:'',triggerStickerPayout:'combo',triggerStickerCount:1,items:[]};
   rouletteData.list.push(r);
   rlSelectedId=r.id;
   renderRouletteTabBar();
@@ -2081,6 +2104,8 @@ function loadRouletteFormFields(id){
   document.getElementById('rlTriggerMode').value=r.triggerMode||'exact';
   document.getElementById('rlTriggerAmount').value=r.triggerAmount||10;
   document.getElementById('rlTriggerSticker').value=r.triggerSticker||'';
+  document.getElementById('rlStickerPayout').value=r.triggerStickerPayout||'combo';
+  document.getElementById('rlStickerCount').value=r.triggerStickerCount||1;
   updateRouletteTriggerUI();
   updateRlStickerPreview();
   rlEditingItems=JSON.parse(JSON.stringify(r.items||[]));
@@ -2138,11 +2163,13 @@ function saveRouletteForm(){
   const triggerMode=document.getElementById('rlTriggerMode').value;
   const triggerAmount=Number(document.getElementById('rlTriggerAmount').value)||10;
   const triggerSticker=document.getElementById('rlTriggerSticker').value.trim();
+  const triggerStickerPayout=document.getElementById('rlStickerPayout').value;
+  const triggerStickerCount=Number(document.getElementById('rlStickerCount').value)||1;
   if(triggerMode==='sticker' && !triggerSticker) return showToast('대상 스티커를 선택하거나 입력해주세요');
 
   const r=rouletteData.list.find(x=>x.id===rlSelectedId);
   if(!r)return;
-  Object.assign(r,{name,triggerMode,triggerAmount,triggerSticker,items:validItems});
+  Object.assign(r,{name,triggerMode,triggerAmount,triggerSticker,triggerStickerPayout,triggerStickerCount,items:validItems});
   renderRouletteTabBar();
   saveRouletteGlobal();
 }

@@ -559,14 +559,25 @@ function calcAutoGrantCount(mode, triggerAmount, amount, comboCount) {
 
 // 지정 스티커 매칭: 선물로 들어온 스티커 이름이 등록해둔 이름과 같거나 일부만 포함돼도 매칭.
 // (콤보로 같은 스티커를 여러 번 연속 선물하면 그 횟수만큼 실행)
-function checkStickerTrigger(triggerSticker, sticker, comboCount) {
+// 지정 스티커도 스푼 트리거처럼 지급 방식(일반/콤보/배분)을 선택할 수 있다.
+// payout: exact(일반)=단발(콤보X)로 딱 1개 선물했을 때만 1회
+//         combo(콤보, 기본값)=선물한 콤보 수만큼 그대로 실행 (기존 동작과 동일)
+//         distribute(배분)=기준 개수(count)당 1회씩 (내림 계산)
+function checkStickerTrigger(triggerSticker, sticker, comboCount, payout, thresholdCount) {
   const target = String(triggerSticker || '').trim().toLowerCase()
   const current = String(sticker || '').trim().toLowerCase()
   if (!target || !current) return 0
-  if (current === target || current.includes(target)) {
-    return Math.max(1, Number(comboCount) || 1)
+  const matched = current === target || current.includes(target)
+  if (!matched) return 0
+
+  const combo = Math.max(1, Number(comboCount) || 1)
+  if (payout === 'exact') return combo === 1 ? 1 : 0
+  if (payout === 'distribute') {
+    const X = Math.max(1, Number(thresholdCount) || 1)
+    return Math.floor(combo / X)
   }
-  return 0
+  // combo (기본값, 미지정 시 기존 동작 그대로 유지)
+  return combo
 }
 
 // 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
@@ -755,7 +766,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
   const applicable = rl.list
     .map((rt, i) => {
       const count = rt.triggerMode === 'sticker'
-        ? checkStickerTrigger(rt.triggerSticker, sticker, comboCount)
+        ? checkStickerTrigger(rt.triggerSticker, sticker, comboCount, rt.triggerStickerPayout, rt.triggerStickerCount)
         : calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount)
       return { rt, idx: i + 1, count }
     })
