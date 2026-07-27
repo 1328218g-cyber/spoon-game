@@ -434,7 +434,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
             <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
           </div>
-          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b>·<b>퇴장</b> 탭만 실제로 채팅에 전송돼요. 선물/반복문구는 화면만 먼저 만들어둔 상태예요.</p>
+          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b>·<b>퇴장</b>·<b>반복문구</b> 탭이 실제로 채팅에 전송돼요. 선물 탭은 화면만 먼저 만들어둔 상태예요.</p>
         </div>
       </div>
 
@@ -1352,6 +1352,26 @@ function renderEntryList(){
     wrap.innerHTML='<p class="hint" style="margin-bottom:12px">등록된 메시지가 없습니다. 아래 버튼으로 추가해주세요.</p>';
     return;
   }
+  if(entryTab==='repeat'){
+    wrap.innerHTML=list.map(m=>`
+      <div class="msg-entry" data-id="${m.id}">
+        <div class="msg-entry-top">
+          <label class="switch">
+            <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked)">
+            <span class="slider"></span>
+          </label>
+          <button class="icon-btn danger" onclick="removeEntryMessage(${m.id})">🗑</button>
+        </div>
+        <textarea id="entryText-${m.id}" placeholder="정해진 시간마다 자동으로 전송할 메시지를 입력하세요..." oninput="updateEntryMsg(${m.id},'text',this.value)">${escapeHtml(m.text)}</textarea>
+        <div class="chip-row">
+          <span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>
+          <span class="delay-inline">간격: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
+        </div>
+        <p class="hint">{tag}: 등록된 DJ 고유닉으로 치환돼요. 방송에 봇이 입장해있는 동안, 설정한 간격마다 반복해서 채팅에 전송돼요.</p>
+      </div>
+    `).join('');
+    return;
+  }
   wrap.innerHTML=list.map(m=>`
     <div class="msg-entry" data-id="${m.id}">
       <div class="msg-entry-top">
@@ -1379,7 +1399,11 @@ function renderEntryList(){
 }
 
 function addEntryMessage(){
-  entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+  if(entryTab==='repeat'){
+    entryData.repeat.push({id:entryIdSeq++,enabled:true,text:'',intervalMin:10,intervalSec:0});
+  } else {
+    entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+  }
   renderEntryList();
 }
 
@@ -1391,7 +1415,7 @@ function removeEntryMessage(id){
 function updateEntryMsg(id,field,value){
   const m=entryData[entryTab].find(x=>x.id===id);
   if(!m)return;
-  m[field]=field==='delay'?Number(value)||0:value;
+  m[field]=(field==='delay'||field==='intervalMin'||field==='intervalSec')?Number(value)||0:value;
 }
 
 function insertEntryVar(id,token){

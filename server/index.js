@@ -897,6 +897,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     broadcast({ type: 'status', djId, isConnected: true })
     // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
     startLeavePolling(djId, liveId)
+    // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
+    repeatLastSent[djId] = {}
   })
 
   ws.on('message', async (data) => {
@@ -1014,6 +1016,48 @@ setInterval(() => {
     })
   }
 }, 5 * 60 * 1000)
+
+// ══════════════════════════════════════════════════════
+// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 각자 설정한 간격(분/초)마다
+// 방송에 봇이 들어가 있는 동안 자동으로 채팅에 전송한다. 메시지마다 간격이 다를 수 있어서
+// 짧은 주기(10초)로 깨어나 각 메시지의 마지막 전송 시각과 비교하는 방식으로 처리한다.
+const repeatLastSent = {} // djId -> { [messageId]: timestampMs }
+const REPEAT_TICK_MS = 10 * 1000
+
+setInterval(() => {
+  const now = Date.now()
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (settings.botEnabled === false) continue
+    const list = settings.entryData?.repeat || []
+    if (!list.length) continue
+
+    if (!repeatLastSent[djId]) repeatLastSent[djId] = {}
+    const lastMap = repeatLastSent[djId]
+
+    list.forEach(m => {
+      if (!m || m.enabled === false) return
+      const text = String(m.text || '').trim()
+      if (!text) return
+      const intervalMs = ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+      if (intervalMs <= 0) return
+
+      const last = lastMap[m.id]
+      if (last == null) {
+        // 처음 감지된 메시지는 바로 쏘지 않고, 그 시점부터 간격을 재기 시작한다.
+        lastMap[m.id] = now
+        return
+      }
+      if (now - last >= intervalMs) {
+        const out = text.replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+        sendChatToRoom(djId, out)
+        lastMap[m.id] = now
+      }
+    })
+  }
+}, REPEAT_TICK_MS)
 
 // ══════════════════════════════════════════════════════
 // 🎀 스티커 목록 프록시 — 브라우저에서 static.spooncast.net을 직접 fetch하면
