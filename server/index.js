@@ -692,8 +692,12 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
   const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-  if (!tag) return
-  const hist = getHistoryRec(settings, tag)
+
+  // 시청자는 룰렛권 차감/기록에 태그가 꼭 필요하므로, 태그 조회 실패 시 실행하지 않는다.
+  // DJ는 태그 조회가 실패해도(네트워크 이슈 등) 명령어가 무시되지 않도록 닉네임을 키로 대체해서라도 항상 실행한다.
+  if (!tag && !isDj) return
+  const histKey = tag || author
+  const hist = getHistoryRec(settings, histKey)
   let resultDelay = 400
 
   if (!isDj) {
@@ -718,7 +722,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
     if (!won.skipHistory) hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-  broadcast({ type: 'roulette', djId, tag })
+  broadcast({ type: 'roulette', djId, tag: histKey })
 
   const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
   const resultLine = Object.entries(wonCounts).map(([name, c]) => c > 1 ? `${name} x${c}` : name).join(', ')
