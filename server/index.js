@@ -1296,6 +1296,12 @@ function startLeavePolling(djId, liveId) {
         currentMembers.set(key, u)
       }
 
+      // 🆔 태그↔닉네임 매핑은 시청자 명단을 받아올 때마다(5초 주기) 항상 갱신한다.
+      // (자동 출석과 달리, 이 매핑은 !룰렛지급 등에서 태그로 대상을 찾을 때 쓰이므로 자주 갱신될수록 좋다)
+      for (const u of currentMembers.values()) {
+        if (u.tag && (u.nickname || u.tag)) rememberTagNickname(room, u.tag, u.nickname || u.tag)
+      }
+
       // ⭐ 애청지수 자동 출석 — 등록된 유저에게만, 설정된 간격(기본 30분)마다 한 번씩 체크
       const settings = store.getSettings(djId) || {}
       const act = settings.activity
@@ -1305,7 +1311,6 @@ function startLeavePolling(djId, liveId) {
           room._lastAutoAttendCheck = Date.now()
           for (const u of currentMembers.values()) {
             const nickname = u.nickname || u.tag
-            if (u.tag && nickname) rememberTagNickname(room, u.tag, nickname)
             if (nickname) handleActAttendHook(djId, settings, nickname, u.tag || null)
           }
         }
