@@ -522,6 +522,349 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
   if (msg === sr.cmdNameOff) { sr.showRequester = false; save(); return }
 }
 
+// ══════════════════════════════════════════════════════
+// ⭐ 애청지수 (로컬 에디봇의 활동 포인트/레벨/복권 시스템과 동일한 사양)
+// 키는 룰렛 기록과 마찬가지로 "닉네임" 고정 (스푼 태그 조회 API가 신뢰할 수 없어서 사용하지 않음)
+
+function getActivitySettings(djId, settings) {
+  if (!settings.activity) {
+    settings.activity = {
+      enabled: true,
+      cmdMyInfo: '!내정보', cmdCreate: '!내정보 생성', cmdDelete: '!내정보 삭제',
+      cmdRank: '!랭킹', cmdLotto: '!복권', cmdAttend: '!출석',
+      cmdLottoGive: '!복권지급', cmdShop: '!상점', cmdAt: '@',
+      grantNicknames: [], // DJ 외에 복권지급/상점 명령어를 쓸 수 있는 닉네임 목록
+      lvBase: 100,
+      scoreHeart: 1, scorePaidHeart: null, scoreChat: 2, scoreAttend: 10, scoreLottoPoint: 5,
+      lottoExchange: 22, lotto1st: 3000, lotto2nd: 500, lotto3rd: 100, lottoFail: 1,
+      lvUpLottoEnabled: true, lvUpLottoInterval: 10, lvUpLottoAmount: 1,
+      autoAttendEnabled: true, autoAttendIntervalMin: 30,
+      msgCreate: '✅ {nickname}님의 애청지수 정보가 생성되었습니다!',
+      msgDeleteOk: '🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.',
+      msgNoInfo: "⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.",
+      msgMyInfo: "[ '{nickname}'님 활동정보 ]\n순위 : {rank}위\n레벨 : {level} ({exp}/{nextExp})\n하트 : {heart}\n채팅 : {chat}\n출석 : {attend}\n복권포인트 : {lp}/{lpMax}\n복권 : {lotto}",
+      msgRankHeader: '🏆 애청지수 TOP 5 🏆',
+      msgRankLine: '{rank}위: {nickname} (Lv.{level})',
+      msgLvUpLotto: '🎉 {nickname}님 Lv.{level} 달성! 복권 {amount}장 지급! (보유: {lotto}장)',
+      msgLottoHeader: '🎰 {nickname}님의 복권 {count}개 지정 결과',
+      msgLottoWin: '🎊당첨번호:{winNums}',
+      msgLottoMy: '✨나의번호:{myNums}',
+      msgLottoTotal: '🎁 총 획득 경험치: +{totalExp} EXP',
+      msgLottoAutoHeader: '🎰 {nickname}님의 복권 {count}개 자동 결과',
+      msgLottoFull: '🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})',
+      users: {}
+    }
+    store.saveSettings(djId, { activity: settings.activity })
+  }
+  if (!settings.activity.users) settings.activity.users = {}
+  return settings.activity
+}
+
+function actGetLevel(exp, lvBase) {
+  const base = Number(lvBase) || 100
+  const e = Math.max(0, Number(exp) || 0)
+  const level = Math.max(1, Math.floor((1 + Math.sqrt(1 + 8 * e / base)) / 2))
+  const curStart = base * level * (level - 1) / 2
+  const nextExp = base * level
+  return { level, curExp: Math.max(0, e - curStart), nextExp }
+}
+
+function actRank(users, key) {
+  const entries = Object.entries(users).sort((a, b) => (b[1].exp || 0) - (a[1].exp || 0))
+  const idx = entries.findIndex(([k]) => k === key)
+  return idx >= 0 ? idx + 1 : 0
+}
+
+function actFormat(tpl, data) {
+  const v = (val) => (val === undefined || val === null || val === '') ? '0' : String(val)
+  return String(tpl || '')
+    .replace(/{nickname}/g, data.nickname || '')
+    .replace(/{rank}/g, v(data.rank))
+    .replace(/{level}/g, v(data.level))
+    .replace(/{exp}/g, v(data.exp))
+    .replace(/{nextExp}/g, v(data.nextExp))
+    .replace(/{heart}/g, v(data.heart))
+    .replace(/{chat}/g, v(data.chat))
+    .replace(/{attend}/g, v(data.attend))
+    .replace(/{lp}/g, v(data.lp))
+    .replace(/{lpMax}/g, v(data.lpMax))
+    .replace(/{lotto}/g, v(data.lotto))
+    .replace(/{count}/g, v(data.count))
+    .replace(/{totalExp}/g, v(data.totalExp))
+    .replace(/{gained}/g, v(data.gained))
+    .replace(/{amount}/g, v(data.amount))
+    .replace(/{winNums}/g, data.winNums || '')
+    .replace(/{myNums}/g, data.myNums || '')
+}
+
+// exp 증가 + 레벨업 복권 보상 체크를 한 번에 처리
+function actGrantExp(djId, act, key, delta) {
+  const d = act.users[key]
+  if (!d) return
+  const prevExp = d.exp || 0
+  d.exp = prevExp + (Number(delta) || 0)
+  if (act.lvUpLottoEnabled === false) return
+  const interval = Math.max(1, Number(act.lvUpLottoInterval) || 10)
+  const amount = Math.max(1, Number(act.lvUpLottoAmount) || 1)
+  const prevLevel = actGetLevel(prevExp, act.lvBase).level
+  const newLevel = actGetLevel(d.exp, act.lvBase).level
+  if (newLevel <= prevLevel) return
+  const crossings = Math.floor(newLevel / interval) - Math.floor(prevLevel / interval)
+  if (crossings <= 0) return
+  const totalGift = crossings * amount
+  d.lotto = (d.lotto || 0) + totalGift
+  const msg = actFormat(act.msgLvUpLotto, { nickname: d.nickname || key, level: newLevel, amount: totalGift, lotto: d.lotto })
+  setTimeout(() => sendChatToRoom(djId, msg), 400)
+}
+
+function actEnsureUser(act, key, nickname) {
+  if (!act.users[key]) {
+    act.users[key] = { nickname, heart: 0, chat: 0, attend: 0, lp: 0, lotto: 0, exp: 0, lastAttendTime: 0 }
+  } else {
+    act.users[key].nickname = nickname
+  }
+  return act.users[key]
+}
+
+// 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
+function handleActChatHook(djId, settings, author) {
+  const act = getActivitySettings(djId, settings)
+  if (act.enabled === false) return
+  const key = author
+  const d = act.users[key]
+  if (!d) return
+  d.nickname = author
+  d.chat = (d.chat || 0) + 1
+  actGrantExp(djId, act, key, Number(act.scoreChat) || 2)
+  store.saveSettings(djId, { activity: act })
+}
+
+// 무료 좋아요 수신 시 훅
+function handleActHeartHook(djId, settings, author) {
+  const act = getActivitySettings(djId, settings)
+  if (act.enabled === false) return
+  const key = author
+  const d = act.users[key]
+  if (!d) return
+  d.nickname = author
+  d.heart = (d.heart || 0) + 1
+  actGrantExp(djId, act, key, Number(act.scoreHeart) || 1)
+  store.saveSettings(djId, { activity: act })
+}
+
+// 출석 처리 (수동 !출석 / 자동 출석 타이머) - 30분 쿨다운, 미등록 유저는 조용히 무시
+function handleActAttendHook(djId, settings, author) {
+  const act = getActivitySettings(djId, settings)
+  if (act.enabled === false) return
+  const key = author
+  const d = act.users[key]
+  if (!d) return
+  const now = Date.now()
+  const interval = 30 * 60 * 1000
+  if (now - (d.lastAttendTime || 0) < interval) return
+  d.lastAttendTime = now
+  d.attend = (d.attend || 0) + 1
+  actGrantExp(djId, act, key, Number(act.scoreAttend) || 10)
+  store.saveSettings(djId, { activity: act })
+}
+
+// 선물(스푼) 수신 시 복권포인트 적립 훅 (스푼 1개당 1포인트, exchange 도달 시 복권 1장)
+function handleActLottoPointHook(djId, settings, author, amount) {
+  const act = getActivitySettings(djId, settings)
+  if (act.enabled === false) return
+  const key = author
+  const d = act.users[key]
+  if (!d) return
+  const exchange = Number(act.lottoExchange) || 22
+  const expPerPoint = Number(act.scoreLottoPoint) || 5
+  d.lp = (d.lp || 0) + amount
+  if (amount > 0 && expPerPoint > 0) actGrantExp(djId, act, key, amount * expPerPoint)
+  let gained = 0
+  while (d.lp >= exchange) { d.lp -= exchange; d.lotto = (d.lotto || 0) + 1; gained++ }
+  if (gained > 0) {
+    const msg = actFormat(act.msgLottoFull, { nickname: d.nickname || author, gained, lotto: d.lotto, lp: d.lp, lpMax: exchange })
+    setTimeout(() => sendChatToRoom(djId, msg), 400)
+  }
+  store.saveSettings(djId, { activity: act })
+}
+
+// 채팅 명령어 처리: !내정보, !내정보 생성/삭제, !랭킹, !출석, !복권, !복권지급, !상점, @[닉네임]
+function handleActivityCommand(djId, room, settings, author, authorId, text) {
+  const act = getActivitySettings(djId, settings)
+  if (act.enabled === false) return
+  const msg = String(text || '').trim()
+  const parts = msg.split(/\s+/)
+  const first = parts[0]
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const key = author
+  const save = () => store.saveSettings(djId, { activity: act })
+
+  const cmdMyInfo = act.cmdMyInfo || '!내정보'
+  const cmdCreate = act.cmdCreate || '!내정보 생성'
+  const cmdDelete = act.cmdDelete || '!내정보 삭제'
+  const cmdRank = act.cmdRank || '!랭킹'
+  const cmdAttend = act.cmdAttend || '!출석'
+  const cmdLotto = act.cmdLotto || '!복권'
+  const cmdLottoGive = act.cmdLottoGive || '!복권지급'
+  const cmdShop = act.cmdShop || '!상점'
+  const cmdAt = act.cmdAt || '@'
+
+  if (msg === cmdCreate) {
+    if (act.users[key]) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님은 이미 애청지수 정보가 있습니다.`), 400); return }
+    actEnsureUser(act, key, author)
+    save()
+    setTimeout(() => sendChatToRoom(djId, actFormat(act.msgCreate, { nickname: author })), 400)
+    return
+  }
+  if (msg === cmdDelete) {
+    if (!act.users[key]) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 정보가 없습니다.`), 400); return }
+    delete act.users[key]
+    save()
+    setTimeout(() => sendChatToRoom(djId, actFormat(act.msgDeleteOk, { nickname: author })), 400)
+    return
+  }
+  if (msg === cmdMyInfo) {
+    const d = act.users[key]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgNoInfo, { nickname: author })), 400); return }
+    const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
+    const rank = actRank(act.users, key)
+    const lpMax = Number(act.lottoExchange) || 22
+    const out = actFormat(act.msgMyInfo, { nickname: d.nickname || author, rank, level, exp: curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lpMax, lotto: d.lotto || 0 })
+    sendChatSplit(djId, out, 150, 600)
+    return
+  }
+  if (msg === cmdRank) {
+    const sorted = Object.entries(act.users).sort((a, b) => (b[1].exp || 0) - (a[1].exp || 0)).slice(0, 5)
+    if (!sorted.length) { setTimeout(() => sendChatToRoom(djId, '📊 아직 애청지수 데이터가 없습니다.'), 400); return }
+    let out = (act.msgRankHeader || '🏆 애청지수 TOP 5 🏆') + '\n'
+    sorted.forEach(([k, d], i) => {
+      const { level } = actGetLevel(d.exp || 0, act.lvBase)
+      out += actFormat(act.msgRankLine, { rank: i + 1, nickname: d.nickname || k, level, exp: d.exp || 0 }) + '\n'
+    })
+    sendChatSplit(djId, out.trim(), 150, 600)
+    return
+  }
+  if (msg === cmdAttend) {
+    handleActAttendHook(djId, settings, author)
+    return
+  }
+  if (first === cmdLotto) {
+    const d = act.users[key]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgNoInfo, { nickname: author })), 400); return }
+    const args = parts.slice(1)
+    const exp1st = Number(act.lotto1st) || 3000
+    const exp2nd = Number(act.lotto2nd) || 500
+    const exp3rd = Number(act.lotto3rd) || 100
+    const expFail = Number(act.lottoFail) || 1
+    const nums = args.map(a => parseInt(a, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 9)
+
+    if (nums.length === 3) {
+      if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+      d.lotto -= 1
+      const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
+      const myNums = nums.slice().sort((a, b) => a - b)
+      const matches = myNums.filter(n => winNums.includes(n)).length
+      let gainExp = expFail
+      if (matches === 3) gainExp = exp1st
+      else if (matches === 2) gainExp = exp2nd
+      else if (matches === 1) gainExp = exp3rd
+      actGrantExp(djId, act, key, gainExp)
+      save()
+      const top = actFormat(act.msgLottoHeader, { nickname: d.nickname || author, count: 1 }) + '\n' +
+        actFormat(act.msgLottoWin, { winNums: winNums.join(',') }) + '\n' +
+        actFormat(act.msgLottoMy, { myNums: myNums.join(',') })
+      const bottom = '━━━━━━━━━━━━━━\n' +
+        `🥇 1등(3개): ${matches === 3 ? 1 : 0}회 (+${exp1st} EXP)\n` +
+        `🥈 2등(2개): ${matches === 2 ? 1 : 0}회 (+${exp2nd} EXP)\n` +
+        `🥉 3등(1개): ${matches === 1 ? 1 : 0}회 (+${exp3rd} EXP)\n` +
+        `💀 꽝(0개): ${matches === 0 ? 1 : 0}회 (+${expFail} EXP)\n` +
+        '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp: gainExp })
+      setTimeout(() => sendChatToRoom(djId, top), 400)
+      setTimeout(() => sendChatToRoom(djId, bottom), 900)
+      return
+    }
+
+    const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
+    if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+    const useCount = Math.min(count, d.lotto || 0)
+    d.lotto -= useCount
+    let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
+    for (let i = 0; i < useCount; i++) {
+      const win = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+      const my = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+      const m = my.filter(n => win.includes(n)).length
+      if (m === 3) cnt1++; else if (m === 2) cnt2++; else if (m === 1) cnt3++; else cntFail++
+    }
+    const totalExp = cnt1 * exp1st + cnt2 * exp2nd + cnt3 * exp3rd + cntFail * expFail
+    actGrantExp(djId, act, key, totalExp)
+    save()
+    const top = actFormat(act.msgLottoAutoHeader, { nickname: d.nickname || author, count: useCount })
+    const bottom = '━━━━━━━━━━━━━━\n' +
+      `🥇 1등(3개): ${cnt1}회 (+${exp1st} EXP)\n` +
+      `🥈 2등(2개): ${cnt2}회 (+${exp2nd} EXP)\n` +
+      `🥉 3등(1개): ${cnt3}회 (+${exp3rd} EXP)\n` +
+      `💀 꽝(0개): ${cntFail}회 (+${expFail} EXP)\n` +
+      '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
+    setTimeout(() => sendChatToRoom(djId, top), 400)
+    setTimeout(() => sendChatToRoom(djId, bottom), 900)
+    return
+  }
+
+  // 아래는 DJ 또는 grantNicknames에 등록된 닉네임만 사용 가능
+  const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+  const canGrant = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+
+  if (canGrant && first === cmdLottoGive && parts[1] === '전체') {
+    const amount = parseInt(parts[2], 10)
+    if (isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} 전체 [수량] (음수 입력 시 차감)`), 400); return }
+    let count = 0
+    Object.values(act.users).forEach(d => { d.lotto = Math.max(0, (d.lotto || 0) + amount); count++ })
+    if (count > 0) {
+      save()
+      const action = amount > 0 ? '지급' : '차감'
+      setTimeout(() => sendChatToRoom(djId, `🎁 등록된 ${count}명의 복권이 ${Math.abs(amount)}장 ${action}되었습니다.`), 400)
+    } else {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ 등록된 애청지수 유저가 없습니다.`), 400)
+    }
+    return
+  }
+  if (canGrant && first === cmdLottoGive && parts[1] !== '전체') {
+    const targetNick = parts[1]
+    const amount = parseInt(parts[2], 10)
+    if (!targetNick || isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} [닉네임] [수량] (음수 입력 시 차감)`), 400); return }
+    const d = act.users[targetNick]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
+    d.lotto = Math.max(0, (d.lotto || 0) + amount)
+    save()
+    const action = amount > 0 ? '지급' : '차감'
+    setTimeout(() => sendChatToRoom(djId, `🎁 ${d.nickname || targetNick}님의 복권이 ${Math.abs(amount)}장 ${action}되었습니다. (현재: ${d.lotto}장)`), 400)
+    return
+  }
+  if (canGrant && first === cmdShop) {
+    const targetNick = parts[1]
+    const expAmount = parseInt(parts[2], 10)
+    if (!targetNick || isNaN(expAmount)) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdShop} [닉네임] [경험치]`), 400); return }
+    const d = act.users[targetNick]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
+    actGrantExp(djId, act, targetNick, expAmount)
+    save()
+    const action = expAmount >= 0 ? '지급' : '차감'
+    setTimeout(() => sendChatToRoom(djId, `🛍️ ${d.nickname || targetNick}님의 경험치가 ${Math.abs(expAmount)}만큼 ${action}되었습니다. (현재: ${d.exp} EXP)`), 400)
+    return
+  }
+  if (isDj && first.startsWith(cmdAt) && first.length > cmdAt.length) {
+    const targetNick = first.slice(cmdAt.length)
+    const d = act.users[targetNick]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 유저의 정보가 없습니다.`), 400); return }
+    const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
+    const rank = actRank(act.users, targetNick)
+    const lpMax = Number(act.lottoExchange) || 22
+    const out = actFormat(act.msgMyInfo, { nickname: d.nickname || targetNick, rank, level, exp: curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lpMax, lotto: d.lotto || 0 })
+    sendChatSplit(djId, out, 150, 600)
+    return
+  }
+}
+
 function percentPick(items) {
   const total = items.reduce((s, it) => s + (Number(it.percent) || 1), 0)
   let r = Math.random() * total
@@ -861,6 +1204,7 @@ function startLeavePolling(djId, liveId) {
   room._lastLiveMembers = new Map()
   room._memberAbsenceCount = new Map()
   room._leavePollInFlight = false
+  room._lastAutoAttendCheck = Date.now() // 방금 입장했으니 자동 출석은 한 주기 지난 뒤부터 시작
 
   room._leavePollTimer = setInterval(async () => {
     if (room._leavePollInFlight) return
@@ -875,6 +1219,20 @@ function startLeavePolling(djId, liveId) {
         const key = (u.tag || u.nickname || '').toString().toLowerCase()
         if (!key) continue
         currentMembers.set(key, u)
+      }
+
+      // ⭐ 애청지수 자동 출석 — 등록된 유저에게만, 설정된 간격(기본 30분)마다 한 번씩 체크
+      const settings = store.getSettings(djId) || {}
+      const act = settings.activity
+      if (act && act.enabled !== false && act.autoAttendEnabled !== false) {
+        const intervalMs = Math.max(1, Number(act.autoAttendIntervalMin) || 30) * 60 * 1000
+        if (Date.now() - room._lastAutoAttendCheck >= intervalMs) {
+          room._lastAutoAttendCheck = Date.now()
+          for (const u of currentMembers.values()) {
+            const nickname = u.nickname || u.tag
+            if (nickname) handleActAttendHook(djId, settings, nickname)
+          }
+        }
       }
 
       const leftCandidates = []
@@ -980,6 +1338,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
           handleRouletteGiveCommand(djId, room, settings, author, authorId, text)
           handleRouletteMenuCommand(djId, settings, text)
+          handleActivityCommand(djId, room, settings, author, authorId, text)
+          handleActChatHook(djId, settings, author)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -996,6 +1356,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+
+          handleActAttendHook(djId, settings, author)
 
           if (greeting) {
             const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
@@ -1014,6 +1376,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
+        if (!isLurker) handleActHeartHook(djId, settings, author)
         const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
@@ -1032,6 +1395,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount))
         }
       }
     } catch (e) {
@@ -1255,6 +1619,39 @@ app.get('/roulette/users', auth.requireAuth, (req, res) => {
   res.json({ success: true, tags })
 })
 
+// ⭐ 애청지수 유저 목록 (랭킹순)
+app.get('/activity/users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const list = Object.entries(act.users).map(([key, d]) => {
+    const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
+    return { key, nickname: d.nickname || key, exp: d.exp || 0, level, curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lotto: d.lotto || 0 }
+  }).sort((a, b) => b.exp - a.exp)
+  res.json({ success: true, users: list, lottoExchange: Number(act.lottoExchange) || 22 })
+})
+
+// ⭐ 특정 유저 exp/복권 수동 조정 (웹 화면에서 !상점/!복권지급 대신 쓸 수 있게)
+app.post('/activity/users/:key/adjust', auth.requireAuth, (req, res) => {
+  const { expDelta, lottoDelta } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (expDelta) actGrantExp(req.djId, act, req.params.key, Number(expDelta) || 0)
+  if (lottoDelta) d.lotto = Math.max(0, (d.lotto || 0) + Number(lottoDelta))
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 특정 유저 애청지수 정보 삭제 (DJ가 대신 초기화해줄 때)
+app.post('/activity/users/:key/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  delete act.users[req.params.key]
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
@@ -1306,7 +1703,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -1321,6 +1718,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (songRequest) patch.songRequest = songRequest
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
+  if (activity) patch.activity = activity
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
