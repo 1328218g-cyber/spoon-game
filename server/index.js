@@ -617,11 +617,10 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    const keepKey = tag || author
-    console.log(`[킵디버그:${djId}] author=${author} tag조회결과=${tag} keepKey=${keepKey}`)
+    // ⚠️ 스푼의 고유닉(tag) 조회 API가 같은 유저에도 매번 다른(때론 완전히 틀린) 값을 주는 경우가 있어서
+    // 더 이상 신뢰하지 않는다. 이벤트에 직접 들어있는 닉네임으로 고정해서 저장/조회 키를 일치시킨다.
+    const keepKey = author
     const rec = getHistoryRec(settings, keepKey)
-    console.log(`[킵디버그:${djId}] 저장된 rouletteHistory 키 목록=`, Object.keys(settings.rouletteHistory || {}))
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
     sendChatSplit(djId, formatKeepMessage(author, section, entries, page), 150, 600)
     return
@@ -663,8 +662,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    const keepKey = tag || author
+    const keepKey = author
     const rec = getHistoryRec(settings, keepKey)
     const field = SECTION_FIELD[section]
     const data = rec[field]
@@ -743,12 +741,9 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-
-  // 시청자는 룰렛권 차감/기록에 태그가 꼭 필요하므로, 태그 조회 실패 시 실행하지 않는다.
-  // DJ는 태그 조회가 실패해도(네트워크 이슈 등) 명령어가 무시되지 않도록 닉네임을 키로 대체해서라도 항상 실행한다.
-  if (!tag && !isDj) return
-  const histKey = tag || author
+  // ⚠️ 스푼 태그(고유닉) 조회 API가 신뢰할 수 없어서(같은 유저에도 결과가 오락가락함) 더 이상 쓰지 않는다.
+  // 이벤트에 바로 들어있는 닉네임을 고정 키로 써서, 선물 시점과 명령어 조회 시점의 키가 항상 일치하도록 한다.
+  const histKey = author
   const hist = getHistoryRec(settings, histKey)
   let resultDelay = 400
 
@@ -800,11 +795,10 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
   console.log(`[룰렛디버그:${djId}] author=${author} amount=${amount} combo=${comboCount} sticker=${sticker} 적용될 룰렛수=${applicable.length}`)
   if (!applicable.length) return
 
-  const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-  // 태그 조회가 실패해도(가끔 스푼 API 응답이 늦거나 실패함) 닉네임으로라도 기록을 남긴다.
-  // (여기서 tag가 없다고 기록 자체를 건너뛰면, 채팅엔 당첨 메시지가 나가지만 킵목록/당첨기록엔 전혀 안 쌓이는 불일치가 생김)
-  const histKey = tag || author
-  console.log(`[룰렛디버그:${djId}] tag조회결과=${tag} histKey=${histKey}`)
+  // ⚠️ 스푼 태그(고유닉) 조회 API가 신뢰할 수 없어서(같은 유저에도 결과가 오락가락함) 더 이상 쓰지 않는다.
+  // 이벤트에 바로 들어있는 닉네임을 고정 키로 써서, 선물 시점과 명령어 조회 시점의 키가 항상 일치하도록 한다.
+  const histKey = author
+  console.log(`[룰렛디버그:${djId}] histKey(닉네임 고정)=${histKey}`)
   const hist = getHistoryRec(settings, histKey)
   let changed = false
 
