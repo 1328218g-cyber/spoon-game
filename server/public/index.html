@@ -2153,7 +2153,7 @@ function renderActUserSideList(){
   const wrap=document.getElementById('actUserSideList');
   if(!wrap)return;
   const q=(document.getElementById('actUserSearch')?.value||'').trim().toLowerCase();
-  const list=actUsersCache.filter(u=>u.nickname.toLowerCase().includes(q));
+  const list=actUsersCache.filter(u=>u.nickname.toLowerCase().includes(q)||(u.tag||'').toLowerCase().includes(q));
   if(!list.length){wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';return;}
   const sorted=list.slice().sort((a,b)=>b.exp-a.exp);
   wrap.innerHTML=sorted.map((u,i)=>{
@@ -2161,7 +2161,7 @@ function renderActUserSideList(){
     const active=u.key===actSelectedKey;
     return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="selectActUser('${escapeAttr(u.key)}')">
       <span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((u.nickname||'?')[0])}</span>
-      <span class="lbl" style="line-height:1.3">${escapeHtml(u.nickname)}<br><span style="font-size:11px;color:var(--muted)">Lv.${u.level} · ${rank}위</span></span>
+      <span class="lbl" style="line-height:1.3">${escapeHtml(u.nickname)}<br><span style="font-size:11px;color:var(--muted)">${u.tag?'@'+escapeHtml(u.tag)+' · ':''}Lv.${u.level} · ${rank}위</span></span>
     </div>`;
   }).join('');
 }
@@ -2187,7 +2187,7 @@ function renderActUserDetail(key){
       <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0">${escapeHtml((u.nickname||'?')[0])}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:17px;font-weight:700">${escapeHtml(u.nickname)}</div>
-        <div class="hint" style="margin:2px 0 0">${rank}위</div>
+        <div class="hint" style="margin:2px 0 0">${u.tag?'@'+escapeHtml(u.tag)+' · ':''}${rank}위</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:18px;font-weight:800;color:var(--accent)">Lv.${u.level}</div>
@@ -2208,6 +2208,8 @@ function renderActUserDetail(key){
     </div>
 
     <div class="card-title" style="margin-top:10px">✏️ 수동 점수 편집</div>
+    <label>🆔 태그 (고유닉, 참고용 · 명령어에서 닉네임 대신 써도 됨)</label>
+    <input type="text" id="actEditTag" value="${escapeAttr(u.tag||'')}" placeholder="예: sum1004">
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
       <div><label>❤️ 하트</label><input type="number" id="actEditHeart" value="${u.heart}"></div>
       <div><label>💬 채팅</label><input type="number" id="actEditChat" value="${u.chat}"></div>
@@ -2220,10 +2222,10 @@ function renderActUserDetail(key){
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
-    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)</p>
+    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
 
     <div class="btn-row" style="grid-template-columns:1fr 1fr">
-      <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 닉네임(키) 변경</button>
+      <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 고유닉 변경</button>
       <button class="btn-connect" onclick="saveActUserEdit('${escapeAttr(u.key)}')">💾 저장</button>
     </div>
     <button class="btn-shield-reset" style="width:100%;margin-top:10px" onclick="deleteActivityUser('${escapeAttr(u.key)}')">🗑️ 삭제</button>
@@ -2238,6 +2240,7 @@ async function saveActUserEdit(key){
     lp:Number(document.getElementById('actEditLp').value)||0,
     lotto:Number(document.getElementById('actEditLotto').value)||0,
     expAdd:Number(document.getElementById('actEditExpAdd').value)||0,
+    tag:document.getElementById('actEditTag').value.trim(),
   };
   const lvlRaw=document.getElementById('actEditLevel').value;
   if(lvlRaw) body.setLevel=Number(lvlRaw);
@@ -2251,12 +2254,12 @@ async function saveActUserEdit(key){
 
 async function renameActUser(key){
   const cur=actUsersCache.find(u=>u.key===key);
-  const next=prompt('새 닉네임을 입력하세요',cur?cur.nickname:key);
+  const next=prompt('새 고유닉(또는 키)을 입력하세요',key);
   if(!next||!next.trim())return;
   try{
     const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newKey:next.trim()})});
     const d=await res.json();
-    if(d.success){showToast('닉네임이 변경됐어요');actSelectedKey=d.key;loadActivityUsers();}
+    if(d.success){showToast('고유닉이 변경됐어요');actSelectedKey=d.key;loadActivityUsers();}
     else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
