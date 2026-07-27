@@ -233,7 +233,7 @@ function handleShieldCommand(djId, room, settings, author, authorId, text) {
 
   // 조회 (인자 없음) — 누구나 가능
   if (delta === null) {
-    const reply = (shield.msgView || '현재 실드: {실드}개').replace(/{실드}/g, shield.count)
+    const reply = (shield.msgView || '현재 실드: {실드}개').replace(/{실드}/g, (shield.count || 0).toLocaleString())
     setTimeout(() => sendChatToRoom(djId, reply), 400)
     return
   }
@@ -254,8 +254,8 @@ function handleShieldCommand(djId, room, settings, author, authorId, text) {
   const amount = Math.abs(delta)
   const tpl = delta > 0 ? (shield.msgAdd || '실드 {amount}개 적립! 현재: {실드}개') : (shield.msgSub || '실드 {amount}개 차감! 현재: {실드}개')
   const reply = tpl
-    .replace(/{amount}/g, amount)
-    .replace(/{실드}/g, shield.count)
+    .replace(/{amount}/g, amount.toLocaleString())
+    .replace(/{실드}/g, (shield.count || 0).toLocaleString())
     .replace(/{icon}/g, delta > 0 ? '✅' : '▼')
     .replace(/{action}/g, delta > 0 ? '적립' : '차감')
   setTimeout(() => sendChatToRoom(djId, reply), 400)
@@ -944,6 +944,143 @@ function handleActivityCommand(djId, room, settings, author, authorId, text, tag
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
+// 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
+
+function getQuizSettings(djId, settings) {
+  if (!settings.quiz) {
+    settings.quiz = {
+      enabled: false,
+      autoStartOnRestart: false,
+      intervalMin: 0, intervalSec: 10,
+      msgCorrect: '🎉 정답! {nickname}님이 맞추셨습니다!\n+{score} EXP 획득',
+      msgTimeout: '⏰ 시간 초과! 정답은 [{answer}]였습니다.',
+      msgQuestion: '🧩 퀴즈! {question} (제한시간: {time}초)',
+      questions: []
+    }
+    store.saveSettings(djId, { quiz: settings.quiz })
+  }
+  if (!settings.quiz.questions) settings.quiz.questions = []
+  return settings.quiz
+}
+
+function quizFormat(tpl, data) {
+  return String(tpl || '')
+    .replace(/{nickname}/g, data.nickname || '')
+    .replace(/{answer}/g, data.answer || '')
+    .replace(/{score}/g, data.score != null ? String(data.score) : '')
+    .replace(/{question}/g, data.question || '')
+    .replace(/{time}/g, data.time != null ? String(data.time) : '')
+}
+
+function ensureQuizState(room) {
+  if (!room.quiz) room.quiz = { running: false, current: null, timeoutTimer: null, nextTimer: null }
+  return room.quiz
+}
+
+function clearQuizTimers(room) {
+  ensureQuizState(room)
+  if (room.quiz.timeoutTimer) clearTimeout(room.quiz.timeoutTimer)
+  if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
+  room.quiz.timeoutTimer = null
+  room.quiz.nextTimer = null
+}
+
+function scheduleNextQuiz(djId) {
+  const room = getRoom(djId)
+  ensureQuizState(room)
+  if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
+  if (!room.quiz.running) return
+  const settings = store.getSettings(djId) || {}
+  const quiz = getQuizSettings(djId, settings)
+  const intervalMs = (Number(quiz.intervalMin) || 0) * 60000 + (Number(quiz.intervalSec) || 0) * 1000
+  if (intervalMs <= 0) return // 0분0초 = 비활성
+  room.quiz.nextTimer = setTimeout(() => askQuizQuestion(djId), intervalMs)
+}
+
+function askQuizQuestion(djId) {
+  const room = getRoom(djId)
+  ensureQuizState(room)
+  if (!room.isConnected || !room.quiz.running) return
+  const settings = store.getSettings(djId) || {}
+  const quiz = getQuizSettings(djId, settings)
+  if (!quiz.questions.length) { scheduleNextQuiz(djId); return }
+  const q = quiz.questions[Math.floor(Math.random() * quiz.questions.length)]
+  const timeLimit = Math.max(1, Number(q.timeLimit) || 20)
+  room.quiz.current = { id: q.id, question: q.question, answer: q.answer, score: Number(q.score) || 0, timeLimit }
+  const msg = quizFormat(quiz.msgQuestion, { question: q.question, time: timeLimit })
+  sendChatToRoom(djId, msg)
+  broadcast({ type: 'quiz', djId, status: 'asked', question: q.question })
+  room.quiz.timeoutTimer = setTimeout(() => handleQuizTimeout(djId), timeLimit * 1000)
+}
+
+function handleQuizTimeout(djId) {
+  const room = getRoom(djId)
+  ensureQuizState(room)
+  const cur = room.quiz.current
+  if (!cur) return
+  const settings = store.getSettings(djId) || {}
+  const quiz = getQuizSettings(djId, settings)
+  const msg = quizFormat(quiz.msgTimeout, { answer: cur.answer })
+  sendChatToRoom(djId, msg)
+  room.quiz.current = null
+  broadcast({ type: 'quiz', djId, status: 'timeout' })
+  scheduleNextQuiz(djId)
+}
+
+// 채팅 메시지가 들어올 때마다(진행 중인 문제가 있을 때만) 정답 여부를 확인한다.
+function handleQuizAnswer(djId, settings, author, text) {
+  const room = getRoom(djId)
+  ensureQuizState(room)
+  const cur = room.quiz.current
+  if (!cur) return
+  const msg = String(text || '').trim()
+  if (!msg || msg !== String(cur.answer).trim()) return
+
+  if (room.quiz.timeoutTimer) { clearTimeout(room.quiz.timeoutTimer); room.quiz.timeoutTimer = null }
+  room.quiz.current = null
+
+  const quiz = getQuizSettings(djId, settings)
+  // 애청지수와 연동: 등록 안 된 유저도 다른 지급 기능과 동일하게 자동 등록하고 지급한다.
+  const act = getActivitySettings(djId, settings)
+  const existingKey = actResolveKey(act, author, null)
+  const key = existingKey || author
+  actEnsureUser(act, key, author)
+  if (cur.score) actGrantExp(djId, act, key, cur.score)
+  store.saveSettings(djId, { activity: act })
+
+  const out = quizFormat(quiz.msgCorrect, { nickname: author, answer: cur.answer, score: cur.score })
+  sendChatToRoom(djId, out)
+  broadcast({ type: 'quiz', djId, status: 'correct', nickname: author })
+  scheduleNextQuiz(djId)
+}
+
+function startQuiz(djId) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  const quiz = getQuizSettings(djId, settings)
+  quiz.enabled = true
+  store.saveSettings(djId, { quiz })
+  ensureQuizState(room)
+  room.quiz.running = true
+  scheduleNextQuiz(djId)
+  broadcast({ type: 'quiz', djId, status: 'started' })
+}
+
+function stopQuiz(djId) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  const quiz = getQuizSettings(djId, settings)
+  quiz.enabled = false
+  store.saveSettings(djId, { quiz })
+  ensureQuizState(room)
+  clearQuizTimers(room)
+  room.quiz.running = false
+  room.quiz.current = null
+  broadcast({ type: 'quiz', djId, status: 'stopped' })
+}
+
 function percentPick(items) {
   const total = items.reduce((s, it) => s + (Number(it.percent) || 1), 0)
   let r = Math.random() * total
@@ -1407,6 +1544,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     startLeavePolling(djId, liveId)
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
+    // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
+    try {
+      const s = store.getSettings(djId) || {}
+      const quiz = getQuizSettings(djId, s)
+      if (quiz.autoStartOnRestart && quiz.questions.length) startQuiz(djId)
+    } catch (e) {}
   })
 
   ws.on('message', async (data) => {
@@ -1441,6 +1584,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, actTag, author)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag)
           handleActChatHook(djId, settings, author, actTag)
+          handleQuizAnswer(djId, settings, author, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -1513,6 +1657,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.isConnected = false
     room.ws = null
     stopLeavePolling(djId)
+    clearQuizTimers(room)
+    if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
   })
 
@@ -1849,6 +1995,95 @@ app.post('/activity/users/:key/rename', auth.requireAuth, (req, res) => {
   act.users[newKey] = d
   store.saveSettings(req.djId, { activity: act })
   res.json({ success: true, key: newKey })
+})
+
+// 🧩 퀴즈 문제 목록 + 설정 조회
+app.get('/quiz/questions', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  res.json({
+    success: true,
+    questions: quiz.questions,
+    settings: {
+      intervalMin: quiz.intervalMin, intervalSec: quiz.intervalSec,
+      autoStartOnRestart: quiz.autoStartOnRestart, enabled: quiz.enabled,
+      msgCorrect: quiz.msgCorrect, msgTimeout: quiz.msgTimeout, msgQuestion: quiz.msgQuestion
+    },
+    running: !!(room.quiz && room.quiz.running),
+    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null
+  })
+})
+
+app.post('/quiz/questions', auth.requireAuth, (req, res) => {
+  const { question, answer, score, timeLimit } = req.body || {}
+  if (!question || !answer) return res.json({ success: false, error: '문제와 정답을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (quiz.questions.length >= 100) return res.json({ success: false, error: '문제는 최대 100개까지 등록할 수 있어요' })
+  const id = 'q' + Date.now() + Math.floor(Math.random() * 1000)
+  quiz.questions.push({ id, question, answer, score: Number(score) || 10, timeLimit: Number(timeLimit) || 20 })
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true, id })
+})
+
+app.post('/quiz/questions/:id', auth.requireAuth, (req, res) => {
+  const { question, answer, score, timeLimit } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  const q = quiz.questions.find(x => x.id === req.params.id)
+  if (!q) return res.json({ success: false, error: '문제를 찾을 수 없어요' })
+  if (question != null) q.question = question
+  if (answer != null) q.answer = answer
+  if (score != null) q.score = Number(score) || 0
+  if (timeLimit != null) q.timeLimit = Number(timeLimit) || 20
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/questions/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  quiz.questions = quiz.questions.filter(x => x.id !== req.params.id)
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/settings', auth.requireAuth, (req, res) => {
+  const { intervalMin, intervalSec, autoStartOnRestart } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (intervalMin != null) quiz.intervalMin = Number(intervalMin) || 0
+  if (intervalSec != null) quiz.intervalSec = Number(intervalSec) || 0
+  if (autoStartOnRestart != null) quiz.autoStartOnRestart = !!autoStartOnRestart
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/messages', auth.requireAuth, (req, res) => {
+  const { msgCorrect, msgTimeout, msgQuestion } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (msgCorrect != null) quiz.msgCorrect = msgCorrect
+  if (msgTimeout != null) quiz.msgTimeout = msgTimeout
+  if (msgQuestion != null) quiz.msgQuestion = msgQuestion
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/start', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  if (!room.isConnected) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (!quiz.questions.length) return res.json({ success: false, error: '등록된 문제가 없어요. 먼저 문제를 추가해주세요' })
+  startQuiz(req.djId)
+  res.json({ success: true })
+})
+
+app.post('/quiz/stop', auth.requireAuth, (req, res) => {
+  stopQuiz(req.djId)
+  res.json({ success: true })
 })
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {

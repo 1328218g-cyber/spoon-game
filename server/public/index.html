@@ -187,7 +187,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .flag-meta-row{display:flex;gap:32px;flex-wrap:wrap;margin-bottom:14px;font-size:12.5px}
 .flag-meta-row div span.k{display:block;color:var(--muted);margin-bottom:3px}
 .flag-meta-row div span.v{color:var(--text);font-weight:600}
-.flag-amount-row{display:flex;gap:8px}
+.flag-amount-row{display:flex;gap:8px;flex-wrap:wrap}
 .flag-amount-row input{flex:1}
 .flag-amount-row button{white-space:nowrap;padding:11px 16px;font-size:13px}
 
@@ -621,8 +621,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div class="shield-number" id="shieldNumber">0</div>
           </div>
           <div class="shield-input-row">
-            <input type="number" id="shieldInput" placeholder="변경할 숫자 입력">
-            <button class="btn-gray" onclick="setShield()">설정/변경</button>
+            <input type="text" inputmode="numeric" id="shieldInput" placeholder="숫자 입력">
+            <button class="btn-connect" onclick="addShieldDelta(1)">➕ 적립</button>
+            <button class="btn-shield-reset" onclick="addShieldDelta(-1)">➖ 차감</button>
+          </div>
+          <div class="shield-input-row">
+            <button class="btn-gray" onclick="setShield()">숫자로 정확히 설정</button>
             <button class="btn-gray" onclick="document.getElementById('shieldInput').value=''">입력칸 비우기</button>
             <button class="btn-shield-reset" onclick="resetShield()">실드 리셋(<span id="shieldResetCount">0</span>)</button>
           </div>
@@ -1252,7 +1256,7 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('op
 let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[]};
 
 function renderShield(){
-  document.getElementById('shieldNumber').textContent=shieldData.count;
+  document.getElementById('shieldNumber').textContent=(shieldData.count||0).toLocaleString();
   document.getElementById('shieldResetCount').textContent=shieldData.resetCount;
   document.getElementById('shieldCmd').value=shieldData.cmd;
   document.getElementById('shieldMsgView').value=shieldData.msgView;
@@ -1297,6 +1301,16 @@ function setShield(){
   renderShield();
   persistShieldCount();
   showToast('실드 설정 완료 ✓');
+}
+
+function addShieldDelta(sign){
+  const v=Math.abs(Number(document.getElementById('shieldInput').value))||0;
+  if(!v)return showToast('숫자를 입력해주세요');
+  shieldData.count=Math.max(0,(shieldData.count||0)+v*sign);
+  document.getElementById('shieldInput').value='';
+  renderShield();
+  persistShieldCount();
+  showToast(sign>0?'실드 적립 완료 ✓':'실드 차감 완료 ✓');
 }
 
 function resetShield(){
@@ -1360,8 +1374,9 @@ function renderFlags(){
         <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
       </div>
       <div class="flag-amount-row">
-        <input type="text" inputmode="decimal" id="flagAmount-${f.id}" placeholder="숫자 입력 (음수=차감)">
-        <button class="btn-connect" onclick="applyFlagAmount('${f.id}')">적립/차감</button>
+        <input type="text" inputmode="numeric" id="flagAmount-${f.id}" placeholder="숫자 입력">
+        <button class="btn-connect" onclick="applyFlagAmount('${f.id}',1)">➕ 적립</button>
+        <button class="btn-shield-reset" onclick="applyFlagAmount('${f.id}',-1)">➖ 차감</button>
         <button class="btn-gray" onclick="resetFlagAmount('${f.id}')">리셋</button>
       </div>
       <div class="hint" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:12px;white-space:pre-line">${escapeHtml(preview)}</div>
@@ -1420,12 +1435,12 @@ function deleteFlag(id){
   saveFlagsGlobal();
 }
 
-function applyFlagAmount(id){
+function applyFlagAmount(id,sign){
   const input=document.getElementById('flagAmount-'+id);
-  const v=Number(input.value);
+  const v=Math.abs(Number(input.value))||0;
   if(!v)return showToast('숫자를 입력해주세요');
   const f=flagsData.items.find(x=>x.id===id);
-  f.current=(f.current||0)+v;
+  f.current=(f.current||0)+v*sign;
   input.value='';
   renderFlags();
   saveFlagsGlobal();
@@ -1511,8 +1526,9 @@ function renderFunding(){
         <span>${fundingData.showPercent?percent+'%':''}</span>
       </div>
       <div class="flag-amount-row">
-        <input type="text" inputmode="decimal" id="fundingAmount-${it.id}" placeholder="숫자 입력 (음수=차감)">
-        <button class="btn-connect" onclick="applyFundingAmount('${it.id}')">적립/차감</button>
+        <input type="text" inputmode="numeric" id="fundingAmount-${it.id}" placeholder="숫자 입력">
+        <button class="btn-connect" onclick="applyFundingAmount('${it.id}',1)">➕ 적립</button>
+        <button class="btn-shield-reset" onclick="applyFundingAmount('${it.id}',-1)">➖ 차감</button>
         <button class="btn-gray" onclick="resetFundingAmount('${it.id}')">리셋</button>
       </div>
     </div>`;
@@ -1569,12 +1585,12 @@ function deleteFunding(id){
   saveFundingGlobal();
 }
 
-function applyFundingAmount(id){
+function applyFundingAmount(id,sign){
   const input=document.getElementById('fundingAmount-'+id);
-  const v=Number(input.value);
+  const v=Math.abs(Number(input.value))||0;
   if(!v)return showToast('숫자를 입력해주세요');
   const it=fundingData.items.find(x=>x.id===id);
-  it.current=(it.current||0)+v;
+  it.current=(it.current||0)+v*sign;
   input.value='';
   renderFunding();
   saveFundingGlobal();
@@ -2320,7 +2336,12 @@ function renderActUserDetail(key){
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
       <div><label>🎫 복권포인트</label><input type="number" id="actEditLp" value="${u.lp}"></div>
       <div><label>🎰 복권</label><input type="number" id="actEditLotto" value="${u.lotto}"></div>
-      <div><label>✨ EXP 추가</label><input type="text" inputmode="decimal" id="actEditExpAdd" value="0"></div>
+      <div><label>✨ EXP 적립/차감</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" inputmode="numeric" id="actEditExpAdd" value="0" style="flex:1">
+          <button type="button" class="btn-gray" id="actExpSignBtn" data-sign="1" onclick="toggleActExpSign()" style="width:52px;flex-shrink:0;padding:11px 0">➕</button>
+        </div>
+      </div>
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
@@ -2334,14 +2355,26 @@ function renderActUserDetail(key){
   `;
 }
 
+function toggleActExpSign(){
+  const btn=document.getElementById('actExpSignBtn');
+  if(!btn)return;
+  const next=btn.dataset.sign==='1'?'-1':'1';
+  btn.dataset.sign=next;
+  btn.textContent=next==='1'?'➕':'➖';
+  btn.style.color=next==='1'?'':'var(--danger)';
+  btn.style.borderColor=next==='1'?'':'var(--danger)';
+}
+
 async function saveActUserEdit(key){
+  const expMagnitude=Math.abs(Number(document.getElementById('actEditExpAdd').value))||0;
+  const expSign=Number(document.getElementById('actExpSignBtn')?.dataset.sign||'1');
   const body={
     heart:Number(document.getElementById('actEditHeart').value)||0,
     chat:Number(document.getElementById('actEditChat').value)||0,
     attend:Number(document.getElementById('actEditAttend').value)||0,
     lp:Number(document.getElementById('actEditLp').value)||0,
     lotto:Number(document.getElementById('actEditLotto').value)||0,
-    expAdd:Number(document.getElementById('actEditExpAdd').value)||0,
+    expAdd:expMagnitude*expSign,
     tag:document.getElementById('actEditTag').value.trim(),
   };
   const lvlRaw=document.getElementById('actEditLevel').value;
@@ -2863,9 +2896,10 @@ function renderAgDetail(){
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">🎫 복권 지급</div>
-      <div class="chip-input-row">
-        <input type="text" inputmode="decimal" id="agLottoAmount" placeholder="지급할 수량 (음수=차감)" value="1">
-        <button class="btn-connect" onclick="grantLottoToSelected()">지급</button>
+      <input type="text" inputmode="numeric" id="agLottoAmount" placeholder="수량 입력" value="1">
+      <div class="btn-row" style="grid-template-columns:1fr 1fr">
+        <button class="btn-connect" onclick="grantLottoToSelected(1)">➕ 적립</button>
+        <button class="btn-shield-reset" onclick="grantLottoToSelected(-1)">➖ 차감</button>
       </div>
       <div class="hint" id="agLottoResult" style="margin-top:8px"></div>
     </div>
@@ -2875,9 +2909,11 @@ function renderAgDetail(){
       ${rouletteOptions ? `
       <label>대상 룰렛</label>
       <select id="agRouletteSelect" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">${rouletteOptions}</select>
-      <div class="chip-input-row" style="margin-top:10px">
-        <input type="text" inputmode="decimal" id="agRouletteAmount" placeholder="지급할 수량 (음수=차감)" value="1">
-        <button class="btn-connect" onclick="grantRouletteToSelected()">지급</button>
+      <label>수량</label>
+      <input type="text" inputmode="numeric" id="agRouletteAmount" placeholder="수량 입력" value="1">
+      <div class="btn-row" style="grid-template-columns:1fr 1fr">
+        <button class="btn-connect" onclick="grantRouletteToSelected(1)">➕ 적립</button>
+        <button class="btn-shield-reset" onclick="grantRouletteToSelected(-1)">➖ 차감</button>
       </div>
       <div class="hint" id="agRouletteResult" style="margin-top:8px"></div>
       ` : `<p class="hint">등록된 룰렛이 없습니다. 먼저 룰렛 설정에서 룰렛을 만들어주세요.</p>`}
@@ -2885,34 +2921,36 @@ function renderAgDetail(){
   `;
 }
 
-async function grantLottoToSelected(){
+async function grantLottoToSelected(sign){
   const u=agSelectedMember;
   if(!u)return;
-  const amount=Number(document.getElementById('agLottoAmount').value);
-  if(!amount)return showToast('수량을 입력해주세요');
+  const magnitude=Math.abs(Number(document.getElementById('agLottoAmount').value))||0;
+  if(!magnitude)return showToast('수량을 입력해주세요');
+  const amount=magnitude*sign;
   const target=u.tag||u.nickname;
   try{
     const res=await fetch(SERVER+'/activity/grant-lotto',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({target,amount})});
     const d=await res.json();
     if(d.success){
-      showToast(`${d.nickname}님에게 복권 ${Math.abs(amount)}장 ${amount>0?'지급':'차감'} 완료`);
+      showToast(`${d.nickname}님에게 복권 ${magnitude}장 ${sign>0?'지급':'차감'} 완료`);
       document.getElementById('agLottoResult').textContent=`현재 보유: ${d.lotto}장`;
     } else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
-async function grantRouletteToSelected(){
+async function grantRouletteToSelected(sign){
   const u=agSelectedMember;
   if(!u)return;
   const idx=Number(document.getElementById('agRouletteSelect').value);
-  const amount=Number(document.getElementById('agRouletteAmount').value);
-  if(!amount)return showToast('수량을 입력해주세요');
+  const magnitude=Math.abs(Number(document.getElementById('agRouletteAmount').value))||0;
+  if(!magnitude)return showToast('수량을 입력해주세요');
+  const amount=magnitude*sign;
   const target=u.nickname||u.tag; // 룰렛 기록은 닉네임 기준
   try{
     const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(target)+'/coupon',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({idx,delta:amount})});
     const d=await res.json();
     if(d.success){
-      showToast(`${target}님에게 룰렛권${idx} ${Math.abs(amount)}장 ${amount>0?'지급':'차감'} 완료`);
+      showToast(`${target}님에게 룰렛권${idx} ${magnitude}장 ${sign>0?'지급':'차감'} 완료`);
       document.getElementById('agRouletteResult').textContent=`현재 보유: ${d.coupons[idx]||0}장`;
     } else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
