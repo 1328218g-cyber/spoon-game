@@ -28,8 +28,9 @@
   --warn:#d97706;
   --radius:14px;
 }
-html,body{height:100%}
+html,body{height:100%;width:100%;max-width:100%;overflow-x:hidden}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
+*{min-width:0}
 
 /* ── 레이아웃 ── */
 .app{display:flex;height:100vh}
@@ -65,7 +66,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 .dot.off{background:var(--danger)}
 
-.content{flex:1;overflow-y:auto;padding:22px 26px 60px}
+.content{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 26px 60px}
 .panel{display:none;max-width:640px}
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -1804,10 +1805,10 @@ async function loadUserList(){
         <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
       </tr>`;
     }).join('');
-    wrap.innerHTML=`<table class="user-table">
+    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
       <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
@@ -2364,10 +2365,10 @@ function renderSrList(){
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `).join('');
-  wrap.innerHTML=`<table class="user-table">
+  wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
     <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 function addSrManual(){
