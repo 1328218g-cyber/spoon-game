@@ -1099,7 +1099,7 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag: targetTag })
-  setTimeout(() => sendChatToRoom(djId, `🎡 [${targetTag}]님에게 룰렛${idx}(${rt.name}) 권 ${count}개 지급 완료! (현재: ${rec.coupons[idx]}개)`), 400)
+  setTimeout(() => sendChatToRoom(djId, `🎡 ${targetTag}님에게 룰렛권${idx} ${count}장 지급했습니다! (보유: ${rec.coupons[idx]}장)`), 400)
 }
 
 // !룰렛메뉴N[-P] — 룰렛 항목 목록 확인 (페이지)
