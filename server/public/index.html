@@ -331,7 +331,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="autogrant"><span class="ic">🎁</span><span class="lbl">실시간 지급</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge off">OFF</span></div>
+    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on">ON</span></div>
 
   </nav>
 
@@ -1038,7 +1038,71 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
-      <div class="panel" data-panel="quiz"><div class="coming-soon"><div class="ic">🧩</div><h3>퀴즈 설정</h3><p>실시간 퀴즈 이벤트 기능은 준비 중이에요.</p></div></div>
+      <div class="panel" data-panel="quiz">
+        <div class="card split-card">
+          <div class="split-side">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">🧩 퀴즈 문제 목록</span>
+              <span class="hint" id="quizCountLabel" style="margin:0">0/100</span>
+            </div>
+            <button class="btn-connect" style="width:100%;margin-bottom:10px" onclick="showQuizAddForm()">+ 문제 추가</button>
+            <div id="quizQuestionList"><p class="hint">불러오는 중...</p></div>
+          </div>
+          <div class="split-main">
+            <div class="card">
+              <div class="card-title">🎯 퀴즈 진행 상태</div>
+              <span class="session-pill" id="quizStatusPill">⏸ 대기 중</span>
+            </div>
+
+            <div class="card">
+              <div class="card-title">🕐 출제 간격 설정</div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:13px;color:var(--muted)">출제 간격</span>
+                <input type="number" id="quizIntervalMin" value="0" min="0" style="max-width:80px">
+                <span style="font-size:13px;color:var(--muted)">분</span>
+                <input type="number" id="quizIntervalSec" value="10" min="0" max="59" style="max-width:80px">
+                <span style="font-size:13px;color:var(--muted)">초 (0분 0초 = 비활성)</span>
+              </div>
+              <label class="check-opt"><input type="checkbox" id="quizAutoStart"> 🚀 서버 재시작 시 퀴즈 자동 시작 (강제 실행) <span class="hint-inline">※ 체크 시 봇이 켜지면 자동으로 퀴즈가 시작됩니다.</span></label>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+                <button class="btn-connect" onclick="saveQuizSettings()">💾 설정 저장</button>
+                <button class="btn-green" onclick="startQuizNow()">▶ 퀴즈 시작</button>
+                <button class="btn-shield-reset" onclick="stopQuizNow()">■ 강제 종료</button>
+              </div>
+              <p class="hint">💡 퀴즈 시작 시 설정된 간격마다 랜덤으로 문제가 출제됩니다. 봇이 실행 중일 때만 동작합니다.</p>
+            </div>
+
+            <div class="card" id="quizEditCard">
+              <div class="card-title">✏️ 문제 편집</div>
+              <label>📝 문제</label>
+              <input type="text" id="quizQuestionInput" placeholder="예: 에디봇 주인은?">
+              <label>✅ 정답 (정확히 일치해야 정답 처리)</label>
+              <input type="text" id="quizAnswerInput" placeholder="예: 단비">
+              <div class="btn-row" style="grid-template-columns:1fr 1fr">
+                <div><label>🏆 점수 (경험치)</label><input type="number" id="quizScoreInput" value="10"></div>
+                <div><label>⏱ 정답 시간 (초)</label><input type="number" id="quizTimeLimitInput" value="20"></div>
+              </div>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+                <button class="btn-connect" onclick="saveQuizQuestion()">💾 저장</button>
+                <button class="btn-shield-reset" onclick="deleteQuizQuestion()">🗑️ 삭제</button>
+                <button class="btn-gray" onclick="cancelQuizEdit()">취소</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">💬 메시지 설정</div>
+              <label>🎉 정답 시 메시지 ({nickname}=정답자, {answer}=정답, {score}=점수)</label>
+              <textarea id="quizMsgCorrect" style="height:70px">🎉 정답! {nickname}님이 맞추셨습니다!
++{score} EXP 획득</textarea>
+              <label>⏰ 시간 초과 시 메시지 ({answer}=정답)</label>
+              <textarea id="quizMsgTimeout" style="height:56px">⏰ 시간 초과! 정답은 [{answer}]였습니다.</textarea>
+              <label>📢 문제 출제 메시지 ({question}=문제, {time}=제한시간)</label>
+              <textarea id="quizMsgQuestion" style="height:56px">🧩 퀴즈! {question} (제한시간: {time}초)</textarea>
+              <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveQuizMessages()">💾 메시지 저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1167,7 +1231,7 @@ const PANEL_META={
   roulettelog:['📊 룰렛 기록','시청자별 룰렛권과 당첨 기록을 조회합니다'],
   autogrant:['🎁 실시간 지급','현재 접속 중인 시청자를 골라 복권/룰렛권을 바로 지급합니다'],
   loyalty:['⭐ 애청지수','경험치/레벨/복권 등 시청자 활동 시스템을 관리합니다'],
-  quiz:['🧩 퀴즈 설정','준비 중인 기능입니다'],
+  quiz:['🧩 퀴즈 설정','실시간 퀴즈 문제·출제 간격·정답 처리를 관리합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1296,7 +1360,7 @@ function renderFlags(){
         <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
       </div>
       <div class="flag-amount-row">
-        <input type="number" id="flagAmount-${f.id}" placeholder="숫자 입력 (음수=차감)">
+        <input type="text" inputmode="decimal" id="flagAmount-${f.id}" placeholder="숫자 입력 (음수=차감)">
         <button class="btn-connect" onclick="applyFlagAmount('${f.id}')">적립/차감</button>
         <button class="btn-gray" onclick="resetFlagAmount('${f.id}')">리셋</button>
       </div>
@@ -1447,7 +1511,7 @@ function renderFunding(){
         <span>${fundingData.showPercent?percent+'%':''}</span>
       </div>
       <div class="flag-amount-row">
-        <input type="number" id="fundingAmount-${it.id}" placeholder="숫자 입력 (음수=차감)">
+        <input type="text" inputmode="decimal" id="fundingAmount-${it.id}" placeholder="숫자 입력 (음수=차감)">
         <button class="btn-connect" onclick="applyFundingAmount('${it.id}')">적립/차감</button>
         <button class="btn-gray" onclick="resetFundingAmount('${it.id}')">리셋</button>
       </div>
@@ -1746,6 +1810,7 @@ async function loadDjSettings(){
       renderRouletteList();
       if(document.getElementById('rlUserListWrap')) loadRouletteUsers();
       if(document.getElementById('actEnabled')){ renderActivitySettings(); loadActivityUsers(); }
+      if(document.getElementById('quizStatusPill')) loadQuizData();
       renderEntryList();
     }
   }catch(e){}
@@ -2255,7 +2320,7 @@ function renderActUserDetail(key){
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
       <div><label>🎫 복권포인트</label><input type="number" id="actEditLp" value="${u.lp}"></div>
       <div><label>🎰 복권</label><input type="number" id="actEditLotto" value="${u.lotto}"></div>
-      <div><label>✨ EXP 추가</label><input type="number" id="actEditExpAdd" value="0"></div>
+      <div><label>✨ EXP 추가</label><input type="text" inputmode="decimal" id="actEditExpAdd" value="0"></div>
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
@@ -2648,11 +2713,17 @@ function loadRouletteFormFields(id){
   renderRouletteItems();
 }
 
+function updateRoulettePercentSumOnly(){
+  const sum=rlEditingItems.reduce((s,it)=>s+(Number(it.percent)||0),0);
+  const el=document.getElementById('rlPercentSum');
+  if(!el)return;
+  el.textContent='현재 확률 합계: '+sum.toFixed(2)+'%';
+  el.style.color = Math.abs(sum-100)<0.01 ? 'var(--success)' : 'var(--danger)';
+}
+
 function renderRouletteItems(){
   const wrap=document.getElementById('rouletteItemsWrap');
-  const sum=rlEditingItems.reduce((s,it)=>s+(Number(it.percent)||0),0);
-  document.getElementById('rlPercentSum').textContent='현재 확률 합계: '+sum.toFixed(2)+'%';
-  document.getElementById('rlPercentSum').style.color = Math.abs(sum-100)<0.01 ? 'var(--success)' : 'var(--danger)';
+  updateRoulettePercentSumOnly();
   if(!rlEditingItems.length){
     wrap.innerHTML='<p class="hint">등록된 항목이 없습니다. 아래 버튼으로 추가해주세요.</p>';
     return;
@@ -2662,7 +2733,7 @@ function renderRouletteItems(){
       <span style="width:22px;height:22px;border-radius:50%;background:var(--success);color:#000;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
       <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin:0;white-space:nowrap"><input type="checkbox" style="width:auto" ${it.skipHistory?'checked':''} onchange="rlEditingItems[${i}].skipHistory=this.checked">기록안함</label>
       <input type="text" value="${escapeAttr(it.name)}" placeholder="항목 이름" oninput="rlEditingItems[${i}].name=this.value" style="flex:2">
-      <input type="number" value="${it.percent}" min="0" step="0.01" placeholder="확률" oninput="rlEditingItems[${i}].percent=Number(this.value)||0;renderRouletteItems()" style="flex:1">
+      <input type="text" inputmode="decimal" value="${it.percent}" placeholder="확률" oninput="rlEditingItems[${i}].percent=Number(this.value)||0;updateRoulettePercentSumOnly()" style="flex:1">
       <span style="font-size:12px;color:var(--muted)">%</span>
       <button class="icon-btn danger" onclick="removeRouletteItem(${i})">🗑</button>
     </div>
@@ -2793,7 +2864,7 @@ function renderAgDetail(){
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">🎫 복권 지급</div>
       <div class="chip-input-row">
-        <input type="number" id="agLottoAmount" placeholder="지급할 수량 (음수=차감)" value="1">
+        <input type="text" inputmode="decimal" id="agLottoAmount" placeholder="지급할 수량 (음수=차감)" value="1">
         <button class="btn-connect" onclick="grantLottoToSelected()">지급</button>
       </div>
       <div class="hint" id="agLottoResult" style="margin-top:8px"></div>
@@ -2805,7 +2876,7 @@ function renderAgDetail(){
       <label>대상 룰렛</label>
       <select id="agRouletteSelect" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">${rouletteOptions}</select>
       <div class="chip-input-row" style="margin-top:10px">
-        <input type="number" id="agRouletteAmount" placeholder="지급할 수량 (음수=차감)" value="1">
+        <input type="text" inputmode="decimal" id="agRouletteAmount" placeholder="지급할 수량 (음수=차감)" value="1">
         <button class="btn-connect" onclick="grantRouletteToSelected()">지급</button>
       </div>
       <div class="hint" id="agRouletteResult" style="margin-top:8px"></div>
@@ -2847,6 +2918,148 @@ async function grantRouletteToSelected(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+
+/* ── 🧩 퀴즈 설정 ── */
+let quizQuestions=[];
+let quizSettingsCache={};
+let quizEditingId=null;
+
+async function loadQuizData(){
+  try{
+    const res=await fetch(SERVER+'/quiz/questions',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    quizQuestions=d.questions||[];
+    quizSettingsCache=d.settings||{};
+    document.getElementById('quizIntervalMin').value=quizSettingsCache.intervalMin??0;
+    document.getElementById('quizIntervalSec').value=quizSettingsCache.intervalSec??10;
+    document.getElementById('quizAutoStart').checked=!!quizSettingsCache.autoStartOnRestart;
+    document.getElementById('quizMsgCorrect').value=quizSettingsCache.msgCorrect||'';
+    document.getElementById('quizMsgTimeout').value=quizSettingsCache.msgTimeout||'';
+    document.getElementById('quizMsgQuestion').value=quizSettingsCache.msgQuestion||'';
+    renderQuizStatus(d.running,d.current);
+    renderQuizList();
+  }catch(e){}
+}
+
+function renderQuizStatus(running,current){
+  const pill=document.getElementById('quizStatusPill');
+  if(!pill)return;
+  if(running && current){ pill.textContent='🟢 출제 중: '+current.question; pill.className='session-pill ok'; }
+  else if(running){ pill.textContent='🟡 진행 중 (다음 문제 대기)'; pill.className='session-pill ok'; }
+  else{ pill.textContent='⏸ 대기 중'; pill.className='session-pill'; }
+}
+
+function renderQuizList(){
+  const wrap=document.getElementById('quizQuestionList');
+  document.getElementById('quizCountLabel').textContent=quizQuestions.length+'/100';
+  if(!quizQuestions.length){wrap.innerHTML='<p class="hint">등록된 문제가 없습니다.</p>';return;}
+  wrap.innerHTML=quizQuestions.map((q,i)=>{
+    const active=q.id===quizEditingId;
+    return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="selectQuizQuestion('${escapeAttr(q.id)}')">
+      <span class="ic" style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${i+1}</span>
+      <span class="lbl">${escapeHtml(q.question||'(문제 없음)')}</span>
+      <span class="hint" style="margin:0;flex-shrink:0">${q.score||0}EXP</span>
+    </div>`;
+  }).join('');
+}
+
+function selectQuizQuestion(id){
+  const q=quizQuestions.find(x=>x.id===id);
+  if(!q)return;
+  quizEditingId=id;
+  document.getElementById('quizQuestionInput').value=q.question||'';
+  document.getElementById('quizAnswerInput').value=q.answer||'';
+  document.getElementById('quizScoreInput').value=q.score||10;
+  document.getElementById('quizTimeLimitInput').value=q.timeLimit||20;
+  renderQuizList();
+}
+
+function showQuizAddForm(){
+  quizEditingId=null;
+  document.getElementById('quizQuestionInput').value='';
+  document.getElementById('quizAnswerInput').value='';
+  document.getElementById('quizScoreInput').value=10;
+  document.getElementById('quizTimeLimitInput').value=20;
+  renderQuizList();
+}
+
+function cancelQuizEdit(){
+  showQuizAddForm();
+}
+
+async function saveQuizQuestion(){
+  const question=document.getElementById('quizQuestionInput').value.trim();
+  const answer=document.getElementById('quizAnswerInput').value.trim();
+  const score=Number(document.getElementById('quizScoreInput').value)||0;
+  const timeLimit=Number(document.getElementById('quizTimeLimitInput').value)||20;
+  if(!question||!answer)return showToast('문제와 정답을 입력해주세요');
+  try{
+    if(quizEditingId){
+      await fetch(SERVER+'/quiz/questions/'+encodeURIComponent(quizEditingId),{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({question,answer,score,timeLimit})});
+    } else {
+      const res=await fetch(SERVER+'/quiz/questions',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({question,answer,score,timeLimit})});
+      const d=await res.json();
+      if(!d.success)return showToast(d.error||'저장 실패');
+      quizEditingId=d.id;
+    }
+    showToast('저장 완료 ✓');
+    await loadQuizData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteQuizQuestion(){
+  if(!quizEditingId)return showToast('삭제할 문제를 먼저 선택해주세요');
+  if(!confirm('이 문제를 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/quiz/questions/'+encodeURIComponent(quizEditingId)+'/delete',{method:'POST',headers:authHeaders()});
+    showToast('삭제했어요');
+    quizEditingId=null;
+    showQuizAddForm();
+    await loadQuizData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function saveQuizSettings(){
+  const body={
+    intervalMin:Number(document.getElementById('quizIntervalMin').value)||0,
+    intervalSec:Number(document.getElementById('quizIntervalSec').value)||0,
+    autoStartOnRestart:document.getElementById('quizAutoStart').checked,
+  };
+  try{
+    await fetch(SERVER+'/quiz/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    showToast('설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+async function saveQuizMessages(){
+  const body={
+    msgCorrect:document.getElementById('quizMsgCorrect').value,
+    msgTimeout:document.getElementById('quizMsgTimeout').value,
+    msgQuestion:document.getElementById('quizMsgQuestion').value,
+  };
+  try{
+    await fetch(SERVER+'/quiz/messages',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    showToast('메시지 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+async function startQuizNow(){
+  try{
+    const res=await fetch(SERVER+'/quiz/start',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('퀴즈 시작! 🧩');loadQuizData();}
+    else showToast(d.error||'시작 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function stopQuizNow(){
+  try{
+    await fetch(SERVER+'/quiz/stop',{method:'POST',headers:authHeaders()});
+    showToast('퀴즈를 종료했어요');
+    loadQuizData();
+  }catch(e){showToast('오류: '+e.message);}
+}
 
 async function loadRouletteUsers(){
   try{
@@ -3089,6 +3302,14 @@ function startSSE(){
       // 채팅으로 룰렛권 지급/사용 등이 일어나면, 열려있는 "룰렛 기록" 탭도 실시간으로 갱신
       if(document.getElementById('rlUserListWrap')) loadRouletteUsers();
       if(d.tag && d.tag===rlSelectedTag) loadRouletteHistory(rlSelectedTag);
+    }
+    else if(d.type==='quiz'){
+      if(document.getElementById('quizStatusPill')){
+        if(d.status==='asked') renderQuizStatus(true,{question:d.question});
+        else if(d.status==='started') renderQuizStatus(true,null);
+        else if(d.status==='stopped') renderQuizStatus(false,null);
+        else if(d.status==='timeout'||d.status==='correct') renderQuizStatus(true,null);
+      }
     }
   };
   es.onerror=()=>setTimeout(startSSE,3000);
