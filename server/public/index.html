@@ -243,12 +243,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 /* ── 모바일 ── */
 .menu-toggle{display:none}
+
+/* ── 사이드바+상세 2단 레이아웃 (애청지수/룰렛기록/실시간지급 공용) ── */
+.split-card{padding:0;overflow:hidden;display:flex;align-items:stretch}
+.split-side{width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto}
+.split-main{flex:1;padding:22px;min-width:0}
+
 @media (max-width: 860px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}
   .sidebar.open{transform:translateX(0)}
   .menu-toggle{display:flex;align-items:center;justify-content:center;width:34px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:9px;font-size:16px;cursor:pointer;flex-shrink:0}
   .content{padding:18px 16px 60px}
   .topbar{padding:14px 16px}
+
+  .split-card{flex-direction:column}
+  .split-side{width:100%;border-right:none;border-bottom:1px solid var(--border);max-height:220px}
+  .split-main{padding:16px}
 }
 
 /* ── 스티커 선택 모달 (룰렛: 지정 스티커) ── */
@@ -830,22 +840,29 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
 
       <div class="panel" data-panel="roulettelog">
-        <div class="card">
-          <div class="card-title"><span>👥 시청자 기록</span><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="loadRouletteUsers()">🔄</button></div>
-          <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:10px">
-          <div class="chip-input-row" style="margin-bottom:12px">
-            <input type="text" id="rlNewTagInput" placeholder="고유닉 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
-            <button class="btn-connect" onclick="trackRouletteUser()">+ 추가</button>
+        <div class="card split-card">
+          <div class="split-side">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">👥 시청자 목록</span>
+              <button class="icon-btn" style="font-size:14px" onclick="loadRouletteUsers()">🔄</button>
+            </div>
+            <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:8px">
+            <div class="chip-input-row" style="margin-bottom:10px">
+              <input type="text" id="rlNewTagInput" placeholder="닉네임 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
+              <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="trackRouletteUser()">+ 추가</button>
+            </div>
+            <div id="rlUserListWrap"></div>
           </div>
-          <div id="rlUserListWrap" class="rl-user-scroll"></div>
+          <div class="split-main" id="rouletteHistoryWrap">
+            <p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>
+          </div>
         </div>
-        <div id="rouletteHistoryWrap"><div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div></div>
       </div>
 
       <!-- 🎁 실시간 지급 -->
       <div class="panel" data-panel="autogrant">
-        <div class="card" style="padding:0;overflow:hidden;display:flex;align-items:stretch">
-          <div style="width:240px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto">
+        <div class="card split-card">
+          <div class="split-side">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">🟢 실시간 접속자</span>
               <button class="icon-btn" style="font-size:14px" onclick="loadLiveMembers()">🔄</button>
@@ -853,7 +870,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="text" id="agSearch" placeholder="접속자 검색" oninput="renderLiveMemberList()" style="margin-bottom:8px">
             <div id="agMemberList"><p class="hint">🔄 버튼을 눌러 불러와주세요.</p></div>
           </div>
-          <div style="flex:1;padding:22px;min-width:0" id="agDetailWrap">
+          <div class="split-main" id="agDetailWrap">
             <p class="hint">왼쪽에서 지급할 시청자를 선택해주세요. 방송에 봇이 입장해 있어야 목록이 보여요.</p>
           </div>
         </div>
@@ -872,8 +889,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <!-- ═══ 유저 관리 ═══ -->
         <div id="actPanelUsers">
-          <div class="card" style="padding:0;overflow:hidden;display:flex;align-items:stretch">
-            <div style="width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto">
+          <div class="card split-card">
+            <div class="split-side">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                 <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">⭐ 시청자 목록</span>
                 <button class="icon-btn" style="font-size:14px" onclick="loadActivityUsers()">🔄</button>
@@ -885,7 +902,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               </div>
               <div id="actUserSideList"><p class="hint">불러오는 중...</p></div>
             </div>
-            <div style="flex:1;padding:22px;min-width:0" id="actUserDetailWrap">
+            <div class="split-main" id="actUserDetailWrap">
               <p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>
             </div>
           </div>
@@ -2846,17 +2863,19 @@ function renderRouletteUserList(){
     wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';
     return;
   }
-  wrap.innerHTML=filtered.map(t=>`
-    <div class="rl-user-chip ${t===rlSelectedTag?'active':''}" onclick="loadRouletteHistory('${escapeAttr(t)}')">
-      <span>@${escapeHtml(t)}</span>
-      <button class="icon-btn danger" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
-    </div>
-  `).join('');
+  wrap.innerHTML=filtered.map(t=>{
+    const active=t===rlSelectedTag;
+    return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="loadRouletteHistory('${escapeAttr(t)}')">
+      <span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((t||'?')[0])}</span>
+      <span class="lbl">${escapeHtml(t)}</span>
+      <button class="icon-btn danger" style="flex-shrink:0" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
+    </div>`;
+  }).join('');
 }
 
 async function trackRouletteUser(){
   const tag=document.getElementById('rlNewTagInput').value.trim().replace('@','');
-  if(!tag)return showToast('고유닉을 입력해주세요');
+  if(!tag)return showToast('닉네임을 입력해주세요');
   try{
     await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:authHeaders()});
     document.getElementById('rlNewTagInput').value='';
@@ -2866,10 +2885,10 @@ async function trackRouletteUser(){
 }
 
 async function deleteRouletteUser(tag){
-  if(!confirm('@'+tag+'님의 모든 룰렛 기록을 삭제할까요?'))return;
+  if(!confirm(tag+'님의 모든 룰렛 기록을 삭제할까요?'))return;
   try{
     await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/delete',{method:'POST',headers:authHeaders()});
-    if(rlSelectedTag===tag){rlSelectedTag='';document.getElementById('rouletteHistoryWrap').innerHTML='<div class="flag-empty">위에서 시청자를 선택하거나 추가해주세요.</div>';}
+    if(rlSelectedTag===tag){rlSelectedTag='';document.getElementById('rouletteHistoryWrap').innerHTML='<p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>';}
     await loadRouletteUsers();
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -2901,7 +2920,7 @@ async function loadRouletteHistory(tag){
 
     wrap.innerHTML=`
       <div class="card">
-        <div class="card-title"><span>👤 @${escapeHtml(tag)} 님의 기록</span></div>
+        <div class="card-title"><span>👤 ${escapeHtml(tag)}님의 기록</span></div>
       </div>
       ${renderRlListCard('킵목록','keep',tag,d.record.keepList||{})}
       ${renderRlListCard('기타목록','misc',tag,d.record.miscList||{})}
