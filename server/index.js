@@ -719,7 +719,10 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   for (let i = 0; i < count; i++) {
     const won = percentPick(rt.items)
     wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-    if (!won.skipHistory) hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+    if (!won.skipHistory) {
+      hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+      hist.keepList[won.name] = (hist.keepList[won.name] || 0) + 1
+    }
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag: histKey })
@@ -753,7 +756,11 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
     for (let i = 0; i < count; i++) {
       const won = percentPick(rt.items)
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-      if (hist && !won.skipHistory) { hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() }); changed = true }
+      if (hist && !won.skipHistory) {
+        hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+        hist.keepList[won.name] = (hist.keepList[won.name] || 0) + 1
+        changed = true
+      }
     }
     const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
