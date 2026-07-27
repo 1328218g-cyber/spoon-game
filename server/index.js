@@ -137,19 +137,26 @@ function resolveNicknameFromInput(room, input) {
 }
 
 // 방송 실시간 시청자 명단 조회 (퇴장 감지용 폴링에 사용) — 스푼은 퇴장 소켓 이벤트를 보내지 않음
-async function fetchLiveMembers(liveId, accessToken) {
+async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
   if (!liveId || !accessToken) return []
   try {
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/members/`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
-      }
-    })
-    const json = await res.json()
-    const members = json.results || []
-    return members.map(m => {
+    const headers = {
+      'Authorization': `Bearer ${accessToken}`,
+      'User-Agent': CHROME_UA,
+      'Origin': 'https://www.spooncast.net',
+    }
+    let url = `${KR_API_BASE}/lives/${liveId}/members/`
+    const all = []
+    let pages = 0
+    while (url && pages < maxPages) { // 5초마다 도는 일반 폴링은 1페이지만, 필요한 곳에서만 더 깊이 조회
+      const res = await fetch(url, { headers })
+      const json = await res.json()
+      const members = json.results || []
+      all.push(...members)
+      url = json.next || null
+      pages++
+    }
+    return all.map(m => {
       let tag = m.tag || m.tag_name || m.username || m.id_name || null
       let nickname = m.nickname || m.name || m.display_name || null
       if (tag) tag = String(tag).replace('@', '').trim()
@@ -1096,7 +1103,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
 }
 
 // !룰렛지급N [고유닉] [수량] — DJ 전용 룰렛권 지급
-async function handleRouletteGiveCommand(djId, room, settings, author, authorId, text) {
+async function handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text) {
   const msg = String(text || '').trim()
   const parts = msg.split(/\s+/)
   const m = parts[0].match(/^!룰렛지급(\d+)$/)
@@ -1112,8 +1119,18 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   const count = parseInt(parts[2], 10) || 1
   if (!targetInput) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
   // 룰렛 기록은 닉네임 기준으로 저장되므로, DJ가 태그를 입력했다면 실제 닉네임으로 변환한다.
-  // (매핑을 모르면 입력값을 그대로 닉네임으로 간주 — 닉네임을 직접 입력한 경우 그대로 동작)
-  const targetTag = resolveNicknameFromInput(room, targetInput)
+  let targetTag = resolveNicknameFromInput(room, targetInput)
+  if (targetTag === targetInput) {
+    // 그동안 관측된 매핑에 없으면, 그 자리에서 시청자 명단을 더 깊이(여러 페이지) 다시 조회해서 한 번 더 찾아본다.
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
+    const norm = targetInput.toLowerCase()
+    const found = freshMembers.find(u => u.tag && u.tag.toLowerCase() === norm)
+    if (found) {
+      rememberTagNickname(room, found.tag, found.nickname || found.tag)
+      targetTag = found.nickname || found.tag
+    }
+  }
 
   const rec = getHistoryRec(settings, targetTag)
   rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
@@ -1417,7 +1434,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleSongRequestCommand(djId, room, settings, author, authorId, text)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
-          handleRouletteGiveCommand(djId, room, settings, author, authorId, text)
+          handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
           handleRouletteMenuCommand(djId, settings, text)
           // 애청지수: 태그는 참고용으로만 쓰이므로(신뢰 가능할 때만 채워짐) 캐시된 값을 가볍게 조회해서 같이 넘긴다.
           const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
