@@ -406,9 +406,24 @@ function sendChatSplit(djId, fullText, maxChars, intervalMs) {
 }
 
 // 신청곡 관리 명령어 처리
+function getSongRequestSettings(djId, settings) {
+  if (!settings.songRequest) {
+    settings.songRequest = {
+      accepting: true, priorityMode: false, showRequester: true,
+      cmdRequest: '!신청곡', cmdRemove: '!제거', cmdReset: '리셋', cmdClose: '!마감', cmdOpen: '!접수',
+      cmdPriorityOn: '!우선온', cmdPriorityOff: '!우선오프', cmdNameOn: '!이름온', cmdNameOff: '!이름오프',
+      doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
+      listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
+      maxCharsPerMsg: 100, msgIntervalMs: 600, items: []
+    }
+    // 최초 1회는 실제로 저장해서, 이후 /settings 조회(웹 화면)에서도 같은 값이 보이도록 한다.
+    store.saveSettings(djId, { songRequest: settings.songRequest })
+  }
+  return settings.songRequest
+}
+
 function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
-  const sr = settings.songRequest
-  if (!sr) return
+  const sr = getSongRequestSettings(djId, settings)
   const msg = String(text || '').trim()
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
 
