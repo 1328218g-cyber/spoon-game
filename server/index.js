@@ -86,6 +86,14 @@ async function fetchUserTag(liveId, userId, accessToken) {
     })
     const json = await res.json()
     const profile = (json.results && json.results[0]) || json
+    // ⚠️ 스푼 API가 가끔(권한 문제 등으로) 요청한 유저가 아니라 "봇 계정 자신의" 프로필을
+    // 잘못 돌려주는 경우가 있다. 응답의 id가 우리가 물어본 userId와 다르면 무조건 무시한다.
+    // (이걸 안 걸러내면 서로 다른 시청자의 기록이 전부 봇 계정 태그 하나로 뒤섞여버림)
+    const returnedId = profile.id != null ? Number(profile.id) : (profile.user_id != null ? Number(profile.user_id) : null)
+    if (returnedId != null && returnedId !== Number(userId)) {
+      console.log(`[tag 조회 불일치] 요청 userId=${userId} 응답 id=${returnedId} → 무시하고 null 처리`)
+      return null
+    }
     let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
     if (tag) tag = String(tag).replace('@', '').trim()
     return tag
@@ -1494,7 +1502,11 @@ app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   const loadedDjIds = tokenManager.initFromDisk()
-  if (loadedDjIds.length) {
+  if (loadedDjIds.length) {git add .
+git commit -m "수정14"
+git push
+
+
     console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
   }
