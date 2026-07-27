@@ -774,7 +774,10 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
   if (!applicable.length) return
 
   const tag = await fetchUserTag(liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-  const hist = tag ? getHistoryRec(settings, tag) : null
+  // 태그 조회가 실패해도(가끔 스푼 API 응답이 늦거나 실패함) 닉네임으로라도 기록을 남긴다.
+  // (여기서 tag가 없다고 기록 자체를 건너뛰면, 채팅엔 당첨 메시지가 나가지만 킵목록/당첨기록엔 전혀 안 쌓이는 불일치가 생김)
+  const histKey = tag || author
+  const hist = getHistoryRec(settings, histKey)
   let changed = false
 
   for (const { rt, idx, count } of applicable) {
@@ -782,7 +785,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
     for (let i = 0; i < count; i++) {
       const won = percentPick(rt.items)
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-      if (hist && !won.skipHistory) {
+      if (!won.skipHistory) {
         hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
         hist.keepList[won.name] = (hist.keepList[won.name] || 0) + 1
         changed = true
@@ -795,7 +798,7 @@ async function handleRouletteAutoGrant(djId, settings, author, authorId, liveId,
 
   if (changed) {
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    broadcast({ type: 'roulette', djId, tag })
+    broadcast({ type: 'roulette', djId, tag: histKey })
   }
 }
 
