@@ -988,7 +988,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const gen = eventPayload.generator || {}
-        const author = eventPayload.nickname || gen.nickname || '?'
+        const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
         const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
@@ -1000,7 +1000,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
         const gen = eventPayload.generator || {}
-        const author = eventPayload.nickname || gen.nickname || '?'
+        const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
