@@ -24,7 +24,7 @@ const SHARED_TOKEN_DJID = 'sum'
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map() }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map(), tagToNickname: new Map() }
   }
   return rooms[djId]
 }
@@ -117,6 +117,23 @@ async function getCachedUserTag(room, liveId, userId, accessToken) {
     room.tagCache.set(userId, tag)
   }
   return tag
+}
+
+// 채팅/입장/좋아요/선물 이벤트가 들어올 때마다 태그↔닉네임 매핑을 방 단위로 기록해둔다.
+// DJ가 !룰렛지급 등에서 태그로 대상을 지정해도, 실제 저장은 닉네임 기준이라서
+// "이 태그는 이 닉네임"이라는 걸 알아야 정확히 찾아서 표시할 수 있다.
+function rememberTagNickname(room, tag, nickname) {
+  if (!room || !room.tagToNickname || !tag || !nickname) return
+  room.tagToNickname.set(String(tag).trim().toLowerCase(), nickname)
+}
+
+// DJ가 입력한 값(태그일 수도, 닉네임일 수도 있음)을 실제 닉네임으로 변환한다.
+// 매핑에 없으면 입력값을 그대로 닉네임으로 간주한다 (DJ가 닉네임을 직접 입력한 경우).
+function resolveNicknameFromInput(room, input) {
+  const clean = String(input || '').trim().replace(/^@/, '')
+  if (!clean) return clean
+  const mapped = room && room.tagToNickname ? room.tagToNickname.get(clean.toLowerCase()) : null
+  return mapped || clean
 }
 
 // 방송 실시간 시청자 명단 조회 (퇴장 감지용 폴링에 사용) — 스푼은 퇴장 소켓 이벤트를 보내지 않음
@@ -1091,9 +1108,12 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   const rt = settings.roulette && settings.roulette.list[idx - 1]
   if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
 
-  const targetTag = (parts[1] || '').replace('@', '').trim()
+  const targetInput = (parts[1] || '').replace('@', '').trim()
   const count = parseInt(parts[2], 10) || 1
-  if (!targetTag) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
+  if (!targetInput) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
+  // 룰렛 기록은 닉네임 기준으로 저장되므로, DJ가 태그를 입력했다면 실제 닉네임으로 변환한다.
+  // (매핑을 모르면 입력값을 그대로 닉네임으로 간주 — 닉네임을 직접 입력한 경우 그대로 동작)
+  const targetTag = resolveNicknameFromInput(room, targetInput)
 
   const rec = getHistoryRec(settings, targetTag)
   rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
@@ -1285,6 +1305,7 @@ function startLeavePolling(djId, liveId) {
           room._lastAutoAttendCheck = Date.now()
           for (const u of currentMembers.values()) {
             const nickname = u.nickname || u.tag
+            if (u.tag && nickname) rememberTagNickname(room, u.tag, nickname)
             if (nickname) handleActAttendHook(djId, settings, nickname, u.tag || null)
           }
         }
@@ -1395,6 +1416,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteMenuCommand(djId, settings, text)
           // 애청지수: 태그는 참고용으로만 쓰이므로(신뢰 가능할 때만 채워짐) 캐시된 값을 가볍게 조회해서 같이 넘긴다.
           const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          rememberTagNickname(room, actTag, author)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag)
           handleActChatHook(djId, settings, author, actTag)
         }
@@ -1411,6 +1433,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
         if (!isLurker) {
           const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
@@ -1434,6 +1457,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
         const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+        rememberTagNickname(room, likeTag, author)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag)
         const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
@@ -1453,6 +1477,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          rememberTagNickname(room, donationTag, author)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
         }
       }
