@@ -1725,6 +1725,38 @@ app.get('/roulette/users', auth.requireAuth, (req, res) => {
 })
 
 // ⭐ 애청지수 유저 목록 (랭킹순)
+// 🎁 실시간 지급용 — 현재 방송에 접속 중인 시청자 목록 (여러 페이지까지 조회)
+app.get('/live/members', auth.requireAuth, async (req, res) => {
+  const djId = req.djId
+  const room = getRoom(djId)
+  if (!room.isConnected || !room.autoJoinedFor) {
+    return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
+  }
+  try {
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+    members.forEach(u => { if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag) })
+    res.json({ success: true, members })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🎁 실시간 지급용 — 복권 지급/차감 (기록 없는 유저는 자동 등록, 채팅 명령어와 동일한 정책)
+app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
+  const target = String((req.body || {}).target || '').trim()
+  const amount = Number((req.body || {}).amount)
+  if (!target || !amount) return res.json({ success: false, error: '대상과 수량을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const existingKey = findActUserKey(act, target)
+  const key = existingKey || target
+  const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : target, existingKey ? null : target)
+  d.lotto = Math.max(0, (d.lotto || 0) + amount)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true, key, nickname: d.nickname || key, lotto: d.lotto })
+})
+
 app.get('/activity/users', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const act = getActivitySettings(req.djId, settings)
