@@ -1024,6 +1024,7 @@ app.get('/stickers', async (req, res) => {
     if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
     const raw = await upstream.json()
 
+    const nowDate = new Date(now)
     const list = []
     ;(raw.categories || []).forEach(cat => {
       // 주의: 카테고리 레벨의 is_used는 스푼 API에서 실제 노출 여부와 무관하게 거의 항상 false로 내려오므로
@@ -1031,6 +1032,15 @@ app.get('/stickers', async (req, res) => {
       ;(cat.stickers || []).forEach(s => {
         if (s.is_used === false) return
         if (!s.name) return
+        // 현재 판매 기간(start_date ~ end_date) 안에 있는 스티커만 노출 — 종료된 이벤트 스티커 제외
+        if (s.start_date) {
+          const start = new Date(s.start_date)
+          if (!isNaN(start) && start > nowDate) return
+        }
+        if (s.end_date) {
+          const end = new Date(s.end_date)
+          if (!isNaN(end) && end < nowDate) return
+        }
         list.push({
           name: s.name,
           title: s.title || s.name,
