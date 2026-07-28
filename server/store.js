@@ -47,6 +47,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
+      migrate: true,
     },
     // 이용 만료 관리 — 관리자가 유저 관리 화면에서 계정별로 지정한다.
     // expiresAt(만료 예정 시각, ISO 문자열)이 지나면 입장설정/룰렛기록을 뺀 모든 메뉴가 자동으로 잠긴다.
@@ -116,18 +117,42 @@ function validDjId(id) {
   return /^[a-zA-Z0-9_]{2,20}$/.test(id || '');
 }
 
-function signup(djId, password) {
+function signup(djId, password, referrerId) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
+
+  // 추천인 고유닉은 선택 사항. 입력했다면 실제로 존재하는 계정인지, 본인 아이디는 아닌지 확인한다.
+  let cleanReferrer = null;
+  const rawReferrer = String(referrerId || '').trim().replace(/^@/, '');
+  if (rawReferrer) {
+    if (rawReferrer.toLowerCase() === djId.toLowerCase()) {
+      return { ok: false, error: '본인 아이디는 추천인으로 입력할 수 없어요' };
+    }
+    if (!djs[rawReferrer]) {
+      return { ok: false, error: '존재하지 않는 추천인 고유닉이에요' };
+    }
+    cleanReferrer = rawReferrer;
+  }
+
+  // 최초 가입 시 기본 이용기간은 4일 (관리자 sum 계정은 예외로 무제한).
+  // 이후 관리자가 유저 관리 화면에서 언제든 연장/해제할 수 있다.
+  const settings = defaultSettings();
+  if (djId !== 'sum') {
+    const now = Date.now();
+    settings.expiresAt = new Date(now + 4 * 24 * 60 * 60 * 1000).toISOString();
+    settings.expiryStartAt = new Date(now).toISOString();
+  }
+
   djs[djId] = {
     passwordHash: bcrypt.hashSync(password, 10),
-    settings: defaultSettings(),
+    settings,
     createdAt: Date.now(),
     blocked: false,
     autoJoinEnabled: false, // 관리자가 켜줘야만 자동입장(방입장) 기능 사용 가능
+    referrerId: cleanReferrer, // 가입 시 입력한 추천인 고유닉 (없으면 null)
   };
   saveDjs(djs);
   return { ok: true };
@@ -237,6 +262,7 @@ function listDjSummaries() {
     blocked: !!djs[id].blocked,
     autoJoinEnabled: !!djs[id].autoJoinEnabled,
     expiresAt: djs[id].settings?.expiresAt || null,
+    referrerId: djs[id].referrerId || null,
   }));
 }
 

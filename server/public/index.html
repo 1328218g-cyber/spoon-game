@@ -289,14 +289,30 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   background-size:cover;
   background-position:center;
   background-repeat:no-repeat;
-  display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px;
-  overflow:hidden;
+  background-attachment:fixed;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  z-index:2000;padding:44px 20px 60px;
+  overflow-y:auto;overflow-x:hidden;
 }
 #authScreen::before{
-  content:'';position:absolute;inset:0;
+  content:'';position:fixed;inset:0;
   background:linear-gradient(180deg,rgba(4,40,70,.12) 0%,rgba(4,40,70,.05) 35%,rgba(4,40,70,.22) 100%);
   pointer-events:none;
 }
+
+/* ── 로그인 화면 하단: 에디봇 간단 소개 ── */
+.landing-wrap{position:relative;z-index:1;width:100%;max-width:760px;margin:44px auto 10px;color:#fff;text-align:center}
+.landing-eyebrow{font-size:11.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#fde68a;margin-bottom:10px;text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.landing-title{font-size:24px;font-weight:800;margin-bottom:10px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
+.landing-sub{font-size:13px;color:rgba(255,255,255,.88);margin-bottom:26px;line-height:1.7;text-shadow:0 1px 6px rgba(0,0,0,.3)}
+.landing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;text-align:left}
+.landing-card{background:rgba(255,255,255,.14);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.22);border-radius:14px;padding:16px}
+.landing-card .lc-icon{font-size:21px;margin-bottom:8px}
+.landing-card .lc-title{font-size:13px;font-weight:700;color:#fff;margin-bottom:4px}
+.landing-card .lc-desc{font-size:11px;color:rgba(255,255,255,.78);line-height:1.5}
+.landing-footer{margin-top:32px;font-size:11px;color:rgba(255,255,255,.65);text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.landing-footer a{color:#fde68a;text-decoration:none;font-weight:700}
+@media (max-width:600px){ .landing-title{font-size:20px} .landing-wrap{margin-top:34px} }
 
 .auth-card{
   width:100%;max-width:340px;
@@ -376,10 +392,29 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div id="authPasswordConfirmWrap" style="display:none">
       <label>비밀번호 확인</label>
       <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitAuth()">
+      <label>추천인 고유닉 <span class="hint-inline">(선택사항)</span></label>
+      <input type="text" id="authReferrerId" placeholder="예: 단비 (없으면 비워두세요)" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
     <div class="auth-error" id="authError"></div>
+  </div>
+
+  <div class="landing-wrap">
+    <div class="landing-eyebrow">SPOON RADIO DJ를 위한 올인원 봇</div>
+    <div class="landing-title">방송 운영, 에디봇이 도와드려요</div>
+    <div class="landing-sub">입장부터 룰렛, 애청지수, 신청곡까지 — 반복되는 방송 운영은 에디봇에게 맡기고<br>디제이는 방송 그 자체에만 집중하세요.</div>
+    <div class="landing-grid">
+      <div class="landing-card"><div class="lc-icon">🚪</div><div class="lc-title">자동입장</div><div class="lc-desc">방송을 켜면 봇이 알아서 입장해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🎡</div><div class="lc-title">룰렛 설정</div><div class="lc-desc">스푼·스티커 조건에 맞춰 자동으로 룰렛이 돌아가요</div></div>
+      <div class="landing-card"><div class="lc-icon">⭐</div><div class="lc-title">애청지수</div><div class="lc-desc">채팅·좋아요·출석으로 레벨업하고 복권까지</div></div>
+      <div class="landing-card"><div class="lc-icon">🛡️</div><div class="lc-title">실드 관리</div><div class="lc-desc">채팅 명령어로 실드를 적립·차감해요</div></div>
+      <div class="landing-card"><div class="lc-icon">💰</div><div class="lc-title">펀딩·깃발</div><div class="lc-desc">목표 금액과 진행률을 실시간으로 보여줘요</div></div>
+      <div class="landing-card"><div class="lc-icon">🎵</div><div class="lc-title">신청곡 관리</div><div class="lc-desc">시청자 신청곡을 대기열로 깔끔하게 정리해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🧩</div><div class="lc-title">퀴즈 이벤트</div><div class="lc-desc">정해진 간격마다 자동으로 퀴즈를 출제해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🙋</div><div class="lc-title">지정 인사</div><div class="lc-desc">특별한 시청자에게 전용 인사말을 보내요</div></div>
+    </div>
+    <div class="landing-footer">문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
   </div>
 </div>
 
@@ -400,6 +435,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="migrate"><span class="ic">📦</span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">방송 도구</div>
     <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -519,6 +555,23 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           ※ 저장된 설정(실드/깃발/펀딩/애청지수/명령어 등)은 전혀 바뀌지 않아요.<br>
           ※ 자동입장이 켜져 있었다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.</p>
           <button class="btn-shield-reset" style="width:100%" onclick="rebootMyBot()">🔁 내 봇 재부팅</button>
+        </div>
+      </div>
+
+      <!-- 로컬 데이터 가져오기 -->
+      <div class="panel" data-panel="migrate">
+        <div class="card">
+          <div class="card-title"><span>📦 로컬 데이터 가져오기</span></div>
+          <p class="hint" style="margin-bottom:14px">PC에서 쓰던 로컬 에디봇(Electron)의 설정 파일(JSON)을 업로드하면, <b>내 계정</b>의 실드/단축키/지정인사/신청곡/애청지수/퀴즈/입장멘트/룰렛/펀딩·깃발 데이터를 그대로 가져와요.<br>
+          ※ 다른 사람 계정은 절대 건드리지 않고, 지금 로그인한 내 계정에만 적용돼요.<br>
+          ※ 이미 저장된 설정이 있다면 <b>덮어써져요</b> — 필요하면 미리 백업해두세요.<br>
+          ※ 검 강화·낚시대회·효과음/TTS·애교봇 등은 웹봇에 아직 없는 기능이라 옮겨지지 않아요. 지정 인사에 첨부된 mp3 음원도 텍스트만 옮겨져요.</p>
+          <input type="file" id="migrateFileInput" accept="application/json" style="margin-bottom:10px">
+          <button class="btn-connect" style="width:100%" onclick="startLocalMigration()">📦 마이그레이션 시작</button>
+        </div>
+        <div class="card" id="migrateReportCard" style="display:none">
+          <div class="card-title">결과</div>
+          <div id="migrateReportBody" style="font-size:13px;line-height:1.9;white-space:pre-wrap"></div>
         </div>
       </div>
 
@@ -1333,6 +1386,7 @@ function switchAuthTab(mode){
   document.getElementById('authPasswordConfirmWrap').style.display=mode==='signup'?'block':'none';
   document.getElementById('authAutoLoginWrap').style.display=mode==='signup'?'none':'flex';
   document.getElementById('authPasswordConfirm').value='';
+  document.getElementById('authReferrerId').value='';
   document.getElementById('authError').textContent='';
 }
 
@@ -1347,13 +1401,15 @@ async function submitAuth(){
     const pwConfirm=document.getElementById('authPasswordConfirm').value;
     if(!pwConfirm){errEl.textContent='비밀번호 확인을 입력해주세요';return;}
     if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
+    const referrerId=document.getElementById('authReferrerId').value.trim();
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,referrerId})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
       document.getElementById('authPassword').value='';
       document.getElementById('authPasswordConfirm').value='';
+      document.getElementById('authReferrerId').value='';
       switchAuthTab('login');
       return;
     }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
@@ -1530,6 +1586,7 @@ const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
   botreboot:['🔁 봇 재부팅','문제가 있을 때 내 계정의 봇 연결만 새로 시작합니다'],
+  migrate:['📦 로컬 데이터 가져오기','로컬 에디봇(Electron) 설정 파일을 업로드해서 내 계정에 옮겨옵니다'],
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
@@ -1562,7 +1619,7 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
@@ -2333,18 +2390,19 @@ async function loadUserList(){
     const rows=d.users.map(u=>{
       const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
       const isSum=u.djId==='sum';
-      const expiryCell=isSum ? '<span class="status-pill ongoing">무제한</span>' : `
-        <div style="margin-bottom:4px">${expiryStatusPill(u.expiresAt)}</div>
+      const expiryCell = `
+        <div style="margin-bottom:4px">${isSum?'<span class="status-pill ongoing">항상 이용가능</span>':expiryStatusPill(u.expiresAt)}</div>
         <input type="datetime-local" id="expireInput-${escapeAttr(u.djId)}" value="${isoToLocalInputValue(u.expiresAt)}" style="padding:6px 8px;font-size:11.5px;width:172px">
         <div style="display:flex;gap:4px;margin-top:4px">
           <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="setUserExpiry('${escapeAttr(u.djId)}')">설정</button>
           ${u.expiresAt?`<button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="clearUserExpiry('${escapeAttr(u.djId)}')">해제</button>`:''}
-        </div>`;
+        </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
         <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}</td>
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
+        <td>${u.referrerId?escapeHtml(u.referrerId):'<span class="hint" style="margin:0">-</span>'}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
@@ -2355,7 +2413,7 @@ async function loadUserList(){
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }catch(e){
@@ -3747,6 +3805,62 @@ async function rebootMyBot(){
     if(d.success){showToast(d.msg||'재부팅했어요');checkStatus();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📦 로컬 데이터 가져오기 ── */
+// 업로드 용량을 줄이고 어차피 쓰이지 않는 데이터를 걸러낸다:
+// - __store__* 키는 다른 spoon_* 키와 내용이 중복되는 electron-store 원본이라 통째로 제외
+// - 지정 인사(spoon_joinmsgs)에 첨부된 mp3 base64 오디오는 웹봇이 못 쓰므로 텍스트만 남기고 제거
+function stripLocalMigrationData(raw){
+  const cleaned={};
+  Object.keys(raw||{}).forEach(k=>{
+    if(k.startsWith('__store__'))return;
+    cleaned[k]=raw[k];
+  });
+  if(cleaned.spoon_joinmsgs){
+    try{
+      let arr=JSON.parse(cleaned.spoon_joinmsgs);
+      if(Array.isArray(arr)){
+        arr=arr.map(g=>{ const {audioData,...rest}=g; return rest; });
+        cleaned.spoon_joinmsgs=JSON.stringify(arr);
+      }
+    }catch(e){}
+  }
+  return cleaned;
+}
+
+function startLocalMigration(){
+  const input=document.getElementById('migrateFileInput');
+  const file=input.files && input.files[0];
+  if(!file)return showToast('업로드할 JSON 파일을 선택해주세요');
+  if(!confirm('로컬 에디봇 데이터를 내 계정('+djId+')으로 가져올까요?\n이미 저장된 설정이 있다면 덮어써져요. 되돌릴 수 없으니 필요하면 미리 백업해두세요.'))return;
+
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    let raw;
+    try{ raw=JSON.parse(reader.result); }
+    catch(e){ showToast('JSON 형식이 올바르지 않아요'); return; }
+
+    const cleaned=stripLocalMigrationData(raw);
+    showToast('업로드 중... 잠시만 기다려주세요');
+    try{
+      const res=await fetch(SERVER+'/account/migrate-local',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({data:cleaned})});
+      const d=await res.json();
+      const card=document.getElementById('migrateReportCard');
+      const body=document.getElementById('migrateReportBody');
+      if(!d.success){
+        showToast(d.error||'마이그레이션 실패');
+        card.style.display='block';
+        body.textContent='❌ '+(d.error||'마이그레이션에 실패했어요');
+        return;
+      }
+      card.style.display='block';
+      body.textContent=(d.report||[]).join('\n');
+      showToast('마이그레이션 완료! 각 메뉴를 확인해보세요');
+      loadDjSettings();
+    }catch(e){showToast('오류: '+e.message);}
+  };
+  reader.readAsText(file);
 }
 
 async function startAutoJoin(){
