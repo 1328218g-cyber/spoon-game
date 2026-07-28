@@ -39,6 +39,15 @@ function defaultSettings() {
     autoJoinTags: [], // 다중 감시용 (여러 고유닉)
     autoJoinWatch: false,
     botEnabled: true, // 꺼두면 이 계정은 어떤 봇 명령어/자동멘트에도 반응하지 않는 순수 시청 모드가 된다
+    // 사이드바 각 메뉴별 ON/OFF. false로 꺼두면 그 메뉴 화면이 잠기고,
+    // 채팅 명령어 처리 로직으로 이어지는 항목(실드/깃발/펀딩/단축키/지정인사/신청곡/
+    // 룰렛/애청지수/퀴즈/입장설정/자동입장/채팅)은 실제로도 응답하지 않게 된다.
+    moduleEnabled: {
+      session: true, userlist: true, autojoin: true, chat: true,
+      entrysettings: true, funding: true, shortcuts: true, greet: true,
+      flag: true, shield: true, request: true, roulette: true,
+      roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
+    },
     joinMessages: [],
     likeMessages: [],
     leaveMessages: [],

@@ -219,8 +219,15 @@ function escapeRegExp(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// 사이드바 메뉴별 ON/OFF 값을 확인한다. moduleEnabled 필드가 없거나(예전 계정)
+// 해당 키가 명시적으로 false가 아니면 기본은 켜진 것으로 간주한다.
+function isModuleOn(settings, key) {
+  return !(settings && settings.moduleEnabled && settings.moduleEnabled[key] === false)
+}
+
 // 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
 async function handleShieldCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'shield')) return
   const shield = settings.shield
   if (!shield || !shield.cmd) return
 
@@ -295,6 +302,7 @@ function renderFlagTemplate(tpl, flag, index) {
 
 // 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
 function handleFlagCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'flag')) return
   const flags = settings.flags
   if (!flags || !flags.cmd || !flags.items || !flags.items.length) return
 
@@ -337,6 +345,7 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
 
 // 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
 function handleFlagAutoDonation(djId, settings, amount) {
+  if (!isModuleOn(settings, 'flag')) return
   const flags = settings.flags
   if (!flags || !flags.items || !flags.items.length || !amount) return
   let changed = false
@@ -373,6 +382,7 @@ function renderFundingItem(tpl, item, index, funding) {
 
 // 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
 function handleFundingCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'funding')) return
   const funding = settings.funding
   if (!funding || !funding.cmd || !funding.items || !funding.items.length) return
 
@@ -417,6 +427,7 @@ const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
 
 // 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
 async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'shortcuts')) return
   const commands = settings.commands
   if (!commands || !commands.length) return
 
@@ -491,6 +502,7 @@ function getSongRequestSettings(djId, settings) {
 }
 
 function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'request')) return
   const sr = getSongRequestSettings(djId, settings)
   const msg = String(text || '').trim()
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
@@ -715,6 +727,7 @@ function actEnsureUser(act, key, nickname, tag) {
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
 function handleActChatHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'loyalty')) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
   const key = actResolveKey(act, author, tag)
@@ -729,6 +742,7 @@ function handleActChatHook(djId, settings, author, tag) {
 
 // 무료 좋아요 수신 시 훅
 function handleActHeartHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'loyalty')) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
   const key = actResolveKey(act, author, tag)
@@ -743,6 +757,7 @@ function handleActHeartHook(djId, settings, author, tag) {
 
 // 출석 처리 (수동 !출석 / 자동 출석 타이머) - 30분 쿨다운, 미등록 유저는 조용히 무시
 function handleActAttendHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'loyalty')) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
   const key = actResolveKey(act, author, tag)
@@ -760,6 +775,7 @@ function handleActAttendHook(djId, settings, author, tag) {
 
 // 선물(스푼) 수신 시 복권포인트 적립 훅 (스푼 1개당 1포인트, exchange 도달 시 복권 1장)
 function handleActLottoPointHook(djId, settings, author, amount, tag) {
+  if (!isModuleOn(settings, 'loyalty')) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
   const key = actResolveKey(act, author, tag)
@@ -781,6 +797,7 @@ function handleActLottoPointHook(djId, settings, author, amount, tag) {
 
 // 채팅 명령어 처리: !내정보, !내정보 생성/삭제, !랭킹, !출석, !복권, !복권지급, !상점, @[닉네임]
 function handleActivityCommand(djId, room, settings, author, authorId, text, tag) {
+  if (!isModuleOn(settings, 'loyalty')) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
   const msg = String(text || '').trim()
@@ -1024,6 +1041,7 @@ function askQuizQuestion(djId) {
   ensureQuizState(room)
   if (!room.isConnected || !room.quiz.running) return
   const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'quiz')) { scheduleNextQuiz(djId); return }
   const quiz = getQuizSettings(djId, settings)
   if (!quiz.questions.length) { scheduleNextQuiz(djId); return }
   const q = quiz.questions[Math.floor(Math.random() * quiz.questions.length)]
@@ -1051,6 +1069,7 @@ function handleQuizTimeout(djId) {
 
 // 채팅 메시지가 들어올 때마다(진행 중인 문제가 있을 때만) 정답 여부를 확인한다.
 function handleQuizAnswer(djId, settings, author, text) {
+  if (!isModuleOn(settings, 'quiz')) return
   const room = getRoom(djId)
   ensureQuizState(room)
   const cur = room.quiz.current
@@ -1187,6 +1206,7 @@ function checkStickerTrigger(triggerSticker, sticker, comboCount, payout, thresh
 // !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
 // !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
 async function handleKeepCommands(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'roulette')) return
   const msg = String(text || '').trim()
   const parts = msg.split(/\s+/)
   const first = parts[0]
@@ -1261,6 +1281,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
 
 // !룰렛지급N [고유닉] [수량] — DJ 전용 룰렛권 지급
 async function handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'roulette')) return
   const msg = String(text || '').trim()
   const parts = msg.split(/\s+/)
   const m = parts[0].match(/^!룰렛지급(\d+)$/)
@@ -1298,6 +1319,7 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
 
 // !룰렛메뉴N[-P] — 룰렛 항목 목록 확인 (페이지)
 function handleRouletteMenuCommand(djId, settings, text) {
+  if (!isModuleOn(settings, 'roulette')) return
   const m = String(text || '').trim().match(/^!룰렛메뉴(\d+)(?:-(\d+))?$/)
   if (!m) return
   const idx = parseInt(m[1], 10)
@@ -1321,6 +1343,7 @@ function handleRouletteMenuCommand(djId, settings, text) {
 }
 
 async function handleRouletteCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'roulette')) return
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length) return
   const msg = String(text || '').trim()
@@ -1374,6 +1397,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
 // sticker: 선물로 들어온 스티커 이름 (지정 스티커 트리거용, 없으면 빈 문자열)
 async function handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
+  if (!isModuleOn(settings, 'roulette')) return
   const rl = settings.roulette
   if (!rl || !rl.list || !rl.list.length) { console.log(`[룰렛디버그:${djId}] 등록된 룰렛 없음`); return }
   const applicable = rl.list
@@ -1439,6 +1463,7 @@ function registerJoinSnapshot(room, nickname, tag, prevKey) {
 function sendLeaveMessage(djId, settings, nickname) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
+  if (!isModuleOn(settings, 'entrysettings')) return
   const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
   if (msgs.length > 0) {
     // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
@@ -1644,14 +1669,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
-          const greeting = tag ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+          const greeting = (tag && isModuleOn(settings, 'greet')) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
 
           handleActAttendHook(djId, settings, author, tag)
 
           if (greeting) {
             const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
             setTimeout(() => sendChatToRoom(djId, text), 500)
-          } else {
+          } else if (isModuleOn(settings, 'entrysettings')) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {
               const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
@@ -1668,7 +1693,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
         rememberTagNickname(room, likeTag, author)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag)
-        const msgs = isLurker ? [] : (settings.likeMessages || []).filter(m => m.enabled)
+        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings')) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -1741,6 +1766,7 @@ setInterval(() => {
     if (!room.isConnected) continue
     const settings = store.getSettings(djId) || {}
     if (settings.botEnabled === false) continue
+    if (!isModuleOn(settings, 'entrysettings')) continue
     const list = settings.entryData?.repeat || []
     if (!list.length) continue
 
@@ -1860,6 +1886,8 @@ app.get('/auth/me', auth.requireAuth, (req, res) => {
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
 app.get('/admin/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const users = store.listDjSummaries().map(u => {
     const room = getRoom(u.djId)
     return { ...u, isConnected: room.isConnected }
@@ -1869,6 +1897,8 @@ app.get('/admin/users', auth.requireAuth, (req, res) => {
 
 app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const targetId = req.params.djId
   if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 차단할 수 없어요' })
   const { blocked } = req.body || {}
@@ -1879,6 +1909,8 @@ app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
 
 app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const targetId = req.params.djId
   if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 삭제할 수 없어요' })
   const room = getRoom(targetId)
@@ -1895,6 +1927,8 @@ app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
 // 최초 가입 시 상태로 되돌린다. 방송에 접속되어 있었다면 연결도 함께 정리한다.
 app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const targetId = req.params.djId
   const ok = store.resetSettings(targetId)
   if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
@@ -1919,6 +1953,8 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
 // autoJoinWatch가 켜져 있었다면, 15초 주기로 도는 자동입장 감시 로직이 알아서 재접속을 시도한다.
 app.post('/admin/users/:djId/reboot', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const targetId = req.params.djId
   if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   rebootDjConnection(targetId)
@@ -1928,6 +1964,8 @@ app.post('/admin/users/:djId/reboot', auth.requireAuth, (req, res) => {
 // 본인 계정 전용 — 로그인한 디제이가 스스로 "자동입장" 화면에서 자기 봇 연결만 재부팅한다.
 // 관리자 여부와 무관하게 누구나 자기 자신에 대해서만 사용할 수 있고, 다른 계정에는 전혀 영향이 없다.
 app.post('/bot/reboot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'botreboot')) return res.json({ success: false, error: '봇 재부팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   rebootDjConnection(req.djId)
   res.json({ success: true, msg: '봇 연결을 재부팅했어요' })
 })
@@ -1935,6 +1973,8 @@ app.post('/bot/reboot', auth.requireAuth, (req, res) => {
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
 app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const targetId = req.params.djId
   if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 항상 사용 가능해요' })
   const { enabled } = req.body || {}
@@ -1960,6 +2000,8 @@ app.get('/roulette/users', auth.requireAuth, (req, res) => {
 // 🎁 실시간 지급용 — 현재 방송에 접속 중인 시청자 목록 (여러 페이지까지 조회)
 app.get('/live/members', auth.requireAuth, async (req, res) => {
   const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'autogrant')) return res.json({ success: false, error: '실시간 지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const room = getRoom(djId)
   if (!room.isConnected || !room.autoJoinedFor) {
     return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
@@ -1980,6 +2022,7 @@ app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
   const amount = Number((req.body || {}).amount)
   if (!target || !amount) return res.json({ success: false, error: '대상과 수량을 입력해주세요' })
   const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'autogrant')) return res.json({ success: false, error: '실시간 지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const act = getActivitySettings(req.djId, settings)
   const existingKey = findActUserKey(act, target)
   const key = existingKey || target
@@ -2161,6 +2204,7 @@ app.post('/quiz/start', auth.requireAuth, (req, res) => {
   const room = getRoom(req.djId)
   if (!room.isConnected) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
   const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'quiz')) return res.json({ success: false, error: '퀴즈 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const quiz = getQuizSettings(req.djId, settings)
   if (!quiz.questions.length) return res.json({ success: false, error: '등록된 문제가 없어요. 먼저 문제를 추가해주세요' })
   startQuiz(req.djId)
@@ -2223,7 +2267,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -2239,6 +2283,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   if (activity) patch.activity = activity
+  if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
@@ -2251,6 +2296,7 @@ async function checkAdminAutoJoin() {
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
+    if (!isModuleOn(settings, 'autojoin')) continue
     const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
     if (!tagList.length) continue
 
@@ -2310,6 +2356,8 @@ app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
   const djId = req.djId
   const { enabled, tags } = req.body || {}
+  const settingsForCheck = store.getSettings(djId) || {}
+  if (enabled && !isModuleOn(settingsForCheck, 'autojoin')) return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
 
   if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
@@ -2329,6 +2377,10 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   const room = getRoom(djId)
   const cleanTag = String(tag || '').replace('@', '').trim()
 
+  const settingsForCheck = store.getSettings(djId) || {}
+  if (!isModuleOn(settingsForCheck, 'autojoin')) {
+    return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  }
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
@@ -2387,6 +2439,8 @@ app.get('/status', auth.requireAuth, (req, res) => {
 app.post('/chat', auth.requireAuth, async (req, res) => {
   const { message } = req.body || {}
   if (!message) return res.json({ error: '메시지 없음' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'chat')) return res.json({ success: false, error: '채팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   await sendChatToRoom(req.djId, message)
   res.json({ success: true })
 })
@@ -2396,6 +2450,8 @@ app.post('/chat', auth.requireAuth, async (req, res) => {
 // ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'session')) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })

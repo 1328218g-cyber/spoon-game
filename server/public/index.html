@@ -49,9 +49,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .nav-item.active{background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(251,146,60,.14));box-shadow:inset 0 0 0 1px rgba(14,165,233,.4)}
 .nav-item .ic{width:18px;text-align:center;flex-shrink:0;font-size:14px}
 .nav-item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0}
+.nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0;cursor:pointer;user-select:none;transition:transform .1s}
+.nav-badge:active{transform:scale(.92)}
 .nav-badge.on{background:rgba(74,222,128,.15);color:var(--success)}
-.nav-badge.off{background:rgba(107,107,128,.15);color:var(--muted)}
+.nav-badge.off{background:rgba(225,29,72,.12);color:var(--danger)}
 .nav-star{font-size:12px;color:var(--border);flex-shrink:0;cursor:pointer;transition:color .12s}
 .nav-star:hover{color:var(--warn)}
 .nav-star.filled{color:var(--warn)}
@@ -70,6 +71,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .panel{display:none;max-width:640px}
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.panel-locked-banner{display:flex;align-items:center;gap:10px;background:rgba(225,29,72,.08);border:1px solid rgba(225,29,72,.3);color:var(--danger);padding:12px 16px;border-radius:12px;margin-bottom:16px;font-size:13px;font-weight:600}
+.panel-locked-banner button{background:var(--danger);color:#fff;padding:6px 12px;font-size:12px;margin-left:auto;flex-shrink:0;white-space:nowrap}
+.panel.module-off > *:not(.panel-locked-banner){opacity:.4;pointer-events:none;filter:grayscale(.3)}
 
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,20,40,.04)}
 .card-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
@@ -322,6 +327,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <label>비밀번호 확인</label>
       <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
+    <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
     <div class="auth-error" id="authError"></div>
   </div>
@@ -340,27 +346,27 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
 
     <div class="nav-group-label">연결</div>
-    <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">방송 도구</div>
-    <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">이벤트 / 게임</div>
-    <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="autogrant"><span class="ic">🎁</span><span class="lbl">실시간 지급</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on">ON</span></div>
-    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autogrant"><span class="ic">🎁</span><span class="lbl">실시간 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -1158,8 +1164,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 const SERVER='https://spoon-game-production.up.railway.app';
 
 /* ── 인증 (디제이 로그인) ── */
-let djToken=localStorage.getItem('djToken')||'';
-let djId=localStorage.getItem('djId')||'';
+let djToken=localStorage.getItem('djToken')||sessionStorage.getItem('djToken')||'';
+let djId=localStorage.getItem('djId')||sessionStorage.getItem('djId')||'';
 let djAutoJoinEnabled=false;
 let authMode='login';
 
@@ -1173,6 +1179,7 @@ function switchAuthTab(mode){
   document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
   document.getElementById('authSubmitBtn').textContent=mode==='login'?'로그인':'회원가입';
   document.getElementById('authPasswordConfirmWrap').style.display=mode==='signup'?'block':'none';
+  document.getElementById('authAutoLoginWrap').style.display=mode==='signup'?'none':'flex';
   document.getElementById('authPasswordConfirm').value='';
   document.getElementById('authError').textContent='';
 }
@@ -1205,8 +1212,20 @@ async function submitAuth(){
     const d=await res.json();
     if(!d.success){errEl.textContent=d.error||'로그인 실패';return;}
     djToken=d.token;djId=d.djId;djAutoJoinEnabled=!!d.autoJoinEnabled;
-    localStorage.setItem('djToken',djToken);
-    localStorage.setItem('djId',djId);
+    const autoLogin=document.getElementById('authAutoLogin').checked;
+    if(autoLogin){
+      localStorage.setItem('djToken',djToken);
+      localStorage.setItem('djId',djId);
+      sessionStorage.removeItem('djToken');
+      sessionStorage.removeItem('djId');
+    } else {
+      // 자동 로그인을 껐으면 브라우저를 껐다 켰을 때는 다시 로그인하도록,
+      // 지금 탭에서만 유지되는 sessionStorage에만 저장한다.
+      sessionStorage.setItem('djToken',djToken);
+      sessionStorage.setItem('djId',djId);
+      localStorage.removeItem('djToken');
+      localStorage.removeItem('djId');
+    }
     enterApp();
   }catch(e){errEl.textContent='서버 오류: '+e.message;}
 }
@@ -1215,6 +1234,8 @@ function logout(){
   djToken='';djId='';
   localStorage.removeItem('djToken');
   localStorage.removeItem('djId');
+  sessionStorage.removeItem('djToken');
+  sessionStorage.removeItem('djId');
   const chatLog=document.getElementById('chatLog');
   if(chatLog) chatLog.innerHTML='';
   document.getElementById('appRoot').classList.remove('ready');
@@ -1297,10 +1318,69 @@ function selectPanel(name){
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
   const meta=PANEL_META[name];
   if(meta){document.getElementById('panelTitle').textContent=meta[0];document.getElementById('panelDesc').textContent=meta[1];}
+  applyPanelLockState(name);
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
+
+/* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot'];
+let moduleEnabled={};
+
+function isModuleOn(key){ return moduleEnabled[key]!==false; }
+
+function renderModuleBadge(key){
+  const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
+  if(!navItem)return;
+  const badge=navItem.querySelector('.nav-badge');
+  if(!badge)return;
+  const on=isModuleOn(key);
+  badge.textContent=on?'ON':'OFF';
+  badge.classList.toggle('on',on);
+  badge.classList.toggle('off',!on);
+}
+
+function renderAllModuleBadges(){ MODULE_KEYS.forEach(renderModuleBadge); }
+
+function applyPanelLockState(name){
+  const panelEl=document.querySelector('.panel[data-panel="'+name+'"]');
+  if(!panelEl)return;
+  const on=isModuleOn(name);
+  panelEl.classList.toggle('module-off',!on);
+  let banner=panelEl.querySelector('.panel-locked-banner');
+  if(!on){
+    if(!banner){
+      banner=document.createElement('div');
+      banner.className='panel-locked-banner';
+      banner.innerHTML='<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button>';
+      panelEl.insertBefore(banner,panelEl.firstChild);
+    }
+  } else if(banner){
+    banner.remove();
+  }
+}
+
+function toggleModuleByKey(key){
+  moduleEnabled[key]=!isModuleOn(key);
+  renderModuleBadge(key);
+  applyPanelLockState(key);
+  saveModuleEnabled();
+}
+
+function toggleModuleBadge(el){
+  const navItem=el.closest('.nav-item');
+  const key=navItem?.dataset.panel;
+  if(!key)return;
+  toggleModuleByKey(key);
+}
+
+async function saveModuleEnabled(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleEnabled})});
+    showToast('설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
 
 /* ── 실드 관리 ── */
 let shieldData={count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false};
@@ -1813,6 +1893,8 @@ async function loadDjSettings(){
   document.getElementById('rouletteHistoryWrap').innerHTML='';
   Object.assign(activityData, JSON.parse(JSON.stringify(ACT_DEFAULT)));
   actUsersCache=[]; actSelectedKey=null;
+  moduleEnabled={};
+  renderAllModuleBadges();
 
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
@@ -1869,6 +1951,10 @@ async function loadDjSettings(){
         if(nums.length) rlIdSeq=Math.max(...nums)+1;
       }
       if(s.activity) Object.assign(activityData, s.activity);
+      if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
+      renderAllModuleBadges();
+      const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
+      if(curActive) applyPanelLockState(curActive);
       renderShield();
       renderFlags();
       renderFunding();
