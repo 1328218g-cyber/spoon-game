@@ -146,6 +146,17 @@ function deleteDj(djId) {
   return true;
 }
 
+// ⚠️ 계정(아이디/비밀번호/가입일/차단여부/자동입장허용여부)은 그대로 두고,
+// 봇 설정 데이터(실드/깃발/펀딩/신청곡/룰렛/애청지수/명령어/지정인사/입장설정 등)만
+// 최초 가입 시 상태(defaultSettings)로 되돌린다. 관리자의 "계정별 리셋" 버튼에서 사용.
+function resetSettings(djId) {
+  const djs = loadDjs();
+  if (!djs[djId]) return false;
+  djs[djId].settings = defaultSettings();
+  saveDjs(djs);
+  return true;
+}
+
 function isBlocked(djId) {
   const djs = loadDjs();
   return !!(djs[djId] && djs[djId].blocked);
@@ -207,6 +218,7 @@ module.exports = {
   listDjSummaries,
   setBlocked,
   deleteDj,
+  resetSettings,
   isBlocked,
   setAutoJoinEnabled,
   getAutoJoinEnabled,

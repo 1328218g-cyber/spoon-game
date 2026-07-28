@@ -389,6 +389,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
         </div>
 
+        <div class="card">
+          <div class="card-title"><span>🔁 봇 재부팅</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에 반응이 없거나 이상하게 동작할 때, 내 계정의 봇 연결만 완전히 끊었다가 새로 시작할 수 있어요. 저장된 설정(실드/깃발/펀딩/애청지수 등)은 전혀 바뀌지 않아요. 자동입장이 켜져 있었다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.</p>
+          <button class="btn-shield-reset" style="width:100%" onclick="rebootMyBot()">🔁 내 봇 재부팅</button>
+        </div>
+
         <div class="card" id="watchCard" style="display:none">
           <div class="card-title">다중 감시 (자동)</div>
           <p class="hint" style="margin-bottom:12px">등록한 고유닉 중 누구든 방송을 켜면 자동으로 그 방에 입장해요. (봇 기능이 꺼져있으면 순수 시청만 해요)</p>
@@ -1887,11 +1893,13 @@ async function loadUserList(){
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
+        <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="rebootUserConnection('${escapeAttr(u.djId)}')">🔁 재부팅</button>`}</td>
+        <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetUserSettings('${escapeAttr(u.djId)}')">🔄 설정초기화</button>`}</td>
         <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }catch(e){
@@ -1913,6 +1921,26 @@ async function toggleBlockUser(djIdTarget,blocked){
     const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/block',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blocked})});
     const d=await res.json();
     if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function rebootUserConnection(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정의 봇 연결을 재부팅할까요?\n현재 방송 접속이 즉시 끊기고, 자동입장이 켜져 있다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.\n저장된 설정(실드/깃발/펀딩/애청지수 등)은 전혀 바뀌지 않아요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/reboot',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast(d.msg||'재부팅했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resetUserSettings(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정의 모든 설정(실드/깃발/펀딩/신청곡/룰렛/애청지수/명령어/지정인사/입장설정 등)을 초기값으로 리셋할까요?\n아이디와 비밀번호, 가입일, 차단여부는 그대로 유지되고, 봇 설정 데이터만 초기화됩니다.\n되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast(d.msg||'리셋 완료했어요');loadUserList();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -3229,6 +3257,16 @@ async function adjustCoupon(tag,idx,delta){
     const d=await res.json();
     if(d.success){showToast('반영됨');loadRouletteHistory(tag);}
     else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function rebootMyBot(){
+  if(!confirm('내 봇 연결을 재부팅할까요?\n현재 방송 접속이 즉시 끊기고, 자동입장이 켜져 있었다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.\n저장된 설정(실드/깃발/펀딩/애청지수 등)은 전혀 바뀌지 않아요.'))return;
+  try{
+    const res=await fetch(SERVER+'/bot/reboot',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast(d.msg||'재부팅했어요');checkStatus();}
+    else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 

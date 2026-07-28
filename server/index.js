@@ -1527,6 +1527,26 @@ function stopLeavePolling(djId) {
   }
 }
 
+// 특정 디제이의 방 연결(WebSocket)과 관련된 인메모리 상태를 전부 초기화한다.
+// 저장된 설정 데이터는 전혀 건드리지 않는다. 관리자가 유저 관리 화면에서 누르는
+// "재부팅" 버튼과, 각 디제이 본인이 "자동입장" 화면에서 누르는 "내 봇 재부팅" 버튼이
+// 이 함수 하나를 공통으로 사용한다.
+function rebootDjConnection(djId) {
+  const room = getRoom(djId)
+  if (room.ws) { room.ws.terminate() }
+  stopLeavePolling(djId)
+  clearQuizTimers(room)
+  delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
+  delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
+
+  for (const key of [...commandCooldowns.keys()]) {
+    if (key.startsWith(djId + ':')) commandCooldowns.delete(key)
+  }
+
+  broadcast({ type: 'status', djId, isConnected: false })
+  console.log(`[재부팅] ${djId} 계정의 봇 연결 상태를 초기화했어요`)
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
@@ -1616,7 +1636,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'join', djId, nick: author })
 
-        // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머문 유저도 잡히도록)
+        // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머든 유저도 잡히도록)
         const joinSnapshotKey = author.toString().toLowerCase()
         registerJoinSnapshot(room, author, null)
 
@@ -1867,6 +1887,49 @@ app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
   const ok = store.deleteDj(targetId)
   if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 설정 데이터만 초기화(리셋)한다.
+// 아이디/비밀번호/가입일/차단여부/자동입장허용여부 같은 "계정 정보"는 그대로 두고,
+// 실드/깃발/펀딩/신청곡/룰렛/애청지수/명령어/지정인사/입장설정 등 "봇 설정값"만
+// 최초 가입 시 상태로 되돌린다. 방송에 접속되어 있었다면 연결도 함께 정리한다.
+app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetId = req.params.djId
+  const ok = store.resetSettings(targetId)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const room = getRoom(targetId)
+  if (room.ws) { room.ws.terminate(); room.ws = null }
+  room.isConnected = false
+  room.autoJoinedFor = ''
+  room.watchingTag = ''
+  stopLeavePolling(targetId)
+  clearQuizTimers(room)
+  if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+  broadcast({ type: 'status', djId: targetId, isConnected: false })
+
+  res.json({ success: true, msg: `${targetId} 계정의 설정이 초기화됐어요` })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 "서버"(봇 연결 상태)만 재부팅한다.
+// 저장된 설정 데이터는 전혀 건드리지 않고, 그 디제이의 방 연결(WebSocket)과 관련된
+// 인메모리 상태(연결 여부, 퇴장감지 폴링, 반복문구 타이머, 퀴즈 타이머, 명령어 쿨타임)를
+// 전부 초기화해서 그 계정만 새로 시작한 것과 같은 상태로 만든다.
+// autoJoinWatch가 켜져 있었다면, 15초 주기로 도는 자동입장 감시 로직이 알아서 재접속을 시도한다.
+app.post('/admin/users/:djId/reboot', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  rebootDjConnection(targetId)
+  res.json({ success: true, msg: `${targetId} 계정의 봇 연결을 재부팅했어요` })
+})
+
+// 본인 계정 전용 — 로그인한 디제이가 스스로 "자동입장" 화면에서 자기 봇 연결만 재부팅한다.
+// 관리자 여부와 무관하게 누구나 자기 자신에 대해서만 사용할 수 있고, 다른 계정에는 전혀 영향이 없다.
+app.post('/bot/reboot', auth.requireAuth, (req, res) => {
+  rebootDjConnection(req.djId)
+  res.json({ success: true, msg: '봇 연결을 재부팅했어요' })
 })
 
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
