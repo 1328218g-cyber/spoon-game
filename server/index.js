@@ -1127,6 +1127,7 @@ function stopQuiz(djId) {
 }
 
 function percentPick(items) {
+  if (!items || !items.length) return null
   const total = items.reduce((s, it) => s + (Number(it.percent) || 1), 0)
   let r = Math.random() * total
   for (const it of items) {
@@ -1386,6 +1387,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   const wonCounts = {}
   for (let i = 0; i < count; i++) {
     const won = percentPick(rt.items)
+    if (!won) continue
     wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
     if (!won.skipHistory) {
       hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
@@ -1413,7 +1415,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
         : calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount)
       return { rt, idx: i + 1, count }
     })
-    .filter(x => x.count > 0)
+    .filter(x => x.count > 0 && x.rt.items && x.rt.items.length > 0)
   console.log(`[룰렛디버그:${djId}] author=${author} amount=${amount} combo=${comboCount} sticker=${sticker} 적용될 룰렛수=${applicable.length}`)
   if (!applicable.length) return
 
@@ -1428,6 +1430,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
     const wonCounts = {}
     for (let i = 0; i < count; i++) {
       const won = percentPick(rt.items)
+      if (!won) continue
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
       if (!won.skipHistory) {
         hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
