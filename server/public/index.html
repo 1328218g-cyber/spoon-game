@@ -118,6 +118,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 .autojoin-status{font-size:13px;color:var(--muted);margin-top:10px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--border);min-height:40px}
 
+/* ── ⏳ 이용 만료 배너 ── */
+.expiry-banner{display:none;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:14px 26px 0;padding:14px 20px 16px;border-radius:14px;background:linear-gradient(135deg,#f97316,#fb923c);color:#fff;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(249,115,22,.25)}
+.expiry-banner.expired{background:linear-gradient(135deg,#be123c,#e11d48);box-shadow:0 6px 18px rgba(225,29,72,.3)}
+.expiry-banner .eb-left{display:flex;align-items:center;gap:12px}
+.expiry-banner .eb-icon{font-size:26px;flex-shrink:0}
+.expiry-banner .eb-label{font-size:11.5px;opacity:.85;margin-bottom:2px}
+.expiry-banner .eb-time{font-size:20px;font-weight:800;white-space:nowrap}
+.expiry-banner .eb-right{text-align:right;font-size:11.5px;opacity:.9}
+.expiry-banner .eb-right .eb-date{font-size:13px;font-weight:700;margin-top:2px;white-space:nowrap}
+.expiry-banner .eb-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.28)}
+.expiry-banner .eb-progress-fill{height:100%;background:#fff;transition:width .3s}
+@media (max-width:860px){ .expiry-banner{margin:12px 16px 0;padding:12px 16px 14px} }
+
 /* ── 준비 중 패널 ── */
 .coming-soon{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:48px 24px;text-align:center}
 .coming-soon .ic{font-size:34px;margin-bottom:14px;opacity:.8}
@@ -379,7 +392,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
       </div>
       <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
-      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="logout()">로그아웃</button></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+    </div>
+
+    <div class="expiry-banner" id="expiryBanner">
+      <div class="eb-left">
+        <span class="eb-icon">⏳</span>
+        <div>
+          <div class="eb-label">이용 기간 남은 시간</div>
+          <div class="eb-time" id="ebTimeText">-</div>
+        </div>
+      </div>
+      <div class="eb-right">
+        <div>만료 예정일</div>
+        <div class="eb-date" id="ebDateText">-</div>
+      </div>
+      <div class="eb-progress"><div class="eb-progress-fill" id="ebProgressFill" style="width:0%"></div></div>
     </div>
 
     <div class="content">
@@ -1159,6 +1187,33 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   </div>
 </div>
 
+<!-- 👤 내정보 (아이디 / 비밀번호 변경) -->
+<div id="myInfoModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeMyInfoModal()">
+  <div class="modal-box">
+    <div class="modal-title"><span>👤 내정보</span><button class="icon-btn" onclick="closeMyInfoModal()">✕</button></div>
+
+    <div id="miIdSection">
+      <div class="card-title" style="margin-top:0">🆔 아이디 변경</div>
+      <label>새 아이디</label>
+      <input type="text" id="miNewId" placeholder="영문/숫자/밑줄 2~20자">
+      <label>현재 비밀번호 확인</label>
+      <input type="password" id="miIdCurrentPw" placeholder="현재 비밀번호" onkeydown="if(event.key==='Enter')submitChangeId()">
+      <button class="btn-connect" style="width:100%;margin-top:10px" onclick="submitChangeId()">아이디 변경</button>
+      <div class="hint" id="miIdMsg"></div>
+    </div>
+
+    <div class="card-title" style="margin-top:22px">🔒 비밀번호 변경</div>
+    <label>현재 비밀번호</label>
+    <input type="password" id="miPwCurrent" placeholder="현재 비밀번호">
+    <label>새 비밀번호</label>
+    <input type="password" id="miPwNew" placeholder="4자 이상">
+    <label>새 비밀번호 확인</label>
+    <input type="password" id="miPwNewConfirm" placeholder="새 비밀번호를 한 번 더 입력" onkeydown="if(event.key==='Enter')submitChangePassword()">
+    <button class="btn-connect" style="width:100%;margin-top:10px" onclick="submitChangePassword()">비밀번호 변경</button>
+    <div class="hint" id="miPwMsg"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 const SERVER='https://spoon-game-production.up.railway.app';
@@ -1167,6 +1222,7 @@ const SERVER='https://spoon-game-production.up.railway.app';
 let djToken=localStorage.getItem('djToken')||sessionStorage.getItem('djToken')||'';
 let djId=localStorage.getItem('djId')||sessionStorage.getItem('djId')||'';
 let djAutoJoinEnabled=false;
+let authPersistMode=localStorage.getItem('djToken')?'local':(sessionStorage.getItem('djToken')?'session':'local'); // 'local' = localStorage(자동 로그인 유지) / 'session' = sessionStorage(탭 닫으면 로그아웃)
 let authMode='login';
 
 function authHeaders(){
@@ -1213,6 +1269,7 @@ async function submitAuth(){
     if(!d.success){errEl.textContent=d.error||'로그인 실패';return;}
     djToken=d.token;djId=d.djId;djAutoJoinEnabled=!!d.autoJoinEnabled;
     const autoLogin=document.getElementById('authAutoLogin').checked;
+    authPersistMode=autoLogin?'local':'session';
     if(autoLogin){
       localStorage.setItem('djToken',djToken);
       localStorage.setItem('djId',djId);
@@ -1243,6 +1300,81 @@ function logout(){
 }
 
 const ADMIN_DJ_ID='sum';
+
+/* ── 👤 내정보 (아이디 / 비밀번호 변경) ── */
+function openMyInfoModal(){
+  const isAdmin=djId===ADMIN_DJ_ID;
+  document.getElementById('miIdSection').style.display=isAdmin?'none':'block';
+  document.getElementById('miNewId').value=djId;
+  document.getElementById('miIdCurrentPw').value='';
+  document.getElementById('miIdMsg').textContent='';
+  document.getElementById('miPwCurrent').value='';
+  document.getElementById('miPwNew').value='';
+  document.getElementById('miPwNewConfirm').value='';
+  document.getElementById('miPwMsg').textContent='';
+  document.getElementById('myInfoModalOverlay').style.display='flex';
+}
+
+function closeMyInfoModal(){
+  document.getElementById('myInfoModalOverlay').style.display='none';
+}
+
+function persistAuth(){
+  if(authPersistMode==='local'){
+    localStorage.setItem('djToken',djToken);
+    localStorage.setItem('djId',djId);
+    sessionStorage.removeItem('djToken');
+    sessionStorage.removeItem('djId');
+  } else {
+    sessionStorage.setItem('djToken',djToken);
+    sessionStorage.setItem('djId',djId);
+    localStorage.removeItem('djToken');
+    localStorage.removeItem('djId');
+  }
+}
+
+async function submitChangeId(){
+  const msgEl=document.getElementById('miIdMsg');
+  msgEl.style.color='var(--danger)';
+  const newId=document.getElementById('miNewId').value.trim();
+  const pw=document.getElementById('miIdCurrentPw').value;
+  if(!newId||!pw){msgEl.textContent='새 아이디와 현재 비밀번호를 입력해주세요';return;}
+  if(newId===djId){msgEl.textContent='현재 아이디와 같아요';return;}
+  try{
+    const res=await fetch(SERVER+'/account/change-id',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newDjId:newId,currentPassword:pw})});
+    const d=await res.json();
+    if(!d.success){msgEl.textContent=d.error||'변경 실패';return;}
+    djToken=d.token; djId=d.djId;
+    persistAuth();
+    document.getElementById('djIdLabel').textContent=djId;
+    document.getElementById('miIdCurrentPw').value='';
+    msgEl.style.color='var(--success)';
+    msgEl.textContent='아이디가 변경됐어요 ✓';
+    showToast('아이디가 '+djId+'(으)로 변경됐어요');
+  }catch(e){msgEl.textContent='오류: '+e.message;}
+}
+
+async function submitChangePassword(){
+  const msgEl=document.getElementById('miPwMsg');
+  msgEl.style.color='var(--danger)';
+  const cur=document.getElementById('miPwCurrent').value;
+  const next=document.getElementById('miPwNew').value;
+  const confirmPw=document.getElementById('miPwNewConfirm').value;
+  if(!cur||!next||!confirmPw){msgEl.textContent='모든 칸을 입력해주세요';return;}
+  if(next.length<4){msgEl.textContent='새 비밀번호는 4자 이상이어야 해요';return;}
+  if(next!==confirmPw){msgEl.textContent='새 비밀번호가 서로 일치하지 않아요';return;}
+  try{
+    const res=await fetch(SERVER+'/account/change-password',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({currentPassword:cur,newPassword:next})});
+    const d=await res.json();
+    if(!d.success){msgEl.textContent=d.error||'변경 실패';return;}
+    document.getElementById('miPwCurrent').value='';
+    document.getElementById('miPwNew').value='';
+    document.getElementById('miPwNewConfirm').value='';
+    msgEl.style.color='var(--success)';
+    msgEl.textContent='비밀번호가 변경됐어요 ✓';
+    showToast('비밀번호가 변경됐어요');
+  }catch(e){msgEl.textContent='오류: '+e.message;}
+}
 
 function enterApp(){
   document.getElementById('authScreen').style.display='none';
@@ -1326,9 +1458,22 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('op
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
 const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot'];
+const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
+let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
+let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
+let expiryTimer=null;
 
-function isModuleOn(key){ return moduleEnabled[key]!==false; }
+function isAccountExpired(){
+  return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
+}
+
+function isModulePreferenceOn(key){ return moduleEnabled[key]!==false; }
+
+function isModuleOn(key){
+  if(isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(key)) return false;
+  return isModulePreferenceOn(key);
+}
 
 function renderModuleBadge(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
@@ -1350,19 +1495,22 @@ function applyPanelLockState(name){
   panelEl.classList.toggle('module-off',!on);
   let banner=panelEl.querySelector('.panel-locked-banner');
   if(!on){
+    const expiredLock=isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(name);
     if(!banner){
       banner=document.createElement('div');
       banner.className='panel-locked-banner';
-      banner.innerHTML='<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button>';
       panelEl.insertBefore(banner,panelEl.firstChild);
     }
+    banner.innerHTML = expiredLock
+      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 관리자에게 문의해주세요.</span>'
+      : '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button>';
   } else if(banner){
     banner.remove();
   }
 }
 
 function toggleModuleByKey(key){
-  moduleEnabled[key]=!isModuleOn(key);
+  moduleEnabled[key]=!isModulePreferenceOn(key);
   renderModuleBadge(key);
   applyPanelLockState(key);
   saveModuleEnabled();
@@ -1373,6 +1521,52 @@ function toggleModuleBadge(el){
   const key=navItem?.dataset.panel;
   if(!key)return;
   toggleModuleByKey(key);
+}
+
+/* ── ⏳ 이용 만료 배너 ── */
+function formatRemaining(ms){
+  if(ms<=0)return '만료됨';
+  const totalMin=Math.floor(ms/60000);
+  const days=Math.floor(totalMin/1440);
+  const hours=Math.floor((totalMin%1440)/60);
+  const mins=totalMin%60;
+  return (days>0?days+'일 ':'')+hours+'시간 '+mins+'분';
+}
+
+function formatExpiryDate(iso){
+  const d=new Date(iso);
+  const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderExpiryBanner(){
+  const banner=document.getElementById('expiryBanner');
+  if(!banner)return;
+  if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null;}
+  if(!expiresAt || djId===ADMIN_DJ_ID){
+    banner.style.display='none';
+    return;
+  }
+  banner.style.display='flex';
+  const expireTime=new Date(expiresAt).getTime();
+  const startTime=expiryStartAt?new Date(expiryStartAt).getTime():(expireTime-7*86400000);
+  const update=()=>{
+    const now=Date.now();
+    const remain=expireTime-now;
+    const expired=remain<=0;
+    banner.classList.toggle('expired',expired);
+    document.getElementById('ebTimeText').textContent=expired?'만료됨 — 관리자에게 문의해주세요':formatRemaining(remain);
+    document.getElementById('ebDateText').textContent=formatExpiryDate(expiresAt);
+    const totalSpan=Math.max(1,expireTime-startTime);
+    const elapsed=Math.min(totalSpan,Math.max(0,now-startTime));
+    const pct=expired?100:Math.min(100,(elapsed/totalSpan)*100);
+    document.getElementById('ebProgressFill').style.width=pct+'%';
+  };
+  update();
+  expiryTimer=setInterval(update,30000);
+  MODULE_KEYS.forEach(renderModuleBadge);
+  const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
+  if(curActive) applyPanelLockState(curActive);
 }
 
 async function saveModuleEnabled(){
@@ -1894,7 +2088,9 @@ async function loadDjSettings(){
   Object.assign(activityData, JSON.parse(JSON.stringify(ACT_DEFAULT)));
   actUsersCache=[]; actSelectedKey=null;
   moduleEnabled={};
+  expiresAt=null; expiryStartAt=null;
   renderAllModuleBadges();
+  renderExpiryBanner();
 
   try{
     const res=await fetch(SERVER+'/settings',{headers:authHeaders()});
@@ -1952,7 +2148,10 @@ async function loadDjSettings(){
       }
       if(s.activity) Object.assign(activityData, s.activity);
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
+      expiresAt=s.expiresAt||null;
+      expiryStartAt=s.expiryStartAt||null;
       renderAllModuleBadges();
+      renderExpiryBanner();
       const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
       if(curActive) applyPanelLockState(curActive);
       renderShield();
@@ -2003,6 +2202,22 @@ async function checkSessionStatus(){
   }catch{}
 }
 
+function isoToLocalInputValue(iso){
+  if(!iso)return '';
+  const d=new Date(iso);
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function expiryStatusPill(expiresAtIso){
+  if(!expiresAtIso) return '<span class="status-pill ongoing">무제한</span>';
+  const exp=new Date(expiresAtIso).getTime();
+  const now=Date.now();
+  if(now>exp) return '<span class="status-pill ended">만료됨</span>';
+  const days=Math.ceil((exp-now)/86400000);
+  return `<span class="status-pill dday">D-${days}</span>`;
+}
+
 async function loadUserList(){
   const wrap=document.getElementById('userListWrap');
   try{
@@ -2013,12 +2228,20 @@ async function loadUserList(){
     const rows=d.users.map(u=>{
       const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
       const isSum=u.djId==='sum';
+      const expiryCell=isSum ? '<span class="status-pill ongoing">무제한</span>' : `
+        <div style="margin-bottom:4px">${expiryStatusPill(u.expiresAt)}</div>
+        <input type="datetime-local" id="expireInput-${escapeAttr(u.djId)}" value="${isoToLocalInputValue(u.expiresAt)}" style="padding:6px 8px;font-size:11.5px;width:172px">
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="setUserExpiry('${escapeAttr(u.djId)}')">설정</button>
+          ${u.expiresAt?`<button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="clearUserExpiry('${escapeAttr(u.djId)}')">해제</button>`:''}
+        </div>`;
       return `<tr>
         <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}</td>
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
+        <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="rebootUserConnection('${escapeAttr(u.djId)}')">🔁 재부팅</button>`}</td>
@@ -2027,12 +2250,35 @@ async function loadUserList(){
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
+}
+
+async function setUserExpiry(djIdTarget){
+  const input=document.getElementById('expireInput-'+djIdTarget);
+  const val=input?input.value:'';
+  if(!val)return showToast('만료 일시를 선택해주세요');
+  const iso=new Date(val).toISOString();
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/expiry',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({expiresAt:iso})});
+    const d=await res.json();
+    if(d.success){showToast(djIdTarget+' 계정의 이용만료일을 설정했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function clearUserExpiry(djIdTarget){
+  if(!confirm(djIdTarget+' 계정의 이용만료일을 해제하고 무제한으로 되돌릴까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/expiry',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({expiresAt:null})});
+    const d=await res.json();
+    if(d.success){showToast('무제한으로 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function toggleUserAutoJoin(djIdTarget,enabled){

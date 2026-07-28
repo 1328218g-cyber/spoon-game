@@ -48,6 +48,11 @@ function defaultSettings() {
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
     },
+    // 이용 만료 관리 — 관리자가 유저 관리 화면에서 계정별로 지정한다.
+    // expiresAt(만료 예정 시각, ISO 문자열)이 지나면 입장설정/룰렛기록을 뺀 모든 메뉴가 자동으로 잠긴다.
+    // expiryStartAt은 가장 최근에 만료일이 설정된 시점으로, 이용 배너의 진행률 계산에만 쓰인다.
+    expiresAt: null,
+    expiryStartAt: null,
     joinMessages: [],
     likeMessages: [],
     leaveMessages: [],
@@ -139,6 +144,40 @@ function login(djId, password) {
   return { ok: true };
 }
 
+// 로그인된 본인이 "내정보"에서 아이디/비밀번호를 바꿀 때, 본인 확인용으로 현재 비밀번호를 검증한다.
+function verifyPassword(djId, password) {
+  const djs = loadDjs();
+  const rec = djs[djId];
+  if (!rec) return false;
+  return bcrypt.compareSync(String(password || ''), rec.passwordHash);
+}
+
+// 비밀번호만 변경 (아이디는 그대로 유지)
+function changePassword(djId, newPassword) {
+  const djs = loadDjs();
+  if (!djs[djId]) return { ok: false, error: '유저를 찾을 수 없어요' };
+  if (!newPassword || String(newPassword).length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
+  djs[djId].passwordHash = bcrypt.hashSync(String(newPassword), 10);
+  saveDjs(djs);
+  return { ok: true };
+}
+
+// 아이디(로그인 키)를 변경한다. 설정/가입일/차단여부 등은 그대로 새 아이디로 옮겨간다.
+// 관리자 계정 'sum'은 여러 곳에 하드코딩되어 있어(공용 스푼 토큰, 관리자 권한 체크 등) 변경을 허용하지 않는다.
+function renameDjId(oldId, newId) {
+  const djs = loadDjs();
+  if (!djs[oldId]) return { ok: false, error: '유저를 찾을 수 없어요' };
+  if (oldId === 'sum') return { ok: false, error: '관리자 계정은 아이디를 변경할 수 없어요' };
+  if (!validDjId(newId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
+  if (newId === 'sum') return { ok: false, error: '그 아이디는 사용할 수 없어요' };
+  if (oldId === newId) return { ok: false, error: '현재 아이디와 같아요' };
+  if (djs[newId]) return { ok: false, error: '이미 사용 중인 아이디예요' };
+  djs[newId] = djs[oldId];
+  delete djs[oldId];
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function setBlocked(djId, blocked) {
   const djs = loadDjs();
   if (!djs[djId]) return false;
@@ -197,6 +236,7 @@ function listDjSummaries() {
     autoJoinTag: djs[id].settings?.autoJoinTag || '',
     blocked: !!djs[id].blocked,
     autoJoinEnabled: !!djs[id].autoJoinEnabled,
+    expiresAt: djs[id].settings?.expiresAt || null,
   }));
 }
 
@@ -232,4 +272,7 @@ module.exports = {
   setAutoJoinEnabled,
   getAutoJoinEnabled,
   exists,
+  verifyPassword,
+  changePassword,
+  renameDjId,
 };

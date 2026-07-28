@@ -221,7 +221,13 @@ function escapeRegExp(s) {
 
 // 사이드바 메뉴별 ON/OFF 값을 확인한다. moduleEnabled 필드가 없거나(예전 계정)
 // 해당 키가 명시적으로 false가 아니면 기본은 켜진 것으로 간주한다.
+// 이용 만료일(expiresAt)이 지난 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 강제로 꺼진다.
+const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
+function isAccountExpired(settings) {
+  return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
+}
 function isModuleOn(settings, key) {
+  if (isAccountExpired(settings) && !EXPIRY_EXEMPT_KEYS.includes(key)) return false
   return !(settings && settings.moduleEnabled && settings.moduleEnabled[key] === false)
 }
 
@@ -1883,6 +1889,41 @@ app.get('/auth/me', auth.requireAuth, (req, res) => {
   res.json({ success: true, djId: req.djId, autoJoinEnabled: canAutoJoin(req.djId) })
 })
 
+// 본인 계정 전용 — 비밀번호 변경 (현재 비밀번호 확인 필요)
+app.post('/account/change-password', auth.requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {}
+  if (!currentPassword || !newPassword) return res.json({ success: false, error: '현재 비밀번호와 새 비밀번호를 입력해주세요' })
+  if (!store.verifyPassword(req.djId, currentPassword)) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  const result = store.changePassword(req.djId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, msg: '비밀번호가 변경됐어요' })
+})
+
+// 본인 계정 전용 — 아이디 변경 (현재 비밀번호 확인 필요, 관리자 계정 sum은 변경 불가)
+// 아이디가 바뀌면 로그인 키 자체가 바뀌는 것이므로, 방 연결 등 인메모리 상태를 정리하고
+// 새 아이디 기준으로 로그인 토큰을 새로 발급해서 내려준다.
+app.post('/account/change-id', auth.requireAuth, (req, res) => {
+  const oldId = req.djId
+  const { currentPassword } = req.body || {}
+  const newId = String((req.body || {}).newDjId || '').trim()
+  if (!currentPassword || !newId) return res.json({ success: false, error: '새 아이디와 현재 비밀번호를 입력해주세요' })
+  if (!store.verifyPassword(oldId, currentPassword)) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  const result = store.renameDjId(oldId, newId)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+
+  // 인메모리 방 연결 상태(WebSocket, 폴링/타이머 등)는 새 아이디로 자동 이전되지 않으므로
+  // 안전하게 정리한다. 자동입장이 켜져 있었다면 새 아이디 기준으로 다시 접속을 시도하게 된다.
+  const room = getRoom(oldId)
+  if (room.ws) { room.ws.terminate() }
+  stopLeavePolling(oldId)
+  clearQuizTimers(room)
+  delete rooms[oldId]
+  delete repeatLastSent[oldId]
+
+  const token = auth.issueToken(newId)
+  res.json({ success: true, djId: newId, token, msg: '아이디가 변경됐어요' })
+})
+
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
 app.get('/admin/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -1968,6 +2009,27 @@ app.post('/bot/reboot', auth.requireAuth, (req, res) => {
   if (!isModuleOn(settings, 'botreboot')) return res.json({ success: false, error: '봇 재부팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   rebootDjConnection(req.djId)
   res.json({ success: true, msg: '봇 연결을 재부팅했어요' })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 이용 만료일을 설정하거나(expiresAt: ISO 문자열) 해제한다(expiresAt: null).
+// 만료일이 지나면 그 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 자동으로 잠긴다.
+app.post('/admin/users/:djId/expiry', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist')) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 이용 만료일을 설정할 수 없어요' })
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const raw = (req.body || {}).expiresAt
+  if (!raw) {
+    store.saveSettings(targetId, { expiresAt: null, expiryStartAt: null })
+    return res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 해제했어요` })
+  }
+  const parsed = new Date(raw)
+  if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  store.saveSettings(targetId, { expiresAt: parsed.toISOString(), expiryStartAt: new Date().toISOString() })
+  res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 설정했어요` })
 })
 
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
