@@ -938,14 +938,30 @@ function handleActivityCommand(djId, room, settings, author, authorId, text, tag
   if (canGrant && first === cmdLottoGive && parts[1] === '전체') {
     const amount = parseInt(parts[2], 10)
     if (isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} 전체 [수량] (음수 입력 시 차감)`), 400); return }
+    // "전체"는 역대 등록된 모든 유저가 아니라, 지금 방송에 실제로 접속 중인 유저에게만 지급한다.
+    // 퇴장감지 폴링(5초 주기)이 유지하는 room._lastLiveMembers 스냅샷을 기준으로 판단한다.
+    const liveNames = new Set()
+    if (room._lastLiveMembers) {
+      for (const info of room._lastLiveMembers.values()) {
+        if (info.nickname) liveNames.add(String(info.nickname).trim().toLowerCase())
+        if (info.tag) liveNames.add(String(info.tag).trim().toLowerCase())
+      }
+    }
     let count = 0
-    Object.values(act.users).forEach(d => { d.lotto = Math.max(0, (d.lotto || 0) + amount); count++ })
+    Object.entries(act.users).forEach(([key, d]) => {
+      const isLive = liveNames.has(String(key).trim().toLowerCase())
+        || (d.nickname && liveNames.has(String(d.nickname).trim().toLowerCase()))
+        || (d.tag && liveNames.has(String(d.tag).trim().toLowerCase()))
+      if (!isLive) return
+      d.lotto = Math.max(0, (d.lotto || 0) + amount)
+      count++
+    })
     if (count > 0) {
       save()
       const action = amount > 0 ? '지급' : '차감'
-      setTimeout(() => sendChatToRoom(djId, `🎁 등록된 ${count}명의 복권이 ${Math.abs(amount)}장 ${action}되었습니다.`), 400)
+      setTimeout(() => sendChatToRoom(djId, `🎁 현재 접속 중인 ${count}명의 복권이 ${Math.abs(amount)}장 ${action}되었습니다.`), 400)
     } else {
-      setTimeout(() => sendChatToRoom(djId, `⚠️ 등록된 애청지수 유저가 없습니다.`), 400)
+      setTimeout(() => sendChatToRoom(djId, `⚠️ 현재 접속 중인 등록된 애청지수 유저가 없습니다.`), 400)
     }
     return
   }
