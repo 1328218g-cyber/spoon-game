@@ -3,26 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>스푼 봇</title>
+<title>에디봇</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#7c6aff">
+<meta name="theme-color" content="#0ea5e9">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="스푼봇">
+<meta name="apple-mobile-web-app-title" content="에디봇">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#eef0f4;
+  --bg:#eaf6fb;
   --panel:#ffffff;
   --surface:#ffffff;
-  --surface2:#f2f3f7;
-  --border:#e2e4ea;
-  --accent:#7c6aff;
-  --accent2:#ff6ab0;
-  --text:#20232c;
-  --muted:#8b8fa0;
+  --surface2:#eef7fb;
+  --border:#d7ecf5;
+  --accent:#0ea5e9;
+  --accent2:#fb923c;
+  --text:#0f2a3a;
+  --muted:#6b8a9a;
   --success:#16a34a;
   --danger:#e11d48;
   --warn:#d97706;
@@ -46,7 +46,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 .nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:1px 8px;border-radius:9px;cursor:pointer;color:var(--text);font-size:13.5px;transition:background 0.12s;user-select:none}
 .nav-item:hover{background:var(--surface2)}
-.nav-item.active{background:linear-gradient(135deg,rgba(124,106,255,.22),rgba(255,106,176,.14));box-shadow:inset 0 0 0 1px rgba(124,106,255,.4)}
+.nav-item.active{background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(251,146,60,.14));box-shadow:inset 0 0 0 1px rgba(14,165,233,.4)}
 .nav-item .ic{width:18px;text-align:center;flex-shrink:0;font-size:14px}
 .nav-item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0}
@@ -227,15 +227,37 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .cmd-card-actions{flex-shrink:0;display:flex;gap:6px}
 .cmd-card-actions button{padding:7px 12px;font-size:12px}
 
-/* ── 로그인 / 회원가입 화면 ── */
-#authScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
-.auth-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;box-shadow:0 4px 24px rgba(20,20,40,.08)}
-.auth-card .logo{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 14px}
-.auth-card h2{text-align:center;font-size:18px;margin-bottom:4px}
-.auth-card .auth-sub{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:20px}
-.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--surface2);border-radius:10px;padding:4px}
-.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
-.auth-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(20,20,40,.08)}
+/* ── 로그인 / 회원가입 화면 (여름 분위기: 실사 배경) ── */
+#authScreen{
+  position:fixed;inset:0;
+  background-image:url('/images/login-bg.webp');
+  background-size:cover;
+  background-position:center;
+  background-repeat:no-repeat;
+  display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px;
+  overflow:hidden;
+}
+#authScreen::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(4,40,70,.12) 0%,rgba(4,40,70,.05) 35%,rgba(4,40,70,.22) 100%);
+  pointer-events:none;
+}
+
+.auth-card{
+  width:100%;max-width:340px;
+  background:rgba(255,255,255,.9);
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.75);
+  border-radius:22px;padding:30px;
+  box-shadow:0 16px 44px rgba(3,84,130,.32);
+  position:relative;z-index:1;
+}
+.auth-card .logo{width:48px;height:48px;background:linear-gradient(135deg,#fb923c,#fbbf24);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 14px;box-shadow:0 8px 18px rgba(251,146,60,.35)}
+.auth-card h2{text-align:center;font-size:19px;margin-bottom:4px;color:#0f172a}
+.auth-card .auth-sub{text-align:center;font-size:12.5px;color:#64748b;margin-bottom:20px}
+.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:#eef6fb;border-radius:10px;padding:4px}
+.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:#64748b;cursor:pointer}
+.auth-tab.active{background:#fff;color:#0f172a;box-shadow:0 1px 3px rgba(20,20,40,.1)}
 .auth-error{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px}
 .dj-tag{margin-left:12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .dj-tag button{padding:4px 10px;font-size:11.5px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
@@ -280,11 +302,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </head>
 <body>
 
-<!-- ══════════ 로그인 / 회원가입 ══════════ -->
+<!-- ══════════ 로그인 / 회원가입 (여름 분위기: 실사 배경) ══════════ -->
 <div id="authScreen">
   <div class="auth-card">
     <div class="logo">🥄</div>
-    <h2>스푼 봇</h2>
+    <h2>에디봇</h2>
     <div class="auth-sub">디제이 계정으로 로그인해주세요</div>
     <div class="auth-tabs">
       <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">로그인</div>
@@ -293,7 +315,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <label>아이디</label>
     <input type="text" id="authDjId" placeholder="영문/숫자 2~20자">
     <label>비밀번호</label>
-    <input type="password" id="authPassword" placeholder="4자 이상" onkeydown="if(event.key==='Enter')submitAuth()">
+    <input type="password" id="authPassword" placeholder="4자 이상" onkeydown="if(event.key==='Enter'){ if(authMode==='login') submitAuth(); else document.getElementById('authPasswordConfirm').focus(); }">
+    <div id="authPasswordConfirmWrap" style="display:none">
+      <label>비밀번호 확인</label>
+      <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitAuth()">
+    </div>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
     <div class="auth-error" id="authError"></div>
   </div>
@@ -306,7 +332,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="brand">
       <div class="logo">🥄</div>
       <div>
-        <h1>스푼 봇</h1>
+        <h1>에디봇</h1>
         <div class="sub">단비의 방송 도우미</div>
       </div>
     </div>
@@ -315,6 +341,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on">ON</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on">ON</span></div>
+    <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on">ON</span></div>
 
     <div class="nav-group-label">방송 도구</div>
     <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on">ON</span></div>
@@ -389,12 +416,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
         </div>
 
-        <div class="card">
-          <div class="card-title"><span>🔁 봇 재부팅</span></div>
-          <p class="hint" style="margin-bottom:12px">채팅에 반응이 없거나 이상하게 동작할 때, 내 계정의 봇 연결만 완전히 끊었다가 새로 시작할 수 있어요. 저장된 설정(실드/깃발/펀딩/애청지수 등)은 전혀 바뀌지 않아요. 자동입장이 켜져 있었다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.</p>
-          <button class="btn-shield-reset" style="width:100%" onclick="rebootMyBot()">🔁 내 봇 재부팅</button>
-        </div>
-
         <div class="card" id="watchCard" style="display:none">
           <div class="card-title">다중 감시 (자동)</div>
           <p class="hint" style="margin-bottom:12px">등록한 고유닉 중 누구든 방송을 켜면 자동으로 그 방에 입장해요. (봇 기능이 꺼져있으면 순수 시청만 해요)</p>
@@ -411,6 +432,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="ic">🔒</div>
           <h3>다중 감시</h3>
           <p>여러 고유닉을 등록해서 자동으로 감시하는 기능은<br>관리자가 권한을 켜줘야 사용할 수 있어요.</p>
+        </div>
+      </div>
+
+      <!-- 봇 재부팅 -->
+      <div class="panel" data-panel="botreboot">
+        <div class="card">
+          <div class="card-title"><span>🔁 봇 재부팅</span></div>
+          <p class="hint" style="margin-bottom:14px">채팅에 반응이 없거나 이상하게 동작할 때, 내 계정의 봇 연결만 완전히 끊었다가 새로 시작할 수 있어요.<br>
+          ※ 저장된 설정(실드/깃발/펀딩/애청지수/명령어 등)은 전혀 바뀌지 않아요.<br>
+          ※ 자동입장이 켜져 있었다면 잠시 후(최대 15초) 자동으로 다시 접속을 시도해요.</p>
+          <button class="btn-shield-reset" style="width:100%" onclick="rebootMyBot()">🔁 내 봇 재부팅</button>
         </div>
       </div>
 
@@ -1138,6 +1170,8 @@ function switchAuthTab(mode){
   document.getElementById('tabLogin').classList.toggle('active',mode==='login');
   document.getElementById('tabSignup').classList.toggle('active',mode==='signup');
   document.getElementById('authSubmitBtn').textContent=mode==='login'?'로그인':'회원가입';
+  document.getElementById('authPasswordConfirmWrap').style.display=mode==='signup'?'block':'none';
+  document.getElementById('authPasswordConfirm').value='';
   document.getElementById('authError').textContent='';
 }
 
@@ -1149,11 +1183,16 @@ async function submitAuth(){
   if(!id||!pw){errEl.textContent='아이디와 비밀번호를 입력해주세요';return;}
 
   if(authMode==='signup'){
+    const pwConfirm=document.getElementById('authPasswordConfirm').value;
+    if(!pwConfirm){errEl.textContent='비밀번호 확인을 입력해주세요';return;}
+    if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
     try{
       const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
+      document.getElementById('authPassword').value='';
+      document.getElementById('authPasswordConfirm').value='';
       switchAuthTab('login');
       return;
     }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
@@ -1230,6 +1269,7 @@ if('serviceWorker' in navigator){
 const PANEL_META={
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
+  botreboot:['🔁 봇 재부팅','문제가 있을 때 내 계정의 봇 연결만 새로 시작합니다'],
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
