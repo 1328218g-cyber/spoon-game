@@ -289,14 +289,30 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   background-size:cover;
   background-position:center;
   background-repeat:no-repeat;
-  display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px;
-  overflow:hidden;
+  background-attachment:fixed;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  z-index:2000;padding:44px 20px 60px;
+  overflow-y:auto;overflow-x:hidden;
 }
 #authScreen::before{
-  content:'';position:absolute;inset:0;
+  content:'';position:fixed;inset:0;
   background:linear-gradient(180deg,rgba(4,40,70,.12) 0%,rgba(4,40,70,.05) 35%,rgba(4,40,70,.22) 100%);
   pointer-events:none;
 }
+
+/* ── 로그인 화면 하단: 에디봇 간단 소개 ── */
+.landing-wrap{position:relative;z-index:1;width:100%;max-width:760px;margin:44px auto 10px;color:#fff;text-align:center}
+.landing-eyebrow{font-size:11.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#fde68a;margin-bottom:10px;text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.landing-title{font-size:24px;font-weight:800;margin-bottom:10px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
+.landing-sub{font-size:13px;color:rgba(255,255,255,.88);margin-bottom:26px;line-height:1.7;text-shadow:0 1px 6px rgba(0,0,0,.3)}
+.landing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;text-align:left}
+.landing-card{background:rgba(255,255,255,.14);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.22);border-radius:14px;padding:16px}
+.landing-card .lc-icon{font-size:21px;margin-bottom:8px}
+.landing-card .lc-title{font-size:13px;font-weight:700;color:#fff;margin-bottom:4px}
+.landing-card .lc-desc{font-size:11px;color:rgba(255,255,255,.78);line-height:1.5}
+.landing-footer{margin-top:32px;font-size:11px;color:rgba(255,255,255,.65);text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.landing-footer a{color:#fde68a;text-decoration:none;font-weight:700}
+@media (max-width:600px){ .landing-title{font-size:20px} .landing-wrap{margin-top:34px} }
 
 .auth-card{
   width:100%;max-width:340px;
@@ -376,10 +392,29 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div id="authPasswordConfirmWrap" style="display:none">
       <label>비밀번호 확인</label>
       <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitAuth()">
+      <label>추천인 고유닉 <span class="hint-inline">(선택사항)</span></label>
+      <input type="text" id="authReferrerId" placeholder="예: 단비 (없으면 비워두세요)" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
     <div class="auth-error" id="authError"></div>
+  </div>
+
+  <div class="landing-wrap">
+    <div class="landing-eyebrow">SPOON RADIO DJ를 위한 올인원 봇</div>
+    <div class="landing-title">방송 운영, 에디봇이 도와드려요</div>
+    <div class="landing-sub">입장부터 룰렛, 애청지수, 신청곡까지 — 반복되는 방송 운영은 에디봇에게 맡기고<br>디제이는 방송 그 자체에만 집중하세요.</div>
+    <div class="landing-grid">
+      <div class="landing-card"><div class="lc-icon">🚪</div><div class="lc-title">자동입장</div><div class="lc-desc">방송을 켜면 봇이 알아서 입장해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🎡</div><div class="lc-title">룰렛 설정</div><div class="lc-desc">스푼·스티커 조건에 맞춰 자동으로 룰렛이 돌아가요</div></div>
+      <div class="landing-card"><div class="lc-icon">⭐</div><div class="lc-title">애청지수</div><div class="lc-desc">채팅·좋아요·출석으로 레벨업하고 복권까지</div></div>
+      <div class="landing-card"><div class="lc-icon">🛡️</div><div class="lc-title">실드 관리</div><div class="lc-desc">채팅 명령어로 실드를 적립·차감해요</div></div>
+      <div class="landing-card"><div class="lc-icon">💰</div><div class="lc-title">펀딩·깃발</div><div class="lc-desc">목표 금액과 진행률을 실시간으로 보여줘요</div></div>
+      <div class="landing-card"><div class="lc-icon">🎵</div><div class="lc-title">신청곡 관리</div><div class="lc-desc">시청자 신청곡을 대기열로 깔끔하게 정리해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🧩</div><div class="lc-title">퀴즈 이벤트</div><div class="lc-desc">정해진 간격마다 자동으로 퀴즈를 출제해요</div></div>
+      <div class="landing-card"><div class="lc-icon">🙋</div><div class="lc-title">지정 인사</div><div class="lc-desc">특별한 시청자에게 전용 인사말을 보내요</div></div>
+    </div>
+    <div class="landing-footer">문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
   </div>
 </div>
 
@@ -1333,6 +1368,7 @@ function switchAuthTab(mode){
   document.getElementById('authPasswordConfirmWrap').style.display=mode==='signup'?'block':'none';
   document.getElementById('authAutoLoginWrap').style.display=mode==='signup'?'none':'flex';
   document.getElementById('authPasswordConfirm').value='';
+  document.getElementById('authReferrerId').value='';
   document.getElementById('authError').textContent='';
 }
 
@@ -1347,13 +1383,15 @@ async function submitAuth(){
     const pwConfirm=document.getElementById('authPasswordConfirm').value;
     if(!pwConfirm){errEl.textContent='비밀번호 확인을 입력해주세요';return;}
     if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
+    const referrerId=document.getElementById('authReferrerId').value.trim();
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,referrerId})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
       document.getElementById('authPassword').value='';
       document.getElementById('authPasswordConfirm').value='';
+      document.getElementById('authReferrerId').value='';
       switchAuthTab('login');
       return;
     }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
@@ -2345,6 +2383,7 @@ async function loadUserList(){
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
+        <td>${u.referrerId?escapeHtml(u.referrerId):'<span class="hint" style="margin:0">-</span>'}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
@@ -2355,7 +2394,7 @@ async function loadUserList(){
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }catch(e){
