@@ -1509,11 +1509,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>⚙️ TTS 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTtsSettings()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">지정한 스푼 개수 이상 선물을 받으면, 그 유저의 <b>다음 채팅 1개</b>를 내 PC(브라우저)에서 음성으로 읽어줘요. (명령어로 시작하는 채팅은 제외) 읽고 나면 권한은 바로 소진돼요.<br>
-          ※ <b>구글/타입캐스트 API 키는 이 브라우저에만 저장</b>되고 서버로는 전송되지 않아요 (각자 본인 키를 써야 안전해요).</p>
+          ※ <b>구글 보이스</b>는 관리자가 미리 설정해둔 걸 바로 쓸 수 있어요. <b>타입캐스트</b>는 각자 본인 API 키가 필요하고, 그 키는 이 브라우저에만 저장되고 서버로는 전송되지 않아요.</p>
           <label>음성 엔진</label>
           <select id="ttsEngine" onchange="onTtsEngineChange()">
             <option value="browser">브라우저 내장 (무료)</option>
-            <option value="google">구글 보이스 (고품질, 본인 API 키 필요)</option>
+            <option value="google">구글 보이스 (고품질, 바로 사용 가능)</option>
             <option value="typecast">타입캐스트 (AI 한국어, 본인 API 키 필요)</option>
           </select>
 
@@ -1523,12 +1523,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
 
           <div id="ttsGoogleWrap" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
-            <label>🔑 Google Cloud TTS API 키</label>
-            <div style="display:flex;gap:6px">
-              <input type="password" id="ttsGoogleApiKey" placeholder="본인의 Google Cloud API 키를 입력하세요" style="flex:1" oninput="ttsSaveGoogleKeyLocal()">
-              <button class="btn-gray" onclick="toggleKeyVisibility('ttsGoogleApiKey')">👁</button>
-            </div>
-            <label style="margin-top:10px">음성 선택</label>
+            <p class="hint" style="margin-top:0">✅ 관리자가 미리 설정해둔 구글 보이스를 바로 사용할 수 있어요. 별도 API 키 입력이 필요 없어요.</p>
+            <label>음성 선택</label>
             <select id="ttsGoogleVoiceSelect" onchange="saveTtsSettings()"></select>
           </div>
 
@@ -4559,11 +4555,8 @@ function toggleKeyVisibility(id){
   el.type=el.type==='password'?'text':'password';
 }
 
-function ttsGoogleKeyStorageKey(){ return 'ttsGoogleKey:'+(djId||'guest'); }
 function ttsTypecastKeyStorageKey(){ return 'ttsTypecastKey:'+(djId||'guest'); }
-function ttsGetGoogleKey(){ try{ return localStorage.getItem(ttsGoogleKeyStorageKey())||''; }catch(e){ return ''; } }
 function ttsGetTypecastKey(){ try{ return localStorage.getItem(ttsTypecastKeyStorageKey())||''; }catch(e){ return ''; } }
-function ttsSaveGoogleKeyLocal(){ try{ localStorage.setItem(ttsGoogleKeyStorageKey(),document.getElementById('ttsGoogleApiKey').value.trim()); }catch(e){} }
 function ttsSaveTypecastKeyLocal(){ try{ localStorage.setItem(ttsTypecastKeyStorageKey(),document.getElementById('ttsTypecastApiKey').value.trim()); }catch(e){} }
 
 function onTtsEngineChange(){
@@ -4658,7 +4651,6 @@ async function loadTtsData(){
         document.getElementById('ttsMaxLen').value=ttsData.maxLen||50;
         document.getElementById('ttsVolume').value=Math.round((ttsData.volume!=null?ttsData.volume:1)*100);
         document.getElementById('ttsVolumeLabel').textContent=document.getElementById('ttsVolume').value;
-        document.getElementById('ttsGoogleApiKey').value=ttsGetGoogleKey();
         document.getElementById('ttsTypecastApiKey').value=ttsGetTypecastKey();
         document.getElementById('ttsTypecastModel').value=ttsData.typecastModel||'ssfm-v30';
         document.getElementById('ttsTypecastEmotion').value=ttsData.typecastEmotion||'normal';
@@ -4774,16 +4766,14 @@ async function ttsPlayNext(){
   };
 
   const playViaGoogle=async()=>{
-    const apiKey=ttsGetGoogleKey();
-    if(!apiKey){ showToast('구글 보이스 API 키를 먼저 입력해주세요'); afterPlay(); return; }
     try{
       const voiceName=(preset&&preset.voice)||ttsData.voice||GOOGLE_VOICES[0].name;
-      const res=await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key='+encodeURIComponent(apiKey),{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({input:{text:item.text},voice:ttsGoogleVoiceOption(voiceName),audioConfig:{audioEncoding:'MP3'}})
+      const res=await fetch(SERVER+'/tts/google-speak',{
+        method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},
+        body:JSON.stringify({text:item.text,voice:voiceName})
       });
       const data=await res.json();
-      if(!data.audioContent) throw new Error(data.error?.message||'음성 생성 실패');
+      if(!data.success) throw new Error(data.error||'음성 생성 실패');
       const audio=new Audio('data:audio/mp3;base64,'+data.audioContent);
       audio.volume=Math.max(0,Math.min(1,ttsData.volume!=null?ttsData.volume:1));
       audio.onended=afterPlay; audio.onerror=afterPlay;
@@ -4797,15 +4787,16 @@ async function ttsPlayNext(){
     if(!apiKey){ showToast('타입캐스트 API 키를 먼저 입력해주세요'); afterPlay(); return; }
     if(!voiceId){ showToast('타입캐스트 목소리를 먼저 선택해주세요'); afterPlay(); return; }
     try{
-      const res=await fetch('https://api.typecast.ai/v1/text-to-speech',{
-        method:'POST',headers:{'Content-Type':'application/json','X-API-KEY':apiKey},
-        body:JSON.stringify({
-          voice_id:voiceId, text:item.text, model:ttsData.typecastModel||'ssfm-v30', language:'kor',
-          prompt:{emotion_type:'preset',emotion_preset:ttsData.typecastEmotion||'normal',emotion_intensity:1.0},
-          output:{volume:100,audio_pitch:0,audio_tempo:Math.max(0.5,Math.min(2,ttsData.rate||1)),audio_format:'wav'}
-        })
+      const res=await fetch(SERVER+'/tts/typecast-speak',{
+        method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},
+        body:JSON.stringify({apiKey,voiceId,text:item.text,model:ttsData.typecastModel||'ssfm-v30',emotion:ttsData.typecastEmotion||'normal',rate:ttsData.rate||1})
       });
-      if(!res.ok) throw new Error('HTTP '+res.status);
+      const contentType=res.headers.get('content-type')||'';
+      if(!res.ok||contentType.includes('application/json')){
+        let msg='HTTP '+res.status;
+        try{ const errJson=await res.json(); if(errJson&&errJson.error) msg=errJson.error; }catch(e){}
+        throw new Error(msg);
+      }
       const buf=await res.arrayBuffer();
       const url=URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
       const audio=new Audio(url);

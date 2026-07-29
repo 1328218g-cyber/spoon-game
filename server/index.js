@@ -21,6 +21,11 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
 const SHARED_TOKEN_DJID = 'sum'
 
+// 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
+// 절대 프론트엔드(index.html) 코드에 직접 넣지 않는다 — 브라우저 소스보기로 그대로 노출되기 때문.
+// 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
+const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
+
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
 const rooms = {}
 function getRoom(djId) {
@@ -3210,6 +3215,73 @@ app.post('/tts/presets/:tag/delete', auth.requireAuth, (req, res) => {
   delete cfg.voicePresets[String(req.params.tag || '').toLowerCase()]
   store.saveSettings(req.djId, { tts: cfg })
   res.json({ success: true })
+})
+
+// 🎙️ 구글 보이스 — 서버가 관리자의 구글 API 키로 대신 요청해서, 오디오만 클라이언트에 내려준다.
+// (클라이언트는 API 키를 절대 알 수 없음)
+app.post('/tts/google-speak', auth.requireAuth, async (req, res) => {
+  if (!GOOGLE_TTS_API_KEY) return res.json({ success: false, error: '관리자가 아직 구글 보이스를 설정하지 않았어요. 타입캐스트를 이용해주세요.' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const text = String((req.body || {}).text || '').slice(0, 200)
+  if (!text) return res.json({ success: false, error: '읽을 텍스트가 없어요' })
+  const voiceName = String((req.body || {}).voice || 'ko-KR-Neural2-A')
+  const lang = voiceName.startsWith('en-') ? 'en-US' : voiceName.startsWith('ja-') ? 'ja-JP' : voiceName.startsWith('cmn-') ? 'cmn-CN' : 'ko-KR'
+  const gender = ['A', 'B'].includes(voiceName.slice(-1)) ? 'FEMALE' : 'MALE'
+  try {
+    const upstream = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(GOOGLE_TTS_API_KEY)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text },
+        voice: { languageCode: lang, name: voiceName, ssmlGender: gender },
+        audioConfig: { audioEncoding: 'MP3' },
+      }),
+    })
+    const data = await upstream.json()
+    if (!data.audioContent) return res.json({ success: false, error: (data.error && data.error.message) || '음성 생성 실패' })
+    res.json({ success: true, audioContent: data.audioContent })
+  } catch (e) {
+    console.log('[구글 보이스 오류]', e.message)
+    res.json({ success: false, error: '구글 보이스 요청 중 오류: ' + e.message })
+  }
+})
+
+// 🎙️ 타입캐스트 음성 생성 프록시 — 브라우저에서 직접 호출 시 CORS/권한 문제로 403이 나는 경우가 있어
+// 서버가 대신 호출해준다. API 키는 요청마다 클라이언트가 보내는 값을 그대로 전달만 하고 저장하지 않는다.
+app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const { apiKey, voiceId, text, model, emotion, rate } = req.body || {}
+  if (!apiKey) return res.json({ success: false, error: 'Typecast API 키가 없어요' })
+  if (!voiceId) return res.json({ success: false, error: '타입캐스트 목소리를 먼저 선택해주세요' })
+  const cleanText = String(text || '').slice(0, 200)
+  if (!cleanText) return res.json({ success: false, error: '읽을 텍스트가 없어요' })
+  try {
+    const upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+      body: JSON.stringify({
+        voice_id: voiceId,
+        text: cleanText,
+        model: model || 'ssfm-v30',
+        language: 'kor',
+        prompt: { emotion_type: 'preset', emotion_preset: emotion || 'normal', emotion_intensity: 1.0 },
+        output: { volume: 100, audio_pitch: 0, audio_tempo: Math.max(0.5, Math.min(2, Number(rate) || 1)), audio_format: 'wav' },
+      }),
+    })
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '')
+      console.log('[타입캐스트 오류]', upstream.status, errText.slice(0, 300))
+      return res.json({ success: false, error: `HTTP ${upstream.status}${errText ? ' — ' + errText.slice(0, 150) : ''}` })
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.set('Content-Type', 'audio/wav')
+    res.send(buf)
+  } catch (e) {
+    console.log('[타입캐스트 오류]', e.message)
+    res.json({ success: false, error: '타입캐스트 요청 중 오류: ' + e.message })
+  }
 })
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
