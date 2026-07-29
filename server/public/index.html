@@ -5130,10 +5130,16 @@ async function rebootMyBot(){
 // 업로드 용량을 줄이고 어차피 쓰이지 않는 데이터를 걸러낸다:
 // - __store__* 키는 다른 spoon_* 키와 내용이 중복되는 electron-store 원본이라 통째로 제외
 // - 지정 인사(spoon_joinmsgs)에 첨부된 mp3 base64 오디오는 웹봇이 못 쓰므로 텍스트만 남기고 제거
+// 웹봇으로 옮겨쓸 수 없는(형식이 다르거나 웹봇에 아직 없는 기능의) 대용량 키들은
+// 아예 업로드에서 제외한다. 특히 오디오가 base64로 통째로 들어있는 항목들은
+// 수십 MB까지도 커질 수 있어서, 안 걸러내면 업로드 자체가 서버 용량 제한에 걸려 실패한다.
+const MIGRATION_SKIP_KEYS=['spoon_sticker_sound_settings','spoon_tts_settings','spoon_sword_data','spoon_sword_settings','spoon_fishing_settings'];
+
 function stripLocalMigrationData(raw){
   const cleaned={};
   Object.keys(raw||{}).forEach(k=>{
     if(k.startsWith('__store__'))return;
+    if(MIGRATION_SKIP_KEYS.includes(k))return;
     cleaned[k]=raw[k];
   });
   if(cleaned.spoon_joinmsgs){

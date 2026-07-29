@@ -3556,6 +3556,19 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html')
 })
 
+// 어떤 라우트에서도 처리되지 못한 오류(예: 업로드 파일이 body 용량 제한을 넘어서 express.json이
+// 자체적으로 거부하는 경우 등)가 나면, Express 기본 HTML 에러 페이지 대신 JSON으로 내려준다.
+// 이게 없으면 프론트엔드에서 "Unexpected token '<', <!DOCTYPE..." 같은 혼란스러운 에러만 보이게 된다.
+app.use((err, req, res, next) => {
+  console.log('[처리되지 않은 오류]', err && err.message)
+  if (res.headersSent) return next(err)
+  const status = (err && err.status) || (err && err.statusCode) || 500
+  const msg = status === 413
+    ? '업로드한 파일이 너무 커요. 20MB 이하로 줄여서 다시 시도해주세요.'
+    : ((err && err.message) || '서버 오류가 발생했어요')
+  res.status(status).json({ success: false, error: msg })
+})
+
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
