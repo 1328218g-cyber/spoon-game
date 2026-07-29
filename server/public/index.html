@@ -112,6 +112,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .nick{color:var(--accent);font-weight:600;margin-right:4px}
 .nick.bot{color:var(--accent2)}
 .nick.sys{color:var(--muted)}
+.log-line.log-donation{background:linear-gradient(90deg,rgba(251,191,36,.16),transparent);border-radius:8px;padding:6px 8px;margin-left:-8px;margin-right:-8px}
+.log-gift-img{width:56px;height:56px;object-fit:contain;display:block}
 .panel[data-panel="chat"]{max-width:100%}
 
 @media (min-width:861px){
@@ -523,7 +525,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="tab-bar" id="marketTabBar">
           <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
           <button class="tab-btn" data-tab="on" onclick="switchMarketTab('on')">✅ 사용 중</button>
-          <button class="tab-btn" data-tab="off" onclick="switchMarketTab('off')">⭕ 사용 안 함</button>
           <button class="tab-btn" data-tab="new" onclick="switchMarketTab('new')">🛒 모듈 마켓</button>
         </div>
         <div class="market-grid" id="moduleMarketGrid"></div>
@@ -631,6 +632,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="chat">
         <div class="card">
           <div class="card-title">실시간 채팅</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+            <input type="file" id="chatBgInput" accept="image/*" style="flex:1;min-width:180px" onchange="handleChatBgUpload(this)">
+            <button class="btn-gray" style="padding:9px 14px;font-size:12.5px;white-space:nowrap" onclick="clearChatBackground()">배경 지우기</button>
+          </div>
           <div class="chat-log" id="chatLog"></div>
           <div class="chat-input-row">
           <input type="text" id="chatInput" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter')sendChat()">
@@ -1829,27 +1834,23 @@ function renderModuleMarket(){
   const isAdmin=djId===ADMIN_DJ_ID;
   const allKeys=MODULE_KEYS.filter(k=>isAdmin||!MARKET_ADMIN_ONLY_KEYS.includes(k));
   const onCount=allKeys.filter(k=>isModuleOn(k)).length;
-  const offCount=allKeys.length-onCount;
   const newKeys=allKeys.filter(k=>NEW_MODULE_DEFAULT_OFF_KEYS.includes(k));
 
   const tabAll=document.querySelector('#marketTabBar .tab-btn[data-tab="all"]');
   const tabOn=document.querySelector('#marketTabBar .tab-btn[data-tab="on"]');
-  const tabOff=document.querySelector('#marketTabBar .tab-btn[data-tab="off"]');
   const tabNew=document.querySelector('#marketTabBar .tab-btn[data-tab="new"]');
   if(tabAll)tabAll.textContent='전체 ('+allKeys.length+')';
   if(tabOn)tabOn.textContent='✅ 사용 중 ('+onCount+')';
-  if(tabOff)tabOff.textContent='⭕ 사용 안 함 ('+offCount+')';
   if(tabNew)tabNew.textContent='🛒 모듈 마켓 ('+newKeys.length+')';
 
   const keys=allKeys.filter(k=>{
     if(marketTab==='on')return isModuleOn(k);
-    if(marketTab==='off')return !isModuleOn(k);
     if(marketTab==='new')return NEW_MODULE_DEFAULT_OFF_KEYS.includes(k);
     return true;
   });
 
   if(!keys.length){
-    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='off'?'꺼져있는 모듈이 없어요. 다 켜져있네요!':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.')+'</p>';
+    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.')+'</p>';
     return;
   }
 
@@ -1873,7 +1874,7 @@ function renderModuleMarket(){
       <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer">
         <input type="checkbox" style="width:auto" ${visible?'checked':''} onchange="toggleModuleVisible('${key}');renderModuleMarket()"> 사이드바에 표시
       </label>
-      <button class="btn-gray market-card-goto" onclick="selectPanel('${key}')">바로가기</button>
+      <button class="btn-gray market-card-goto" onclick="selectPanel('${key}')">⚙️ 설정</button>
     </div>`;
   }).join('');
 }
@@ -2443,6 +2444,7 @@ async function initApp(){
   checkStatus();
   checkSessionStatus();
   startSSE();
+  loadChatBackground();
 }
 
 async function loadDjSettings(){
@@ -4250,8 +4252,57 @@ async function sendChat(){
   const msg=input.value.trim();if(!msg)return;input.value='';
   try{
     await fetch(SERVER+'/chat',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message:msg})});
-    addLog('봇',msg,'bot');
+    // ⚠️ 여기서 addLog로 바로 채팅창에 추가하지 않는다. 실제로 스푼 채팅방에 보낸 메시지는
+    // 봇 소켓으로 다시 에코되어 SSE 'chat' 이벤트로 자동 표시되므로, 여기서 또 추가하면
+    // 같은 메시지가 두 번(직접추가 + 에코) 나타나게 된다.
+    showToast('전송했어요');
   }catch(e){showToast('전송 실패');}
+}
+
+/* ── 채팅창 배경 이미지 (첨부파일, 계정별로 이 브라우저에 저장) ── */
+function chatBgStorageKey(){
+  return 'chatBg:'+(djId||'guest');
+}
+
+function handleChatBgUpload(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  if(!file.type||!file.type.startsWith('image/'))return showToast('이미지 파일만 등록할 수 있어요');
+  if(file.size>4*1024*1024)return showToast('4MB 이하 이미지로 올려주세요');
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const dataUrl=reader.result;
+    applyChatBackground(dataUrl);
+    try{ localStorage.setItem(chatBgStorageKey(),dataUrl); }catch(e){ showToast('저장 공간이 부족해서 배경이 이 세션에서만 적용돼요'); }
+    showToast('채팅창 배경을 적용했어요');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+
+function applyChatBackground(dataUrl){
+  const log=document.getElementById('chatLog');
+  if(!log)return;
+  if(dataUrl){
+    log.style.backgroundImage=`linear-gradient(rgba(255,255,255,.8),rgba(255,255,255,.8)), url('${dataUrl}')`;
+    log.style.backgroundSize='cover';
+    log.style.backgroundPosition='center';
+  } else {
+    log.style.backgroundImage='';
+  }
+}
+
+function loadChatBackground(){
+  try{
+    const saved=localStorage.getItem(chatBgStorageKey());
+    if(saved) applyChatBackground(saved);
+  }catch(e){}
+}
+
+function clearChatBackground(){
+  applyChatBackground(null);
+  try{ localStorage.removeItem(chatBgStorageKey()); }catch(e){}
+  showToast('채팅창 배경을 지웠어요');
 }
 
 async function saveSettings(){
@@ -4288,6 +4339,29 @@ function addLog(nick,text,type='user',profileUrl){
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 
+function addDonationLog(d){
+  const log=document.getElementById('chatLog');
+  if(!log)return;
+  const line=document.createElement('div');line.className='log-line log-donation';
+  const safeNick=escapeHtml(d.nick||'');
+  const comboText=(d.comboCount&&d.comboCount>1)?` x${d.comboCount}`:'';
+  const avatarHtml=d.profileUrl
+    ? `<img class="log-avatar" src="${escapeAttr(d.profileUrl)}" onerror="this.outerHTML='<div class=&quot;log-avatar placeholder&quot;>🎁</div>'">`
+    : `<div class="log-avatar placeholder">🎁</div>`;
+  let giftVisual='';
+  let label;
+  if(d.sticker){
+    label=escapeHtml(d.sticker);
+    giftVisual=d.stickerImage
+      ? `<img class="log-gift-img" src="${escapeAttr(d.stickerImage)}" alt="${escapeAttr(d.sticker)}" onerror="this.style.display='none'">`
+      : '';
+  } else {
+    label=`스푼 ${d.amount||0}개`;
+  }
+  line.innerHTML=avatarHtml+`<div class="log-body"><span class="nick" style="color:#f59e0b">${safeNick}</span><span class="log-text">님이 <b>${label}</b>${comboText} 을(를) 선물했어요! 🎉</span>${giftVisual?'<div style="margin-top:6px">'+giftVisual+'</div>':''}</div>`;
+  log.appendChild(line);log.scrollTop=log.scrollHeight;
+}
+
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
@@ -4302,6 +4376,7 @@ function startSSE(){
     if(d.type==='chat')addLog(d.nick,d.text,'user',d.profileUrl);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
+    else if(d.type==='donation')addDonationLog(d);
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);

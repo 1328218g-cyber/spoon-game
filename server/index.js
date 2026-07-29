@@ -1913,7 +1913,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker })
+        const stickerImage = sticker ? await findStickerImage(sticker) : ''
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: gen.profileUrl || '' })
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
@@ -2007,16 +2008,16 @@ setInterval(() => {
 // 🎀 스티커 목록 프록시 — 브라우저에서 static.spooncast.net을 직접 fetch하면
 // CDN이 CORS 헤더를 안 내려줘서 막히는 경우가 있어, 서버가 대신 가져와 내려준다.
 // 결과는 메모리에 잠깐 캐싱해서 매번 스푼 CDN에 다시 요청하지 않도록 한다.
+// (룰렛 "지정 스티커" 선택 화면뿐 아니라, 채팅창에 선물 스티커 이미지를 보여줄 때도 이 캐시를 함께 쓴다.)
 let stickerCache = { data: null, fetchedAt: 0 }
 const STICKER_CACHE_TTL_MS = 30 * 60 * 1000 // 30분
 
-app.get('/stickers', async (req, res) => {
+async function getStickerList() {
+  const now = Date.now()
+  if (stickerCache.data && (now - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+    return stickerCache.data
+  }
   try {
-    const now = Date.now()
-    if (stickerCache.data && (now - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
-      return res.json({ success: true, cached: true, stickers: stickerCache.data })
-    }
-
     const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
       headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
     })
@@ -2055,10 +2056,39 @@ app.get('/stickers', async (req, res) => {
     const stickers = Array.from(dedup.values())
 
     stickerCache = { data: stickers, fetchedAt: now }
-    res.json({ success: true, cached: false, stickers })
+    return stickers
   } catch (e) {
     console.log('[스티커 목록 조회 오류]', e.message)
     // 실패해도 이전에 캐시된 값이 있으면 그거라도 내려준다.
+    return stickerCache.data || []
+  }
+}
+
+// 선물 이벤트로 들어온 스티커 이름으로 실제 이미지 URL을 찾는다. (이름이 정확히 안 맞아도 부분일치까지 시도)
+async function findStickerImage(stickerName) {
+  const name = String(stickerName || '').trim()
+  if (!name) return ''
+  try {
+    const list = await getStickerList()
+    const target = name.toLowerCase()
+    const found = list.find(s => String(s.name).toLowerCase() === target || String(s.title).toLowerCase() === target)
+      || list.find(s => String(s.name).toLowerCase().includes(target) || target.includes(String(s.name).toLowerCase()))
+    return found ? found.image : ''
+  } catch (e) {
+    return ''
+  }
+}
+
+app.get('/stickers', async (req, res) => {
+  try {
+    const wasCached = !!(stickerCache.data && (Date.now() - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS)
+    const stickers = await getStickerList()
+    if (!stickers.length && !stickerCache.data) {
+      return res.status(502).json({ success: false, error: '스티커 목록을 가져오지 못했어요' })
+    }
+    res.json({ success: true, cached: wasCached, stickers })
+  } catch (e) {
+    console.log('[스티커 목록 조회 오류]', e.message)
     if (stickerCache.data) {
       return res.json({ success: true, cached: true, stale: true, stickers: stickerCache.data })
     }
