@@ -238,7 +238,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1404,19 +1404,86 @@ function handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker) {
   if (cfg.enabled === false || !cfg.items.length) return
   const stickerNorm = String(sticker || '').trim().toLowerCase()
   const totalAmount = (Number(amount) || 0) * Math.max(1, Number(comboCount) || 1)
-  const match = cfg.items.find(it => {
+
+  const matches = cfg.items.filter(it => {
+    if (it.enabled === false) return false
     if (it.triggerType === 'sticker') {
       const t = String(it.triggerValue || '').trim().toLowerCase()
       return !!t && !!stickerNorm && (stickerNorm === t || stickerNorm.includes(t) || t.includes(stickerNorm))
     }
     if (it.triggerType === 'amount') {
       const threshold = Number(it.triggerValue) || 0
-      return threshold > 0 && totalAmount >= threshold
+      if (threshold <= 0) return false
+      // 정확히 일치: 받은 스푼 수가 딱 그 개수일 때만 / 이상: 그 개수 이상이면 항상
+      return it.matchType === 'exact' ? totalAmount === threshold : totalAmount >= threshold
     }
     return it.triggerType === 'any'
   })
-  if (!match) return
-  broadcast({ type: 'soundfx', djId, id: match.id })
+  if (!matches.length) return
+
+  // 우선순위: 스푼 개수 조건 중 "가장 높은 개수"에 매칭된 항목이 최우선, 그다음 스티커 조건, 마지막으로 "무조건 재생"
+  const amountMatches = matches.filter(it => it.triggerType === 'amount')
+  let winner
+  if (amountMatches.length) {
+    winner = amountMatches.reduce((a, b) => (Number(b.triggerValue) || 0) > (Number(a.triggerValue) || 0) ? b : a)
+  } else {
+    winner = matches.find(it => it.triggerType === 'sticker') || matches.find(it => it.triggerType === 'any')
+  }
+  if (!winner) return
+  broadcast({ type: 'soundfx', djId, id: winner.id })
+}
+
+// ══════════════════════════════════════════════════════
+// 🎙️ TTS — 지정한 스푼 금액 이상 선물을 받으면, 그 유저에게 "채팅 1회 읽기 권한"을 부여한다.
+// 권한이 있는 동안 그 유저가 채팅을 치면(명령어 제외) 그 메시지를 DJ의 PC(브라우저)에서 음성으로
+// 읽어주고, 그 즉시 권한은 소진된다(1회 읽기). 로컬 에디봇의 TTS 기능과 동일한 사양이며,
+// 무료인 "브라우저 내장 TTS"만 지원한다 (구글/타입캐스트 같은 유료 API 연동은 지원하지 않음).
+
+function getTtsSettings(djId, settings) {
+  if (!settings.tts) {
+    settings.tts = {
+      enabled: false,
+      voice: '',
+      rate: 1.0,
+      triggerAmount: 10,
+      durationMin: 30,
+      maxLen: 50,
+      volume: 1.0,
+      playChime: false,
+      voicePresets: {}, // { '태그또는닉네임(소문자)': '브라우저 음성 이름' }
+    }
+    store.saveSettings(djId, { tts: settings.tts })
+  }
+  if (!settings.tts.voicePresets) settings.tts.voicePresets = {}
+  return settings.tts
+}
+
+// 지금 이 닉네임에게 "채팅 1회 읽기" 권한이 살아있는지 확인
+function isTtsEligible(room, nickname) {
+  if (!room.ttsAccess) return false
+  const key = String(nickname || '').trim().toLowerCase()
+  const exp = room.ttsAccess.get(key)
+  return !!(exp && exp > Date.now())
+}
+
+// 선물로 권한을 얻으면 호출 — 유지시간(분) 동안 "다음 채팅 1회"를 읽어줄 권한을 준다.
+function grantTtsAccess(djId, room, settings, nickname) {
+  const cfg = getTtsSettings(djId, settings)
+  if (!room.ttsAccess) room.ttsAccess = new Map()
+  const expiresAt = Date.now() + Math.max(1, Number(cfg.durationMin) || 30) * 60000
+  room.ttsAccess.set(String(nickname || '').trim().toLowerCase(), expiresAt)
+  broadcast({ type: 'ttsgrant', djId, nickname, expiresAt })
+}
+
+// 채팅 1회를 읽고 나면 권한을 즉시 회수(소진)한다.
+function consumeTtsAccess(djId, room, nickname) {
+  if (!room.ttsAccess) return
+  room.ttsAccess.delete(String(nickname || '').trim().toLowerCase())
+  broadcast({ type: 'ttsrevoke', djId, nickname })
+}
+
+function clearTtsAccess(room) {
+  if (room.ttsAccess) room.ttsAccess.clear()
 }
 
 // ══════════════════════════════════════════════════════
@@ -2016,6 +2083,7 @@ function rebootDjConnection(djId) {
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
   clearReminderTimers(room)
+  clearTtsAccess(room)
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
@@ -2091,7 +2159,18 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         const text = eventPayload.message || ''
-        broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '' })
+
+        // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
+        let ttsEligible = false
+        if (isModuleOn(settings, 'tts', djId)) {
+          const ttsCfg = getTtsSettings(djId, settings)
+          if (ttsCfg.enabled && !text.trim().startsWith('!') && isTtsEligible(room, author)) {
+            ttsEligible = true
+            consumeTtsAccess(djId, room, author)
+          }
+        }
+
+        broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible })
         if (!isLurker) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
@@ -2196,6 +2275,16 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             }
             if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
           }
+
+          if (isModuleOn(settings, 'tts', djId)) {
+            const ttsCfg = getTtsSettings(djId, settings)
+            if (ttsCfg.enabled) {
+              const totalAmount = amount * Math.max(1, comboCount)
+              if (totalAmount >= (Number(ttsCfg.triggerAmount) || 10)) {
+                grantTtsAccess(djId, room, settings, author)
+              }
+            }
+          }
         }
       }
     } catch (e) {
@@ -2210,6 +2299,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
     clearReminderTimers(room)
+    clearTtsAccess(room)
     clearQuizTimers(room)
     if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
@@ -2427,6 +2517,7 @@ app.post('/account/change-id', auth.requireAuth, (req, res) => {
   stopLeavePolling(oldId)
   stopLottoAutoTimer(oldId)
   clearReminderTimers(room)
+  clearTtsAccess(room)
   clearQuizTimers(room)
   delete rooms[oldId]
   delete repeatLastSent[oldId]
@@ -2541,6 +2632,7 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   stopLeavePolling(targetId)
   stopLottoAutoTimer(targetId)
   clearReminderTimers(room)
+  clearTtsAccess(room)
   clearQuizTimers(room)
   if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
   broadcast({ type: 'status', djId: targetId, isConnected: false })
@@ -3009,7 +3101,7 @@ app.post('/soundfx/items', auth.requireAuth, (req, res) => {
   if (!isModuleOn(settings, 'soundfx', req.djId)) return res.json({ success: false, error: '효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getSoundEffectSettings(req.djId, settings)
   if (cfg.items.length >= SOUNDFX_MAX_ITEMS) return res.json({ success: false, error: `효과음은 최대 ${SOUNDFX_MAX_ITEMS}개까지 등록할 수 있어요.` })
-  const { name, triggerType, triggerValue, volume, audioData } = req.body || {}
+  const { name, triggerType, triggerValue, matchType, enabled, volume, audioData } = req.body || {}
   if (!name || !String(name).trim()) return res.json({ success: false, error: '효과음 이름을 입력해주세요' })
   if (!['sticker', 'amount', 'any'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
   if (triggerType !== 'any' && !String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
@@ -3020,6 +3112,8 @@ app.post('/soundfx/items', auth.requireAuth, (req, res) => {
     name: String(name).trim(),
     triggerType,
     triggerValue: triggerType === 'any' ? '' : String(triggerValue).trim(),
+    matchType: triggerType === 'amount' ? (matchType === 'exact' ? 'exact' : 'atLeast') : undefined,
+    enabled: enabled !== false,
     volume: Math.max(0, Math.min(1, Number(volume) || 1)),
     audioData,
   }
@@ -3027,11 +3121,77 @@ app.post('/soundfx/items', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { soundEffects: cfg })
   res.json({ success: true, id: item.id })
 })
+app.post('/soundfx/items/:id/toggle', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  const item = cfg.items.find(it => it.id === req.params.id)
+  if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+  const { enabled } = req.body || {}
+  item.enabled = !!enabled
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
 app.post('/soundfx/items/:id/delete', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const cfg = getSoundEffectSettings(req.djId, settings)
   cfg.items = cfg.items.filter(it => it.id !== req.params.id)
   store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+
+// 🎙️ TTS
+app.get('/tts/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getTtsSettings(req.djId, settings) })
+})
+app.post('/tts/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getTtsSettings(req.djId, settings)
+  const { enabled, voice, rate, triggerAmount, durationMin, maxLen, volume, playChime } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (voice != null) cfg.voice = String(voice)
+  if (rate != null) cfg.rate = Math.max(0.5, Math.min(2, Number(rate) || 1))
+  if (triggerAmount != null) cfg.triggerAmount = Math.max(1, Number(triggerAmount) || 10)
+  if (durationMin != null) cfg.durationMin = Math.max(1, Number(durationMin) || 30)
+  if (maxLen != null) cfg.maxLen = Math.max(1, Math.min(200, Number(maxLen) || 50))
+  if (volume != null) cfg.volume = Math.max(0, Math.min(1, Number(volume)))
+  if (playChime != null) cfg.playChime = !!playChime
+  store.saveSettings(req.djId, { tts: cfg })
+  res.json({ success: true })
+})
+app.get('/tts/active', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  const now = Date.now()
+  const active = []
+  if (room.ttsAccess) {
+    room.ttsAccess.forEach((expiresAt, key) => { if (expiresAt > now) active.push({ nickname: key, expiresAt }) })
+  }
+  res.json({ success: true, active })
+})
+app.post('/tts/reset', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  clearTtsAccess(room)
+  res.json({ success: true })
+})
+app.post('/tts/presets', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getTtsSettings(req.djId, settings)
+  const { tag, voice } = req.body || {}
+  const key = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  if (!key) return res.json({ success: false, error: '고유닉(또는 닉네임)을 입력해주세요' })
+  if (!voice || !String(voice).trim()) return res.json({ success: false, error: '목소리를 선택해주세요' })
+  if (Object.keys(cfg.voicePresets).length >= 50) return res.json({ success: false, error: '전용 목소리는 최대 50개까지 등록할 수 있어요.' })
+  cfg.voicePresets[key] = String(voice)
+  store.saveSettings(req.djId, { tts: cfg })
+  res.json({ success: true })
+})
+app.post('/tts/presets/:tag/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getTtsSettings(req.djId, settings)
+  delete cfg.voicePresets[String(req.params.tag || '').toLowerCase()]
+  store.saveSettings(req.djId, { tts: cfg })
   res.json({ success: true })
 })
 
@@ -3137,6 +3297,7 @@ async function checkAdminAutoJoin() {
           stopLeavePolling(djId)
           stopLottoAutoTimer(djId)
           clearReminderTimers(room)
+          clearTtsAccess(room)
           broadcast({ type: 'status', djId, isConnected: false })
           broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
         }
@@ -3245,6 +3406,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
   clearReminderTimers(room)
+  clearTtsAccess(room)
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
