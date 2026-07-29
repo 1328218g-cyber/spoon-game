@@ -1839,7 +1839,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         const text = eventPayload.message || ''
-        broadcast({ type: 'chat', djId, nick: author, text })
+        broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '' })
         if (!isLurker) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서

@@ -102,12 +102,24 @@ button:active{transform:scale(0.97);opacity:0.85}
 details{margin-top:10px}
 summary{font-size:13px;color:var(--accent);cursor:pointer}
 
-.chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:260px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
+.chat-log{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;height:340px;overflow-y:auto;font-size:13px;line-height:1.6;margin-bottom:12px}
 .chat-log:empty::before{content:'채팅 로그가 여기에 표시됩니다';color:var(--muted)}
-.log-line{margin-bottom:4px}
-.nick{color:var(--accent);font-weight:600}
+.log-line{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px}
+.log-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)}
+.log-avatar.placeholder{display:flex;align-items:center;justify-content:center;font-size:14px}
+.log-body{flex:1;min-width:0;padding-top:2px}
+.log-text{color:var(--text);word-break:break-word}
+.nick{color:var(--accent);font-weight:600;margin-right:4px}
 .nick.bot{color:var(--accent2)}
 .nick.sys{color:var(--muted)}
+.panel[data-panel="chat"]{max-width:100%}
+
+@media (min-width:861px){
+  .chat-log{height:min(68vh,640px);font-size:14px}
+  .log-avatar{width:34px;height:34px}
+  .log-avatar.placeholder{font-size:16px}
+  .panel[data-panel="chat"] .card{max-width:900px}
+}
 
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:20px;font-size:14px;transition:transform 0.3s ease;z-index:999;white-space:nowrap;box-shadow:0 4px 16px rgba(20,20,40,.12)}
 .toast.show{transform:translateX(-50%) translateY(0)}
@@ -512,6 +524,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
           <button class="tab-btn" data-tab="on" onclick="switchMarketTab('on')">✅ 사용 중</button>
           <button class="tab-btn" data-tab="off" onclick="switchMarketTab('off')">⭕ 사용 안 함</button>
+          <button class="tab-btn" data-tab="new" onclick="switchMarketTab('new')">🛒 모듈 마켓</button>
         </div>
         <div class="market-grid" id="moduleMarketGrid"></div>
       </div>
@@ -1817,22 +1830,26 @@ function renderModuleMarket(){
   const allKeys=MODULE_KEYS.filter(k=>isAdmin||!MARKET_ADMIN_ONLY_KEYS.includes(k));
   const onCount=allKeys.filter(k=>isModuleOn(k)).length;
   const offCount=allKeys.length-onCount;
+  const newKeys=allKeys.filter(k=>NEW_MODULE_DEFAULT_OFF_KEYS.includes(k));
 
   const tabAll=document.querySelector('#marketTabBar .tab-btn[data-tab="all"]');
   const tabOn=document.querySelector('#marketTabBar .tab-btn[data-tab="on"]');
   const tabOff=document.querySelector('#marketTabBar .tab-btn[data-tab="off"]');
+  const tabNew=document.querySelector('#marketTabBar .tab-btn[data-tab="new"]');
   if(tabAll)tabAll.textContent='전체 ('+allKeys.length+')';
   if(tabOn)tabOn.textContent='✅ 사용 중 ('+onCount+')';
   if(tabOff)tabOff.textContent='⭕ 사용 안 함 ('+offCount+')';
+  if(tabNew)tabNew.textContent='🛒 모듈 마켓 ('+newKeys.length+')';
 
   const keys=allKeys.filter(k=>{
     if(marketTab==='on')return isModuleOn(k);
     if(marketTab==='off')return !isModuleOn(k);
+    if(marketTab==='new')return NEW_MODULE_DEFAULT_OFF_KEYS.includes(k);
     return true;
   });
 
   if(!keys.length){
-    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='off'?'꺼져있는 모듈이 없어요. 다 켜져있네요!':'표시할 모듈이 없어요.')+'</p>';
+    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='off'?'꺼져있는 모듈이 없어요. 다 켜져있네요!':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.')+'</p>';
     return;
   }
 
@@ -1844,7 +1861,9 @@ function renderModuleMarket(){
     const desc=meta[1]||'';
     const on=isModuleOn(key);
     const visible=isModuleVisible(key);
-    return `<div class="market-card ${on?'':'off'}">
+    const isNew=NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
+    return `<div class="market-card ${on?'':'off'}" style="position:relative">
+      ${isNew?'<span style="position:absolute;top:-8px;right:10px;background:linear-gradient(135deg,#fb923c,#f59e0b);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(245,158,11,.4)">NEW</span>':''}
       <div class="market-card-top">
         <div class="market-card-icon">${icon}</div>
         <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}');renderModuleMarket()"><span class="slider"></span></label>
@@ -4256,10 +4275,16 @@ function setStatus(on){
   document.getElementById('statusText').textContent=on?'온라인':'오프라인';
 }
 
-function addLog(nick,text,type='user'){
+function addLog(nick,text,type='user',profileUrl){
   const log=document.getElementById('chatLog');
   const line=document.createElement('div');line.className='log-line';
-  line.innerHTML='<span class="nick '+type+'">'+nick+'</span> '+text;
+  const safeNick=escapeHtml(nick||'');
+  const safeText=escapeHtml(text||'');
+  const emoji=type==='sys'?'🔔':type==='bot'?'🤖':'👤';
+  const avatarHtml=profileUrl
+    ? `<img class="log-avatar" src="${escapeAttr(profileUrl)}" onerror="this.outerHTML='<div class=&quot;log-avatar placeholder&quot;>${emoji}</div>'">`
+    : `<div class="log-avatar placeholder">${emoji}</div>`;
+  line.innerHTML=avatarHtml+'<div class="log-body"><span class="nick '+type+'">'+safeNick+'</span><span class="log-text">'+safeText+'</span></div>';
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 
@@ -4274,7 +4299,7 @@ function startSSE(){
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
     if(d.type!=='session' && d.djId && d.djId!==djId) return;
-    if(d.type==='chat')addLog(d.nick,d.text,'user');
+    if(d.type==='chat')addLog(d.nick,d.text,'user',d.profileUrl);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
     else if(d.type==='status')setStatus(d.isConnected);
