@@ -466,6 +466,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="autogrant"><span class="ic">🎁</span><span class="lbl">실시간 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="lottoauto"><span class="ic">🎟️</span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -506,6 +507,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>🛒 모듈 마켓</span></div>
           <p class="hint" style="margin-bottom:0">필요한 기능만 켜고 나머지는 꺼두세요. 여기서 켜고 끄는 건 사이드바 메뉴 옆 ON/OFF 배지랑 완전히 같은 설정이라, 어디서 바꿔도 똑같이 반영돼요.</p>
+        </div>
+        <div class="tab-bar" id="marketTabBar">
+          <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
+          <button class="tab-btn" data-tab="on" onclick="switchMarketTab('on')">✅ 사용 중</button>
+          <button class="tab-btn" data-tab="off" onclick="switchMarketTab('off')">⭕ 사용 안 함</button>
         </div>
         <div class="market-grid" id="moduleMarketGrid"></div>
       </div>
@@ -1309,6 +1315,56 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
+
+      <!-- 🎟️ 복권 자동지급 -->
+      <div class="panel" data-panel="lottoauto">
+        <div class="card">
+          <div class="card-title"><span>🎟️ 복권 자동지급 상태</span></div>
+          <span class="session-pill" id="lottoAutoStatusPill">⏸ 불러오는 중...</span>
+          <div class="hint" id="lottoAutoStatusDetail" style="margin-top:10px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 지급 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveLottoAutoSettings()">💾 저장</button></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="lottoAutoEnabled"> 자동 지급 활성화</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>지급 주기 (분)</label><input type="number" id="lottoAutoInterval" value="30" min="1" max="1440"></div>
+            <div><label>한 번에 지급할 수량 (장)</label><input type="number" id="lottoAutoAmount" value="1" min="1" max="1000"></div>
+          </div>
+          <label>지급 직전 안내 메시지 (비워두면 안내 없음)</label>
+          <textarea id="lottoAutoAnnounce" style="height:56px">🎟️ 정기 자동 복권 지급! 모두에게 {amount}장씩 드립니다.</textarea>
+          <div class="hint">변수: {amount}, {interval} · 등록된 애청지수 유저 중 지금 방송에 접속 중인 사람에게만 지급돼요.</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <button class="btn-green" onclick="runLottoAutoNow()">🎁 지금 즉시 지급</button>
+            <button class="btn-gray" onclick="pauseLottoAuto()">⏸ 일시정지</button>
+            <button class="btn-gray" onclick="resumeLottoAuto()">▶ 재개</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⌨️ 명령어 커스텀</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveLottoAutoSettings()">💾 저장</button></div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>상태 조회 (누구나)</label><input type="text" id="lottoAutoCmdStatus" value="!자동복권"></div>
+            <div><label>즉시 지급 (DJ+권한자)</label><input type="text" id="lottoAutoCmdNow" value="!자동복권즉시"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>일시정지 (DJ+권한자)</label><input type="text" id="lottoAutoCmdPause" value="!자동복권정지"></div>
+            <div><label>재개 (DJ+권한자)</label><input type="text" id="lottoAutoCmdResume" value="!자동복권시작"></div>
+          </div>
+          <label>타이머 갱신 (DJ+권한자)</label>
+          <input type="text" id="lottoAutoCmdRefresh" value="!자동복권갱신" style="max-width:260px">
+          <p class="hint" style="margin-top:10px">"DJ+권한자"는 애청지수 메뉴의 "복권/상점 지급 권한자" 목록과 같아요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📋 안내</div>
+          <p class="hint">
+          · 등록된 애청지수 유저 중, 명령어/타이머가 실행되는 순간 <b>실제로 방송에 접속 중인 사람</b>에게만 지급돼요.<br>
+          · 봇이 방송에 들어가 있을 때만 타이머가 동작해요. (자동입장 시 자동으로 다시 시작됩니다)<br>
+          · 활성화가 꺼져있으면 채팅 명령어로 "재개"해도 지급되지 않아요 — 위에서 먼저 "자동 지급 활성화"를 켜주세요.
+          </p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1635,6 +1691,7 @@ const PANEL_META={
   autogrant:['🎁 실시간 지급','현재 접속 중인 시청자를 골라 복권/룰렛권을 바로 지급합니다'],
   loyalty:['⭐ 애청지수','경험치/레벨/복권 등 시청자 활동 시스템을 관리합니다'],
   quiz:['🧩 퀴즈 설정','실시간 퀴즈 문제·출제 간격·정답 처리를 관리합니다'],
+  lottoauto:['🎟️ 복권 자동지급','정해진 주기마다 현재 접속 중인 유저에게 복권을 자동으로 지급합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1654,9 +1711,10 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
+let moduleVisible={};
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
 let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
 let expiryTimer=null;
@@ -1666,6 +1724,7 @@ function isAccountExpired(){
 }
 
 function isModulePreferenceOn(key){ return moduleEnabled[key]!==false; }
+function isModuleVisible(key){ return moduleVisible[key]!==false; }
 
 function isModuleOn(key){
   if(isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(key)) return false;
@@ -1685,13 +1744,14 @@ function renderModuleBadge(key){
 
 function renderAllModuleBadges(){ MODULE_KEYS.forEach(renderModuleBadge); }
 
-// 모듈이 꺼져있으면 사이드바에서 그 메뉴 자체를 숨긴다 (모듈 마켓에서 켜야만 다시 나타남).
+// 모듈이 꺼져있거나(모듈 마켓 ON/OFF) "사이드바에 표시" 체크가 꺼져있으면 사이드바에서 숨긴다.
+// 표시만 꺼둔 경우엔 기능 자체는 계속 켜진 채로 동작하고, 화면 목록에서만 안 보이는 것뿐이다.
 // 세션연결/유저관리는 관리자 여부까지 같이 따진다.
 function renderNavVisibility(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
-  navItem.style.display=(adminGate&&isModuleOn(key))?'':'none';
+  navItem.style.display=(adminGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
 }
 function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); }
 
@@ -1737,12 +1797,40 @@ function toggleModuleBadge(el){
 
 /* ── 🛒 모듈 마켓 ── */
 const MARKET_ADMIN_ONLY_KEYS=['session','userlist']; // 관리자 전용 메뉴는 관리자 로그인일 때만 카드로 노출
+let marketTab='all'; // 'all' | 'on' | 'off'
+
+function switchMarketTab(tab){
+  marketTab=tab;
+  document.querySelectorAll('#marketTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  renderModuleMarket();
+}
 
 function renderModuleMarket(){
   const grid=document.getElementById('moduleMarketGrid');
   if(!grid)return;
   const isAdmin=djId===ADMIN_DJ_ID;
-  const keys=MODULE_KEYS.filter(k=>isAdmin||!MARKET_ADMIN_ONLY_KEYS.includes(k));
+  const allKeys=MODULE_KEYS.filter(k=>isAdmin||!MARKET_ADMIN_ONLY_KEYS.includes(k));
+  const onCount=allKeys.filter(k=>isModuleOn(k)).length;
+  const offCount=allKeys.length-onCount;
+
+  const tabAll=document.querySelector('#marketTabBar .tab-btn[data-tab="all"]');
+  const tabOn=document.querySelector('#marketTabBar .tab-btn[data-tab="on"]');
+  const tabOff=document.querySelector('#marketTabBar .tab-btn[data-tab="off"]');
+  if(tabAll)tabAll.textContent='전체 ('+allKeys.length+')';
+  if(tabOn)tabOn.textContent='✅ 사용 중 ('+onCount+')';
+  if(tabOff)tabOff.textContent='⭕ 사용 안 함 ('+offCount+')';
+
+  const keys=allKeys.filter(k=>{
+    if(marketTab==='on')return isModuleOn(k);
+    if(marketTab==='off')return !isModuleOn(k);
+    return true;
+  });
+
+  if(!keys.length){
+    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='off'?'꺼져있는 모듈이 없어요. 다 켜져있네요!':'표시할 모듈이 없어요.')+'</p>';
+    return;
+  }
+
   grid.innerHTML=keys.map(key=>{
     const meta=PANEL_META[key]||['',''];
     const spaceIdx=meta[0].indexOf(' ');
@@ -1750,6 +1838,7 @@ function renderModuleMarket(){
     const label=spaceIdx>-1?meta[0].slice(spaceIdx+1):'';
     const desc=meta[1]||'';
     const on=isModuleOn(key);
+    const visible=isModuleVisible(key);
     return `<div class="market-card ${on?'':'off'}">
       <div class="market-card-top">
         <div class="market-card-icon">${icon}</div>
@@ -1757,6 +1846,9 @@ function renderModuleMarket(){
       </div>
       <div class="market-card-title">${escapeHtml(label)}</div>
       <div class="market-card-desc">${escapeHtml(desc)}</div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" style="width:auto" ${visible?'checked':''} onchange="toggleModuleVisible('${key}');renderModuleMarket()"> 사이드바에 표시
+      </label>
       <button class="btn-gray market-card-goto" onclick="selectPanel('${key}')">바로가기</button>
     </div>`;
   }).join('');
@@ -1813,6 +1905,22 @@ async function saveModuleEnabled(){
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleEnabled})});
     showToast('설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+function toggleModuleVisible(key){
+  moduleVisible[key]=!isModuleVisible(key);
+  renderNavVisibility(key);
+  saveModuleVisible();
+  const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
+  if(curActive===key && !isModuleVisible(key)){
+    selectPanel('modulemarket');
+  }
+}
+
+async function saveModuleVisible(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleVisible})});
   }catch(e){showToast('저장 실패');}
 }
 
@@ -2328,6 +2436,7 @@ async function loadDjSettings(){
   Object.assign(activityData, JSON.parse(JSON.stringify(ACT_DEFAULT)));
   actUsersCache=[]; actSelectedKey=null;
   moduleEnabled={};
+  moduleVisible={};
   expiresAt=null; expiryStartAt=null;
   renderAllModuleBadges();
   renderAllNavVisibility();
@@ -2389,6 +2498,7 @@ async function loadDjSettings(){
       }
       if(s.activity) Object.assign(activityData, s.activity);
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
+      if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
       expiryStartAt=s.expiryStartAt||null;
       renderAllModuleBadges();
@@ -2406,6 +2516,7 @@ async function loadDjSettings(){
       if(document.getElementById('rlUserListWrap')) loadRouletteUsers();
       if(document.getElementById('actEnabled')){ renderActivitySettings(); loadActivityUsers(); }
       if(document.getElementById('quizStatusPill')) loadQuizData();
+      if(document.getElementById('lottoAutoStatusPill')) loadLottoAutoData();
       renderEntryList();
     }
   }catch(e){}
@@ -3769,6 +3880,86 @@ async function stopQuizNow(){
     await fetch(SERVER+'/quiz/stop',{method:'POST',headers:authHeaders()});
     showToast('퀴즈를 종료했어요');
     loadQuizData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎟️ 복권 자동지급 ── */
+async function loadLottoAutoData(){
+  try{
+    const res=await fetch(SERVER+'/lottoauto/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('lottoAutoEnabled').checked=s.enabled!==false;
+    document.getElementById('lottoAutoInterval').value=s.intervalMin;
+    document.getElementById('lottoAutoAmount').value=s.amount;
+    document.getElementById('lottoAutoAnnounce').value=s.announceMsg||'';
+    document.getElementById('lottoAutoCmdStatus').value=s.cmdStatus||'!자동복권';
+    document.getElementById('lottoAutoCmdNow').value=s.cmdNow||'!자동복권즉시';
+    document.getElementById('lottoAutoCmdPause').value=s.cmdPause||'!자동복권정지';
+    document.getElementById('lottoAutoCmdResume').value=s.cmdResume||'!자동복권시작';
+    document.getElementById('lottoAutoCmdRefresh').value=s.cmdRefresh||'!자동복권갱신';
+    renderLottoAutoStatus(s,d);
+  }catch(e){}
+}
+
+function renderLottoAutoStatus(s,d){
+  const pill=document.getElementById('lottoAutoStatusPill');
+  const detail=document.getElementById('lottoAutoStatusDetail');
+  if(!pill)return;
+  let label,cls;
+  if(s.enabled===false){label='🔴 비활성';cls='session-pill bad';}
+  else if(s.paused){label='⏸ 일시정지';cls='session-pill';}
+  else if(!d.isConnected){label='⚪ 대기 (방송 미접속)';cls='session-pill';}
+  else{label='🟢 가동중';cls='session-pill ok';}
+  pill.textContent=label;
+  pill.className=cls;
+  const last=s.lastRunAt?new Date(s.lastRunAt).toLocaleString('ko-KR'):'아직 없음';
+  detail.textContent=`주기: ${s.intervalMin}분 · 수량: ${s.amount}장 · 누적 실행: ${s.runCount||0}회 · 다음 실행: ${d.nextRunHint||'-'} · 마지막 실행: ${last}`;
+}
+
+async function saveLottoAutoSettings(){
+  const body={
+    enabled:document.getElementById('lottoAutoEnabled').checked,
+    intervalMin:Number(document.getElementById('lottoAutoInterval').value)||30,
+    amount:Number(document.getElementById('lottoAutoAmount').value)||1,
+    announceMsg:document.getElementById('lottoAutoAnnounce').value,
+    cmdStatus:document.getElementById('lottoAutoCmdStatus').value,
+    cmdNow:document.getElementById('lottoAutoCmdNow').value,
+    cmdPause:document.getElementById('lottoAutoCmdPause').value,
+    cmdResume:document.getElementById('lottoAutoCmdResume').value,
+    cmdRefresh:document.getElementById('lottoAutoCmdRefresh').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/lottoauto/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadLottoAutoData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function runLottoAutoNow(){
+  try{
+    const res=await fetch(SERVER+'/lottoauto/run-now',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast(`지급 완료: ${d.count}명에게 ${d.amount}장씩`);loadLottoAutoData();}
+    else showToast(d.error||'지급 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function pauseLottoAuto(){
+  try{
+    await fetch(SERVER+'/lottoauto/pause',{method:'POST',headers:authHeaders()});
+    showToast('일시정지했어요');
+    loadLottoAutoData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resumeLottoAuto(){
+  try{
+    await fetch(SERVER+'/lottoauto/resume',{method:'POST',headers:authHeaders()});
+    showToast('재개했어요');
+    loadLottoAutoData();
   }catch(e){showToast('오류: '+e.message);}
 }
 

@@ -1008,6 +1008,175 @@ function handleActivityCommand(djId, room, settings, author, authorId, text, tag
 }
 
 // ══════════════════════════════════════════════════════
+// 🎟️ 복권 자동 지급 — 정해진 주기마다 "지금 방송에 실제로 접속 중인" 등록 애청지수 유저에게
+// 복권을 자동으로 지급한다. 로컬 에디봇의 "복권 자동 지급" 외부 모듈과 동일한 사양으로 맞췄다.
+// (활성화 토글, 지급 주기/수량, 안내 멘트, 즉시지급/일시정지/재개, 상태조회 명령어)
+
+function getLottoAutoSettings(djId, settings) {
+  if (!settings.lottoAuto) {
+    settings.lottoAuto = {
+      enabled: false,
+      intervalMin: 30,
+      amount: 1,
+      announceMsg: '🎟️ 정기 자동 복권 지급! 모두에게 {amount}장씩 드립니다.',
+      cmdStatus: '!자동복권',
+      cmdNow: '!자동복권즉시',
+      cmdPause: '!자동복권정지',
+      cmdResume: '!자동복권시작',
+      cmdRefresh: '!자동복권갱신',
+      paused: false,
+      lastRunAt: 0,
+      runCount: 0,
+    }
+    store.saveSettings(djId, { lottoAuto: settings.lottoAuto })
+  }
+  return settings.lottoAuto
+}
+
+function lottoAutoNextRunHint(cfg) {
+  if (cfg.enabled === false) return '비활성'
+  if (cfg.paused) return '일시정지'
+  const min = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30))
+  if (!cfg.lastRunAt) return `${min}분 이내`
+  const remain = (cfg.lastRunAt + min * 60000) - Date.now()
+  if (remain <= 0) return '곧'
+  return `약 ${Math.ceil(remain / 60000)}분 후`
+}
+
+// 1회 실행 — 지금 라이브 접속 중인 시청자 중, 애청지수에 등록되어 있는 유저에게만 복권을 지급한다.
+// (수동 "!복권지급 전체"와 동일한 "현재 접속자만" 원칙을 따른다. 미등록 유저는 자동으로 새로 만들지 않는다.)
+async function runLottoAutoOnce(djId, room, liveId, reason) {
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', djId)) return { ok: false, why: 'module_off' }
+  const cfg = getLottoAutoSettings(djId, settings)
+  if (cfg.enabled === false) return { ok: false, why: 'disabled' }
+  if (cfg.paused) return { ok: false, why: 'paused' }
+  if (!room.isConnected || !liveId) return { ok: false, why: 'not_connected' }
+
+  const amount = Math.max(1, Math.min(1000, parseInt(cfg.amount, 10) || 1))
+
+  let members = []
+  try {
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    members = await fetchLiveMembers(liveId, accessToken, 5)
+  } catch (e) { console.log(`[자동복권:${djId}] 시청자 명단 조회 오류`, e.message) }
+
+  if (!members.length) {
+    console.log(`[자동복권:${djId}/${reason}] 라이브 접속 중인 시청자가 없어 건너뜀`)
+    return { ok: false, why: 'no_live_users' }
+  }
+
+  const announce = String(cfg.announceMsg || '').trim()
+  if (announce) {
+    const msg = announce.replace(/\{amount\}/g, String(amount)).replace(/\{interval\}/g, String(cfg.intervalMin || ''))
+    sendChatToRoom(djId, msg)
+  }
+
+  const act = getActivitySettings(djId, settings)
+  const liveNames = new Set()
+  members.forEach(u => {
+    if (u.nickname) liveNames.add(String(u.nickname).trim().toLowerCase())
+    if (u.tag) liveNames.add(String(u.tag).trim().toLowerCase())
+  })
+
+  let count = 0
+  Object.entries(act.users).forEach(([key, d]) => {
+    const isLive = liveNames.has(String(key).trim().toLowerCase())
+      || (d.nickname && liveNames.has(String(d.nickname).trim().toLowerCase()))
+      || (d.tag && liveNames.has(String(d.tag).trim().toLowerCase()))
+    if (!isLive) return
+    d.lotto = Math.max(0, (d.lotto || 0) + amount)
+    count++
+  })
+
+  cfg.lastRunAt = Date.now()
+  cfg.runCount = (cfg.runCount || 0) + 1
+  store.saveSettings(djId, { activity: act, lottoAuto: cfg })
+
+  const delay = announce ? 900 : 400
+  if (count > 0) {
+    setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급: 현재 접속 중인 ${count}명에게 ${amount}장씩 지급했어요! (누적 ${cfg.runCount}회)`), delay)
+  } else {
+    setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급을 시도했지만, 애청지수에 등록되어 있으면서 지금 접속 중인 유저가 없었어요.`), delay)
+  }
+  console.log(`[자동복권:${djId}/${reason}] ${count}명에게 ${amount}장 지급 (누적 ${cfg.runCount}회)`)
+  return { ok: true, amount, count }
+}
+
+// 방(room) 단위 타이머 관리 — 설정을 바꾸거나 방에 새로 입장할 때마다 다시 만든다.
+function stopLottoAutoTimer(djId) {
+  const room = getRoom(djId)
+  if (room.lottoAutoTimer) { clearInterval(room.lottoAutoTimer); room.lottoAutoTimer = null }
+}
+
+function startLottoAutoTimer(djId, liveId) {
+  stopLottoAutoTimer(djId)
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', djId)) return
+  const cfg = getLottoAutoSettings(djId, settings)
+  if (cfg.enabled === false) return
+  const min = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30))
+  const ms = min * 60 * 1000
+  room.lottoAutoTimer = setInterval(() => {
+    runLottoAutoOnce(djId, room, liveId, '정기').catch(e => console.log(`[자동복권:${djId}] 타이머 실행 오류`, e.message))
+  }, ms)
+  console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분`)
+}
+
+// 채팅 명령어: !자동복권(상태조회, 누구나) / !자동복권즉시·!자동복권정지·!자동복권시작·!자동복권갱신 (DJ+지정 권한자)
+async function handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'lottoauto', djId)) return
+  const cfg = getLottoAutoSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const act = getActivitySettings(djId, settings)
+  const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+  const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+
+  if (msg === (cfg.cmdStatus || '!자동복권')) {
+    const state = cfg.enabled === false ? '🔴 비활성' : cfg.paused ? '⏸️ 일시정지' : '🟢 가동중'
+    const min = Math.max(1, parseInt(cfg.intervalMin, 10) || 30)
+    const amt = Math.max(1, parseInt(cfg.amount, 10) || 1)
+    setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급 상태\n상태: ${state}\n주기: ${min}분 / 수량: ${amt}장\n누적 실행: ${cfg.runCount || 0}회 / 다음 실행: ${lottoAutoNextRunHint(cfg)}`), 400)
+    return
+  }
+
+  if (msg === (cfg.cmdNow || '!자동복권즉시')) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/지정 권한자만 사용할 수 있습니다.'), 400); return }
+    const r = await runLottoAutoOnce(djId, room, liveId, '수동')
+    if (!r.ok && r.why === 'no_live_users') setTimeout(() => sendChatToRoom(djId, '⚠️ 라이브 접속 중인 시청자가 없어 지급할 수 없습니다.'), 400)
+    return
+  }
+
+  if (msg === (cfg.cmdPause || '!자동복권정지')) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/지정 권한자만 사용할 수 있습니다.'), 400); return }
+    cfg.paused = true
+    store.saveSettings(djId, { lottoAuto: cfg })
+    setTimeout(() => sendChatToRoom(djId, `⏸️ 자동 복권 지급을 일시정지했어요. (다시 켜려면 ${cfg.cmdResume || '!자동복권시작'})`), 400)
+    return
+  }
+
+  if (msg === (cfg.cmdResume || '!자동복권시작')) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/지정 권한자만 사용할 수 있습니다.'), 400); return }
+    cfg.paused = false
+    store.saveSettings(djId, { lottoAuto: cfg })
+    if (cfg.enabled === false) { setTimeout(() => sendChatToRoom(djId, '⚠️ 자동 복권 지급 설정이 꺼져있어요. 웹 화면에서 먼저 활성화해주세요.'), 400); return }
+    startLottoAutoTimer(djId, liveId)
+    setTimeout(() => sendChatToRoom(djId, '▶️ 자동 복권 지급을 재개했어요.'), 400)
+    return
+  }
+
+  if (msg === (cfg.cmdRefresh || '!자동복권갱신')) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/지정 권한자만 사용할 수 있습니다.'), 400); return }
+    startLottoAutoTimer(djId, liveId)
+    const min = Math.max(1, parseInt(cfg.intervalMin, 10) || 30)
+    setTimeout(() => sendChatToRoom(djId, `🔄 타이머가 재시작됐어요 (주기 ${min}분).`), 400)
+    return
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -1589,6 +1758,7 @@ function rebootDjConnection(djId) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
+  stopLottoAutoTimer(djId)
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
@@ -1638,6 +1808,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     startLeavePolling(djId, liveId)
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
+    // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
+    startLottoAutoTimer(djId, liveId)
     // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
     try {
       const s = store.getSettings(djId) || {}
@@ -1682,6 +1854,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag)
           handleActChatHook(djId, settings, author, actTag)
           handleQuizAnswer(djId, settings, author, text)
+          handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -1754,6 +1927,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.isConnected = false
     room.ws = null
     stopLeavePolling(djId)
+    stopLottoAutoTimer(djId)
     clearQuizTimers(room)
     if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
@@ -1939,6 +2113,7 @@ app.post('/account/change-id', auth.requireAuth, (req, res) => {
   const room = getRoom(oldId)
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(oldId)
+  stopLottoAutoTimer(oldId)
   clearQuizTimers(room)
   delete rooms[oldId]
   delete repeatLastSent[oldId]
@@ -2037,6 +2212,7 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   room.autoJoinedFor = ''
   room.watchingTag = ''
   stopLeavePolling(targetId)
+  stopLottoAutoTimer(targetId)
   clearQuizTimers(room)
   if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
   broadcast({ type: 'status', djId: targetId, isConnected: false })
@@ -2336,6 +2512,63 @@ app.post('/quiz/stop', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎟️ 복권 자동 지급 — 설정 조회/저장 + 즉시지급/일시정지/재개
+app.get('/lottoauto/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  res.json({ success: true, settings: cfg, running: !!room.lottoAutoTimer, isConnected: room.isConnected, nextRunHint: lottoAutoNextRunHint(cfg) })
+})
+
+app.post('/lottoauto/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', req.djId)) return res.json({ success: false, error: '복권 자동지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  const { enabled, intervalMin, amount, announceMsg, cmdStatus, cmdNow, cmdPause, cmdResume, cmdRefresh } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (intervalMin != null) cfg.intervalMin = Math.max(1, Math.min(1440, Number(intervalMin) || 30))
+  if (amount != null) cfg.amount = Math.max(1, Math.min(1000, Number(amount) || 1))
+  if (announceMsg != null) cfg.announceMsg = announceMsg
+  if (cmdStatus != null) cfg.cmdStatus = String(cmdStatus).trim() || '!자동복권'
+  if (cmdNow != null) cfg.cmdNow = String(cmdNow).trim() || '!자동복권즉시'
+  if (cmdPause != null) cfg.cmdPause = String(cmdPause).trim() || '!자동복권정지'
+  if (cmdResume != null) cfg.cmdResume = String(cmdResume).trim() || '!자동복권시작'
+  if (cmdRefresh != null) cfg.cmdRefresh = String(cmdRefresh).trim() || '!자동복권갱신'
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  const room = getRoom(req.djId)
+  if (room.isConnected && room.autoJoinedFor) startLottoAutoTimer(req.djId, room.autoJoinedFor)
+  else stopLottoAutoTimer(req.djId)
+  res.json({ success: true })
+})
+
+app.post('/lottoauto/run-now', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', req.djId)) return res.json({ success: false, error: '복권 자동지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const room = getRoom(req.djId)
+  if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const r = await runLottoAutoOnce(req.djId, room, room.autoJoinedFor, '수동(웹)')
+  if (!r.ok) return res.json({ success: false, error: r.why === 'no_live_users' ? '라이브 접속 중인 시청자가 없어요' : '지급에 실패했어요' })
+  res.json({ success: true, count: r.count, amount: r.amount })
+})
+
+app.post('/lottoauto/pause', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  cfg.paused = true
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  res.json({ success: true })
+})
+
+app.post('/lottoauto/resume', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  cfg.paused = false
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  const room = getRoom(req.djId)
+  if (room.isConnected && room.autoJoinedFor) startLottoAutoTimer(req.djId, room.autoJoinedFor)
+  res.json({ success: true })
+})
+
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
@@ -2387,7 +2620,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -2404,6 +2637,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
+  if (moduleVisible) patch.moduleVisible = moduleVisible
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
@@ -2435,6 +2669,7 @@ async function checkAdminAutoJoin() {
           room.autoJoinedFor = ''
           room.watchingTag = ''
           stopLeavePolling(djId)
+          stopLottoAutoTimer(djId)
           broadcast({ type: 'status', djId, isConnected: false })
           broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
         }
@@ -2541,6 +2776,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.autoJoinedFor = ''
   room.watchingTag = ''
   stopLeavePolling(djId)
+  stopLottoAutoTimer(djId)
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })

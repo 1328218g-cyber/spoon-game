@@ -47,7 +47,16 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true,
+      migrate: true, lottoauto: true,
+    },
+    // 사이드바 각 메뉴를 "화면에 표시할지"만 따로 관리한다. moduleEnabled(기능 자체 켜짐/꺼짐)와는 별개라서,
+    // 기능은 계속 켜둔 채로(자동 명령어 등은 그대로 동작) 사이드바만 정리해서 안 보이게 할 수 있다.
+    moduleVisible: {
+      session: true, userlist: true, autojoin: true, chat: true,
+      entrysettings: true, funding: true, shortcuts: true, greet: true,
+      flag: true, shield: true, request: true, roulette: true,
+      roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
+      migrate: true, lottoauto: true,
     },
     // 이용 만료 관리 — 관리자가 유저 관리 화면에서 계정별로 지정한다.
     // expiresAt(만료 예정 시각, ISO 문자열)이 지나면 입장설정/룰렛기록을 뺀 모든 메뉴가 자동으로 잠긴다.
