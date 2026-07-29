@@ -170,6 +170,16 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
   }
 }
 
+// 지금 방송에 실제로 접속 중인 사람인지 태그 또는 닉네임으로 확인한다. (룰렛지급/복권지급/상점 등
+// DJ가 직접 대상을 지정하는 명령어에서, 고유닉을 잘못 입력해도 조용히 지급되던 문제를 막기 위해 사용)
+async function findLiveMemberByNickOrTag(liveId, input) {
+  const norm = String(input || '').trim().toLowerCase()
+  if (!norm) return null
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const members = await fetchLiveMembers(liveId, accessToken, 5)
+  return members.find(u => (u.tag && u.tag.toLowerCase() === norm) || (u.nickname && u.nickname.toLowerCase() === norm)) || null
+}
+
 async function fetchLiveInfo(liveId, accessToken) {
   try {
     const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
@@ -228,7 +238,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -811,7 +821,7 @@ function handleActLottoPointHook(djId, settings, author, amount, tag) {
 }
 
 // 채팅 명령어 처리: !내정보, !내정보 생성/삭제, !랭킹, !출석, !복권, !복권지급, !상점, @[닉네임]
-function handleActivityCommand(djId, room, settings, author, authorId, text, tag) {
+async function handleActivityCommand(djId, room, settings, author, authorId, text, tag, liveId) {
   if (!isModuleOn(settings, 'loyalty', djId)) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
@@ -974,8 +984,16 @@ function handleActivityCommand(djId, room, settings, author, authorId, text, tag
     const targetNick = parts[1]
     const amount = parseInt(parts[2], 10)
     if (!targetNick || isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} [닉네임] [수량] (음수 입력 시 차감)`), 400); return }
-    // 기록이 없는 유저에게 지급하면 !룰렛지급과 동일하게 자동으로 등록하고 지급한다.
     const existingKey = findActUserKey(act, targetNick)
+    // 기록이 없는 유저는 !룰렛지급과 동일하게 자동으로 등록하고 지급하되, 고유닉을 잘못 입력해도
+    // 조용히 새 유저가 생기는 걸 막기 위해 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
+    if (!existingKey) {
+      const found = await findLiveMemberByNickOrTag(liveId, targetNick)
+      if (!found) {
+        setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
+        return
+      }
+    }
     const key = existingKey || targetNick
     const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : targetNick, existingKey ? null : targetNick)
     d.lotto = Math.max(0, (d.lotto || 0) + amount)
@@ -988,8 +1006,15 @@ function handleActivityCommand(djId, room, settings, author, authorId, text, tag
     const targetNick = parts[1]
     const expAmount = parseInt(parts[2], 10)
     if (!targetNick || isNaN(expAmount)) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdShop} [닉네임] [경험치]`), 400); return }
-    // 기록이 없는 유저에게 지급하면 자동으로 등록하고 지급한다.
     const existingKey = findActUserKey(act, targetNick)
+    // 기록이 없는 유저는 자동으로 등록하고 지급하되, 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
+    if (!existingKey) {
+      const found = await findLiveMemberByNickOrTag(liveId, targetNick)
+      if (!found) {
+        setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
+        return
+      }
+    }
     const key = existingKey || targetNick
     const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : targetNick, existingKey ? null : targetNick)
     actGrantExp(djId, act, key, expAmount)
@@ -1179,6 +1204,179 @@ async function handleLottoAutoCommand(djId, room, settings, author, authorId, li
     setTimeout(() => sendChatToRoom(djId, `🔄 타이머가 재시작됐어요 (주기 ${min}분).`), 400)
     return
   }
+}
+
+// ══════════════════════════════════════════════════════
+// ⏰ 리액션 타이머 — "[명령어] [분] [내용]"으로 등록하면 그 시간 후에 채팅으로 알려준다.
+// 등록된 타이머 목록은 명령어만 입력하면 확인할 수 있다. (누구나 등록 가능, 방 재접속 시 초기화됨)
+
+function getReminderSettings(djId, settings) {
+  if (!settings.reminderTimer) {
+    settings.reminderTimer = {
+      cmd: '!리액션',
+      registerMsg: '⏰ {min}분 후 알림: {content}',
+      alertMsg: '🔔 {content} 시간이 됐습니다!',
+    }
+    store.saveSettings(djId, { reminderTimer: settings.reminderTimer })
+  }
+  return settings.reminderTimer
+}
+
+function clearReminderTimers(room) {
+  if (!room.reminderTimers) return
+  room.reminderTimers.forEach(t => { if (t.handle) clearTimeout(t.handle) })
+  room.reminderTimers = []
+}
+
+function handleReminderCommand(djId, room, settings, author, text) {
+  if (!isModuleOn(settings, 'reactiontimer', djId)) return
+  const cfg = getReminderSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const cmd = cfg.cmd || '!리액션'
+  if (!room.reminderTimers) room.reminderTimers = []
+
+  if (msg === cmd) {
+    if (!room.reminderTimers.length) { setTimeout(() => sendChatToRoom(djId, '⏰ 등록된 리액션 타이머가 없어요.'), 400); return }
+    const lines = room.reminderTimers.map((t, i) => {
+      const remainMin = Math.max(0, Math.ceil((t.dueAt - Date.now()) / 60000))
+      return `${i + 1}. ${t.content} (약 ${remainMin}분 후, 등록: ${t.author})`
+    })
+    sendChatSplit(djId, ['⏰ 등록된 리액션 타이머'].concat(lines).join('\n'), 150, 600)
+    return
+  }
+  if (msg.startsWith(cmd + ' ')) {
+    const rest = msg.slice(cmd.length).trim()
+    const m = rest.match(/^(\d+)\s+(.+)$/)
+    if (!m) { setTimeout(() => sendChatToRoom(djId, `⏰ 사용법: ${cmd} [분] [내용]`), 400); return }
+    const min = Math.max(1, Math.min(1440, parseInt(m[1], 10)))
+    const content = m[2].trim()
+    if (!content) return
+    if (room.reminderTimers.length >= 20) { setTimeout(() => sendChatToRoom(djId, '⏰ 등록 가능한 타이머는 최대 20개예요.'), 400); return }
+    const id = 'rt' + Date.now() + Math.floor(Math.random() * 1000)
+    const dueAt = Date.now() + min * 60000
+    const handle = setTimeout(() => {
+      const idx = room.reminderTimers.findIndex(t => t.id === id)
+      if (idx >= 0) room.reminderTimers.splice(idx, 1)
+      const alertText = (cfg.alertMsg || '🔔 {content} 시간이 됐습니다!').replace(/\{content\}/g, content)
+      sendChatToRoom(djId, alertText)
+    }, min * 60000)
+    room.reminderTimers.push({ id, content, author, dueAt, handle })
+    const regText = (cfg.registerMsg || '⏰ {min}분 후 알림: {content}').replace(/\{min\}/g, min).replace(/\{content\}/g, content)
+    setTimeout(() => sendChatToRoom(djId, regText), 400)
+    return
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
+// 등록된 디데이 목록과 남은/지난 일수를 보여준다. 매년 반복되는 날짜로 계산한다.
+
+function getDdaySettings(djId, settings) {
+  if (!settings.dday) {
+    settings.dday = { cmd: '!디데이', registerMsg: '📅 디데이 등록: {content} ({date})', items: [] }
+    store.saveSettings(djId, { dday: settings.dday })
+  }
+  if (!settings.dday.items) settings.dday.items = []
+  return settings.dday
+}
+
+function calcNextDdayDiff(mmdd) {
+  const m = String(mmdd || '').match(/^(\d{1,2})-(\d{1,2})$/)
+  if (!m) return null
+  const month = parseInt(m[1], 10), day = parseInt(m[2], 10)
+  const now = new Date()
+  const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  let target = new Date(now.getFullYear(), month - 1, day)
+  if (target < today0) target = new Date(now.getFullYear() + 1, month - 1, day)
+  return Math.round((target - today0) / 86400000)
+}
+
+function handleDdayCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'dday', djId)) return
+  const cfg = getDdaySettings(djId, settings)
+  const msg = String(text || '').trim()
+  const cmd = cfg.cmd || '!디데이'
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+
+  if (msg === cmd) {
+    if (!cfg.items.length) { setTimeout(() => sendChatToRoom(djId, '📅 등록된 디데이가 없어요.'), 400); return }
+    const lines = cfg.items.map((it, i) => {
+      const d = calcNextDdayDiff(it.date)
+      const label = d === 0 ? 'D-Day' : (d > 0 ? `D-${d}` : `D+${Math.abs(d)}`)
+      return `${i + 1}. ${it.content} (${it.date}) — ${label}`
+    })
+    sendChatSplit(djId, ['📅 등록된 디데이 목록'].concat(lines).join('\n'), 150, 600)
+    return
+  }
+  if (msg.startsWith(cmd + ' ')) {
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '❌ 디데이 등록은 DJ만 할 수 있습니다.'), 400); return }
+    const rest = msg.slice(cmd.length).trim()
+    const m = rest.match(/^(\d{1,2}-\d{1,2})\s+(.+)$/)
+    if (!m || calcNextDdayDiff(m[1]) === null) { setTimeout(() => sendChatToRoom(djId, `📅 사용법: ${cmd} [MM-DD] [내용] (예: ${cmd} 12-25 크리스마스)`), 400); return }
+    const date = m[1]
+    const content = m[2].trim()
+    if (cfg.items.length >= 30) { setTimeout(() => sendChatToRoom(djId, '📅 등록 가능한 디데이는 최대 30개예요.'), 400); return }
+    cfg.items.push({ id: 'dd' + Date.now() + Math.floor(Math.random() * 1000), date, content })
+    store.saveSettings(djId, { dday: cfg })
+    const regText = (cfg.registerMsg || '📅 디데이 등록: {content} ({date})').replace(/\{content\}/g, content).replace(/\{date\}/g, date)
+    setTimeout(() => sendChatToRoom(djId, regText), 400)
+    return
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🎁 추첨 — 실시간 시청자 중 한 명을 무작위로 뽑는다. (DJ/애청지수 지급권한자 전용)
+
+function getRaffleSettings(djId, settings) {
+  if (!settings.raffle) {
+    settings.raffle = { cmd: '!추첨', winMsg: '🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊' }
+    store.saveSettings(djId, { raffle: settings.raffle })
+  }
+  return settings.raffle
+}
+
+async function handleRaffleCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'raffle', djId)) return
+  const cfg = getRaffleSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg !== (cfg.cmd || '!추첨')) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const act = getActivitySettings(djId, settings)
+  const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+  const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+  if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/매니저만 사용할 수 있습니다.'), 400); return }
+
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const members = await fetchLiveMembers(liveId, accessToken, 5)
+  if (!members.length) { setTimeout(() => sendChatToRoom(djId, '🎁 지금 방송에 접속 중인 시청자가 없어요.'), 400); return }
+  const winner = members[Math.floor(Math.random() * members.length)]
+  const nickname = winner.nickname || winner.tag
+  const out = (cfg.winMsg || '🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊').replace(/\{nickname\}/g, nickname)
+  setTimeout(() => sendChatToRoom(djId, out), 400)
+}
+
+// ══════════════════════════════════════════════════════
+// 🎲 주사위 — 명령어를 입력하면 1~6 중 하나를 동일한 확률로 랜덤 출력한다. (누구나 사용 가능)
+
+function getDiceSettings(djId, settings) {
+  if (!settings.dice) {
+    settings.dice = { cmd: '!주사위', msg: '🎲 {user}님의 주사위: {result}!' }
+    store.saveSettings(djId, { dice: settings.dice })
+  }
+  return settings.dice
+}
+
+const DICE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+
+function handleDiceCommand(djId, settings, author, text) {
+  if (!isModuleOn(settings, 'dice', djId)) return
+  const cfg = getDiceSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg !== (cfg.cmd || '!주사위')) return
+  const n = Math.floor(Math.random() * 6) + 1
+  const result = `${DICE_FACES[n - 1]}${n}`
+  const out = (cfg.msg || '🎲 {user}님의 주사위: {result}!').replace(/\{user\}/g, author).replace(/\{result\}/g, result)
+  setTimeout(() => sendChatToRoom(djId, out), 400)
 }
 
 // ══════════════════════════════════════════════════════
@@ -1497,19 +1695,15 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   const targetInput = (parts[1] || '').replace('@', '').trim()
   const count = parseInt(parts[2], 10) || 1
   if (!targetInput) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
-  // 룰렛 기록은 닉네임 기준으로 저장되므로, DJ가 태그를 입력했다면 실제 닉네임으로 변환한다.
-  let targetTag = resolveNicknameFromInput(room, targetInput)
-  if (targetTag === targetInput) {
-    // 그동안 관측된 매핑에 없으면, 그 자리에서 시청자 명단을 더 깊이(여러 페이지) 다시 조회해서 한 번 더 찾아본다.
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-    const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
-    const norm = targetInput.toLowerCase()
-    const found = freshMembers.find(u => u.tag && u.tag.toLowerCase() === norm)
-    if (found) {
-      rememberTagNickname(room, found.tag, found.nickname || found.tag)
-      targetTag = found.nickname || found.tag
-    }
+
+  // ⚠️ 고유닉을 잘못 입력해도 조용히 지급되던 버그 수정: 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
+  const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+  if (!found) {
+    setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요. 고유닉을 다시 확인해주세요.`), 400)
+    return
   }
+  const targetTag = found.nickname || found.tag
+  if (found.tag) rememberTagNickname(room, found.tag, targetTag)
 
   const rec = getHistoryRec(settings, targetTag)
   rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
@@ -1764,6 +1958,7 @@ function rebootDjConnection(djId) {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  clearReminderTimers(room)
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
@@ -1856,10 +2051,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
           handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
           handleRouletteMenuCommand(djId, settings, text)
-          handleActivityCommand(djId, room, settings, author, authorId, text, actTag)
+          handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
           handleActChatHook(djId, settings, author, actTag)
           handleQuizAnswer(djId, settings, author, text)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
+          handleReminderCommand(djId, room, settings, author, text)
+          handleDdayCommand(djId, room, settings, author, authorId, text)
+          handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
+          handleDiceCommand(djId, settings, author, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -1934,6 +2133,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.ws = null
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    clearReminderTimers(room)
     clearQuizTimers(room)
     if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
@@ -2106,7 +2306,8 @@ app.post('/auth/signup', (req, res) => {
 })
 
 function canAutoJoin(djId) {
-  return djId === 'sum' || store.getAutoJoinEnabled(djId)
+  // 다중감시(자동입장)는 이제 관리자가 개별로 권한을 켜주지 않아도 누구나 기본으로 사용 가능하다.
+  return true
 }
 
 app.post('/auth/login', (req, res) => {
@@ -2149,6 +2350,7 @@ app.post('/account/change-id', auth.requireAuth, (req, res) => {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(oldId)
   stopLottoAutoTimer(oldId)
+  clearReminderTimers(room)
   clearQuizTimers(room)
   delete rooms[oldId]
   delete repeatLastSent[oldId]
@@ -2262,6 +2464,7 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(targetId)
   stopLottoAutoTimer(targetId)
+  clearReminderTimers(room)
   clearQuizTimers(room)
   if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
   broadcast({ type: 'status', djId: targetId, isConnected: false })
@@ -2618,6 +2821,99 @@ app.post('/lottoauto/resume', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// ⏰ 리액션 타이머
+app.get('/reaction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getReminderSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  const active = (room.reminderTimers || []).map(t => ({ id: t.id, content: t.content, author: t.author, dueAt: t.dueAt }))
+  res.json({ success: true, settings: cfg, active })
+})
+app.post('/reaction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'reactiontimer', req.djId)) return res.json({ success: false, error: '리액션 타이머 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getReminderSettings(req.djId, settings)
+  const { cmd, registerMsg, alertMsg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!리액션'
+  if (registerMsg != null) cfg.registerMsg = registerMsg
+  if (alertMsg != null) cfg.alertMsg = alertMsg
+  store.saveSettings(req.djId, { reminderTimer: cfg })
+  res.json({ success: true })
+})
+
+// 📅 디데이
+app.get('/dday/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDdaySettings(req.djId, settings)
+  const items = cfg.items.map(it => ({ ...it, diff: calcNextDdayDiff(it.date) }))
+  res.json({ success: true, settings: cfg, items })
+})
+app.post('/dday/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dday', req.djId)) return res.json({ success: false, error: '디데이 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDdaySettings(req.djId, settings)
+  const { cmd, registerMsg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!디데이'
+  if (registerMsg != null) cfg.registerMsg = registerMsg
+  store.saveSettings(req.djId, { dday: cfg })
+  res.json({ success: true })
+})
+app.post('/dday/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDdaySettings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { dday: cfg })
+  res.json({ success: true })
+})
+
+// 🎁 추첨
+app.get('/raffle/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getRaffleSettings(req.djId, settings) })
+})
+app.post('/raffle/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getRaffleSettings(req.djId, settings)
+  const { cmd, winMsg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!추첨'
+  if (winMsg != null) cfg.winMsg = winMsg
+  store.saveSettings(req.djId, { raffle: cfg })
+  res.json({ success: true })
+})
+app.post('/raffle/run-now', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const room = getRoom(req.djId)
+  if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+  if (!members.length) return res.json({ success: false, error: '지금 방송에 접속 중인 시청자가 없어요' })
+  const cfg = getRaffleSettings(req.djId, settings)
+  const winner = members[Math.floor(Math.random() * members.length)]
+  const nickname = winner.nickname || winner.tag
+  const out = (cfg.winMsg || '🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊').replace(/\{nickname\}/g, nickname)
+  setTimeout(() => sendChatToRoom(req.djId, out), 400)
+  res.json({ success: true, nickname })
+})
+
+// 🎲 주사위
+app.get('/dice/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getDiceSettings(req.djId, settings) })
+})
+app.post('/dice/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dice', req.djId)) return res.json({ success: false, error: '주사위 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiceSettings(req.djId, settings)
+  const { cmd, msg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!주사위'
+  if (msg != null) cfg.msg = msg
+  store.saveSettings(req.djId, { dice: cfg })
+  res.json({ success: true })
+})
+
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
@@ -2719,6 +3015,7 @@ async function checkAdminAutoJoin() {
           room.watchingTag = ''
           stopLeavePolling(djId)
           stopLottoAutoTimer(djId)
+          clearReminderTimers(room)
           broadcast({ type: 'status', djId, isConnected: false })
           broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
         }
@@ -2826,6 +3123,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  clearReminderTimers(room)
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })

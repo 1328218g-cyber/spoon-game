@@ -455,7 +455,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
 
     <div class="nav-group-label">모듈</div>
-    <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span></div>
+    <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -481,6 +481,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="lottoauto"><span class="ic">🎟️</span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="reactiontimer"><span class="ic">⏰</span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -1383,6 +1387,69 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </p>
         </div>
       </div>
+
+      <!-- ⏰ 리액션 타이머 -->
+      <div class="panel" data-panel="reactiontimer">
+        <div class="card">
+          <div class="card-title"><span>⏰ 리액션 타이머 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveReminderSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">[명령어] [분] [내용] 으로 타이머 등록 · [명령어]만 입력하면 목록 확인</p>
+          <label>명령어</label>
+          <input type="text" id="reminderCmd" value="!리액션" style="max-width:220px">
+          <label>등록 메시지</label>
+          <input type="text" id="reminderRegisterMsg" value="⏰ {min}분 후 알림: {content}">
+          <label>알림 메시지</label>
+          <input type="text" id="reminderAlertMsg" value="🔔 {content} 시간이 됐습니다!">
+          <div class="hint" style="margin-top:10px">변수: {min} = 분, {content} = 내용 · 누구나 등록 가능하고, 최대 20개까지 동시에 걸어둘 수 있어요.</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⏰ 지금 걸려있는 타이머</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadReminderData()">🔄 새로고침</button></div>
+          <div id="reminderActiveWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 📅 디데이 -->
+      <div class="panel" data-panel="dday">
+        <div class="card">
+          <div class="card-title"><span>📅 디데이 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveDdaySettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">[명령어] [MM-DD] [내용] 으로 등록(DJ 전용) · [명령어]만 입력하면 목록 확인</p>
+          <label>명령어</label>
+          <input type="text" id="ddayCmd" value="!디데이" style="max-width:220px">
+          <label>등록 메시지</label>
+          <input type="text" id="ddayRegisterMsg" value="📅 디데이 등록: {content} ({date})">
+          <div class="hint" style="margin-top:10px">변수: {content}, {date} · 매년 반복되는 날짜로 계산돼요 (이미 지난 날짜면 내년 기준으로 표시).</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📅 등록된 디데이 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadDdayData()">🔄 새로고침</button></div>
+          <div id="ddayListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 🎁 추첨 -->
+      <div class="panel" data-panel="raffle">
+        <div class="card">
+          <div class="card-title"><span>🎁 추첨 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveRaffleSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">실시간 시청자 중 한 명을 무작위로 추첨합니다. (DJ/매니저 전용)</p>
+          <label>명령어</label>
+          <input type="text" id="raffleCmd" value="!추첨" style="max-width:220px">
+          <label>당첨 메시지</label>
+          <input type="text" id="raffleWinMsg" value="🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊">
+          <div class="hint" style="margin-top:10px">변수: {nickname} = 당첨자 닉네임 · "매니저"는 애청지수 메뉴의 "복권/상점 지급 권한자" 목록과 같아요.</div>
+          <button class="btn-green" style="width:100%;margin-top:14px" onclick="runRaffleNow()">🎁 지금 바로 추첨하기</button>
+        </div>
+      </div>
+
+      <!-- 🎲 주사위 -->
+      <div class="panel" data-panel="dice">
+        <div class="card">
+          <div class="card-title"><span>🎲 주사위 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveDiceSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">명령어를 입력하면 1~6 숫자 중 하나가 동일한 확률로 랜덤 출력됩니다.</p>
+          <label>명령어</label>
+          <input type="text" id="diceCmd" value="!주사위" style="max-width:220px">
+          <label>출력 메시지</label>
+          <input type="text" id="diceMsg" value="🎲 {user}님의 주사위: {result}!">
+          <div class="hint" style="margin-top:10px">변수: {user} = 닉네임, {result} = 주사위 결과 (눈 이모지 + 숫자)</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1547,6 +1614,7 @@ async function submitAuth(){
 }
 
 function logout(){
+  if(sseConnection){ sseConnection.close(); sseConnection=null; }
   djToken='';djId='';
   localStorage.removeItem('djToken');
   localStorage.removeItem('djId');
@@ -1648,7 +1716,7 @@ function enterApp(){
   document.getElementById('djIdLabel').textContent=djId;
 
   const isAdmin = djId===ADMIN_DJ_ID;
-  const canAutoJoin = isAdmin || djAutoJoinEnabled;
+  const canAutoJoin = true; // 다중감시는 이제 관리자 권한 없이 누구나 사용 가능
   const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
   const sessionPanel=document.querySelector('.panel[data-panel="session"]');
   if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
@@ -1710,6 +1778,10 @@ const PANEL_META={
   loyalty:['⭐ 애청지수','경험치/레벨/복권 등 시청자 활동 시스템을 관리합니다'],
   quiz:['🧩 퀴즈 설정','실시간 퀴즈 문제·출제 간격·정답 처리를 관리합니다'],
   lottoauto:['🎟️ 복권 자동지급','정해진 주기마다 현재 접속 중인 유저에게 복권을 자동으로 지급합니다'],
+  reactiontimer:['⏰ 리액션 타이머','정해진 시간 후에 채팅으로 알림을 보내는 타이머를 등록합니다'],
+  dday:['📅 디데이','기념일/이벤트 날짜를 등록해두고 D-Day를 자동으로 계산해줍니다'],
+  raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
+  dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1729,7 +1801,7 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -1741,7 +1813,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -1776,7 +1848,15 @@ function renderNavVisibility(key){
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
   navItem.style.display=(adminGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
 }
-function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); }
+function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); updateMarketNewBadge(); }
+
+// 아직 안 켜본(꺼져있는) 신규 모듈이 하나라도 있으면 "모듈 마켓" 메뉴 옆에 빨간 NEW 글씨를 띄운다.
+function updateMarketNewBadge(){
+  const badge=document.getElementById('marketNewBadge');
+  if(!badge)return;
+  const hasUnexplored=NEW_MODULE_DEFAULT_OFF_KEYS.some(k=>!isModuleOn(k));
+  badge.style.display=hasUnexplored?'inline':'none';
+}
 
 function applyPanelLockState(name){
   const panelEl=document.querySelector('.panel[data-panel="'+name+'"]');
@@ -1805,6 +1885,7 @@ function toggleModuleByKey(key){
   renderNavVisibility(key);
   applyPanelLockState(key);
   saveModuleEnabled();
+  updateMarketNewBadge();
   const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
   if(curActive===key && !isModuleOn(key)){
     selectPanel('modulemarket');
@@ -2543,6 +2624,10 @@ async function loadDjSettings(){
       if(document.getElementById('actEnabled')){ renderActivitySettings(); loadActivityUsers(); }
       if(document.getElementById('quizStatusPill')) loadQuizData();
       if(document.getElementById('lottoAutoStatusPill')) loadLottoAutoData();
+      if(document.getElementById('reminderActiveWrap')) loadReminderData();
+      if(document.getElementById('ddayListWrap')) loadDdayData();
+      if(document.getElementById('raffleCmd')) loadRaffleData();
+      if(document.getElementById('diceCmd')) loadDiceData();
       renderEntryList();
     }
   }catch(e){}
@@ -2646,7 +2731,7 @@ async function loadUserList(){
         <td>${u.referrerId?escapeHtml(u.referrerId):'<span class="hint" style="margin:0">-</span>'}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
-        <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
+        <td><span class="status-pill ongoing">항상 허용</span></td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="adminChangeUserPassword('${escapeAttr(u.djId)}')">🔑 비번변경</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="rebootUserConnection('${escapeAttr(u.djId)}')">🔁 재부팅</button>`}</td>
@@ -4002,6 +4087,125 @@ async function resumeLottoAuto(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+/* ── ⏰ 리액션 타이머 ── */
+async function loadReminderData(){
+  try{
+    const res=await fetch(SERVER+'/reaction/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('reminderCmd').value=d.settings.cmd||'!리액션';
+    document.getElementById('reminderRegisterMsg').value=d.settings.registerMsg||'';
+    document.getElementById('reminderAlertMsg').value=d.settings.alertMsg||'';
+    const wrap=document.getElementById('reminderActiveWrap');
+    if(!d.active||!d.active.length){ wrap.innerHTML='<p class="hint">지금 걸려있는 타이머가 없어요.</p>'; return; }
+    wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+d.active.map(t=>{
+      const remainMin=Math.max(0,Math.ceil((t.dueAt-Date.now())/60000));
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+        <b>${escapeHtml(t.content)}</b>
+        <div class="hint" style="margin:2px 0 0">약 ${remainMin}분 후 · 등록: ${escapeHtml(t.author)}</div>
+      </div>`;
+    }).join('')+'</div>';
+  }catch(e){}
+}
+async function saveReminderSettings(){
+  const body={
+    cmd:document.getElementById('reminderCmd').value,
+    registerMsg:document.getElementById('reminderRegisterMsg').value,
+    alertMsg:document.getElementById('reminderAlertMsg').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/reaction/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadReminderData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📅 디데이 ── */
+async function loadDdayData(){
+  try{
+    const res=await fetch(SERVER+'/dday/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('ddayCmd').value=d.settings.cmd||'!디데이';
+    document.getElementById('ddayRegisterMsg').value=d.settings.registerMsg||'';
+    const wrap=document.getElementById('ddayListWrap');
+    if(!d.items||!d.items.length){ wrap.innerHTML='<p class="hint">등록된 디데이가 없어요. 방송 중 채팅에서 [명령어] [MM-DD] [내용]으로 등록해보세요.</p>'; return; }
+    wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+d.items.map(it=>{
+      const label=it.diff===0?'D-Day':(it.diff>0?`D-${it.diff}`:`D+${Math.abs(it.diff)}`);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+        <div><b>${escapeHtml(it.content)}</b><div class="hint" style="margin:2px 0 0">${escapeHtml(it.date)} · ${label}</div></div>
+        <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteDdayItem('${escapeAttr(it.id)}')">삭제</button>
+      </div>`;
+    }).join('')+'</div>';
+  }catch(e){}
+}
+async function saveDdaySettings(){
+  const body={ cmd:document.getElementById('ddayCmd').value, registerMsg:document.getElementById('ddayRegisterMsg').value };
+  try{
+    const res=await fetch(SERVER+'/dday/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadDdayData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function deleteDdayItem(id){
+  if(!confirm('이 디데이를 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/dday/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    showToast('삭제했어요');
+    loadDdayData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎁 추첨 ── */
+async function loadRaffleData(){
+  try{
+    const res=await fetch(SERVER+'/raffle/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('raffleCmd').value=d.settings.cmd||'!추첨';
+    document.getElementById('raffleWinMsg').value=d.settings.winMsg||'';
+  }catch(e){}
+}
+async function saveRaffleSettings(){
+  const body={ cmd:document.getElementById('raffleCmd').value, winMsg:document.getElementById('raffleWinMsg').value };
+  try{
+    const res=await fetch(SERVER+'/raffle/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function runRaffleNow(){
+  try{
+    const res=await fetch(SERVER+'/raffle/run-now',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)showToast(`🎉 당첨자: ${d.nickname}`);
+    else showToast(d.error||'추첨 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎲 주사위 ── */
+async function loadDiceData(){
+  try{
+    const res=await fetch(SERVER+'/dice/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('diceCmd').value=d.settings.cmd||'!주사위';
+    document.getElementById('diceMsg').value=d.settings.msg||'';
+  }catch(e){}
+}
+async function saveDiceSettings(){
+  const body={ cmd:document.getElementById('diceCmd').value, msg:document.getElementById('diceMsg').value };
+  try{
+    const res=await fetch(SERVER+'/dice/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function loadRouletteUsers(){
   try{
     const res=await fetch(SERVER+'/roulette/users',{headers:authHeaders()});
@@ -4367,8 +4571,11 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
+let sseConnection=null;
 function startSSE(){
+  if(sseConnection){ sseConnection.close(); sseConnection=null; } // ⚠️ 로그인/재접속마다 이전 연결을 안 끊으면 이벤트가 중복으로 찍힘
   const es=new EventSource(SERVER+'/events');
+  sseConnection=es;
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
