@@ -671,6 +671,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span id="entryListTitle">메시지 설정</span><span class="badge-inline">항상 켜짐</span></div>
           <div id="entryMsgList"></div>
+          <input type="file" id="entrySoundFileInput" accept="audio/*" style="display:none" onchange="handleEntrySoundFile(this)">
           <div class="btn-row">
             <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
             <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
@@ -2505,7 +2506,8 @@ function renderEntryList(){
       </div>
       <div class="sound-row">
         <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
-        <span class="hint">${m.sound ? m.sound : '첨부된 음원 없음 (선택 사항)'}</span>
+        <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
+        ${m.sound ? `<button class="icon-btn danger" onclick="removeEntrySound(${m.id})" title="음원 제거">🗑</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -2542,8 +2544,30 @@ function insertEntryVar(id,token){
   updateEntryMsg(id,'text',ta.value);
 }
 
+let entrySoundTargetId=null;
 function chooseEntrySound(id){
-  showToast('음원 업로드 기능은 준비 중이에요');
+  entrySoundTargetId=id;
+  document.getElementById('entrySoundFileInput').click();
+}
+function handleEntrySoundFile(input){
+  const file=input.files&&input.files[0];
+  if(!file||entrySoundTargetId==null)return;
+  if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
+  if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=()=>{
+    updateEntryMsg(entrySoundTargetId,'sound',file.name);
+    updateEntryMsg(entrySoundTargetId,'soundData',reader.result);
+    renderEntryList();
+    showToast('음원을 첨부했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function removeEntrySound(id){
+  updateEntryMsg(id,'sound','');
+  updateEntryMsg(id,'soundData','');
+  renderEntryList();
 }
 
 function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
