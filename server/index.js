@@ -238,7 +238,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1380,6 +1380,46 @@ function handleDiceCommand(djId, settings, author, text) {
 }
 
 // ══════════════════════════════════════════════════════
+// 🔊 효과음 — 선물(도네이션)을 받으면 등록해둔 조건에 맞춰 DJ의 PC(브라우저)에서 효과음을 재생한다.
+// 실제 소리는 서버가 아니라 에디봇 사이트를 열어둔 브라우저에서 재생되므로, 방송 중 PC에 사이트를
+// 켜두고 있어야 들린다. 파일 자체는 djs.json에 base64로 저장하고, SSE로는 재생할 항목의 id만 보낸다
+// (오디오 원본을 매번 전송하면 무거우므로, 프론트엔드가 페이지 로드 시 한 번만 받아서 로컬 캐시해둔다).
+
+const SOUNDFX_MAX_ITEMS = 10
+const SOUNDFX_MAX_BYTES = 1.5 * 1024 * 1024 // base64 문자열 기준 약 1.5MB (원본 오디오 1MB 안팎)
+
+function getSoundEffectSettings(djId, settings) {
+  if (!settings.soundEffects) {
+    settings.soundEffects = { enabled: true, items: [] }
+    store.saveSettings(djId, { soundEffects: settings.soundEffects })
+  }
+  if (!settings.soundEffects.items) settings.soundEffects.items = []
+  return settings.soundEffects
+}
+
+// 리스트 순서 = 우선순위. 위에서부터 조건을 검사해서 처음 맞는 항목 하나만 재생한다.
+function handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker) {
+  if (!isModuleOn(settings, 'soundfx', djId)) return
+  const cfg = getSoundEffectSettings(djId, settings)
+  if (cfg.enabled === false || !cfg.items.length) return
+  const stickerNorm = String(sticker || '').trim().toLowerCase()
+  const totalAmount = (Number(amount) || 0) * Math.max(1, Number(comboCount) || 1)
+  const match = cfg.items.find(it => {
+    if (it.triggerType === 'sticker') {
+      const t = String(it.triggerValue || '').trim().toLowerCase()
+      return !!t && !!stickerNorm && (stickerNorm === t || stickerNorm.includes(t) || t.includes(stickerNorm))
+    }
+    if (it.triggerType === 'amount') {
+      const threshold = Number(it.triggerValue) || 0
+      return threshold > 0 && totalAmount >= threshold
+    }
+    return it.triggerType === 'any'
+  })
+  if (!match) return
+  broadcast({ type: 'soundfx', djId, id: match.id })
+}
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -2114,6 +2154,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: gen.profileUrl || '' })
+        handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
@@ -2911,6 +2952,51 @@ app.post('/dice/settings', auth.requireAuth, (req, res) => {
   if (cmd != null) cfg.cmd = String(cmd).trim() || '!주사위'
   if (msg != null) cfg.msg = msg
   store.saveSettings(req.djId, { dice: cfg })
+  res.json({ success: true })
+})
+
+// 🔊 효과음
+app.get('/soundfx/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getSoundEffectSettings(req.djId, settings) })
+})
+app.post('/soundfx/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'soundfx', req.djId)) return res.json({ success: false, error: '효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  const { enabled } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+app.post('/soundfx/items', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'soundfx', req.djId)) return res.json({ success: false, error: '효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  if (cfg.items.length >= SOUNDFX_MAX_ITEMS) return res.json({ success: false, error: `효과음은 최대 ${SOUNDFX_MAX_ITEMS}개까지 등록할 수 있어요.` })
+  const { name, triggerType, triggerValue, volume, audioData } = req.body || {}
+  if (!name || !String(name).trim()) return res.json({ success: false, error: '효과음 이름을 입력해주세요' })
+  if (!['sticker', 'amount', 'any'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
+  if (triggerType !== 'any' && !String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
+  if (!audioData || typeof audioData !== 'string' || !audioData.startsWith('data:audio')) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
+  if (audioData.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 1MB 이하 파일로 올려주세요.' })
+  const item = {
+    id: 'sfx' + Date.now() + Math.floor(Math.random() * 1000),
+    name: String(name).trim(),
+    triggerType,
+    triggerValue: triggerType === 'any' ? '' : String(triggerValue).trim(),
+    volume: Math.max(0, Math.min(1, Number(volume) || 1)),
+    audioData,
+  }
+  cfg.items.push(item)
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true, id: item.id })
+})
+app.post('/soundfx/items/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  cfg.items = cfg.items.filter(it => it.id !== req.params.id)
+  store.saveSettings(req.djId, { soundEffects: cfg })
   res.json({ success: true })
 })
 
