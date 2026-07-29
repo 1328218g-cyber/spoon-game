@@ -1523,15 +1523,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
 
           <div id="ttsGoogleWrap" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
-            <p class="hint" style="margin-top:0">✅ 관리자가 미리 설정해둔 구글 보이스를 바로 사용할 수 있어요. 별도 API 키 입력이 필요 없어요.</p>
-            <label>음성 선택</label>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <p class="hint" style="margin:0">✅ 관리자가 미리 설정해둔 구글 보이스를 바로 사용할 수 있어요. 별도 API 키 입력이 필요 없어요.</p>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="openTtsGuideModal('google')">📖 관리자 설정 방법 보기</button>
+            </div>
+            <label style="margin-top:10px">음성 선택</label>
             <select id="ttsGoogleVoiceSelect" onchange="saveTtsSettings()"></select>
           </div>
 
           <div id="ttsTypecastWrap" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
               <label style="margin:0">🔑 Typecast API 키</label>
-              <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="ttsTypecastLoadVoices()">🔄 목소리 불러오기</button>
+              <div style="display:flex;gap:6px">
+                <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="openTtsGuideModal('typecast')">📖 키 발급 방법 보기</button>
+                <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="ttsTypecastLoadVoices()">🔄 목소리 불러오기</button>
+              </div>
             </div>
             <div style="display:flex;gap:6px">
               <input type="password" id="ttsTypecastApiKey" placeholder="본인의 Typecast API 키를 입력하세요" style="flex:1" oninput="ttsSaveTypecastKeyLocal()">
@@ -1607,6 +1613,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </div>
 
 <!-- 👤 내정보 (아이디 / 비밀번호 변경) -->
+<!-- 📖 TTS API 키 발급 가이드 -->
+<div id="ttsGuideModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTtsGuideModal()">
+  <div class="modal-box" style="max-width:520px;max-height:82vh;overflow-y:auto">
+    <div class="modal-title"><span id="ttsGuideTitle">📖 API 키 발급 방법</span><button class="icon-btn" onclick="closeTtsGuideModal()">✕</button></div>
+    <div id="ttsGuideBody" style="font-size:13.5px;line-height:1.8"></div>
+  </div>
+</div>
+
 <div id="myInfoModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeMyInfoModal()">
   <div class="modal-box">
     <div class="modal-title"><span>👤 내정보</span><button class="icon-btn" onclick="closeMyInfoModal()">✕</button></div>
@@ -4553,6 +4567,50 @@ function toggleKeyVisibility(id){
   const el=document.getElementById(id);
   if(!el)return;
   el.type=el.type==='password'?'text':'password';
+}
+
+const TTS_GUIDE_CONTENT={
+  typecast:{
+    title:'📖 Typecast API 키 발급 방법',
+    body:`
+      <ol style="padding-left:18px;margin:0 0 14px">
+        <li style="margin-bottom:8px"><a href="https://typecast.ai" target="_blank" rel="noopener noreferrer">typecast.ai</a>에 접속해서 회원가입 또는 로그인해주세요.</li>
+        <li style="margin-bottom:8px">로그인 후 개발자용 API 발급 페이지로 바로 이동: <a href="https://typecast.ai/developers/api" target="_blank" rel="noopener noreferrer">typecast.ai/developers/api</a></li>
+        <li style="margin-bottom:8px">"API 키 발급"(Create API Key) 버튼을 눌러 새 키를 생성해주세요.</li>
+        <li style="margin-bottom:8px">생성된 키를 복사해서 안전한 곳에 보관해주세요 (다시 안 보여줄 수 있어요).</li>
+        <li style="margin-bottom:8px">복사한 키를 여기 "🔑 Typecast API 키" 입력란에 붙여넣고, "🔄 목소리 불러오기"를 눌러주세요.</li>
+      </ol>
+      <div style="background:rgba(251,191,36,.12);border:1px solid rgba(217,119,6,.35);border-radius:10px;padding:12px;font-size:12.5px;line-height:1.7">
+        ⚠️ <b>중요</b>: 목소리 "조회"(목록 불러오기)는 무료로 되더라도, 실제 "음성 생성"은 <b>유료 플랜 가입이 필요할 수 있어요</b>. 목록은 잘 불러와지는데 "테스트" 버튼에서 403/402 오류가 난다면, 타입캐스트 홈페이지에서 요금제(플랜) 상태를 확인해보시는 걸 추천드려요.
+      </div>`,
+  },
+  google:{
+    title:'📖 구글 보이스 관리자 설정 방법',
+    body:`
+      <p class="hint" style="margin-top:0">이 설정은 <b>관리자(서버 운영자)</b>가 딱 한 번만 하면, 그 뒤로는 모든 DJ가 별도 키 입력 없이 구글 보이스를 바로 쓸 수 있어요.</p>
+      <ol style="padding-left:18px;margin:0 0 14px">
+        <li style="margin-bottom:8px"><a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>에 접속해서 새 프로젝트를 만들거나 기존 프로젝트를 선택해주세요.</li>
+        <li style="margin-bottom:8px">왼쪽 메뉴 <b>"API 및 서비스" → "라이브러리"</b>에서 <b>"Cloud Text-to-Speech API"</b>를 검색해서 "사용 설정"을 눌러주세요.</li>
+        <li style="margin-bottom:8px">처음 만든 프로젝트라면 <b>결제 계정 연결</b>을 요구할 수 있어요. (매달 일정량 무료 제공 — 예: 기본 음성은 매달 약 400만 자, Neural2/Wavenet 같은 고품질 음성은 매달 약 100만 자까지 무료. 그 이상부터만 과금돼요)</li>
+        <li style="margin-bottom:8px"><b>"API 및 서비스" → "사용자 인증 정보" → "+ 사용자 인증 정보 만들기" → "API 키"</b>를 선택해서 키를 발급받아요.</li>
+        <li style="margin-bottom:8px">(보안 권장) 발급된 키의 "키 제한" 설정에서, 이 키가 <b>Cloud Text-to-Speech API에만</b> 쓰이도록 제한해두면 더 안전해요.</li>
+        <li style="margin-bottom:8px">발급받은 키를 <b>Railway 프로젝트 → Variables 탭</b>에서 새 변수로 등록해주세요: 이름 <code>GOOGLE_TTS_API_KEY</code>, 값에 발급받은 키 붙여넣기 → 저장하면 자동으로 재배포돼요.</li>
+      </ol>
+      <div style="background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);border-radius:10px;padding:12px;font-size:12.5px;line-height:1.7">
+        🔒 이 키는 서버 환경변수에만 저장되고, 브라우저(소스보기 포함)에는 절대 노출되지 않아요.
+      </div>`,
+  },
+};
+
+function openTtsGuideModal(type){
+  const g=TTS_GUIDE_CONTENT[type];
+  if(!g)return;
+  document.getElementById('ttsGuideTitle').textContent=g.title;
+  document.getElementById('ttsGuideBody').innerHTML=g.body;
+  document.getElementById('ttsGuideModalOverlay').style.display='flex';
+}
+function closeTtsGuideModal(){
+  document.getElementById('ttsGuideModalOverlay').style.display='none';
 }
 
 function ttsTypecastKeyStorageKey(){ return 'ttsTypecastKey:'+(djId||'guest'); }
