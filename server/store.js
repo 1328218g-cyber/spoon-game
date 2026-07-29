@@ -117,6 +117,26 @@ function validDjId(id) {
   return /^[a-zA-Z0-9_]{2,20}$/.test(id || '');
 }
 
+// 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 관리한다. 관리자(sum) 계정의
+// settings.defaultTrialDays에 저장해두고, signup()이 새 계정을 만들 때 이 값을 읽어서 적용한다.
+// 값이 없으면(처음 세팅 전) 기본 4일을 쓴다. 0으로 설정하면 신규가입자도 처음부터 무제한.
+function getDefaultTrialDays() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.defaultTrialDays;
+  return (typeof v === 'number' && v >= 0) ? v : 4;
+}
+
+function setDefaultTrialDays(days) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: '0 이상의 숫자를 입력해주세요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.defaultTrialDays = n;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function signup(djId, password, referrerId) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
@@ -137,13 +157,17 @@ function signup(djId, password, referrerId) {
     cleanReferrer = rawReferrer;
   }
 
-  // 최초 가입 시 기본 이용기간은 4일 (관리자 sum 계정은 예외로 무제한).
-  // 이후 관리자가 유저 관리 화면에서 언제든 연장/해제할 수 있다.
+  // 최초 가입 시 기본 이용기간은 관리자가 설정한 일수(초기값 4일)로 적용한다 (관리자 sum 계정은 예외로 무제한).
+  // 0으로 설정해두면 신규가입자도 처음부터 무제한으로 시작한다. 이후 관리자가 유저 관리 화면에서
+  // 개별 유저의 만료일을 언제든 연장/해제할 수 있다.
   const settings = defaultSettings();
   if (djId !== 'sum') {
-    const now = Date.now();
-    settings.expiresAt = new Date(now + 4 * 24 * 60 * 60 * 1000).toISOString();
-    settings.expiryStartAt = new Date(now).toISOString();
+    const trialDays = getDefaultTrialDays();
+    if (trialDays > 0) {
+      const now = Date.now();
+      settings.expiresAt = new Date(now + trialDays * 24 * 60 * 60 * 1000).toISOString();
+      settings.expiryStartAt = new Date(now).toISOString();
+    }
   }
 
   djs[djId] = {
@@ -301,4 +325,6 @@ module.exports = {
   verifyPassword,
   changePassword,
   renameDjId,
+  getDefaultTrialDays,
+  setDefaultTrialDays,
 };

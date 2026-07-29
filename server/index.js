@@ -1964,6 +1964,23 @@ app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
   }
 })
 
+// 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
+// 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
+// 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
+app.get('/admin/default-trial-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, days: store.getDefaultTrialDays() })
+})
+
+app.post('/admin/default-trial-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const result = store.setDefaultTrialDays((req.body || {}).days)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
 app.get('/admin/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
