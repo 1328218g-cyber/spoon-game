@@ -1897,6 +1897,21 @@ function registerJoinSnapshot(room, nickname, tag, prevKey) {
   if (room._memberAbsenceCount) room._memberAbsenceCount.delete(key)
 }
 
+// 입장설정(entryData)의 입장/좋아요/퇴장 메시지 중, 대상 지정된 게 있으면 그걸 우선하고
+// 없으면 첫 번째 활성 메시지를 돌려준다. 이 메시지에 음원(soundData)이 붙어있으면 재생 신호를 보낸다.
+function pickEntryMessage(entryData, type, author, tag) {
+  const list = (entryData && entryData[type]) || []
+  const enabled = list.filter(m => m.enabled !== false)
+  if (!enabled.length) return null
+  const norm = s => String(s || '').trim().replace(/^@/, '').toLowerCase()
+  const a = norm(author), t = norm(tag)
+  const targeted = enabled.find(m => {
+    const target = norm(m.target)
+    return !!target && (target === a || (!!t && target === t))
+  })
+  return targeted || enabled[0]
+}
+
 function sendLeaveMessage(djId, settings, nickname) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -1907,6 +1922,8 @@ function sendLeaveMessage(djId, settings, nickname) {
     const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, '')
     setTimeout(() => sendChatToRoom(djId, text), 500)
   }
+  const em = pickEntryMessage(settings.entryData, 'leave', nickname, null)
+  if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
 function startLeavePolling(djId, liveId) {
@@ -2129,6 +2146,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
           }
+          if (isModuleOn(settings, 'entrysettings', djId)) {
+            const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
+            if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
+          }
         }
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
@@ -2143,6 +2164,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
+        }
+        if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
+          const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
+          if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
@@ -2161,6 +2186,16 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, donationTag, author)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
+
+          if (isModuleOn(settings, 'entrysettings', djId)) {
+            const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
+            if (gm && gm.text && gm.text.trim()) {
+              const totalCount = amount * Math.max(1, comboCount)
+              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : '').replace(/{count}/g, totalCount)
+              setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
+            }
+            if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
+          }
         }
       }
     } catch (e) {

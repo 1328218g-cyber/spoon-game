@@ -676,7 +676,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
             <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
           </div>
-          <p class="hint">※ 지금은 <b>입장</b>·<b>좋아요</b>·<b>퇴장</b>·<b>반복문구</b> 탭이 실제로 채팅에 전송돼요. 선물 탭은 화면만 먼저 만들어둔 상태예요.</p>
+          <p class="hint">※ <b>입장</b>·<b>좋아요</b>·<b>퇴장</b>·<b>선물</b>·<b>반복문구</b> 탭 전부 실제로 채팅에 전송돼요. 음원을 첨부하면 방송 중인 내 PC(브라우저)에서 같이 재생돼요.</p>
         </div>
       </div>
 
@@ -2507,7 +2507,7 @@ function renderEntryList(){
       <div class="sound-row">
         <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
         <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
-        ${m.sound ? `<button class="icon-btn danger" onclick="removeEntrySound(${m.id})" title="음원 제거">🗑</button>` : ''}
+        ${m.sound ? `<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="playEntrySoundById('${entryTab}',${m.id})">▶️ 미리듣기</button><button class="icon-btn danger" onclick="removeEntrySound(${m.id})" title="음원 제거">🗑</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -4377,6 +4377,16 @@ function playSoundFxById(id){
 
 function previewSoundFx(id){ playSoundFxById(id); }
 
+function playEntrySoundById(category,id){
+  const list=(entryData && entryData[category])||[];
+  const item=list.find(m=>String(m.id)===String(id));
+  if(!item||!item.soundData)return;
+  try{
+    const audio=new Audio(item.soundData);
+    audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
+  }catch(e){}
+}
+
 async function loadRouletteUsers(){
   try{
     const res=await fetch(SERVER+'/roulette/users',{headers:authHeaders()});
@@ -4756,6 +4766,7 @@ function startSSE(){
     else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
     else if(d.type==='donation')addDonationLog(d);
     else if(d.type==='soundfx')playSoundFxById(d.id);
+    else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
