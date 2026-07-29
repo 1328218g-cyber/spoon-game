@@ -1723,7 +1723,12 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-function isModulePreferenceOn(key){ return moduleEnabled[key]!==false; }
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+function isModulePreferenceOn(key){
+  const v=moduleEnabled[key];
+  if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
+  return v!==false;
+}
 function isModuleVisible(key){ return moduleVisible[key]!==false; }
 
 function isModuleOn(key){
@@ -1769,8 +1774,8 @@ function applyPanelLockState(name){
       panelEl.insertBefore(banner,panelEl.firstChild);
     }
     banner.innerHTML = expiredLock
-      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 관리자에게 문의해주세요.</span>'
-      : '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button>';
+      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 관리자에게 문의해주세요.</span><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>'
+      : '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>';
   } else if(banner){
     banner.remove();
   }
@@ -2622,13 +2627,14 @@ async function loadUserList(){
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td>${isSum?'<span class="status-pill ongoing">항상 허용</span>':`<label class="switch"><input type="checkbox" ${u.autoJoinEnabled?'checked':''} onchange="toggleUserAutoJoin('${escapeAttr(u.djId)}',this.checked)"><span class="slider"></span></label>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
+        <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="adminChangeUserPassword('${escapeAttr(u.djId)}')">🔑 비번변경</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="rebootUserConnection('${escapeAttr(u.djId)}')">🔁 재부팅</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetUserSettings('${escapeAttr(u.djId)}')">🔄 설정초기화</button>`}</td>
         <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }catch(e){
@@ -2673,6 +2679,18 @@ async function toggleBlockUser(djIdTarget,blocked){
     const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/block',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blocked})});
     const d=await res.json();
     if(d.success){showToast(blocked?'차단했어요':'차단 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function adminChangeUserPassword(djIdTarget){
+  const newPassword=prompt('@'+djIdTarget+' 계정의 새 비밀번호를 입력해주세요 (4자 이상)\n※ 본인 확인 없이 바로 변경돼요.');
+  if(newPassword===null)return; // 취소
+  if(!newPassword||newPassword.length<4)return showToast('비밀번호는 4자 이상이어야 해요');
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/change-password',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newPassword})});
+    const d=await res.json();
+    if(d.success){showToast(d.msg||'비밀번호를 변경했어요');}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }

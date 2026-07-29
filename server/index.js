@@ -220,19 +220,24 @@ function escapeRegExp(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// 사이드바 메뉴별 ON/OFF 값을 확인한다. moduleEnabled 필드가 없거나(예전 계정)
-// 해당 키가 명시적으로 false가 아니면 기본은 켜진 것으로 간주한다.
+// 사이드바 메뉴별 ON/OFF 값을 확인한다. moduleEnabled 필드에 그 키가 아예 없는 경우(예전 계정 등)엔
+// 원래 있던 기존 모듈들은 하위호환을 위해 기본 켜진 것으로 간주하지만, 새로 추가되는 모듈은
+// NEW_MODULE_DEFAULT_OFF_KEYS에 등록해두면 값이 없을 때 기본 꺼진 것으로 간주한다 — 그래야 이미
+// 가입해있던 유저들에게도 새 모듈이 자동으로 켜진 채 나타나지 않고, 모듈 마켓에서 직접 켜야만 보인다.
 // 이용 만료일(expiresAt)이 지난 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 강제로 꺼진다.
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
 }
 function isModuleOn(settings, key, djId) {
   if (isAccountExpired(settings, djId) && !EXPIRY_EXEMPT_KEYS.includes(key)) return false
-  return !(settings && settings.moduleEnabled && settings.moduleEnabled[key] === false)
+  const v = settings && settings.moduleEnabled ? settings.moduleEnabled[key] : undefined
+  if (v === undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key)
+  return v !== false
 }
 
 // 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
@@ -2166,6 +2171,20 @@ app.get('/admin/users', auth.requireAuth, (req, res) => {
     return { ...u, isConnected: room.isConnected }
   })
   res.json({ success: true, users })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 비밀번호를 본인 확인 없이 직접 변경한다.
+// (본인이 비밀번호를 잊어버렸을 때 등, 관리자가 대신 초기화해줄 수 있게)
+app.post('/admin/users/:djId/change-password', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  const { newPassword } = req.body || {}
+  const result = store.changePassword(targetId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, msg: `${targetId} 계정의 비밀번호를 변경했어요` })
 })
 
 app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {

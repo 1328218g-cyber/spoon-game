@@ -47,7 +47,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true, lottoauto: true,
+      migrate: true, lottoauto: false, // ※ 새로 추가되는 모듈은 기본 OFF — 유저가 모듈 마켓에서 직접 찾아 켜야 함
     },
     // 사이드바 각 메뉴를 "화면에 표시할지"만 따로 관리한다. moduleEnabled(기능 자체 켜짐/꺼짐)와는 별개라서,
     // 기능은 계속 켜둔 채로(자동 명령어 등은 그대로 동작) 사이드바만 정리해서 안 보이게 할 수 있다.
@@ -218,6 +218,26 @@ function changePassword(djId, newPassword) {
   djs[djId].passwordHash = bcrypt.hashSync(String(newPassword), 10);
   saveDjs(djs);
   return { ok: true };
+}
+
+// 헷갈리기 쉬운 문자(0/O, 1/l/I)는 빼고 무작위 임시 비밀번호를 만든다.
+function generateRandomPassword(length = 8) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let pw = '';
+  for (let i = 0; i < length; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  return pw;
+}
+
+// 비밀번호 찾기(관리자 대신 재설정용) — 이메일 인증 체계가 없어서 본인 확인 후 관리자가
+// 직접 새 비밀번호를 발급해 유저에게 전달해주는 방식으로 운영한다. 관리자 계정(sum)은 대상에서 제외.
+function resetPasswordRandom(djId) {
+  const djs = loadDjs();
+  if (!djs[djId]) return { ok: false, error: '유저를 찾을 수 없어요' };
+  if (djId === 'sum') return { ok: false, error: '관리자 계정은 여기서 재설정할 수 없어요' };
+  const newPassword = generateRandomPassword(8);
+  djs[djId].passwordHash = bcrypt.hashSync(newPassword, 10);
+  saveDjs(djs);
+  return { ok: true, newPassword };
 }
 
 // 아이디(로그인 키)를 변경한다. 설정/가입일/차단여부 등은 그대로 새 아이디로 옮겨간다.
