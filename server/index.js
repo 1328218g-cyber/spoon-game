@@ -1443,14 +1443,20 @@ function getTtsSettings(djId, settings) {
   if (!settings.tts) {
     settings.tts = {
       enabled: false,
-      voice: '',
+      engine: 'browser', // 'browser' | 'google' | 'typecast'
+      voice: '',         // 브라우저 엔진: 음성 이름 / 구글 엔진: GOOGLE_VOICES의 name
+      typecastVoiceId: '',
+      typecastVoiceName: '',
+      typecastModel: 'ssfm-v30',
+      typecastEmotion: 'normal',
       rate: 1.0,
       triggerAmount: 10,
       durationMin: 30,
       maxLen: 50,
       volume: 1.0,
       playChime: false,
-      voicePresets: {}, // { '태그또는닉네임(소문자)': '브라우저 음성 이름' }
+      // { '태그또는닉네임(소문자)': { voice:'브라우저/구글 음성', typecastVoiceId:'', typecastVoiceName:'' } }
+      voicePresets: {},
     }
     store.saveSettings(djId, { tts: settings.tts })
   }
@@ -3148,9 +3154,14 @@ app.post('/tts/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getTtsSettings(req.djId, settings)
-  const { enabled, voice, rate, triggerAmount, durationMin, maxLen, volume, playChime } = req.body || {}
+  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime } = req.body || {}
   if (enabled != null) cfg.enabled = !!enabled
+  if (engine != null && ['browser', 'google', 'typecast'].includes(engine)) cfg.engine = engine
   if (voice != null) cfg.voice = String(voice)
+  if (typecastVoiceId != null) cfg.typecastVoiceId = String(typecastVoiceId)
+  if (typecastVoiceName != null) cfg.typecastVoiceName = String(typecastVoiceName)
+  if (typecastModel != null) cfg.typecastModel = String(typecastModel)
+  if (typecastEmotion != null) cfg.typecastEmotion = String(typecastEmotion)
   if (rate != null) cfg.rate = Math.max(0.5, Math.min(2, Number(rate) || 1))
   if (triggerAmount != null) cfg.triggerAmount = Math.max(1, Number(triggerAmount) || 10)
   if (durationMin != null) cfg.durationMin = Math.max(1, Number(durationMin) || 30)
@@ -3178,12 +3189,18 @@ app.post('/tts/presets', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getTtsSettings(req.djId, settings)
-  const { tag, voice } = req.body || {}
+  const { tag, voice, typecastVoiceId, typecastVoiceName } = req.body || {}
   const key = String(tag || '').trim().replace(/^@/, '').toLowerCase()
   if (!key) return res.json({ success: false, error: '고유닉(또는 닉네임)을 입력해주세요' })
-  if (!voice || !String(voice).trim()) return res.json({ success: false, error: '목소리를 선택해주세요' })
-  if (Object.keys(cfg.voicePresets).length >= 50) return res.json({ success: false, error: '전용 목소리는 최대 50개까지 등록할 수 있어요.' })
-  cfg.voicePresets[key] = String(voice)
+  const hasVoice = voice && String(voice).trim()
+  const hasTypecast = typecastVoiceId && String(typecastVoiceId).trim()
+  if (!hasVoice && !hasTypecast) return res.json({ success: false, error: '목소리를 선택해주세요' })
+  if (!cfg.voicePresets[key] && Object.keys(cfg.voicePresets).length >= 50) return res.json({ success: false, error: '전용 목소리는 최대 50개까지 등록할 수 있어요.' })
+  cfg.voicePresets[key] = {
+    voice: hasVoice ? String(voice) : '',
+    typecastVoiceId: hasTypecast ? String(typecastVoiceId) : '',
+    typecastVoiceName: hasTypecast ? String(typecastVoiceName || typecastVoiceId) : '',
+  }
   store.saveSettings(req.djId, { tts: cfg })
   res.json({ success: true })
 })

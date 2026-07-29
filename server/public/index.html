@@ -1509,21 +1509,75 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>⚙️ TTS 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTtsSettings()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">지정한 스푼 개수 이상 선물을 받으면, 그 유저의 <b>다음 채팅 1개</b>를 내 PC(브라우저)에서 음성으로 읽어줘요. (명령어로 시작하는 채팅은 제외) 읽고 나면 권한은 바로 소진돼요.<br>
-          ※ 무료인 <b>브라우저 내장 TTS</b>만 지원해요 (구글/타입캐스트 같은 유료 API 연동은 지원하지 않아요).</p>
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="ttsEnabled"> TTS 기능 활성화</label>
+          ※ <b>구글/타입캐스트 API 키는 이 브라우저에만 저장</b>되고 서버로는 전송되지 않아요 (각자 본인 키를 써야 안전해요).</p>
+          <label>음성 엔진</label>
+          <select id="ttsEngine" onchange="onTtsEngineChange()">
+            <option value="browser">브라우저 내장 (무료)</option>
+            <option value="google">구글 보이스 (고품질, 본인 API 키 필요)</option>
+            <option value="typecast">타입캐스트 (AI 한국어, 본인 API 키 필요)</option>
+          </select>
+
+          <div id="ttsBrowserVoiceWrap">
+            <label>음성 선택</label>
+            <select id="ttsVoiceSelect"><option value="">-- 로딩 중 --</option></select>
+          </div>
+
+          <div id="ttsGoogleWrap" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
+            <label>🔑 Google Cloud TTS API 키</label>
+            <div style="display:flex;gap:6px">
+              <input type="password" id="ttsGoogleApiKey" placeholder="본인의 Google Cloud API 키를 입력하세요" style="flex:1" oninput="ttsSaveGoogleKeyLocal()">
+              <button class="btn-gray" onclick="toggleKeyVisibility('ttsGoogleApiKey')">👁</button>
+            </div>
+            <label style="margin-top:10px">음성 선택</label>
+            <select id="ttsGoogleVoiceSelect" onchange="saveTtsSettings()"></select>
+          </div>
+
+          <div id="ttsTypecastWrap" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="margin:0">🔑 Typecast API 키</label>
+              <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="ttsTypecastLoadVoices()">🔄 목소리 불러오기</button>
+            </div>
+            <div style="display:flex;gap:6px">
+              <input type="password" id="ttsTypecastApiKey" placeholder="본인의 Typecast API 키를 입력하세요" style="flex:1" oninput="ttsSaveTypecastKeyLocal()">
+              <button class="btn-gray" onclick="toggleKeyVisibility('ttsTypecastApiKey')">👁</button>
+            </div>
+            <label style="margin-top:10px">목소리 선택</label>
+            <select id="ttsTypecastVoiceSelect" onchange="saveTtsSettings()"><option value="">-- 목소리 불러오기 버튼 클릭 --</option></select>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:8px">
+              <div><label>감정 선택</label>
+                <select id="ttsTypecastEmotion" onchange="saveTtsSettings()">
+                  <option value="normal">보통 (normal)</option>
+                  <option value="happy">기쁨 (happy)</option>
+                  <option value="sad">슬픔 (sad)</option>
+                  <option value="angry">화남 (angry)</option>
+                  <option value="calm">차분 (calm)</option>
+                  <option value="fear">두려움 (fear)</option>
+                  <option value="surprised">놀람 (surprised)</option>
+                  <option value="disgust">역겨움 (disgust)</option>
+                </select>
+              </div>
+              <div><label>모델</label>
+                <select id="ttsTypecastModel" onchange="saveTtsSettings()">
+                  <option value="ssfm-v30">ssfm-v30 (최신·권장)</option>
+                  <option value="ssfm-v21">ssfm-v21 (안정)</option>
+                </select>
+              </div>
+            </div>
+            <div id="ttsTypecastStatus" class="hint" style="margin-top:8px"></div>
+          </div>
+
+          <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="ttsEnabled"> TTS 기능 활성화</label>
           <label class="check-opt"><input type="checkbox" id="ttsPlayChime"> 🔔 읽기 전 알림음 재생</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>음성 선택</label><select id="ttsVoiceSelect"><option value="">-- 로딩 중 --</option></select></div>
             <div><label>말하기 속도 (0.5~2.0)</label><input type="number" id="ttsRate" value="1.0" min="0.5" max="2" step="0.1"></div>
-          </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
             <div><label>트리거 스푼 개수</label><input type="number" id="ttsTriggerAmount" value="10" min="1"></div>
-            <div><label>권한 유지 시간 (분)</label><input type="number" id="ttsDurationMin" value="30" min="1"></div>
           </div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>권한 유지 시간 (분)</label><input type="number" id="ttsDurationMin" value="30" min="1"></div>
             <div><label>최대 읽기 글자수</label><input type="number" id="ttsMaxLen" value="50" min="1" max="200"></div>
-            <div><label>음성 볼륨 (<span id="ttsVolumeLabel">100</span>%)</label><input type="range" id="ttsVolume" min="0" max="100" value="100" oninput="document.getElementById('ttsVolumeLabel').textContent=this.value"></div>
           </div>
+          <label>음성 볼륨 (<span id="ttsVolumeLabel">100</span>%)</label>
+          <input type="range" id="ttsVolume" min="0" max="100" value="100" oninput="document.getElementById('ttsVolumeLabel').textContent=this.value">
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
             <button class="btn-connect" onclick="ttsTest()">🔊 테스트</button>
             <button class="btn-shield-reset" onclick="ttsResetAccess()">🗑️ 권한 전체 초기화</button>
@@ -1538,7 +1592,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title">🎙️ 고유닉별 전용 목소리 설정</div>
-          <p class="hint" style="margin-bottom:10px">특정 고유닉(또는 닉네임)에게는 항상 지정한 브라우저 목소리로 읽어줘요. 비워두면 기본 음성으로 읽어요.</p>
+          <p class="hint" style="margin-bottom:10px">특정 고유닉(또는 닉네임)에게는 항상 지정한 목소리로 읽어줘요 (지금 선택된 엔진 기준). 비워두면 기본 음성으로 읽어요.</p>
           <div class="btn-row" style="grid-template-columns:1fr 1fr auto">
             <div><label>고유닉 (또는 닉네임)</label><input type="text" id="ttsPresetTag" placeholder="예: sum"></div>
             <div><label>전용 목소리</label><select id="ttsPresetVoiceSelect"><option value="">-- 로딩 중 --</option></select></div>
@@ -4468,29 +4522,119 @@ function playSoundFxById(id){
 
 function previewSoundFx(id){ playSoundFxById(id); }
 
-/* ── 🎙️ TTS (브라우저 내장 무료 음성) ── */
-let ttsData={enabled:false,voice:'',rate:1,triggerAmount:10,durationMin:30,maxLen:50,volume:1,playChime:false,voicePresets:{}};
+/* ── 🎙️ TTS (브라우저 내장 / 구글 보이스 / 타입캐스트) ── */
+const GOOGLE_VOICES=[
+  {name:'ko-KR-Wavenet-A',label:'민지 (한국어 여성)'},
+  {name:'ko-KR-Wavenet-B',label:'소라 (한국어 여성)'},
+  {name:'ko-KR-Standard-A',label:'유나 (한국어 여성)'},
+  {name:'ko-KR-Standard-B',label:'하나 (한국어 여성)'},
+  {name:'ko-KR-Neural2-A',label:'서연 (한국어 여성 고품질)'},
+  {name:'ko-KR-Neural2-B',label:'지우 (한국어 여성 고품질)'},
+  {name:'ko-KR-Wavenet-C',label:'준호 (한국어 남성)'},
+  {name:'ko-KR-Wavenet-D',label:'민호 (한국어 남성)'},
+  {name:'ko-KR-Standard-C',label:'태호 (한국어 남성)'},
+  {name:'ko-KR-Standard-D',label:'지훈 (한국어 남성)'},
+  {name:'ko-KR-Neural2-C',label:'동현 (한국어 남성 고품질)'},
+  {name:'ko-KR-Neural2-D',label:'경민 (한국어 남성 고품질)'},
+  {name:'en-US-Neural2-F',label:'아리아 (영어 여성 고품질)'},
+  {name:'en-US-Neural2-A',label:'제이슨 (영어 남성 고품질)'},
+];
+function ttsGoogleVoiceOption(name){
+  const lang=name.startsWith('en-')?'en-US':name.startsWith('ja-')?'ja-JP':name.startsWith('cmn-')?'cmn-CN':'ko-KR';
+  const gender=/-[A-Z]$/.test(name)&&['A','B'].includes(name.slice(-1))?'FEMALE':'MALE';
+  return {languageCode:lang,name:name,ssmlGender:gender};
+}
+
+let ttsData={enabled:false,engine:'browser',voice:'',typecastVoiceId:'',typecastVoiceName:'',typecastModel:'ssfm-v30',typecastEmotion:'normal',rate:1,triggerAmount:10,durationMin:30,maxLen:50,volume:1,playChime:false,voicePresets:{}};
 let ttsActiveUsers=[];
 let ttsLogEntries=[];
 let ttsQueue=[];
 let ttsPlaying=false;
 let ttsVoicesList=[];
+let ttsTypecastVoices=[]; // [{voice_id, voice_name}]
+
+function toggleKeyVisibility(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.type=el.type==='password'?'text':'password';
+}
+
+function ttsGoogleKeyStorageKey(){ return 'ttsGoogleKey:'+(djId||'guest'); }
+function ttsTypecastKeyStorageKey(){ return 'ttsTypecastKey:'+(djId||'guest'); }
+function ttsGetGoogleKey(){ try{ return localStorage.getItem(ttsGoogleKeyStorageKey())||''; }catch(e){ return ''; } }
+function ttsGetTypecastKey(){ try{ return localStorage.getItem(ttsTypecastKeyStorageKey())||''; }catch(e){ return ''; } }
+function ttsSaveGoogleKeyLocal(){ try{ localStorage.setItem(ttsGoogleKeyStorageKey(),document.getElementById('ttsGoogleApiKey').value.trim()); }catch(e){} }
+function ttsSaveTypecastKeyLocal(){ try{ localStorage.setItem(ttsTypecastKeyStorageKey(),document.getElementById('ttsTypecastApiKey').value.trim()); }catch(e){} }
+
+function onTtsEngineChange(){
+  const engine=document.getElementById('ttsEngine').value;
+  document.getElementById('ttsBrowserVoiceWrap').style.display=engine==='browser'?'block':'none';
+  document.getElementById('ttsGoogleWrap').style.display=engine==='google'?'block':'none';
+  document.getElementById('ttsTypecastWrap').style.display=engine==='typecast'?'block':'none';
+  renderTtsPresetVoiceOptions();
+  saveTtsSettings();
+}
+
+function ttsFillGoogleVoiceSelect(){
+  const sel=document.getElementById('ttsGoogleVoiceSelect');
+  if(!sel)return;
+  sel.innerHTML=GOOGLE_VOICES.map(v=>`<option value="${v.name}">${escapeHtml(v.label)}</option>`).join('');
+  sel.value=ttsData.voice&&GOOGLE_VOICES.find(v=>v.name===ttsData.voice)?ttsData.voice:GOOGLE_VOICES[0].name;
+}
 
 function ttsLoadBrowserVoices(){
   if(!window.speechSynthesis)return;
   ttsVoicesList=window.speechSynthesis.getVoices()||[];
-  const fillSelect=(sel,selected)=>{
-    if(!sel)return;
-    const cur=selected!=null?selected:sel.value;
+  const sel=document.getElementById('ttsVoiceSelect');
+  if(sel){
+    const cur=ttsData.voice||sel.value;
     sel.innerHTML='<option value="">-- 기본 음성 --</option>'+ttsVoicesList.map(v=>`<option value="${escapeAttr(v.name)}">${escapeHtml(v.name)} (${escapeHtml(v.lang)})</option>`).join('');
     sel.value=cur||'';
-  };
-  fillSelect(document.getElementById('ttsVoiceSelect'),ttsData.voice);
-  fillSelect(document.getElementById('ttsPresetVoiceSelect'),'');
+  }
+  renderTtsPresetVoiceOptions();
 }
 if(window.speechSynthesis){
   window.speechSynthesis.onvoiceschanged=ttsLoadBrowserVoices;
   ttsLoadBrowserVoices();
+}
+
+// "고유닉별 전용 목소리" 드롭다운은 지금 선택된 엔진에 맞는 목소리 목록을 보여준다.
+function renderTtsPresetVoiceOptions(){
+  const sel=document.getElementById('ttsPresetVoiceSelect');
+  if(!sel)return;
+  const engine=document.getElementById('ttsEngine')?document.getElementById('ttsEngine').value:'browser';
+  if(engine==='google'){
+    sel.innerHTML='<option value="">(기본 목소리)</option>'+GOOGLE_VOICES.map(v=>`<option value="${v.name}">${escapeHtml(v.label)}</option>`).join('');
+  } else if(engine==='typecast'){
+    sel.innerHTML='<option value="">(기본 목소리)</option>'+ttsTypecastVoices.map(v=>`<option value="${escapeAttr(v.voice_id)}">${escapeHtml(v.voice_name)}</option>`).join('');
+  } else {
+    sel.innerHTML='<option value="">(기본 목소리)</option>'+ttsVoicesList.map(v=>`<option value="${escapeAttr(v.name)}">${escapeHtml(v.name)} (${escapeHtml(v.lang)})</option>`).join('');
+  }
+}
+
+async function ttsTypecastLoadVoices(){
+  const statusEl=document.getElementById('ttsTypecastStatus');
+  const apiKey=ttsGetTypecastKey();
+  if(!apiKey){ if(statusEl)statusEl.innerHTML='<span style="color:#ef4444">❌ API 키를 먼저 입력해주세요.</span>'; return; }
+  if(statusEl)statusEl.innerHTML='<span style="color:#7c3aed">⏳ 목소리 불러오는 중...</span>';
+  try{
+    const res=await fetch('https://api.typecast.ai/v2/voices',{headers:{'X-API-KEY':apiKey}});
+    if(!res.ok) throw new Error(res.status===401?'API 키가 올바르지 않습니다':('HTTP '+res.status));
+    const data=await res.json();
+    const voices=Array.isArray(data)?data:(data.voices||data.data||[]);
+    if(!voices.length) throw new Error('목소리 없음');
+    ttsTypecastVoices=voices.map(v=>({
+      voice_id: v.voice_id||v.id,
+      voice_name: v.voice_name||v.name||v.actor_name||v.display_name||v.label||v.voice_id,
+    }));
+    const sel=document.getElementById('ttsTypecastVoiceSelect');
+    sel.innerHTML=ttsTypecastVoices.map(v=>`<option value="${escapeAttr(v.voice_id)}">${escapeHtml(v.voice_name)}</option>`).join('');
+    if(ttsData.typecastVoiceId) sel.value=ttsData.typecastVoiceId;
+    renderTtsPresetVoiceOptions();
+    if(statusEl)statusEl.innerHTML=`<span style="color:#22c55e">✅ 목소리 ${voices.length}개 로드 완료!</span>`;
+  }catch(e){
+    if(statusEl)statusEl.innerHTML=`<span style="color:#ef4444">❌ 오류: ${e.message}</span>`;
+  }
 }
 
 async function loadTtsData(){
@@ -4507,12 +4651,19 @@ async function loadTtsData(){
       if(enabledBox){
         enabledBox.checked=ttsData.enabled!==false;
         document.getElementById('ttsPlayChime').checked=!!ttsData.playChime;
+        document.getElementById('ttsEngine').value=ttsData.engine||'browser';
         document.getElementById('ttsRate').value=ttsData.rate!=null?ttsData.rate:1;
         document.getElementById('ttsTriggerAmount').value=ttsData.triggerAmount||10;
         document.getElementById('ttsDurationMin').value=ttsData.durationMin||30;
         document.getElementById('ttsMaxLen').value=ttsData.maxLen||50;
         document.getElementById('ttsVolume').value=Math.round((ttsData.volume!=null?ttsData.volume:1)*100);
         document.getElementById('ttsVolumeLabel').textContent=document.getElementById('ttsVolume').value;
+        document.getElementById('ttsGoogleApiKey').value=ttsGetGoogleKey();
+        document.getElementById('ttsTypecastApiKey').value=ttsGetTypecastKey();
+        document.getElementById('ttsTypecastModel').value=ttsData.typecastModel||'ssfm-v30';
+        document.getElementById('ttsTypecastEmotion').value=ttsData.typecastEmotion||'normal';
+        ttsFillGoogleVoiceSelect();
+        onTtsEngineChangeSilent();
         ttsLoadBrowserVoices();
         renderTtsPresetList();
       }
@@ -4521,11 +4672,26 @@ async function loadTtsData(){
   }catch(e){}
 }
 
+// loadTtsData 중에 화면만 갱신하고, saveTtsSettings는 호출하지 않는 버전 (불필요한 저장 방지)
+function onTtsEngineChangeSilent(){
+  const engine=document.getElementById('ttsEngine').value;
+  document.getElementById('ttsBrowserVoiceWrap').style.display=engine==='browser'?'block':'none';
+  document.getElementById('ttsGoogleWrap').style.display=engine==='google'?'block':'none';
+  document.getElementById('ttsTypecastWrap').style.display=engine==='typecast'?'block':'none';
+  renderTtsPresetVoiceOptions();
+}
+
 async function saveTtsSettings(){
+  const engine=document.getElementById('ttsEngine').value;
   const body={
     enabled:document.getElementById('ttsEnabled').checked,
+    engine,
     playChime:document.getElementById('ttsPlayChime').checked,
-    voice:document.getElementById('ttsVoiceSelect').value,
+    voice:engine==='google'?document.getElementById('ttsGoogleVoiceSelect').value:document.getElementById('ttsVoiceSelect').value,
+    typecastVoiceId:document.getElementById('ttsTypecastVoiceSelect').value,
+    typecastVoiceName:(document.getElementById('ttsTypecastVoiceSelect').selectedOptions[0]||{}).textContent||'',
+    typecastModel:document.getElementById('ttsTypecastModel').value,
+    typecastEmotion:document.getElementById('ttsTypecastEmotion').value,
     rate:Number(document.getElementById('ttsRate').value)||1,
     triggerAmount:Number(document.getElementById('ttsTriggerAmount').value)||10,
     durationMin:Number(document.getElementById('ttsDurationMin').value)||30,
@@ -4555,12 +4721,9 @@ function renderTtsActiveList(){
 }
 setInterval(()=>{ if(ttsActiveUsers.length) renderTtsActiveList(); },15000);
 
-function ttsResolveVoice(nickname){
+function ttsResolvePreset(nickname){
   const key=String(nickname||'').trim().toLowerCase();
-  const presetName=ttsData.voicePresets&&ttsData.voicePresets[key];
-  const voiceName=presetName||ttsData.voice;
-  if(!voiceName)return null;
-  return ttsVoicesList.find(v=>v.name===voiceName)||null;
+  return (ttsData.voicePresets&&ttsData.voicePresets[key])||null;
 }
 
 function ttsPlayChimeBeep(){
@@ -4589,26 +4752,77 @@ function ttsEnqueue(nickname,text){
   ttsPlayNext();
 }
 
-function ttsPlayNext(){
+async function ttsPlayNext(){
   if(ttsPlaying||ttsQueue.length===0)return;
-  if(!window.speechSynthesis){ ttsQueue=[]; return; }
   ttsPlaying=true;
   const item=ttsQueue.shift();
   const afterPlay=()=>{ ttsPlaying=false; setTimeout(ttsPlayNext,150); };
-  const speak=()=>{
+  const preset=ttsResolvePreset(item.nickname);
+
+  const playViaBrowser=()=>{
+    if(!window.speechSynthesis){ afterPlay(); return; }
     try{
       const utt=new SpeechSynthesisUtterance(item.text);
-      const voice=ttsResolveVoice(item.nickname);
+      const voiceName=(preset&&preset.voice)||ttsData.voice;
+      const voice=voiceName?ttsVoicesList.find(v=>v.name===voiceName):null;
       if(voice){ utt.voice=voice; utt.lang=voice.lang; } else { utt.lang='ko-KR'; }
       utt.volume=Math.max(0,Math.min(1,ttsData.volume!=null?ttsData.volume:1));
       utt.rate=Math.max(0.5,Math.min(2,ttsData.rate||1));
-      utt.onend=afterPlay;
-      utt.onerror=afterPlay;
+      utt.onend=afterPlay; utt.onerror=afterPlay;
       window.speechSynthesis.speak(utt);
     }catch(e){ afterPlay(); }
   };
-  if(ttsData.playChime){ ttsPlayChimeBeep(); setTimeout(speak,400); }
-  else speak();
+
+  const playViaGoogle=async()=>{
+    const apiKey=ttsGetGoogleKey();
+    if(!apiKey){ showToast('구글 보이스 API 키를 먼저 입력해주세요'); afterPlay(); return; }
+    try{
+      const voiceName=(preset&&preset.voice)||ttsData.voice||GOOGLE_VOICES[0].name;
+      const res=await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key='+encodeURIComponent(apiKey),{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({input:{text:item.text},voice:ttsGoogleVoiceOption(voiceName),audioConfig:{audioEncoding:'MP3'}})
+      });
+      const data=await res.json();
+      if(!data.audioContent) throw new Error(data.error?.message||'음성 생성 실패');
+      const audio=new Audio('data:audio/mp3;base64,'+data.audioContent);
+      audio.volume=Math.max(0,Math.min(1,ttsData.volume!=null?ttsData.volume:1));
+      audio.onended=afterPlay; audio.onerror=afterPlay;
+      audio.play().catch(afterPlay);
+    }catch(e){ showToast('구글 보이스 오류: '+e.message); afterPlay(); }
+  };
+
+  const playViaTypecast=async()=>{
+    const apiKey=ttsGetTypecastKey();
+    const voiceId=(preset&&preset.typecastVoiceId)||ttsData.typecastVoiceId;
+    if(!apiKey){ showToast('타입캐스트 API 키를 먼저 입력해주세요'); afterPlay(); return; }
+    if(!voiceId){ showToast('타입캐스트 목소리를 먼저 선택해주세요'); afterPlay(); return; }
+    try{
+      const res=await fetch('https://api.typecast.ai/v1/text-to-speech',{
+        method:'POST',headers:{'Content-Type':'application/json','X-API-KEY':apiKey},
+        body:JSON.stringify({
+          voice_id:voiceId, text:item.text, model:ttsData.typecastModel||'ssfm-v30', language:'kor',
+          prompt:{emotion_type:'preset',emotion_preset:ttsData.typecastEmotion||'normal',emotion_intensity:1.0},
+          output:{volume:100,audio_pitch:0,audio_tempo:Math.max(0.5,Math.min(2,ttsData.rate||1)),audio_format:'wav'}
+        })
+      });
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const buf=await res.arrayBuffer();
+      const url=URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+      const audio=new Audio(url);
+      audio.volume=Math.max(0,Math.min(1,ttsData.volume!=null?ttsData.volume:1));
+      audio.onended=()=>{URL.revokeObjectURL(url);afterPlay();};
+      audio.onerror=()=>{URL.revokeObjectURL(url);afterPlay();};
+      audio.play().catch(()=>{URL.revokeObjectURL(url);afterPlay();});
+    }catch(e){ showToast('타입캐스트 오류: '+e.message); afterPlay(); }
+  };
+
+  const doSpeak=()=>{
+    if(ttsData.engine==='google') playViaGoogle();
+    else if(ttsData.engine==='typecast') playViaTypecast();
+    else playViaBrowser();
+  };
+  if(ttsData.playChime){ ttsPlayChimeBeep(); setTimeout(doSpeak,400); }
+  else doSpeak();
 }
 
 function ttsTest(){
@@ -4627,30 +4841,41 @@ async function ttsResetAccess(){
 }
 
 function renderTtsPresetList(){
+  renderTtsPresetVoiceOptions();
   const wrap=document.getElementById('ttsPresetListWrap');
   if(!wrap)return;
   const entries=Object.entries(ttsData.voicePresets||{});
   if(!entries.length){ wrap.innerHTML='<p class="hint">등록된 전용 목소리가 없어요.</p>'; return; }
-  wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+entries.map(([tag,voice])=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 12px">
-      <div><b>${escapeHtml(tag)}</b><div class="hint" style="margin:2px 0 0">${escapeHtml(voice)}</div></div>
+  wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+entries.map(([tag,p])=>{
+    const label=p.typecastVoiceId?('🎙️ '+(p.typecastVoiceName||p.typecastVoiceId)+' (타입캐스트)'):(p.voice||'(기본)');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 12px">
+      <div><b>${escapeHtml(tag)}</b><div class="hint" style="margin:2px 0 0">${escapeHtml(label)}</div></div>
       <div style="display:flex;gap:6px">
-        <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewTtsPresetVoice('${escapeAttr(voice)}')">▶️</button>
+        <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewTtsPresetByTag('${escapeAttr(tag)}')">▶️</button>
         <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeTtsPreset('${escapeAttr(tag)}')">삭제</button>
       </div>
-    </div>`).join('')+'</div>';
+    </div>`;
+  }).join('')+'</div>';
 }
 
 async function addTtsPreset(){
   const tag=document.getElementById('ttsPresetTag').value.trim();
-  const voice=document.getElementById('ttsPresetVoiceSelect').value;
+  const voiceVal=document.getElementById('ttsPresetVoiceSelect').value;
+  const engine=document.getElementById('ttsEngine').value;
   if(!tag)return showToast('고유닉(또는 닉네임)을 입력해주세요');
-  if(!voice)return showToast('목소리를 선택해주세요');
+  if(!voiceVal)return showToast('목소리를 선택해주세요');
+  const body={tag};
+  if(engine==='typecast'){
+    body.typecastVoiceId=voiceVal;
+    body.typecastVoiceName=(document.getElementById('ttsPresetVoiceSelect').selectedOptions[0]||{}).textContent||voiceVal;
+  } else {
+    body.voice=voiceVal;
+  }
   try{
-    const res=await fetch(SERVER+'/tts/presets',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,voice})});
+    const res=await fetch(SERVER+'/tts/presets',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
     if(d.success){
-      ttsData.voicePresets[tag.toLowerCase()]=voice;
+      ttsData.voicePresets[tag.toLowerCase()]={voice:body.voice||'',typecastVoiceId:body.typecastVoiceId||'',typecastVoiceName:body.typecastVoiceName||''};
       document.getElementById('ttsPresetTag').value='';
       renderTtsPresetList();
       showToast('전용 목소리를 등록했어요');
@@ -4667,9 +4892,25 @@ async function removeTtsPreset(tag){
   }catch(e){showToast('오류: '+e.message);}
 }
 
-function previewTtsPresetVoice(voiceName){
+function previewTtsPresetByTag(tag){
+  const preset=(ttsData.voicePresets||{})[tag];
+  if(!preset)return;
+  previewTtsPreset(preset);
+}
+
+function previewTtsPreset(preset){
+  if(preset.typecastVoiceId){
+    ttsQueue.unshift({nickname:'__preview__',text:'안녕하세요, 이 목소리로 읽어드릴게요.'});
+    const saved=Object.assign({},ttsData);
+    ttsData=Object.assign({},ttsData,{engine:'typecast',typecastVoiceId:preset.typecastVoiceId});
+    ttsPlayNext();
+    setTimeout(()=>{ttsData=saved;},50);
+    return;
+  }
   if(!window.speechSynthesis)return;
-  const voice=ttsVoicesList.find(v=>v.name===voiceName);
+  const engine=document.getElementById('ttsEngine').value;
+  if(engine==='google'){ showToast('구글 보이스 미리듣기는 목소리 저장 후 테스트 버튼으로 확인해주세요'); return; }
+  const voice=ttsVoicesList.find(v=>v.name===preset.voice);
   const utt=new SpeechSynthesisUtterance('안녕하세요, 이 목소리로 읽어드릴게요.');
   if(voice){utt.voice=voice;utt.lang=voice.lang;}
   window.speechSynthesis.speak(utt);
@@ -4685,6 +4926,7 @@ function renderTtsLog(){
 }
 
 function ttsClearLog(){ ttsLogEntries=[]; renderTtsLog(); }
+
 
 function playEntrySoundById(category,id){
   const list=(entryData && entryData[category])||[];
