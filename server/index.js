@@ -4223,7 +4223,7 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
 
 // 킵목록/기타목록/이벤트목록 관리 (add / remove / clear)
 app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
-  const { listType, action, text } = req.body || {}
+  const { listType, action, text, amount } = req.body || {}
   const key = listType === 'keep' ? 'keepList' : listType === 'event' ? 'eventList' : 'miscList'
   const settings = store.getSettings(req.djId) || {}
   const rec = getHistoryRec(settings, req.params.tag)
@@ -4234,6 +4234,11 @@ app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
       rec[key][text] -= 1
       if (rec[key][text] <= 0) delete rec[key][text]
     }
+  }
+  else if (action === 'set' && text) {
+    const n = Math.max(0, Math.floor(Number(amount) || 0))
+    if (n <= 0) delete rec[key][text]
+    else rec[key][text] = n
   }
   else if (action === 'remove' && text) delete rec[key][text]
   else if (action === 'clear') rec[key] = {}

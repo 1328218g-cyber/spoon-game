@@ -6621,6 +6621,7 @@ function renderRlListCard(title,listType,tag,items){
       <div style="display:flex;gap:4px;flex-shrink:0">
         <button class="icon-btn" style="padding:2px 8px;font-size:13px" onclick="rlListAction('${escapeAttr(tag)}','${listType}','dec','${escapeAttr(name)}')">−</button>
         <button class="icon-btn" style="padding:2px 8px;font-size:13px" onclick="rlListAction('${escapeAttr(tag)}','${listType}','inc','${escapeAttr(name)}')">＋</button>
+        <button class="icon-btn" style="padding:2px 8px;font-size:13px" onclick="rlListEditPrompt('${escapeAttr(tag)}','${listType}','${escapeAttr(name)}',${count})">✏️</button>
         <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove','${escapeAttr(name)}')">🗑</button>
       </div>
     </div>`).join('') : '<p class="hint" style="margin:0">기록된 항목이 없습니다.</p>';
@@ -6634,6 +6635,21 @@ function renderRlListCard(title,listType,tag,items){
     </div>
     ${rows}
   </div>`;
+}
+
+function rlListEditPrompt(tag,listType,name,currentCount){
+  const input=prompt(`"${name}" 개수를 입력하세요 (0을 입력하면 삭제됩니다)`,currentCount);
+  if(input===null)return;
+  const n=parseInt(input,10);
+  if(isNaN(n)||n<0)return showToast('올바른 숫자를 입력해주세요');
+  rlListSetAmount(tag,listType,name,n);
+}
+
+async function rlListSetAmount(tag,listType,text,amount){
+  try{
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/list',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({listType,action:'set',text,amount})});
+    loadRouletteHistory(tag);
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 function rlListAddPrompt(tag,listType){
