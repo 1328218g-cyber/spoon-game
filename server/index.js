@@ -262,7 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1744,6 +1744,151 @@ function getUserNotesData(djId, settings) {
 }
 
 // ══════════════════════════════════════════════════════
+// 🔔 디스코드 방송 알림 — 봇이 방송에 새로 연결될 때마다(자동입장/다중감시/즉시입장 등 어떤
+// 경로로 들어오든 전부) 디스코드 웹후크로 "방송 시작" 알림을 자동으로 보낸다.
+
+function getDiscordNotifySettings(djId, settings) {
+  if (!settings.discordNotify) {
+    settings.discordNotify = {
+      webhookUrl: '',
+      manualStreamName: '',
+      enabled: true,
+      title: '🔴 방송 시작!',
+      description: '🎙️ **{스트림}**님이 방송을 시작했어요!\n👇 아래 링크 누르면 바로 입장!',
+      streamUrlTemplate: 'https://www.spooncast.net/kr/live/@{스트림}',
+      cooldownMinutes: 30,
+      lastSentAt: 0,
+      lastStreamName: '',
+    }
+    store.saveSettings(djId, { discordNotify: settings.discordNotify })
+  }
+  return settings.discordNotify
+}
+
+async function sendDiscordNotify(cfg, streamName) {
+  const url = (cfg.webhookUrl || '').trim()
+  if (!url) return { ok: false, error: '웹후크 URL이 비어있습니다.' }
+  const validPrefixes = ['https://discord.com/api/webhooks/', 'https://discordapp.com/api/webhooks/', 'https://canary.discord.com/api/webhooks/', 'https://ptb.discord.com/api/webhooks/']
+  if (!validPrefixes.some(p => url.startsWith(p))) {
+    return { ok: false, error: '올바른 디스코드 웹후크 URL이 아니에요. (https://discord.com/api/webhooks/... 형식)' }
+  }
+
+  const cleanName = String(streamName || '').replace(/^@+/, '').trim()
+  let streamUrl = ''
+  const urlTpl = (cfg.streamUrlTemplate || '').trim()
+  if (urlTpl && cleanName) streamUrl = urlTpl.replace(/\{스트림\}/g, cleanName)
+
+  const now = new Date()
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  const timeStr = `${hh}:${mm}`
+  const subst = s => String(s == null ? '' : s)
+    .replace(/\{스트림\}/g, cleanName || '방송')
+    .replace(/\{시간\}/g, timeStr)
+    .replace(/\{링크\}/g, streamUrl || '')
+
+  const title = subst(cfg.title || '🔴 방송 시작!')
+  const description = subst(cfg.description || '')
+  const embed = { title, color: 0x7c3aed, timestamp: now.toISOString() }
+  if (description) embed.description = description
+  if (streamUrl && /^https?:\/\//i.test(streamUrl)) {
+    embed.url = streamUrl
+    embed.fields = [{ name: '🎙️ 방송 입장하기', value: streamUrl, inline: false }]
+  }
+  const payload = { content: '', embeds: [embed], allowed_mentions: { parse: [] } }
+
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!res.ok) {
+      let body = ''
+      try { body = await res.text() } catch (e) {}
+      return { ok: false, error: `HTTP ${res.status} ${res.statusText} - ${body.slice(0, 200)}` }
+    }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
+// 봇이 방송에 새로 연결될 때마다(connectSpoonForDj의 ws 'open' 콜백에서) 호출된다.
+// 쿨다운(재접속 시 중복 알림 방지) 검사 후, 조건에 맞으면 실제로 웹후크를 쏜다.
+async function notifyDiscordOnConnect(djId, streamName) {
+  try {
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'discordnotify', djId)) return
+    const cfg = getDiscordNotifySettings(djId, settings)
+    if (cfg.enabled === false) return
+    const finalName = (cfg.manualStreamName || '').trim().replace(/^@+/, '') || String(streamName || '').replace(/^@+/, '').trim()
+
+    const cooldownMs = Math.max(0, Number(cfg.cooldownMinutes) || 0) * 60000
+    if (cooldownMs > 0 && finalName) {
+      const elapsed = Date.now() - (Number(cfg.lastSentAt) || 0)
+      if (cfg.lastStreamName === finalName && elapsed < cooldownMs) {
+        console.log(`[디스코드알림:${djId}] 쿨다운 중 - 스킵`)
+        return
+      }
+    }
+    const r = await sendDiscordNotify(cfg, finalName)
+    if (r.ok) {
+      cfg.lastSentAt = Date.now()
+      if (finalName) cfg.lastStreamName = finalName
+      store.saveSettings(djId, { discordNotify: cfg })
+      console.log(`[디스코드알림:${djId}] ✅ 발송 완료 (${finalName || '미확정'})`)
+    } else {
+      console.log(`[디스코드알림:${djId}] ❌ 발송 실패:`, r.error)
+    }
+  } catch (e) {
+    console.log(`[디스코드알림:${djId}] 오류:`, e.message)
+  }
+}
+
+// 채팅 명령어: !알림테스트 / !알림초기화 / !알림상태 (DJ/매니저 전용)
+async function handleDiscordNotifyCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'discordnotify', djId)) return
+  const msg = String(text || '').trim()
+  if (!['!알림테스트', '!알림초기화', '!알림상태'].includes(msg)) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const act = getActivitySettings(djId, settings)
+  const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+  const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+  if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ DJ/매니저만 사용 가능합니다.'), 400); return }
+
+  const cfg = getDiscordNotifySettings(djId, settings)
+
+  if (msg === '!알림테스트') {
+    const finalName = (cfg.manualStreamName || '').trim().replace(/^@+/, '') || String(room.watchingTag || '').replace(/^@+/, '').trim()
+    setTimeout(() => sendChatToRoom(djId, `📡 디스코드 테스트 알림 발송 중... (방송명: ${finalName || '(없음)'})`), 300)
+    const r = await sendDiscordNotify(cfg, finalName)
+    setTimeout(() => sendChatToRoom(djId, r.ok ? '✅ 디스코드 알림 전송 성공!' : ('❌ 전송 실패: ' + r.error)), 800)
+    return
+  }
+  if (msg === '!알림초기화') {
+    cfg.lastSentAt = 0
+    cfg.lastStreamName = ''
+    store.saveSettings(djId, { discordNotify: cfg })
+    setTimeout(() => sendChatToRoom(djId, '🔄 디스코드 알림 쿨다운이 초기화되었습니다.'), 300)
+    return
+  }
+  if (msg === '!알림상태') {
+    const manual = (cfg.manualStreamName || '').trim() || '(없음)'
+    const watching = room.watchingTag || '(없음)'
+    const lastSentStr = cfg.lastSentAt ? new Date(cfg.lastSentAt).toLocaleString('ko-KR') : '(없음)'
+    const resolved = (cfg.manualStreamName || '').trim().replace(/^@+/, '') || String(room.watchingTag || '').replace(/^@+/, '').trim() || '(없음)'
+    const body = [
+      '📊 디스코드 알림 상태',
+      `▸ 설정 수동 방송명: ${manual}`,
+      `▸ 현재 감시/입장 태그: ${watching}`,
+      `▸ 최종 결정값: ${resolved}`,
+      `▸ 마지막 알림 방송: ${cfg.lastStreamName || '(없음)'}`,
+      `▸ 마지막 알림 시각: ${lastSentStr}`,
+      `▸ 봇 접속 중: ${room.isConnected ? '예' : '아니오'}`,
+    ].join('\n')
+    sendChatSplit(djId, body, 150, 600)
+    return
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -2393,6 +2538,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       }))
     }
     broadcast({ type: 'status', djId, isConnected: true })
+    notifyDiscordOnConnect(djId, room.watchingTag)
     // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
     startLeavePolling(djId, liveId)
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
@@ -2462,6 +2608,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDiceCommand(djId, settings, author, text)
           handleWheelCommand(djId, room, settings, author, authorId, text)
           handleCouponCommand(djId, room, settings, author, authorId, liveId, text)
+          handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -3721,6 +3868,44 @@ app.post('/usernotes/delete', auth.requireAuth, (req, res) => {
   const key = String((req.body || {}).tag || '').trim()
   delete notes[key]
   store.saveSettings(req.djId, { userNotes: notes })
+  res.json({ success: true })
+})
+
+// 🔔 디스코드 방송 알림
+app.get('/discordnotify/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getDiscordNotifySettings(req.djId, settings), room: { watchingTag: getRoom(req.djId).watchingTag || '', isConnected: getRoom(req.djId).isConnected } })
+})
+app.post('/discordnotify/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'discordnotify', req.djId)) return res.json({ success: false, error: '디스코드 알림 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  const { webhookUrl, manualStreamName, enabled, title, description, streamUrlTemplate, cooldownMinutes } = req.body || {}
+  if (webhookUrl != null) cfg.webhookUrl = String(webhookUrl).trim()
+  if (manualStreamName != null) cfg.manualStreamName = String(manualStreamName).trim().replace(/^@+/, '')
+  if (enabled != null) cfg.enabled = !!enabled
+  if (title != null) cfg.title = String(title).slice(0, 200)
+  if (description != null) cfg.description = String(description).slice(0, 1500)
+  if (streamUrlTemplate != null) cfg.streamUrlTemplate = String(streamUrlTemplate).slice(0, 300)
+  if (cooldownMinutes != null) cfg.cooldownMinutes = Math.max(0, Math.min(1440, Number(cooldownMinutes) || 0))
+  store.saveSettings(req.djId, { discordNotify: cfg })
+  res.json({ success: true })
+})
+app.post('/discordnotify/test', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'discordnotify', req.djId)) return res.json({ success: false, error: '디스코드 알림 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  const finalName = (cfg.manualStreamName || '').trim().replace(/^@+/, '') || String(room.watchingTag || '').replace(/^@+/, '').trim()
+  const r = await sendDiscordNotify(cfg, finalName)
+  res.json(r.ok ? { success: true } : { success: false, error: r.error })
+})
+app.post('/discordnotify/reset-cooldown', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  cfg.lastSentAt = 0
+  cfg.lastStreamName = ''
+  store.saveSettings(req.djId, { discordNotify: cfg })
   res.json({ success: true })
 })
 

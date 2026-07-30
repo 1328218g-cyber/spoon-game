@@ -56,6 +56,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .nav-star{font-size:12px;color:var(--border);flex-shrink:0;cursor:pointer;transition:color .12s}
 .nav-star:hover{color:var(--warn)}
 .nav-star.filled{color:var(--warn)}
+.sidebar.edit-mode .nav-item{cursor:default}
+.nav-order-btns{display:flex;flex-direction:column;gap:1px;margin-left:4px;flex-shrink:0}
+.nav-order-btns button{width:16px;height:14px;font-size:9px;line-height:1;padding:0;border:none;background:var(--surface2);color:var(--muted);border-radius:3px;cursor:pointer}
+.nav-order-btns button:hover{background:var(--accent);color:#fff}
 
 /* ── 메인 영역 ── */
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -69,9 +73,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 .content{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 26px 60px}
 .panel{display:none;max-width:640px}
-.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"]{max-width:100%}
+.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"],.panel[data-panel="userlist"]{max-width:100%}
 @media (min-width:861px){
   .panel[data-panel="usernotes"] .split-card,.panel[data-panel="autogrant"] .split-card,.panel[data-panel="roulettelog"] .split-card,.panel[data-panel="loyalty"] .split-card{max-width:1200px}
+  .panel[data-panel="userlist"] .card{max-width:1400px}
 }
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -275,7 +280,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .status-pill.dday{background:rgba(251,146,60,.15);color:#fb923c}
 
 /* ── 유저 관리 ── */
-.user-table{width:100%;border-collapse:collapse;font-size:13px}
+.user-table{width:100%;min-width:960px;border-collapse:collapse;font-size:13px}
 .user-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border)}
 .user-table td{padding:10px;border-bottom:1px solid var(--border)}
 .user-table tr:last-child td{border-bottom:none}
@@ -458,6 +463,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
     </div>
 
+    <div style="padding:10px 16px 4px">
+      <button id="sidebarEditBtn" onclick="toggleSidebarEditMode()" style="width:100%;padding:8px;font-size:12px;font-weight:600;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:9px;cursor:pointer">✏️ 메뉴 순서 편집</button>
+    </div>
+
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
@@ -497,6 +506,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="wheelroulette"><span class="ic">🎡</span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -1825,6 +1835,48 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
+
+      <!-- 🔔 디스코드 방송 알림 -->
+      <div class="panel" data-panel="discordnotify">
+        <div class="card">
+          <div class="card-title"><span>🔔 디스코드 방송 알림 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveDiscordNotifySettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">봇이 방송에 새로 접속할 때마다(자동입장/다중감시/즉시입장 어떤 경로든) 디스코드 채널에 자동으로 알림을 보내요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="dnEnabled" checked> 알림 활성화</label>
+          <label>디스코드 웹후크 URL</label>
+          <input type="password" id="dnWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+          <div class="hint" style="margin-top:6px">디스코드 채널 → 설정(톱니바퀴) → 연동 → 웹후크 → 새 웹후크 → URL 복사</div>
+          <label>기본 방송명 (@아이디, 선택)</label>
+          <input type="text" id="dnManualStreamName" placeholder="예: edibot (앞의 @ 빼고)">
+          <div class="hint" style="margin-top:6px">비워두면 지금 감시/입장 중인 고유닉을 자동으로 써요. 채워두면 항상 이 값을 우선 사용해요.</div>
+          <label>알림 제목</label>
+          <input type="text" id="dnTitle" value="🔴 방송 시작!">
+          <label>알림 본문</label>
+          <textarea id="dnDescription" style="height:80px">🎙️ **{스트림}**님이 방송을 시작했어요!
+👇 아래 링크 누르면 바로 입장!</textarea>
+          <div class="hint" style="margin-top:6px">변수: {스트림} = 방송명, {시간} = 시작 시각, {링크} = 방송 URL</div>
+          <label>방송 링크 형식</label>
+          <input type="text" id="dnStreamUrlTemplate" value="https://www.spooncast.net/kr/live/@{스트림}">
+          <label>중복 방지 시간 (분)</label>
+          <input type="number" id="dnCooldownMinutes" value="30" min="0" max="1440" style="max-width:140px">
+          <div class="hint" style="margin-top:6px">같은 방송에 이 시간 안에 재접속해도 알림을 또 보내지 않아요 (네트워크 끊김 대비). 0 = 끄기</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <button class="btn-connect" onclick="testDiscordNotify()">📡 테스트 발송</button>
+            <button class="btn-gray" onclick="resetDiscordCooldown()">🔄 쿨다운 초기화</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">📊 현재 상태</div>
+          <div id="dnStatusWrap" class="hint">불러오는 중...</div>
+        </div>
+        <div class="card">
+          <div class="card-title">⌨️ 채팅 명령어 (DJ/매니저 전용)</div>
+          <p class="hint">
+          · !알림테스트 — 지금 바로 테스트 알림을 보내요<br>
+          · !알림초기화 — 중복 방지 쿨다운을 초기화해요<br>
+          · !알림상태 — 현재 설정/상태를 채팅으로 확인해요
+          </p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -2115,6 +2167,7 @@ function enterApp(){
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
   if(isAdmin) loadUserList();
+  applySidebarOrder();
 
   initApp();
   selectPanel(isAdmin ? 'session' : 'entrysettings');
@@ -2171,6 +2224,7 @@ const PANEL_META={
   wheelroulette:['🎡 돌림판 룰렛','5개 페이지의 회전판을 직접 돌려서 경품을 추첨합니다'],
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
+  discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -2190,8 +2244,87 @@ function selectPanel(name){
 
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
+/* ── ✏️ 사이드바 메뉴 순서 편집 (같은 그룹 안에서만 이동, 이 브라우저에만 저장) ── */
+let sidebarEditMode=false;
+
+function sidebarOrderKey(){ return 'sidebarOrder:'+(djId||'guest'); }
+function loadSidebarOrder(){
+  try{ return JSON.parse(localStorage.getItem(sidebarOrderKey())||'{}'); }catch(e){ return {}; }
+}
+function saveSidebarOrderData(data){
+  try{ localStorage.setItem(sidebarOrderKey(),JSON.stringify(data)); }catch(e){}
+}
+
+// 사이드바 DOM을 "그룹 라벨" 기준으로 순회하며 { label, labelEl, items:[nav-item...] } 배열을 만든다.
+// 그룹 구조를 JS에 따로 하드코딩하지 않고, 실제 화면 구조를 그대로 읽어서 쓰기 때문에
+// 나중에 메뉴가 추가/삭제돼도 이 로직은 손댈 필요가 없다.
+function getSidebarGroups(){
+  const sidebar=document.getElementById('sidebar');
+  const children=Array.from(sidebar.children).filter(el=>el.classList.contains('nav-group-label')||el.classList.contains('nav-item'));
+  const groups=[]; let current=null;
+  children.forEach(el=>{
+    if(el.classList.contains('nav-group-label')){ current={label:el.textContent.trim(),labelEl:el,items:[]}; groups.push(current); }
+    else if(current) current.items.push(el);
+  });
+  return groups;
+}
+
+// 저장된 순서가 있으면 그대로, 없던 새 메뉴는 원래 순서 그대로 뒤에 붙여서 적용
+function applySidebarOrder(){
+  const saved=loadSidebarOrder();
+  getSidebarGroups().forEach(g=>{
+    const order=saved[g.label];
+    if(!order||!order.length)return;
+    const byKey={}; g.items.forEach(el=>{ byKey[el.dataset.panel]=el; });
+    const ordered=[];
+    order.forEach(k=>{ if(byKey[k]){ ordered.push(byKey[k]); delete byKey[k]; } });
+    g.items.forEach(el=>{ if(byKey[el.dataset.panel]) ordered.push(el); });
+    let anchor=g.labelEl;
+    ordered.forEach(el=>{ anchor.after(el); anchor=el; });
+  });
+}
+
+function toggleSidebarEditMode(){
+  sidebarEditMode=!sidebarEditMode;
+  document.getElementById('sidebarEditBtn').textContent=sidebarEditMode?'✅ 편집 완료':'✏️ 메뉴 순서 편집';
+  document.getElementById('sidebar').classList.toggle('edit-mode',sidebarEditMode);
+  renderSidebarEditControls();
+}
+
+function renderSidebarEditControls(){
+  document.querySelectorAll('.nav-order-btns').forEach(el=>el.remove());
+  if(!sidebarEditMode)return;
+  getSidebarGroups().forEach(g=>{
+    g.items.forEach(el=>{
+      const btns=document.createElement('span');
+      btns.className='nav-order-btns';
+      btns.innerHTML='<button type="button" onclick="event.stopPropagation();moveSidebarItem(this,-1)">▲</button><button type="button" onclick="event.stopPropagation();moveSidebarItem(this,1)">▼</button>';
+      el.appendChild(btns);
+    });
+  });
+}
+
+function moveSidebarItem(btn,dir){
+  const item=btn.closest('.nav-item');
+  const group=getSidebarGroups().find(g=>g.items.includes(item));
+  if(!group)return;
+  const idx=group.items.indexOf(item);
+  const targetIdx=idx+dir;
+  if(targetIdx<0||targetIdx>=group.items.length)return;
+  const target=group.items[targetIdx];
+  if(dir<0) item.parentNode.insertBefore(item,target);
+  else item.parentNode.insertBefore(target,item);
+
+  const saved=loadSidebarOrder();
+  const refreshed=getSidebarGroups().find(g=>g.label===group.label);
+  saved[group.label]=refreshed.items.map(el=>el.dataset.panel);
+  saveSidebarOrderData(saved);
+  renderSidebarEditControls();
+}
+
+
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2203,7 +2336,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3047,6 +3180,7 @@ async function loadDjSettings(){
       if(document.getElementById('wheelPageTabBar')) loadWheelData();
       if(document.getElementById('couponTitle')) loadCouponData();
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
+      if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       renderEntryList();
     }
   }catch(e){}
@@ -6102,6 +6236,70 @@ async function deleteNotesUser(key){
     notesSelectedKey=null;
     document.getElementById('notesDetailWrap').innerHTML='<p class="hint">왼쪽에서 메모를 남길 유저를 선택해주세요.</p>';
     renderNotesUserList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🔔 디스코드 방송 알림 ── */
+async function loadDiscordNotifyData(){
+  try{
+    const res=await fetch(SERVER+'/discordnotify/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('dnEnabled').checked=s.enabled!==false;
+    document.getElementById('dnWebhookUrl').value=s.webhookUrl||'';
+    document.getElementById('dnManualStreamName').value=s.manualStreamName||'';
+    document.getElementById('dnTitle').value=s.title||'🔴 방송 시작!';
+    document.getElementById('dnDescription').value=s.description||'';
+    document.getElementById('dnStreamUrlTemplate').value=s.streamUrlTemplate||'';
+    document.getElementById('dnCooldownMinutes').value=s.cooldownMinutes!=null?s.cooldownMinutes:30;
+
+    const statusWrap=document.getElementById('dnStatusWrap');
+    const resolved=(s.manualStreamName||'').trim()||(d.room&&d.room.watchingTag)||'(없음)';
+    const lastSentStr=s.lastSentAt?new Date(s.lastSentAt).toLocaleString('ko-KR'):'(없음)';
+    statusWrap.innerHTML=`
+      ▸ 현재 감시/입장 태그: ${escapeHtml((d.room&&d.room.watchingTag)||'(없음)')}<br>
+      ▸ 최종 결정 방송명: ${escapeHtml(resolved)}<br>
+      ▸ 마지막 알림 방송: ${escapeHtml(s.lastStreamName||'(없음)')}<br>
+      ▸ 마지막 알림 시각: ${lastSentStr}<br>
+      ▸ 봇 접속 중: ${(d.room&&d.room.isConnected)?'예 🟢':'아니오'}
+    `;
+  }catch(e){}
+}
+
+async function saveDiscordNotifySettings(){
+  const body={
+    enabled:document.getElementById('dnEnabled').checked,
+    webhookUrl:document.getElementById('dnWebhookUrl').value,
+    manualStreamName:document.getElementById('dnManualStreamName').value,
+    title:document.getElementById('dnTitle').value,
+    description:document.getElementById('dnDescription').value,
+    streamUrlTemplate:document.getElementById('dnStreamUrlTemplate').value,
+    cooldownMinutes:Number(document.getElementById('dnCooldownMinutes').value)||0,
+  };
+  try{
+    const res=await fetch(SERVER+'/discordnotify/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadDiscordNotifyData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function testDiscordNotify(){
+  showToast('📡 테스트 알림 발송 중...');
+  try{
+    const res=await fetch(SERVER+'/discordnotify/test',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)showToast('✅ 디스코드 알림 전송 성공!');
+    else showToast('❌ 전송 실패: '+(d.error||''));
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resetDiscordCooldown(){
+  try{
+    await fetch(SERVER+'/discordnotify/reset-cooldown',{method:'POST',headers:authHeaders()});
+    showToast('🔄 쿨다운을 초기화했어요');
+    loadDiscordNotifyData();
   }catch(e){showToast('오류: '+e.message);}
 }
 
