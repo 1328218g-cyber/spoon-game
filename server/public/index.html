@@ -549,7 +549,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
       </div>
       <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
-      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
     </div>
 
     <div class="expiry-row" id="expiryRow">
@@ -1987,6 +1987,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </div>
 
 <!-- 👤 내정보 (아이디 / 비밀번호 변경) -->
+<!-- 🎓 처음 오신 분을 위한 튜토리얼 -->
+<div id="tutorialOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTutorial()">
+  <div class="modal-box" style="max-width:560px;max-height:86vh;overflow-y:auto">
+    <div class="modal-title"><span>🎓 에디봇 시작 가이드</span><button class="icon-btn" onclick="closeTutorial()">✕</button></div>
+    <div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px" id="tutorialDots"></div>
+    <div id="tutorialBody" style="font-size:14px;line-height:1.75"></div>
+    <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:18px">
+      <button class="btn-gray" id="tutorialPrevBtn" onclick="tutorialMove(-1)">← 이전</button>
+      <button class="btn-connect" id="tutorialNextBtn" onclick="tutorialMove(1)">다음 →</button>
+    </div>
+    <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="tutorialDontShowAgain"> 다시 보지 않기 <span class="hint-inline">(상단의 "❓ 튜토리얼" 버튼으로 언제든 다시 볼 수 있어요)</span></label>
+  </div>
+</div>
 <!-- 📖 TTS API 키 발급 가이드 -->
 <div id="ttsGuideModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTtsGuideModal()">
   <div class="modal-box" style="max-width:520px;max-height:82vh;overflow-y:auto">
@@ -2224,6 +2237,133 @@ function logout(){
 const ADMIN_DJ_ID='sum';
 
 /* ── 👤 내정보 (아이디 / 비밀번호 변경) ── */
+/* ── 🎓 처음 오신 분을 위한 튜토리얼 ── */
+const TUTORIAL_STEPS=[
+  {
+    title:'👋 환영해요!',
+    html:`
+      <p>에디봇에 가입해주셔서 감사해요! 방송 켜기 전에 <b>딱 두 가지만</b> 먼저 설정하면, 그 다음부턴 봇이 알아서 다 해줘요.</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px">
+        <div style="font-weight:700;margin-bottom:8px">오늘 순서대로 따라와주세요</div>
+        <div style="display:flex;gap:8px;margin-bottom:6px"><span>1️⃣</span><span><b>자동입장</b> — 방송 켜면 봇이 알아서 들어오게 하기</span></div>
+        <div style="display:flex;gap:8px;margin-bottom:6px"><span>2️⃣</span><span><b>입장 설정</b> — 시청자 입장/좋아요/선물 인사말 꾸미기</span></div>
+        <div style="display:flex;gap:8px"><span>3️⃣</span><span><b>모듈 마켓</b> — 룰렛·애청지수 등 필요한 기능 켜기</span></div>
+      </div>
+      <p class="hint" style="margin-top:14px">이 창은 언제든 상단의 <b>"❓ 튜토리얼"</b> 버튼으로 다시 열 수 있어요.</p>
+    `
+  },
+  {
+    title:'1️⃣ 자동입장 — 내 고유닉 등록하기',
+    html:`
+      <p>사이드바에서 <b>🚪 자동입장</b> 메뉴를 눌러주세요.</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">🤖 봇 기능 스위치</div>
+        <p class="hint" style="margin:0">맨 위 스위치가 <b>켜짐</b>인지 먼저 확인하세요. 꺼져있으면 명령어에 아예 반응을 안 해요.</p>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">👁 다중 감시 (자동)</div>
+        <p class="hint" style="margin:0 0 8px">
+        1. <b>"감시할 고유닉 목록"</b> 칸에 <b>본인 고유닉</b>을 입력하세요 (예: sum)<br>
+        2. 한 줄에 하나씩이니, 다른 사람 방송도 같이 감시하고 싶으면 그 아래 줄에 추가로 적어도 돼요<br>
+        3. <b>"👁 감시 시작"</b> 버튼을 누르세요
+        </p>
+        <p class="hint" style="margin:0">이제부터 등록한 고유닉 중 누구든 방송을 켜면, 봇이 <b>자동으로</b> 그 방에 들어가요. 방송을 꺼도 봇은 자동으로 인식해서 다음 방송을 기다려요.</p>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">🚪 지금 바로 입장하고 싶다면</div>
+        <p class="hint" style="margin:0">위쪽 <b>"방 입장"</b> 카드의 <b>"DJ 고유닉"</b> 칸에 고유닉을 넣고 <b>"🚪 지금 입장하기"</b>를 누르면 즉시 입장해요. (다중감시와는 별개로, 지금 당장 한 번만 들어가고 싶을 때 써요)</p>
+      </div>
+    `
+  },
+  {
+    title:'2️⃣ 입장 설정 — 인사말 꾸미기',
+    html:`
+      <p>사이드바에서 <b>👋 입장 설정</b> 메뉴를 눌러주세요.</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">탭 5종류</div>
+        <p class="hint" style="margin:0">🚪 입장 · 🚶 퇴장 · ❤️ 좋아요 · 🎁 선물 · 🔁 반복문구 — 각 탭마다 따로 문구를 등록해요. 전부 실제로 스푼 채팅창에 전송돼요.</p>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">메시지 추가하는 법</div>
+        <p class="hint" style="margin:0 0 8px">
+        1. <b>"+ 메시지 추가"</b> 클릭<br>
+        2. 문구 입력 (예: "{nickname}님 어서오세요! 🎉")<br>
+        3. <b>{nickname}</b> = 시청자 닉네임, <b>{tag}</b> = 고유닉, <b>{count}</b> = 몇 번째인지로 자동 치환돼요<br>
+        4. <b>"특정 대상 설정"</b>에 닉네임/고유닉을 넣으면 그 사람 전용 문구가 되고, 비워두면 전체 대상이에요<br>
+        5. 🎵 <b>음원 선택</b>으로 mp3를 붙이면, 방송 중인 내 PC(브라우저)에서 같이 재생돼요 — 이 화면을 켜둔 채로 방송하세요!
+        </p>
+        <p class="hint" style="margin:0">다 적었으면 꼭 <b>"💾 저장"</b>을 눌러주세요.</p>
+      </div>
+    `
+  },
+  {
+    title:'3️⃣ 모듈 마켓 — 필요한 기능 켜기',
+    html:`
+      <p>사이드바 <b>🛒 모듈 마켓</b>에서 원하는 기능을 골라 켤 수 있어요. 새로 추가된 기능들은 기본 꺼짐 상태라, 여기서 직접 켜셔야 사이드바에 나타나요.</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">인기 기능 예시</div>
+        <p class="hint" style="margin:0">
+        🎡 룰렛 설정 — 스푼/스티커 조건에 맞춰 자동 추첨<br>
+        ⭐ 애청지수 — 채팅·좋아요·출석으로 레벨업, 복권 지급<br>
+        🛡️ 실드 관리 — 채팅 명령어로 실드 적립/차감<br>
+        💰 펀딩·🚩 깃발 — 목표 금액 진행률 표시<br>
+        📊 대시보드 — 날짜별 스푼 기록과 랭킹 한눈에 보기
+        </p>
+      </div>
+      <p class="hint" style="margin-top:10px">각 메뉴 화면에서 자세한 설명과 채팅 명령어 사용법도 같이 안내해드려요. 편하게 하나씩 눌러보면서 익혀보세요!</p>
+    `
+  },
+  {
+    title:'🎉 준비 완료!',
+    html:`
+      <p>이제 방송 켜고 실제로 봇이 잘 들어오는지, 인사말이 잘 나오는지 확인해보세요!</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px">
+        <div style="font-weight:700;margin-bottom:6px">막히는 부분이 있다면</div>
+        <p class="hint" style="margin:0">
+        · 상단 <b>"❓ 튜토리얼"</b> 버튼으로 이 가이드를 언제든 다시 볼 수 있어요<br>
+        · 화면 하단(랜딩 페이지)에 있는 <b>카카오톡 채널</b>로 문의하시면 빠르게 도와드려요
+        </p>
+      </div>
+      <p style="margin-top:14px;text-align:center;font-weight:700">방송 운영, 이제 에디봇에게 맡기세요! 🥄</p>
+    `
+  },
+];
+let tutorialStepIdx=0;
+
+function tutorialSeenKey(){ return 'tutorialSeen:'+(djId||'guest'); }
+
+function openTutorial(){
+  tutorialStepIdx=0;
+  document.getElementById('tutorialOverlay').style.display='flex';
+  renderTutorialStep();
+}
+function closeTutorial(){
+  document.getElementById('tutorialOverlay').style.display='none';
+  if(document.getElementById('tutorialDontShowAgain').checked){
+    try{ localStorage.setItem(tutorialSeenKey(),'1'); }catch(e){}
+  }
+}
+function tutorialMove(dir){
+  const next=tutorialStepIdx+dir;
+  if(next<0)return;
+  if(next>=TUTORIAL_STEPS.length){ closeTutorial(); return; }
+  tutorialStepIdx=next;
+  renderTutorialStep();
+}
+function renderTutorialStep(){
+  const step=TUTORIAL_STEPS[tutorialStepIdx];
+  document.getElementById('tutorialBody').innerHTML=`<h3 style="margin:0 0 12px">${step.title}</h3>${step.html}`;
+  document.getElementById('tutorialDots').innerHTML=TUTORIAL_STEPS.map((_,i)=>`<span style="width:8px;height:8px;border-radius:50%;background:${i===tutorialStepIdx?'var(--accent)':'var(--border)'}"></span>`).join('');
+  document.getElementById('tutorialPrevBtn').style.visibility=tutorialStepIdx===0?'hidden':'visible';
+  document.getElementById('tutorialNextBtn').textContent=tutorialStepIdx===TUTORIAL_STEPS.length-1?'완료 ✓':'다음 →';
+  document.getElementById('tutorialBody').scrollTop=0;
+}
+function maybeAutoShowTutorial(){
+  try{
+    if(!localStorage.getItem(tutorialSeenKey())) openTutorial();
+  }catch(e){}
+}
+
 function openMyInfoModal(){
   const isAdmin=djId===ADMIN_DJ_ID;
   document.getElementById('miIdSection').style.display=isAdmin?'none':'block';
@@ -2331,6 +2471,7 @@ function enterApp(){
 
   initApp();
   selectPanel(isAdmin ? 'session' : 'entrysettings');
+  maybeAutoShowTutorial();
 }
 
 async function tryAutoLogin(){
