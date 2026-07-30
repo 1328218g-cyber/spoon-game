@@ -243,7 +243,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -746,7 +746,7 @@ function actNoUserMsg(act, input) {
 
 function actEnsureUser(act, key, nickname, tag) {
   if (!act.users[key]) {
-    act.users[key] = { nickname: nickname || key, tag: tag || null, heart: 0, chat: 0, attend: 0, lp: 0, lotto: 0, exp: 0, lastAttendTime: 0 }
+    act.users[key] = { nickname: nickname || key, tag: tag || null, heart: 0, chat: 0, attend: 0, lp: 0, lotto: 0, exp: 0, lastAttendTime: 0, imgUrl: '' }
   } else {
     if (nickname) act.users[key].nickname = nickname
     if (tag) act.users[key].tag = tag
@@ -756,7 +756,7 @@ function actEnsureUser(act, key, nickname, tag) {
 
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
-function handleActChatHook(djId, settings, author, tag) {
+function handleActChatHook(djId, settings, author, tag, profileUrl) {
   if (!isModuleOn(settings, 'loyalty', djId)) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
@@ -765,13 +765,14 @@ function handleActChatHook(djId, settings, author, tag) {
   const d = act.users[key]
   d.nickname = author
   if (tag) d.tag = tag
+  if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
   actGrantExp(djId, act, key, Number(act.scoreChat) || 2)
   store.saveSettings(djId, { activity: act })
 }
 
 // 무료 좋아요 수신 시 훅
-function handleActHeartHook(djId, settings, author, tag) {
+function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   if (!isModuleOn(settings, 'loyalty', djId)) return
   const act = getActivitySettings(djId, settings)
   if (act.enabled === false) return
@@ -780,6 +781,7 @@ function handleActHeartHook(djId, settings, author, tag) {
   const d = act.users[key]
   d.nickname = author
   if (tag) d.tag = tag
+  if (profileUrl) d.imgUrl = profileUrl
   d.heart = (d.heart || 0) + 1
   actGrantExp(djId, act, key, Number(act.scoreHeart) || 1)
   store.saveSettings(djId, { activity: act })
@@ -1555,6 +1557,174 @@ function recordDashboardHeart(djId, settings, nickname, tag) {
 }
 
 // ══════════════════════════════════════════════════════
+// 🎡 돌림판 룰렛 — DJ가 웹 화면에서 직접 돌리는 SVG 회전판. 1~5페이지, 페이지마다
+// 독립된 항목/확률/효과음/TTS/결과문구를 가진다. "!돌림판 [1~5]" 로 페이지를 열어달라는
+// 신호를 보낼 수 있고(자동으로 화면이 열리진 않음, 웹 특성상), 실제 회전은 DJ가 화면에서
+// 직접 "GO" 버튼을 눌러야 한다. 회전 결과는 채팅으로 자동 브로드캐스트된다.
+
+const WHEEL_PAGE_COUNT = 5
+
+function defaultWheelPage() {
+  return {
+    items: [
+      { label: '리방권', weight: 10, color: '#f59e0b' },
+      { label: '방송 소환권', weight: 30, color: '#64748b' },
+      { label: '복권 10장', weight: 15, color: '#a855f7' },
+      { label: '5분동안 냥냥체', weight: 15, color: '#fb923c' },
+      { label: '10분간 배경이미지 변경', weight: 5, color: '#7c2d12' },
+      { label: '10분간 방제 변경', weight: 10, color: '#ec4899' },
+      { label: '마실 500', weight: 10, color: '#06b6d4' },
+      { label: '실드 500', weight: 5, color: '#ef4444' },
+    ],
+    soundEnabled: true,
+    ttsEnabled: true,
+    spinSeconds: 5,
+    resultTemplate: '🎡 돌림판 결과: {result}',
+  }
+}
+
+function getWheelSettings(djId, settings) {
+  if (!settings.wheelRoulette) {
+    settings.wheelRoulette = { activePage: 0, pages: Array.from({ length: WHEEL_PAGE_COUNT }, defaultWheelPage) }
+    store.saveSettings(djId, { wheelRoulette: settings.wheelRoulette })
+  }
+  if (!Array.isArray(settings.wheelRoulette.pages) || settings.wheelRoulette.pages.length !== WHEEL_PAGE_COUNT) {
+    const d = Array.from({ length: WHEEL_PAGE_COUNT }, defaultWheelPage)
+    const src = Array.isArray(settings.wheelRoulette.pages) ? settings.wheelRoulette.pages : []
+    settings.wheelRoulette.pages = d.map((dp, i) => Object.assign({}, dp, src[i] || {}))
+  }
+  return settings.wheelRoulette
+}
+
+// "!돌림판" 또는 "!돌림판 3" — DJ/매니저가 채팅으로 요청하면, 지금 웹 화면을 열어둔
+// 브라우저에 "이 페이지 좀 보여줘" 신호를 SSE로 보낸다. (웹에서는 채팅만으로 화면을
+// 강제로 띄울 수는 없어서, 이미 돌림판 화면을 켜둔 경우에만 자동으로 페이지가 전환된다)
+async function handleWheelCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'wheelroulette', djId)) return
+  const msg = String(text || '').trim()
+  const m = msg.match(/^!돌림판(?:\s+(\d))?$/)
+  if (!m) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const act = getActivitySettings(djId, settings)
+  const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+  const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+  if (!canManage) { setTimeout(() => sendChatToRoom(djId, '🎡 돌림판은 DJ 또는 매니저만 사용할 수 있어요.'), 400); return }
+  let page = null
+  if (m[1]) { const n = parseInt(m[1], 10); if (n >= 1 && n <= WHEEL_PAGE_COUNT) page = n - 1 }
+  broadcast({ type: 'wheelopen', djId, page })
+  const pageMsg = page !== null ? ` (${page + 1}페이지)` : ''
+  setTimeout(() => sendChatToRoom(djId, `🎡 돌림판을 준비해주세요${pageMsg}!`), 400)
+}
+
+// DJ가 웹 화면에서 실제로 돌려서 결과가 나오면, 그 결과를 채팅에 브로드캐스트한다.
+// (실제 처리는 아래 POST /wheel/spin-result 라우트에서)
+
+// ══════════════════════════════════════════════════════
+// 🎟️ 쿠폰 확인 — "!쿠폰"으로 복권/룰렛권 보유 현황을 한 번에 확인한다.
+// 로컬 버전처럼 별도 장부를 새로 만들지 않고, 이미 있는 애청지수(복권)와
+// 룰렛 기록(룰렛권) 데이터를 그대로 읽어서 보여준다 — 데이터가 두 곳에서 따로 노는 걸 방지.
+
+function getCouponCheckSettings(djId, settings) {
+  if (!settings.couponCheck) {
+    settings.couponCheck = {
+      title: '🎟️ 쿠폰 보유 현황',
+      footer: '보유 쿠폰 조회 완료!',
+      showZeroRoulette: true,
+      cmdCoupon: '!쿠폰',
+      cmdGive: '!룰렛권지급',
+      cmdSync: '!쿠폰동기화',
+    }
+    store.saveSettings(djId, { couponCheck: settings.couponCheck })
+  }
+  return settings.couponCheck
+}
+
+async function handleCouponCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'couponcheck', djId)) return
+  const cfg = getCouponCheckSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const parts = msg.split(/\s+/)
+  const first = parts[0]
+  const cmdCoupon = cfg.cmdCoupon || '!쿠폰'
+  const cmdGive = cfg.cmdGive || '!룰렛권지급'
+  const cmdSync = cfg.cmdSync || '!쿠폰동기화'
+
+  if (first === cmdCoupon) {
+    const act = getActivitySettings(djId, settings)
+    const key = findActUserKey(act, author)
+    const lotto = key ? (act.users[key].lotto || 0) : 0
+    const rec = getHistoryRec(settings, author) // 룰렛 기록은 닉네임 기준으로 저장됨
+    const rouletteList = ((settings.roulette || {}).list || [])
+    const lines = []
+    rouletteList.forEach((r, i) => {
+      const idx = i + 1
+      const count = Number(rec.coupons[idx] || 0)
+      if (cfg.showZeroRoulette !== false || count > 0) {
+        lines.push(`🎡 ${r.name || ('룰렛' + idx)}: ${count}장`)
+      }
+    })
+    const body = [
+      cfg.title || '🎟️ 쿠폰 보유 현황',
+      `👤 ${author}님`,
+      `🎫 복권: ${lotto}장`,
+      lines.length ? lines.join('\n') : '🎡 룰렛권: 0장',
+      '━━━━━━━━━━━━',
+      cfg.footer || '보유 쿠폰 조회 완료!',
+    ].join('\n')
+    sendChatSplit(djId, body, 150, 600)
+    return
+  }
+
+  if (first === cmdGive || first === cmdSync) {
+    const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    const act = getActivitySettings(djId, settings)
+    const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
+    const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ 매니저 이상만 사용 가능합니다.'), 400); return }
+
+    const rouletteNo = parseInt(parts[1], 10)
+    const targetInput = parts[2]
+    const countVal = parseInt(parts[3], 10)
+    if (!rouletteNo || !targetInput || isNaN(countVal)) {
+      setTimeout(() => sendChatToRoom(djId, `사용법: ${first === cmdGive ? cmdGive : cmdSync} 1 @고유닉 3`), 400)
+      return
+    }
+
+    // ⚠️ 오타로 조용히 없는 유저가 만들어지지 않도록, 지금 방에 실제로 있는 사람인지 먼저 확인 (기존 !룰렛지급과 동일한 규칙)
+    const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+    if (!found) {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요.`), 400)
+      return
+    }
+    const targetName = found.nickname || found.tag
+    const rec = getHistoryRec(settings, targetName)
+    if (first === cmdGive) {
+      rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
+    } else {
+      rec.coupons[rouletteNo] = Math.max(0, countVal)
+    }
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    broadcast({ type: 'roulette', djId, tag: targetName })
+    const label = first === cmdGive ? '지급' : '동기화'
+    setTimeout(() => sendChatToRoom(djId, `✅ ${targetName}님 룰렛${rouletteNo} ${label} 완료 / 보유 ${rec.coupons[rouletteNo]}장`), 400)
+    return
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 📝 메모장 — 애청지수(복권/레벨) 시스템과 완전히 독립적인, 실시간 접속자 대상 개인 메모.
+// 등록 없이 "지금 방에 있는 사람"이면 누구든 메모를 남길 수 있고, 한 번 메모를 남기면
+// 그 사람은 방을 나가도 "메모 있는 유저 목록"에 계속 남는다.
+
+function getUserNotesData(djId, settings) {
+  if (!settings.userNotes) {
+    settings.userNotes = {} // { key(tag 또는 닉네임): { nickname, tag, imgUrl, memo, updatedAt } }
+    store.saveSettings(djId, { userNotes: settings.userNotes })
+  }
+  return settings.userNotes
+}
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -2256,13 +2426,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
           handleRouletteMenuCommand(djId, settings, text)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
-          handleActChatHook(djId, settings, author, actTag)
+          handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
+          handleWheelCommand(djId, room, settings, author, authorId, text)
+          handleCouponCommand(djId, room, settings, author, authorId, liveId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -2306,7 +2478,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'like', djId, nick: author })
         const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
         rememberTagNickname(room, likeTag, author)
-        if (!isLurker) handleActHeartHook(djId, settings, author, likeTag)
+        if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
@@ -2824,7 +2996,7 @@ app.get('/activity/users', auth.requireAuth, (req, res) => {
   const act = getActivitySettings(req.djId, settings)
   const list = Object.entries(act.users).map(([key, d]) => {
     const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
-    return { key, nickname: d.nickname || key, tag: d.tag || '', exp: d.exp || 0, level, curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lotto: d.lotto || 0 }
+    return { key, nickname: d.nickname || key, tag: d.tag || '', exp: d.exp || 0, level, curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lotto: d.lotto || 0, imgUrl: d.imgUrl || '' }
   }).sort((a, b) => b.exp - a.exp)
   res.json({ success: true, users: list, lottoExchange: Number(act.lottoExchange) || 22 })
 })
@@ -3402,6 +3574,119 @@ app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
   const dash = getDashboardData(req.djId, settings)
   dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now() }
   store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+
+// 🎡 돌림판 룰렛
+app.get('/wheel/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getWheelSettings(req.djId, settings) })
+})
+app.post('/wheel/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'wheelroulette', req.djId)) return res.json({ success: false, error: '돌림판 룰렛 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getWheelSettings(req.djId, settings)
+  const { activePage, pages } = req.body || {}
+  if (Number.isInteger(activePage) && activePage >= 0 && activePage < WHEEL_PAGE_COUNT) cfg.activePage = activePage
+  if (Array.isArray(pages)) {
+    cfg.pages = cfg.pages.map((p, i) => {
+      const src = pages[i]
+      if (!src || typeof src !== 'object') return p
+      return {
+        items: Array.isArray(src.items)
+          ? src.items.filter(it => it && typeof it.label === 'string' && it.label.trim()).map(it => ({
+              label: String(it.label).slice(0, 80),
+              weight: Math.max(0, Math.min(10000, Number(it.weight) || 1)),
+              color: (typeof it.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(it.color)) ? it.color : '#888',
+            })).slice(0, 30)
+          : p.items,
+        soundEnabled: src.soundEnabled !== false,
+        ttsEnabled: src.ttsEnabled !== false,
+        spinSeconds: Math.max(2, Math.min(15, Number(src.spinSeconds) || p.spinSeconds || 5)),
+        resultTemplate: (typeof src.resultTemplate === 'string' && src.resultTemplate.trim()) ? src.resultTemplate.slice(0, 300) : p.resultTemplate,
+      }
+    })
+  }
+  store.saveSettings(req.djId, { wheelRoulette: cfg })
+  res.json({ success: true })
+})
+app.post('/wheel/spin-result', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'wheelroulette', req.djId)) return res.json({ success: false, error: '돌림판 룰렛 메뉴가 꺼져있어요.' })
+  const { label, pageIndex, resultTemplate } = req.body || {}
+  const cleanLabel = String(label || '').trim().slice(0, 200)
+  if (!cleanLabel) return res.json({ success: false, error: '결과 값이 없어요' })
+  const tmpl = (typeof resultTemplate === 'string' && resultTemplate.trim()) ? resultTemplate : null
+  let finalTmpl = tmpl
+  if (!finalTmpl) {
+    const cfg = getWheelSettings(req.djId, settings)
+    const idx = Number.isInteger(pageIndex) ? pageIndex : cfg.activePage
+    const page = cfg.pages[idx] || cfg.pages[0]
+    finalTmpl = (page && page.resultTemplate) || '🎡 돌림판 결과: {result}'
+  }
+  const text = finalTmpl.replace('{result}', cleanLabel)
+  setTimeout(() => sendChatToRoom(req.djId, text), 300)
+  res.json({ success: true })
+})
+
+// 🎟️ 쿠폰 확인
+app.get('/coupon/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getCouponCheckSettings(req.djId, settings) })
+})
+app.post('/coupon/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'couponcheck', req.djId)) return res.json({ success: false, error: '쿠폰 확인 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getCouponCheckSettings(req.djId, settings)
+  const { title, footer, showZeroRoulette, cmdCoupon, cmdGive, cmdSync } = req.body || {}
+  if (title != null) cfg.title = String(title).slice(0, 100)
+  if (footer != null) cfg.footer = String(footer).slice(0, 100)
+  if (showZeroRoulette != null) cfg.showZeroRoulette = !!showZeroRoulette
+  if (cmdCoupon != null) cfg.cmdCoupon = String(cmdCoupon).trim() || '!쿠폰'
+  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛권지급'
+  if (cmdSync != null) cfg.cmdSync = String(cmdSync).trim() || '!쿠폰동기화'
+  store.saveSettings(req.djId, { couponCheck: cfg })
+  res.json({ success: true })
+})
+
+// 📝 메모장 — 실시간 접속자 목록 + 이미 메모 남긴 유저 목록을 함께 내려준다.
+app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'usernotes', djId)) return res.json({ success: false, error: '메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const notes = getUserNotesData(djId, settings)
+  let live = []
+  const room = getRoom(djId)
+  if (room.isConnected && room.autoJoinedFor) {
+    try {
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+    } catch (e) { live = [] }
+  }
+  res.json({ success: true, notes, live })
+})
+app.post('/usernotes/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'usernotes', req.djId)) return res.json({ success: false, error: '메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const notes = getUserNotesData(req.djId, settings)
+  const { tag, nickname, memo, imgUrl } = req.body || {}
+  const key = String(tag || nickname || '').trim().replace(/^@/, '')
+  if (!key) return res.json({ success: false, error: '고유닉/닉네임이 없어요' })
+  if (!notes[key]) notes[key] = { nickname: nickname || key, tag: tag || '', imgUrl: '', memo: '' }
+  if (nickname) notes[key].nickname = nickname
+  if (tag) notes[key].tag = tag
+  if (imgUrl) notes[key].imgUrl = imgUrl
+  notes[key].memo = String(memo || '').slice(0, 2000)
+  notes[key].updatedAt = Date.now()
+  store.saveSettings(req.djId, { userNotes: notes })
+  res.json({ success: true })
+})
+app.post('/usernotes/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const notes = getUserNotesData(req.djId, settings)
+  const key = String((req.body || {}).tag || '').trim()
+  delete notes[key]
+  store.saveSettings(req.djId, { userNotes: notes })
   res.json({ success: true })
 })
 

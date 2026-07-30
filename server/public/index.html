@@ -490,6 +490,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="tts"><span class="ic">🎙️</span><span class="lbl">TTS</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="wheelroulette"><span class="ic">🎡</span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -1707,6 +1710,96 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="ttsLogWrap"><p class="hint">TTS 읽기 내역이 없습니다.</p></div>
         </div>
       </div>
+
+      <!-- 🎡 돌림판 룰렛 -->
+      <div class="panel" data-panel="wheelroulette">
+        <div class="card">
+          <div class="card-title">🎡 돌림판 룰렛</div>
+          <p class="hint">
+          · 채팅에서 <b>!돌림판</b> (또는 !돌림판 1~5)을 치면, 지금 이 화면을 열어둔 브라우저가 자동으로 그 페이지로 전환돼요.<br>
+          · 실제 회전은 이 화면에서 직접 <b>GO</b> 버튼(또는 시작 버튼)을 눌러야 해요 — 방송 중엔 이 화면을 켜두세요.<br>
+          · 결과는 화면에 표시되고, 효과음/TTS 재생 후 자동으로 채팅에도 안내돼요.
+          </p>
+        </div>
+
+        <div class="tab-bar" id="wheelPageTabBar">
+          <button class="tab-btn active" data-p="0" onclick="switchWheelPage(0)">1페이지</button>
+          <button class="tab-btn" data-p="1" onclick="switchWheelPage(1)">2페이지</button>
+          <button class="tab-btn" data-p="2" onclick="switchWheelPage(2)">3페이지</button>
+          <button class="tab-btn" data-p="3" onclick="switchWheelPage(3)">4페이지</button>
+          <button class="tab-btn" data-p="4" onclick="switchWheelPage(4)">5페이지</button>
+        </div>
+
+        <div class="card" style="text-align:center">
+          <div style="position:relative;width:100%;max-width:360px;aspect-ratio:1/1;margin:0 auto">
+            <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-top:26px solid var(--text);z-index:10"></div>
+            <svg id="wheelSvg" viewBox="-100 -100 200 200" style="width:100%;height:100%;transition:transform 5s cubic-bezier(0.17,0.85,0.32,1.05);transform-origin:50% 50%"></svg>
+          </div>
+          <button class="btn-connect" style="width:100%;max-width:360px;margin-top:16px;padding:16px;font-size:16px" id="wheelSpinBtn" onclick="spinWheel()">🎡 GO!</button>
+          <div id="wheelResultBanner" style="display:none;margin-top:14px;background:rgba(251,191,36,.15);border:2px solid var(--accent2);border-radius:12px;padding:14px;font-size:17px;font-weight:800"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 이 페이지 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveWheelSettings()">💾 저장</button></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="wheelSoundEnabled" checked> 회전 효과음 재생</label>
+          <label class="check-opt"><input type="checkbox" id="wheelTtsEnabled" checked> 결과 TTS로 읽어주기 (브라우저 음성)</label>
+          <label>회전 시간 (초)</label>
+          <input type="number" id="wheelSpinSeconds" value="5" min="2" max="15" style="max-width:140px">
+          <label>결과 채팅 문구</label>
+          <input type="text" id="wheelResultTemplate" value="🎡 돌림판 결과: {result}">
+          <div class="hint" style="margin-top:6px">변수: {result} = 당첨 항목 이름</div>
+          <label style="margin-top:14px">🎯 항목 (이름 / 확률 가중치 / 색상)</label>
+          <div id="wheelItemsWrap"></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="addWheelItem()">+ 항목 추가</button>
+        </div>
+      </div>
+
+      <!-- 🎟️ 쿠폰 확인 -->
+      <div class="panel" data-panel="couponcheck">
+        <div class="card">
+          <div class="card-title"><span>🎟️ 쿠폰 확인 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveCouponSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">시청자가 명령어를 입력하면 <b>복권(애청지수) + 룰렛권(룰렛기록)</b> 보유 현황을 한 번에 보여줘요. 별도 데이터가 아니라 이미 갖고 계신 실제 데이터를 그대로 조회해요.</p>
+          <label>조회 제목</label>
+          <input type="text" id="couponTitle" value="🎟️ 쿠폰 보유 현황">
+          <label>하단 문구</label>
+          <input type="text" id="couponFooter" value="보유 쿠폰 조회 완료!">
+          <label class="check-opt"><input type="checkbox" id="couponShowZero" checked> 0장인 룰렛도 표시</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:14px">
+            <div><label>쿠폰 확인 명령어</label><input type="text" id="couponCmdCoupon" value="!쿠폰"></div>
+            <div><label>룰렛권 지급 명령어</label><input type="text" id="couponCmdGive" value="!룰렛권지급"></div>
+            <div><label>쿠폰 동기화 명령어</label><input type="text" id="couponCmdSync" value="!쿠폰동기화"></div>
+          </div>
+          <p class="hint" style="margin-top:10px">
+          · [지급 명령어] [룰렛번호] [고유닉] [수량] → 그만큼 더해서 지급 (DJ/매니저)<br>
+          · [동기화 명령어] [룰렛번호] [고유닉] [수량] → 정확히 그 수량으로 설정 (DJ/매니저)
+          </p>
+        </div>
+      </div>
+
+      <!-- 📝 메모장 -->
+      <div class="panel" data-panel="usernotes">
+        <div class="card">
+          <div class="card-title">📝 메모장</div>
+          <p class="hint">애청지수(레벨/복권)와는 완전히 별개예요. 등록 여부와 상관없이, 지금 방송에 있는 사람이면 누구든 메모를 남길 수 있어요. 한 번 메모를 남기면 그 사람은 방을 나가도 계속 목록에 남아요.</p>
+        </div>
+        <div class="card split-card">
+          <div class="split-side">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">👤 유저 목록</span>
+              <button class="icon-btn" style="font-size:14px" onclick="loadUserNotesData()">🔄</button>
+            </div>
+            <div class="tab-bar" id="notesTabBar" style="margin:0 0 8px">
+              <button class="tab-btn active" data-t="live" onclick="switchNotesTab('live')">🟢 실시간 접속자</button>
+              <button class="tab-btn" data-t="noted" onclick="switchNotesTab('noted')">📝 메모 남긴 전체</button>
+            </div>
+            <input type="text" id="notesSearchInput" placeholder="닉네임/고유닉 검색" oninput="renderNotesUserList()" style="margin-bottom:8px">
+            <div id="notesUserListWrap"><p class="hint">🔄 버튼을 눌러 불러와주세요.</p></div>
+          </div>
+          <div class="split-main" id="notesDetailWrap">
+            <p class="hint">왼쪽에서 메모를 남길 유저를 선택해주세요.</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -2050,6 +2143,9 @@ const PANEL_META={
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
   tts:['🎙️ TTS','지정 스푼 이상 선물 시, 그 유저의 다음 채팅 1개를 내 PC에서 음성으로 읽어줍니다'],
   dashboard:['📊 대시보드','날짜별 스푼 기록, 하트 랭킹, 월간·주간 MVP를 한눈에 볼 수 있어요'],
+  wheelroulette:['🎡 돌림판 룰렛','5개 페이지의 회전판을 직접 돌려서 경품을 추첨합니다'],
+  couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
+  usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -2069,7 +2165,7 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2081,7 +2177,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -2922,6 +3018,9 @@ async function loadDjSettings(){
       loadSoundFxData();
       loadTtsData();
       if(document.getElementById('dashCalGrid')) loadDashboardData();
+      if(document.getElementById('wheelPageTabBar')) loadWheelData();
+      if(document.getElementById('couponTitle')) loadCouponData();
+      if(document.getElementById('notesUserListWrap')) loadUserNotesData();
       renderEntryList();
     }
   }catch(e){}
@@ -3479,8 +3578,11 @@ function renderActUserSideList(){
   wrap.innerHTML=sorted.map((u,i)=>{
     const rank=actUsersCache.slice().sort((a,b)=>b.exp-a.exp).findIndex(x=>x.key===u.key)+1;
     const active=u.key===actSelectedKey;
+    const avatarHtml=u.imgUrl
+      ? `<img src="${escapeAttr(u.imgUrl)}" class="ic" style="width:26px;height:26px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<span class=&quot;ic&quot; style=&quot;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700&quot;>${escapeHtml((u.nickname||'?')[0])}</span>'">`
+      : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((u.nickname||'?')[0])}</span>`;
     return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="selectActUser('${escapeAttr(u.key)}')">
-      <span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((u.nickname||'?')[0])}</span>
+      ${avatarHtml}
       <span class="lbl" style="line-height:1.3">${escapeHtml(u.nickname)}<br><span style="font-size:11px;color:var(--muted)">${u.tag?'@'+escapeHtml(u.tag)+' · ':''}Lv.${u.level} · ${rank}위</span></span>
     </div>`;
   }).join('');
@@ -3502,9 +3604,12 @@ function renderActUserDetail(key){
   if(!u){renderActUserDetailEmpty();return;}
   const rank=actUsersCache.slice().sort((a,b)=>b.exp-a.exp).findIndex(x=>x.key===u.key)+1;
   const pct=u.nextExp>0?Math.min(100,Math.round(u.curExp/u.nextExp*100)):0;
+  const avatarHtml=u.imgUrl
+    ? `<img src="${escapeAttr(u.imgUrl)}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)" onerror="this.outerHTML='<div style=&quot;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0&quot;>${escapeHtml((u.nickname||'?')[0])}</div>'">`
+    : `<div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0">${escapeHtml((u.nickname||'?')[0])}</div>`;
   wrap.innerHTML=`
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
-      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0">${escapeHtml((u.nickname||'?')[0])}</div>
+      ${avatarHtml}
       <div style="flex:1;min-width:0">
         <div style="font-size:17px;font-weight:700">${escapeHtml(u.nickname)}</div>
         <div class="hint" style="margin:2px 0 0">${u.tag?'@'+escapeHtml(u.tag)+' · ':''}${rank}위</div>
@@ -5463,6 +5568,396 @@ async function deleteSpoonEntry(date,tag){
 
 
 
+/* ── 🎡 돌림판 룰렛 ── */
+const WHEEL_DEFAULT_ITEMS=[
+  {label:'리방권',weight:10,color:'#f59e0b'},
+  {label:'방송 소환권',weight:30,color:'#64748b'},
+  {label:'복권 10장',weight:15,color:'#a855f7'},
+  {label:'5분동안 냥냥체',weight:15,color:'#fb923c'},
+  {label:'10분간 배경이미지 변경',weight:5,color:'#7c2d12'},
+  {label:'10분간 방제 변경',weight:10,color:'#ec4899'},
+  {label:'마실 500',weight:10,color:'#06b6d4'},
+  {label:'실드 500',weight:5,color:'#ef4444'},
+];
+function wheelDefaultPage(){
+  return {items:WHEEL_DEFAULT_ITEMS.map(it=>Object.assign({},it)),soundEnabled:true,ttsEnabled:true,spinSeconds:5,resultTemplate:'🎡 돌림판 결과: {result}'};
+}
+let wheelState={activePage:0,pages:Array.from({length:5},wheelDefaultPage)};
+let wheelIsSpinning=false;
+let wheelCurrentRotation=0;
+let wheelAudioCtx=null;
+let wheelTickTimer=null;
+
+function wheelCurrent(){ return wheelState.pages[wheelState.activePage]; }
+
+async function loadWheelData(){
+  try{
+    const res=await fetch(SERVER+'/wheel/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    if(Array.isArray(d.settings.pages)&&d.settings.pages.length===5) wheelState=d.settings;
+    switchWheelPage(wheelState.activePage||0,true);
+  }catch(e){}
+}
+
+function switchWheelPage(idx,skipSave){
+  wheelState.activePage=idx;
+  document.querySelectorAll('#wheelPageTabBar .tab-btn').forEach(b=>b.classList.toggle('active',Number(b.dataset.p)===idx));
+  const p=wheelCurrent();
+  const soundBox=document.getElementById('wheelSoundEnabled');
+  if(soundBox){
+    soundBox.checked=p.soundEnabled!==false;
+    document.getElementById('wheelTtsEnabled').checked=p.ttsEnabled!==false;
+    document.getElementById('wheelSpinSeconds').value=p.spinSeconds||5;
+    document.getElementById('wheelResultTemplate').value=p.resultTemplate||'🎡 돌림판 결과: {result}';
+    renderWheelItemsTable();
+    renderWheelSvg();
+    document.getElementById('wheelResultBanner').style.display='none';
+  }
+  if(!skipSave) saveWheelSettings(true);
+}
+
+function renderWheelItemsTable(){
+  const wrap=document.getElementById('wheelItemsWrap');
+  if(!wrap)return;
+  const items=wheelCurrent().items;
+  wrap.innerHTML=items.map((it,i)=>`
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <input type="text" value="${escapeAttr(it.label)}" placeholder="항목명" style="flex:2" oninput="wheelCurrent().items[${i}].label=this.value;renderWheelSvg()">
+      <input type="number" value="${it.weight}" min="0" placeholder="가중치" style="flex:1;max-width:80px" oninput="wheelCurrent().items[${i}].weight=Number(this.value)||0">
+      <input type="color" value="${escapeAttr(it.color||'#888888')}" style="width:44px;padding:2px" oninput="wheelCurrent().items[${i}].color=this.value;renderWheelSvg()">
+      <button class="icon-btn danger" onclick="removeWheelItem(${i})">🗑</button>
+    </div>`).join('');
+}
+
+function addWheelItem(){
+  if(wheelCurrent().items.length>=30)return showToast('항목은 최대 30개까지 등록할 수 있어요');
+  wheelCurrent().items.push({label:'',weight:10,color:'#f97316'});
+  renderWheelItemsTable();
+  renderWheelSvg();
+}
+function removeWheelItem(i){
+  wheelCurrent().items.splice(i,1);
+  renderWheelItemsTable();
+  renderWheelSvg();
+}
+
+function renderWheelSvg(){
+  const items=wheelCurrent().items.filter(it=>it.label&&it.label.trim());
+  const svg=document.getElementById('wheelSvg');
+  if(!svg)return;
+  svg.innerHTML='';
+  if(!items.length){
+    svg.innerHTML='<circle r="98" cx="0" cy="0" fill="#eee"/><text x="0" y="6" text-anchor="middle" font-size="11" fill="#94a3b8">항목을 추가하세요</text>';
+    return;
+  }
+  const n=items.length, sliceAngle=360/n;
+  for(let i=0;i<n;i++){
+    const startAngle=-90+i*sliceAngle, endAngle=-90+(i+1)*sliceAngle;
+    const startRad=startAngle*Math.PI/180, endRad=endAngle*Math.PI/180;
+    const x1=98*Math.cos(startRad),y1=98*Math.sin(startRad);
+    const x2=98*Math.cos(endRad),y2=98*Math.sin(endRad);
+    const largeArc=sliceAngle>180?1:0;
+    const pathD=`M 0 0 L ${x1.toFixed(3)} ${y1.toFixed(3)} A 98 98 0 ${largeArc} 1 ${x2.toFixed(3)} ${y2.toFixed(3)} Z`;
+    const seg=document.createElementNS('http://www.w3.org/2000/svg','path');
+    seg.setAttribute('d',pathD);seg.setAttribute('fill',items[i].color||'#888');
+    seg.setAttribute('stroke','#fff');seg.setAttribute('stroke-width','1');
+    svg.appendChild(seg);
+    const midAngle=(startAngle+endAngle)/2, midRad=midAngle*Math.PI/180;
+    const lx=60*Math.cos(midRad), ly=60*Math.sin(midRad);
+    const text=document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x',lx.toFixed(3));text.setAttribute('y',ly.toFixed(3));
+    text.setAttribute('text-anchor','middle');text.setAttribute('dominant-baseline','middle');
+    text.setAttribute('font-size',n<=4?'12':(n<=8?'9':'7'));
+    text.setAttribute('font-weight','700');text.setAttribute('fill','#fff');
+    text.setAttribute('transform',`rotate(${midAngle+90}, ${lx.toFixed(3)}, ${ly.toFixed(3)})`);
+    text.style.pointerEvents='none';
+    text.textContent=items[i].label;
+    svg.appendChild(text);
+  }
+}
+
+function wheelWeightedPickIdx(items){
+  const total=items.reduce((s,it)=>s+(it.weight||0),0);
+  if(total<=0)return Math.floor(Math.random()*items.length);
+  let r=Math.random()*total;
+  for(let i=0;i<items.length;i++){ r-=(items[i].weight||0); if(r<=0)return i; }
+  return items.length-1;
+}
+
+async function spinWheel(){
+  if(wheelIsSpinning)return;
+  await saveWheelSettings(true);
+  const page=wheelCurrent();
+  const items=page.items.filter(it=>it.label&&it.label.trim());
+  if(!items.length)return showToast('항목을 먼저 추가하세요');
+
+  const winIdx=wheelWeightedPickIdx(items);
+  const n=items.length, sliceAngle=360/n;
+  const sliceCenterAngle=-90+(winIdx+0.5)*sliceAngle;
+  const extraTurns=6+Math.floor(Math.random()*3);
+  const targetAngle=-90-sliceCenterAngle;
+  const wobble=(Math.random()-0.5)*sliceAngle*0.7;
+  const currentNorm=((wheelCurrentRotation%360)+360)%360;
+  let delta=((targetAngle+wobble-currentNorm)%360+360)%360;
+  delta+=360*extraTurns;
+  wheelCurrentRotation+=delta;
+
+  const svg=document.getElementById('wheelSvg');
+  const dur=page.spinSeconds||5;
+  svg.style.transition=`transform ${dur}s cubic-bezier(0.17,0.85,0.32,1.05)`;
+  svg.style.transform=`rotate(${wheelCurrentRotation}deg)`;
+
+  wheelIsSpinning=true;
+  const btn=document.getElementById('wheelSpinBtn');
+  btn.disabled=true;btn.textContent='돌아가는 중...';
+  document.getElementById('wheelResultBanner').style.display='none';
+
+  if(page.soundEnabled!==false) wheelStartTick(dur,n);
+
+  setTimeout(async()=>{
+    wheelIsSpinning=false;
+    btn.disabled=false;btn.textContent='🎡 GO!';
+    wheelStopTick();
+    if(page.soundEnabled!==false) wheelPlayWinSound();
+
+    const winner=items[winIdx];
+    const banner=document.getElementById('wheelResultBanner');
+    banner.style.display='block';
+    banner.innerHTML=`🎉 결과: <span style="color:${winner.color}">${escapeHtml(winner.label)}</span> 🎉`;
+    if(page.ttsEnabled!==false) wheelSpeak(winner.label);
+
+    try{
+      await fetch(SERVER+'/wheel/spin-result',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({label:winner.label,pageIndex:wheelState.activePage,resultTemplate:page.resultTemplate})});
+    }catch(e){}
+  },dur*1000+50);
+}
+
+function wheelGetAudioCtx(){
+  if(!wheelAudioCtx){ try{ wheelAudioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ wheelAudioCtx=null; } }
+  return wheelAudioCtx;
+}
+function wheelStartTick(durationSec,segmentCount){
+  const ctx=wheelGetAudioCtx();
+  if(!ctx)return;
+  const totalTicks=6*segmentCount+segmentCount;
+  let tickIndex=0;
+  function next(){
+    if(tickIndex>=totalTicks)return;
+    const t=tickIndex/totalTicks;
+    const interval=20+(220-20)*Math.pow(t,2.2);
+    wheelPlayTick();
+    tickIndex++;
+    wheelTickTimer=setTimeout(next,interval);
+  }
+  next();
+}
+function wheelStopTick(){ if(wheelTickTimer){clearTimeout(wheelTickTimer);wheelTickTimer=null;} }
+function wheelPlayTick(){
+  const ctx=wheelGetAudioCtx(); if(!ctx)return;
+  const osc=ctx.createOscillator(), gain=ctx.createGain();
+  osc.type='square';osc.frequency.value=880+Math.random()*200;
+  gain.gain.setValueAtTime(0.13,ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.05);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();osc.stop(ctx.currentTime+0.06);
+}
+function wheelPlayWinSound(){
+  const ctx=wheelGetAudioCtx(); if(!ctx)return;
+  [523,659,784,1047].forEach((freq,i)=>{
+    setTimeout(()=>{
+      const osc=ctx.createOscillator(), gain=ctx.createGain();
+      osc.type='triangle';osc.frequency.value=freq;
+      gain.gain.setValueAtTime(0.18,ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.25);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();osc.stop(ctx.currentTime+0.28);
+    },i*110);
+  });
+}
+function wheelSpeak(text){
+  if(!window.speechSynthesis)return;
+  try{
+    const utt=new SpeechSynthesisUtterance(text);
+    utt.lang='ko-KR';
+    window.speechSynthesis.speak(utt);
+  }catch(e){}
+}
+
+async function saveWheelSettings(silent){
+  const p=wheelCurrent();
+  const soundBox=document.getElementById('wheelSoundEnabled');
+  if(soundBox){
+    p.soundEnabled=soundBox.checked;
+    p.ttsEnabled=document.getElementById('wheelTtsEnabled').checked;
+    p.spinSeconds=Math.max(2,Math.min(15,Number(document.getElementById('wheelSpinSeconds').value)||5));
+    p.resultTemplate=document.getElementById('wheelResultTemplate').value||'🎡 돌림판 결과: {result}';
+  }
+  try{
+    const res=await fetch(SERVER+'/wheel/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(wheelState)});
+    const d=await res.json();
+    if(!silent){ if(d.success)showToast('설정 저장 완료 ✓'); else showToast(d.error||'저장 실패'); }
+  }catch(e){ if(!silent)showToast('오류: '+e.message); }
+}
+
+/* ── 🎟️ 쿠폰 확인 ── */
+async function loadCouponData(){
+  try{
+    const res=await fetch(SERVER+'/coupon/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('couponTitle').value=d.settings.title||'🎟️ 쿠폰 보유 현황';
+    document.getElementById('couponFooter').value=d.settings.footer||'보유 쿠폰 조회 완료!';
+    document.getElementById('couponShowZero').checked=d.settings.showZeroRoulette!==false;
+    document.getElementById('couponCmdCoupon').value=d.settings.cmdCoupon||'!쿠폰';
+    document.getElementById('couponCmdGive').value=d.settings.cmdGive||'!룰렛권지급';
+    document.getElementById('couponCmdSync').value=d.settings.cmdSync||'!쿠폰동기화';
+  }catch(e){}
+}
+async function saveCouponSettings(){
+  const body={
+    title:document.getElementById('couponTitle').value,
+    footer:document.getElementById('couponFooter').value,
+    showZeroRoulette:document.getElementById('couponShowZero').checked,
+    cmdCoupon:document.getElementById('couponCmdCoupon').value,
+    cmdGive:document.getElementById('couponCmdGive').value,
+    cmdSync:document.getElementById('couponCmdSync').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/coupon/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('설정 저장 완료 ✓'); else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+
+/* ── 📝 메모장 (애청지수와 완전 독립) ── */
+let notesTab='live';
+let notesData={notes:{},live:[]};
+let notesSelectedKey=null;
+let notesMemoSaveTimer=null;
+
+async function loadUserNotesData(){
+  const wrap=document.getElementById('notesUserListWrap');
+  if(wrap)wrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/usernotes/data',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ if(wrap)wrap.innerHTML='<p class="hint">'+(d.error||'불러오지 못했어요')+'</p>'; return; }
+    notesData={notes:d.notes||{},live:d.live||[]};
+    renderNotesUserList();
+  }catch(e){ if(wrap)wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+
+function switchNotesTab(tab){
+  notesTab=tab;
+  document.querySelectorAll('#notesTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===tab));
+  renderNotesUserList();
+}
+
+function notesListForTab(){
+  if(notesTab==='live'){
+    return notesData.live.map(u=>({
+      key:(u.tag||u.nickname||'').trim(),
+      nickname:u.nickname||u.tag||'?',
+      tag:u.tag||'',
+      imgUrl:u.imgUrl||'',
+      memo:(notesData.notes[(u.tag||u.nickname||'').trim()]||{}).memo||'',
+      isLive:true,
+    }));
+  }
+  return Object.entries(notesData.notes).map(([key,n])=>({
+    key,nickname:n.nickname||key,tag:n.tag||'',imgUrl:n.imgUrl||'',memo:n.memo||'',
+    isLive:notesData.live.some(u=>(u.tag||u.nickname||'').trim()===key),
+  }));
+}
+
+function renderNotesUserList(){
+  const wrap=document.getElementById('notesUserListWrap');
+  if(!wrap)return;
+  const q=(document.getElementById('notesSearchInput')?.value||'').trim().toLowerCase();
+  let list=notesListForTab();
+  if(q) list=list.filter(u=>u.nickname.toLowerCase().includes(q)||u.tag.toLowerCase().includes(q));
+  if(!list.length){ wrap.innerHTML='<p class="hint">'+(notesTab==='live'?'현재 접속자가 없습니다.':'메모를 남긴 유저가 없습니다.')+'</p>'; return; }
+  wrap.innerHTML=list.map(u=>{
+    const active=u.key===notesSelectedKey;
+    const avatarHtml=u.imgUrl
+      ? `<img src="${escapeAttr(u.imgUrl)}" class="ic" style="width:26px;height:26px;border-radius:50%;object-fit:cover" onerror="this.style.visibility='hidden'">`
+      : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((u.nickname||'?')[0])}</span>`;
+    return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick='selectNotesUser(${JSON.stringify(u).replace(/'/g,"&#39;")})'>
+      ${avatarHtml}
+      <span class="lbl" style="line-height:1.3">${escapeHtml(u.nickname)}${u.isLive?' 🟢':''}<br><span style="font-size:11px;color:var(--muted)">${u.tag?'@'+escapeHtml(u.tag):''}${u.memo?' · 📝 메모있음':''}</span></span>
+    </div>`;
+  }).join('');
+}
+
+function selectNotesUser(u){
+  notesSelectedKey=u.key;
+  renderNotesUserList();
+  renderNotesDetail(u);
+}
+
+function renderNotesDetail(u){
+  const wrap=document.getElementById('notesDetailWrap');
+  if(!wrap)return;
+  const avatarHtml=u.imgUrl
+    ? `<img src="${escapeAttr(u.imgUrl)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.visibility='hidden'">`
+    : `<div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0">${escapeHtml((u.nickname||'?')[0])}</div>`;
+  wrap.innerHTML=`
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+      ${avatarHtml}
+      <div>
+        <div style="font-size:17px;font-weight:700">${escapeHtml(u.nickname)}${u.isLive?' <span style="color:var(--success);font-size:12px">🟢 접속중</span>':''}</div>
+        <div class="hint" style="margin:2px 0 0">${u.tag?'@'+escapeHtml(u.tag):'고유닉 정보 없음'}</div>
+      </div>
+    </div>
+    <label>메모</label>
+    <textarea id="notesMemoText" placeholder="이 유저에 대한 메모를 자유롭게 남겨보세요 (예: VIP, 진상 이력, 특이사항 등)" style="height:140px" oninput="scheduleNotesMemoSave('${escapeAttr(u.key)}','${escapeAttr(u.nickname)}','${escapeAttr(u.tag)}','${escapeAttr(u.imgUrl)}')">${escapeHtml(u.memo||'')}</textarea>
+    <div class="hint" id="notesMemoSaveHint" style="margin-top:4px">입력하면 자동 저장돼요</div>
+    <button class="btn-shield-reset" style="width:100%;margin-top:14px" onclick="deleteNotesUser('${escapeAttr(u.key)}')">🗑️ 메모 삭제</button>
+  `;
+}
+
+function scheduleNotesMemoSave(key,nickname,tag,imgUrl){
+  const hint=document.getElementById('notesMemoSaveHint');
+  if(hint)hint.textContent='저장 대기...';
+  if(notesMemoSaveTimer)clearTimeout(notesMemoSaveTimer);
+  notesMemoSaveTimer=setTimeout(()=>saveNotesMemoNow(key,nickname,tag,imgUrl),700);
+}
+
+async function saveNotesMemoNow(key,nickname,tag,imgUrl){
+  const ta=document.getElementById('notesMemoText');
+  const hint=document.getElementById('notesMemoSaveHint');
+  if(!ta)return;
+  try{
+    const res=await fetch(SERVER+'/usernotes/save',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag:tag||key,nickname,imgUrl,memo:ta.value})});
+    const d=await res.json();
+    if(hint)hint.textContent=d.success?'✅ 저장됨':'⚠️ 저장 실패';
+    if(d.success){
+      if(!notesData.notes[key]) notesData.notes[key]={nickname,tag,imgUrl,memo:''};
+      notesData.notes[key].memo=ta.value;
+      renderNotesUserList();
+    }
+    setTimeout(()=>{ if(hint)hint.textContent='입력하면 자동 저장돼요'; },1500);
+  }catch(e){ if(hint)hint.textContent='⚠️ 저장 오류'; }
+}
+
+async function deleteNotesUser(key){
+  if(!confirm('이 유저의 메모를 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/usernotes/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag:key})});
+    delete notesData.notes[key];
+    showToast('삭제했어요');
+    notesSelectedKey=null;
+    document.getElementById('notesDetailWrap').innerHTML='<p class="hint">왼쪽에서 메모를 남길 유저를 선택해주세요.</p>';
+    renderNotesUserList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+
+
+
+
 function playEntrySoundById(category,id){
   const list=(entryData && entryData[category])||[];
   const item=list.find(m=>String(m.id)===String(id));
@@ -5861,6 +6356,10 @@ function startSSE(){
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
     else if(d.type==='ttsrevoke'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); renderTtsActiveList(); }
+    else if(d.type==='wheelopen'){
+      showToast(d.page!=null?`🎡 채팅에서 돌림판 ${d.page+1}페이지를 요청했어요!`:'🎡 채팅에서 돌림판을 요청했어요!');
+      if(d.page!=null && document.getElementById('wheelPageTabBar')) switchWheelPage(d.page,true);
+    }
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
