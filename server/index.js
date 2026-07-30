@@ -30,7 +30,7 @@ const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map(), tagToNickname: new Map() }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
   }
   return rooms[djId]
 }
@@ -133,6 +133,23 @@ function rememberTagNickname(room, tag, nickname) {
   room.tagToNickname.set(String(tag).trim().toLowerCase(), nickname)
 }
 
+// 채팅/좋아요/선물 이벤트에서 실제로 확인된 프로필 사진 URL을, 태그와 닉네임 양쪽 키로 캐싱해둔다.
+// (실시간 접속자 API는 프로필 사진을 안 줄 수 있어서, 이미 채팅에서 검증된 이 캐시를 우선 사용한다)
+function rememberProfileUrl(room, tag, nickname, imgUrl) {
+  if (!room || !imgUrl) return
+  if (!room.profileUrlCache) room.profileUrlCache = new Map()
+  if (tag) room.profileUrlCache.set(String(tag).trim().toLowerCase(), imgUrl)
+  if (nickname) room.profileUrlCache.set(String(nickname).trim().toLowerCase(), imgUrl)
+}
+
+function getCachedProfileUrl(room, tag, nickname) {
+  if (!room || !room.profileUrlCache) return ''
+  const byTag = tag ? room.profileUrlCache.get(String(tag).trim().toLowerCase()) : null
+  if (byTag) return byTag
+  const byNick = nickname ? room.profileUrlCache.get(String(nickname).trim().toLowerCase()) : null
+  return byNick || ''
+}
+
 // DJ가 입력한 값(태그일 수도, 닉네임일 수도 있음)을 실제 닉네임으로 변환한다.
 // 매핑에 없으면 입력값을 그대로 닉네임으로 간주한다 (DJ가 닉네임을 직접 입력한 경우).
 function resolveNicknameFromInput(room, input) {
@@ -167,7 +184,9 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
       let nickname = m.nickname || m.name || m.display_name || null
       if (tag) tag = String(tag).replace('@', '').trim()
       if (!tag && !nickname) return null
-      return { tag, nickname: nickname || tag }
+      const imgUrl = m.profile_url || m.profileUrl || m.image_url || m.imageUrl || m.thumbnail_url
+        || (m.profile && (m.profile.url || m.profile.image_url)) || m.photo || ''
+      return { tag, nickname: nickname || tag, imgUrl }
     }).filter(Boolean)
   } catch (e) {
     console.log('[fetchLiveMembers 오류]', e.message)
@@ -2427,6 +2446,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteMenuCommand(djId, settings, text)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
           handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
+          rememberProfileUrl(room, actTag, author, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
           handleReminderCommand(djId, room, settings, author, text)
@@ -2478,6 +2498,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         broadcast({ type: 'like', djId, nick: author })
         const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
         rememberTagNickname(room, likeTag, author)
+        rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
@@ -2505,6 +2526,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, donationTag, author)
+          rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -3661,6 +3683,9 @@ app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
     try {
       const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
       live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+      // 실시간 접속자 API가 프로필 사진을 안 줄 수 있어서, 이미 채팅/좋아요/선물에서
+      // 실제로 확인된 프로필 사진(캐시)이 있으면 그걸 우선 사용한다 — 훨씬 더 잘 맞음.
+      live = live.map(m => ({ ...m, imgUrl: getCachedProfileUrl(room, m.tag, m.nickname) || m.imgUrl || '' }))
     } catch (e) { live = [] }
   }
   res.json({ success: true, notes, live })

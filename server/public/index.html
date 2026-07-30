@@ -69,6 +69,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 .content{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 26px 60px}
 .panel{display:none;max-width:640px}
+.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"]{max-width:100%}
+@media (min-width:861px){
+  .panel[data-panel="usernotes"] .split-card,.panel[data-panel="autogrant"] .split-card,.panel[data-panel="roulettelog"] .split-card,.panel[data-panel="loyalty"] .split-card{max-width:1200px}
+}
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
@@ -5837,17 +5841,22 @@ let notesData={notes:{},live:[]};
 let notesSelectedKey=null;
 let notesMemoSaveTimer=null;
 
-async function loadUserNotesData(){
+async function loadUserNotesData(silent){
   const wrap=document.getElementById('notesUserListWrap');
-  if(wrap)wrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  if(!silent && wrap)wrap.innerHTML='<p class="hint">불러오는 중...</p>';
   try{
     const res=await fetch(SERVER+'/usernotes/data',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success){ if(wrap)wrap.innerHTML='<p class="hint">'+(d.error||'불러오지 못했어요')+'</p>'; return; }
+    if(!d.success){ if(!silent && wrap)wrap.innerHTML='<p class="hint">'+(d.error||'불러오지 못했어요')+'</p>'; return; }
     notesData={notes:d.notes||{},live:d.live||[]};
     renderNotesUserList();
-  }catch(e){ if(wrap)wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+  }catch(e){ if(!silent && wrap)wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
 }
+// 메모장 화면을 보고 있는 동안엔 실시간 접속자 목록을 10초마다 자동으로 동기화한다.
+// (입력 중인 메모를 덮어쓰지 않도록, 상세화면은 건드리지 않고 왼쪽 목록만 갱신)
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="usernotes"]')?.classList.contains('active')) loadUserNotesData(true);
+},10000);
 
 function switchNotesTab(tab){
   notesTab=tab;
