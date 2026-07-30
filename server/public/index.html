@@ -454,6 +454,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
     </div>
 
+    <div class="nav-group-label">홈</div>
+    <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
 
@@ -521,6 +524,102 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
 
     <div class="content">
+
+      <!-- 📊 대시보드 -->
+      <div class="panel" data-panel="dashboard">
+        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:6px">🏆 이달의 스푼 랭킹 조회</div>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="dashRankSearchInput" placeholder="고유닉" style="flex:1">
+              <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="dashSearchRank()">조회</button>
+            </div>
+            <div class="hint" id="dashRankSearchResult" style="margin-top:6px;white-space:pre-line"></div>
+          </div>
+          <div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:12px">
+            <div style="font-size:26px">👑</div>
+            <div>
+              <div class="hint" style="margin:0">오늘의 MVP</div>
+              <div id="dashMvpName" style="font-size:14px;font-weight:700">데이터 없음</div>
+              <div id="dashMvpSpoon" style="font-size:12px;color:var(--accent2)">0 스푼</div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:12px">
+            <div style="font-size:26px">🎁</div>
+            <div>
+              <div class="hint" style="margin:0">이달의 스푼수</div>
+              <div id="dashMonthSpoon" style="font-size:22px;font-weight:800;color:var(--accent2)">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="card" style="margin-bottom:0;padding:12px;text-align:center">
+            <div class="hint" style="margin:0">🤍 무료하트</div>
+            <div id="dashLikeFree" style="font-size:16px;font-weight:800">0</div>
+          </div>
+          <div class="card" style="margin-bottom:0;padding:12px;text-align:center">
+            <div class="hint" style="margin:0">📢 광고하트</div>
+            <div id="dashLikeAd" style="font-size:16px;font-weight:800;color:var(--accent)">0</div>
+          </div>
+          <div class="card" style="margin-bottom:0;padding:12px;text-align:center">
+            <div class="hint" style="margin:0">📦 플랜하트</div>
+            <div id="dashLikePlan" style="font-size:16px;font-weight:800;color:#7c3aed">0</div>
+          </div>
+          <div class="card" style="margin-bottom:0;padding:12px;text-align:center">
+            <div class="hint" style="margin:0">💎 유료하트</div>
+            <div id="dashLikePaid" style="font-size:16px;font-weight:800;color:var(--accent2)">0</div>
+          </div>
+        </div>
+        <p class="hint">※ 스푼 API가 광고/플랜/유료 하트를 구분해서 알려주지 않아, 지금은 좋아요 전부를 "무료하트"로 집계해요.</p>
+
+        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:10px">🏆 랭킹 상위 5명</div>
+            <div id="dashRankList"><p class="hint">데이터가 없습니다.</p></div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:10px">❤️ 상위 5명</div>
+            <div id="dashHeartList"><p class="hint">데이터가 없습니다.</p></div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title"><span>🪙 진행 중인 펀딩</span><span class="hint-inline" style="cursor:pointer;color:var(--accent)" onclick="selectPanel('funding')">전체보기 →</span></div>
+            <div id="dashFundingList"><p class="hint">진행 중인 펀딩이 없습니다.</p></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>📅 <span id="dashCalTitle"></span> 스푼 기록</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dashCalMove(-1)">◀ 이전</button>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dashCalMove(1)">다음 ▶</button>
+              <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="showAddSpoonModal()">➕ 스푼 수동 추가</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;margin-bottom:4px">
+            <div class="hint" style="margin:0;color:var(--danger);font-weight:700">일</div>
+            <div class="hint" style="margin:0;font-weight:700">월</div>
+            <div class="hint" style="margin:0;font-weight:700">화</div>
+            <div class="hint" style="margin:0;font-weight:700">수</div>
+            <div class="hint" style="margin:0;font-weight:700">목</div>
+            <div class="hint" style="margin:0;font-weight:700">금</div>
+            <div class="hint" style="margin:0;color:var(--accent2);font-weight:700">토</div>
+          </div>
+          <div id="dashCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px"></div>
+
+          <div class="btn-row" style="grid-template-columns:1fr 2fr;margin-top:20px">
+            <div style="background:var(--bg);border-radius:12px;padding:16px;border:1px solid var(--border)">
+              <div style="font-size:14px;font-weight:800;margin-bottom:12px">🏆 이달의 MVP TOP 5</div>
+              <div id="dashMonthMvpList" style="display:flex;flex-direction:column;gap:8px"></div>
+            </div>
+            <div style="background:var(--bg);border-radius:12px;padding:16px;border:1px solid var(--border)">
+              <div style="font-size:14px;font-weight:800;margin-bottom:12px">📅 주차별 MVP (1·2·3위)</div>
+              <div id="dashWeeklyMvpGrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 🛒 모듈 마켓 -->
       <div class="panel" data-panel="modulemarket">
@@ -1950,6 +2049,7 @@ const PANEL_META={
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
   tts:['🎙️ TTS','지정 스푼 이상 선물 시, 그 유저의 다음 채팅 1개를 내 PC에서 음성으로 읽어줍니다'],
+  dashboard:['📊 대시보드','날짜별 스푼 기록, 하트 랭킹, 월간·주간 MVP를 한눈에 볼 수 있어요'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1969,7 +2069,7 @@ function selectPanel(name){
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -1981,7 +2081,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -2821,6 +2921,7 @@ async function loadDjSettings(){
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
       loadTtsData();
+      if(document.getElementById('dashCalGrid')) loadDashboardData();
       renderEntryList();
     }
   }catch(e){}
@@ -4977,6 +5078,391 @@ function renderTtsLog(){
 function ttsClearLog(){ ttsLogEntries=[]; renderTtsLog(); }
 
 
+/* ── 📊 대시보드 ── */
+let dashData={spoonLog:{},heartLog:{},likeStats:{free:0,ad:0,plan:0,paid:0,total:0,sessionStart:0}};
+let dashFunding=[];
+let dashCalYear=new Date().getFullYear();
+let dashCalMonth=new Date().getMonth(); // 0-indexed
+
+function dashSpoonTotal(dateStr){
+  const v=dashData.spoonLog[dateStr];
+  return v?(v.total||0):0;
+}
+
+async function loadDashboardData(){
+  try{
+    const res=await fetch(SERVER+'/dashboard/data',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    dashData=d.dashboard||dashData;
+    dashFunding=d.funding||[];
+    renderDashboardStats();
+    renderDashCalendar();
+  }catch(e){}
+}
+
+function renderDashboardStats(){
+  const ls=dashData.likeStats||{};
+  const set=(id,val)=>{ const el=document.getElementById(id); if(el)el.textContent=val; };
+  set('dashLikeFree',(ls.free||0).toLocaleString('ko-KR'));
+  set('dashLikeAd',(ls.ad||0).toLocaleString('ko-KR'));
+  set('dashLikePlan',(ls.plan||0).toLocaleString('ko-KR'));
+  set('dashLikePaid',(ls.paid||0).toLocaleString('ko-KR'));
+
+  // 이달의 스푼수 (실제 이번 달 기준, 캘린더 이동과 무관하게 고정)
+  const now=new Date();
+  const ymNow=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  let monthTotal=0;
+  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{ if(date.startsWith(ymNow)) monthTotal+=(entry.total||0); });
+  set('dashMonthSpoon',monthTotal.toLocaleString('ko-KR'));
+
+  // 오늘의 MVP
+  const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const todayByUser=(dashData.spoonLog[today]&&dashData.spoonLog[today].byUser)||{};
+  const todaySorted=Object.entries(todayByUser).map(([tag,info])=>[tag,info]).sort((a,b)=>(b[1].amount||0)-(a[1].amount||0));
+  if(todaySorted.length){
+    set('dashMvpName',todaySorted[0][1].nickname||todaySorted[0][0]);
+    set('dashMvpSpoon',(todaySorted[0][1].amount||0).toLocaleString('ko-KR')+' 스푼');
+  } else {
+    set('dashMvpName','데이터 없음');
+    set('dashMvpSpoon','0 스푼');
+  }
+
+  // 랭킹 상위5 (이번 달 기준)
+  const monthRank={};
+  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
+    if(!date.startsWith(ymNow))return;
+    Object.entries(entry.byUser||{}).forEach(([tag,info])=>{
+      if(!monthRank[tag])monthRank[tag]={nickname:info.nickname||tag,total:0};
+      monthRank[tag].total+=(info.amount||0);
+    });
+  });
+  const rankSorted=Object.entries(monthRank).sort((a,b)=>b[1].total-a[1].total).slice(0,5);
+  const rankWrap=document.getElementById('dashRankList');
+  if(rankWrap){
+    if(!rankSorted.length) rankWrap.innerHTML='<p class="hint">데이터가 없습니다.</p>';
+    else rankWrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+rankSorted.map(([tag,d],i)=>`
+      <div style="display:flex;justify-content:space-between;font-size:13px">
+        <span><span class="hint" style="margin-right:6px">${i+1}</span>${escapeHtml(d.nickname)}</span>
+        <b style="color:var(--accent2)">${d.total.toLocaleString('ko-KR')}</b>
+      </div>`).join('')+'</div>';
+  }
+
+  // 하트 상위5
+  const heartSorted=Object.entries(dashData.heartLog).sort((a,b)=>(b[1].count||0)-(a[1].count||0)).slice(0,5);
+  const heartWrap=document.getElementById('dashHeartList');
+  if(heartWrap){
+    if(!heartSorted.length) heartWrap.innerHTML='<p class="hint">데이터가 없습니다.</p>';
+    else heartWrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+heartSorted.map(([tag,d],i)=>`
+      <div style="display:flex;justify-content:space-between;font-size:13px">
+        <span><span class="hint" style="margin-right:6px">${i+1}</span>${escapeHtml(d.nickname)}</span>
+        <b style="color:var(--danger)">${(d.count||0).toLocaleString('ko-KR')}</b>
+      </div>`).join('')+'</div>';
+  }
+
+  // 진행중인 펀딩
+  const fundWrap=document.getElementById('dashFundingList');
+  if(fundWrap){
+    if(!dashFunding.length) fundWrap.innerHTML='<p class="hint">진행 중인 펀딩이 없습니다.</p>';
+    else fundWrap.innerHTML=dashFunding.map(f=>{
+      const goal=Number(f.goal)||0, cur=Number(f.current)||0;
+      const pct=goal>0?Math.min(100,Math.round(cur/goal*100)):0;
+      return `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px"><b>${escapeHtml(f.title)}</b><span style="color:var(--accent)">${pct}%</span></div>
+        <div style="background:var(--bg);border-radius:4px;height:6px"><div style="background:var(--accent);width:${pct}%;height:100%;border-radius:4px"></div></div>
+        <div class="hint" style="margin-top:2px">💰 ${cur.toLocaleString('ko-KR')}/${goal.toLocaleString('ko-KR')}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function dashSearchRank(){
+  const tag=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
+  const resultEl=document.getElementById('dashRankSearchResult');
+  if(!tag){resultEl.textContent='고유닉을 입력해주세요';return;}
+  let allTotal=0,monthTotal=0,nickname=tag;
+  const now=new Date();
+  const ymNow=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
+    const info=(entry.byUser||{})[tag];
+    if(!info)return;
+    allTotal+=(info.amount||0);
+    nickname=info.nickname||nickname;
+    if(date.startsWith(ymNow)) monthTotal+=(info.amount||0);
+  });
+  if(allTotal===0){ resultEl.textContent='기록을 찾을 수 없어요'; return; }
+  resultEl.textContent=`${nickname}\n이번 달: ${monthTotal.toLocaleString('ko-KR')} 스푼\n전체 누적: ${allTotal.toLocaleString('ko-KR')} 스푼`;
+}
+
+function dashCalMove(dir){
+  dashCalMonth+=dir;
+  if(dashCalMonth>11){dashCalMonth=0;dashCalYear++;}
+  if(dashCalMonth<0){dashCalMonth=11;dashCalYear--;}
+  renderDashCalendar();
+}
+
+function renderDashCalendar(){
+  const titleEl=document.getElementById('dashCalTitle');
+  const gridEl=document.getElementById('dashCalGrid');
+  if(!titleEl||!gridEl)return;
+  titleEl.textContent=`${dashCalYear}년 ${dashCalMonth+1}월`;
+
+  const today=new Date();
+  const firstDay=new Date(dashCalYear,dashCalMonth,1).getDay();
+  const daysInMonth=new Date(dashCalYear,dashCalMonth+1,0).getDate();
+  const prevDays=new Date(dashCalYear,dashCalMonth,0).getDate();
+
+  let cells='';
+  for(let i=0;i<firstDay;i++){
+    cells+=`<div style="padding:4px;background:var(--bg);border-radius:6px;min-height:50px"><span class="hint" style="margin:0">${prevDays-firstDay+i+1}</span></div>`;
+  }
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr=`${dashCalYear}-${String(dashCalMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const amt=dashSpoonTotal(dateStr);
+    const isToday=today.getFullYear()===dashCalYear&&today.getMonth()===dashCalMonth&&today.getDate()===d;
+    const dow=new Date(dashCalYear,dashCalMonth,d).getDay();
+    const dayColor=dow===0?'var(--danger)':dow===6?'var(--accent2)':'var(--text)';
+    const border=isToday?'2px solid var(--accent2)':'1px solid var(--border)';
+    const clickable=amt>0;
+    cells+=`<div style="padding:5px 4px;background:var(--surface);border:${border};border-radius:6px;min-height:50px;${clickable?'cursor:pointer':''}" ${clickable?`onclick="showSpoonDayDetail('${dateStr}')"`:''}>
+      <div style="font-size:11px;color:${dayColor};font-weight:${isToday?'800':'500'}">${d}</div>
+      ${amt>0?`<div style="font-size:12px;font-weight:700;color:var(--accent2);margin-top:2px">${amt.toLocaleString('ko-KR')}</div>`:''}
+    </div>`;
+  }
+  gridEl.innerHTML=cells;
+  renderDashMvpStats();
+}
+
+function renderDashMvpStats(){
+  const ym=`${dashCalYear}-${String(dashCalMonth+1).padStart(2,'0')}`;
+  const monthUsers={};
+  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
+    if(!date.startsWith(ym))return;
+    Object.entries(entry.byUser||{}).forEach(([tag,info])=>{
+      if(!monthUsers[tag])monthUsers[tag]={nickname:info.nickname||tag,total:0};
+      monthUsers[tag].total+=(info.amount||0);
+    });
+  });
+
+  const monthMvpList=document.getElementById('dashMonthMvpList');
+  if(monthMvpList){
+    const sorted=Object.entries(monthUsers).sort((a,b)=>b[1].total-a[1].total).slice(0,5);
+    monthMvpList.innerHTML=sorted.length?sorted.map(([tag,d],i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+        <div style="font-weight:800;color:${i===0?'var(--accent2)':'var(--muted)'};width:20px">${i+1}.</div>
+        <div style="flex:1;font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(d.nickname)}</div>
+        <div style="font-weight:800;color:var(--accent2);font-size:13px">${d.total.toLocaleString('ko-KR')}</div>
+      </div>`).join(''):'<p class="hint">데이터가 없습니다.</p>';
+  }
+
+  const weeklyGrid=document.getElementById('dashWeeklyMvpGrid');
+  if(weeklyGrid){
+    let html='';
+    for(let w=1;w<=4;w++){
+      const weekUsers={};
+      const startDay=(w-1)*7+1, endDay=w===4?31:w*7;
+      Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
+        if(!date.startsWith(ym))return;
+        const day=parseInt(date.split('-')[2]);
+        if(day>=startDay&&day<=endDay){
+          Object.entries(entry.byUser||{}).forEach(([tag,info])=>{
+            if(!weekUsers[tag])weekUsers[tag]={nickname:info.nickname||tag,total:0};
+            weekUsers[tag].total+=(info.amount||0);
+          });
+        }
+      });
+      const sortedWeek=Object.entries(weekUsers).sort((a,b)=>b[1].total-a[1].total).slice(0,3);
+      html+=`<div onclick="showWeeklyMvpDetail(${w})" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer">
+        <div style="font-size:12px;font-weight:800;color:var(--accent);border-bottom:1px dashed var(--border);padding-bottom:4px;margin-bottom:4px;display:flex;justify-content:space-between">
+          <span>${w}주차</span><span class="hint" style="margin:0">상세보기 🔍</span>
+        </div>
+        ${sortedWeek.length?sortedWeek.map(([tag,d],i)=>`<div style="display:flex;justify-content:space-between;font-size:11px;gap:4px"><span class="hint" style="margin:0">${i+1}위</span><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(d.nickname)}</span></div>`).join(''):'<p class="hint" style="margin:0;text-align:center;padding:8px 0">기록 없음</p>'}
+      </div>`;
+    }
+    weeklyGrid.innerHTML=html;
+  }
+}
+
+function dashRemoveModal(id){ const el=document.getElementById(id); if(el)el.remove(); }
+
+function showSpoonDayDetail(dateStr){
+  dashRemoveModal('dashDayModal');
+  const entry=dashData.spoonLog[dateStr]||{total:0,byUser:{}};
+  const total=entry.total||0;
+  const userList=Object.entries(entry.byUser||{}).sort((a,b)=>(b[1].amount||0)-(a[1].amount||0));
+  const dt=new Date(dateStr+'T00:00:00');
+  const dow=['일','월','화','수','목','금','토'][dt.getDay()];
+
+  let listHtml=userList.length?userList.map(([tag,info],idx)=>{
+    const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':(idx+1)+'.';
+    const pct=total>0?Math.round((info.amount||0)/total*100):0;
+    return `<div onclick="editSpoonEntry('${escapeAttr(dateStr)}','${escapeAttr(tag)}','${escapeAttr(info.nickname||tag)}',${info.amount||0})" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${idx===0?'rgba(251,146,60,.08)':'var(--bg)'};border:1px solid var(--border);border-radius:10px;margin-bottom:6px;cursor:pointer">
+      <div style="font-size:${idx<3?'20px':'14px'};font-weight:800;min-width:30px;text-align:center">${medal}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700">${escapeHtml(info.nickname||tag)}</div>
+        <div class="hint" style="margin:0">@${escapeHtml(tag)} · ${info.count||1}회 선물 · ${pct}%</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:800;color:var(--accent2)">${(info.amount||0).toLocaleString('ko-KR')}</div>
+        <div class="hint" style="margin:0">스푼</div>
+      </div>
+    </div>`;
+  }).join(''):'<p class="hint" style="text-align:center;padding:20px 0">유저별 기록이 없습니다.</p>';
+
+  const modal=document.createElement('div');
+  modal.id='dashDayModal';
+  modal.className='modal-overlay';
+  modal.onclick=(e)=>{ if(e.target===modal)modal.remove(); };
+  modal.innerHTML=`<div class="modal-box" style="max-width:460px;max-height:82vh;overflow-y:auto">
+    <div class="modal-title"><span>📅 ${dt.getFullYear()}년 ${dt.getMonth()+1}월 ${dt.getDate()}일 (${dow})</span><button class="icon-btn" onclick="dashRemoveModal('dashDayModal')">✕</button></div>
+    <p class="hint" style="margin-top:0">총 <b style="color:var(--accent2)">${total.toLocaleString('ko-KR')}</b> 스푼 · ${userList.length}명 참여 · 클릭하면 수정/삭제할 수 있어요</p>
+    ${listHtml}
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function showWeeklyMvpDetail(weekNum){
+  dashRemoveModal('dashWeekModal');
+  const ym=`${dashCalYear}-${String(dashCalMonth+1).padStart(2,'0')}`;
+  const weekUsers={};
+  const startDay=(weekNum-1)*7+1, endDay=weekNum===4?31:weekNum*7;
+  let totalSpoon=0;
+  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
+    if(!date.startsWith(ym))return;
+    const day=parseInt(date.split('-')[2]);
+    if(day>=startDay&&day<=endDay){
+      Object.entries(entry.byUser||{}).forEach(([tag,info])=>{
+        if(!weekUsers[tag])weekUsers[tag]={nickname:info.nickname||tag,amount:0,count:0};
+        weekUsers[tag].amount+=(info.amount||0);
+        weekUsers[tag].count+=(info.count||1);
+        totalSpoon+=(info.amount||0);
+      });
+    }
+  });
+  const sortedList=Object.entries(weekUsers).sort((a,b)=>b[1].amount-a[1].amount);
+  let listHtml=sortedList.length?sortedList.map(([tag,info],idx)=>{
+    const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':(idx+1)+'.';
+    const pct=totalSpoon>0?Math.round(info.amount/totalSpoon*100):0;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${idx<3?'rgba(99,102,241,.08)':'var(--bg)'};border:1px solid var(--border);border-radius:10px;margin-bottom:6px">
+      <div style="font-size:${idx<3?'20px':'14px'};font-weight:800;min-width:30px;text-align:center">${medal}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700">${escapeHtml(info.nickname)}</div>
+        <div class="hint" style="margin:0">@${escapeHtml(tag)} · ${info.count}회 선물 · ${pct}%</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:800;color:var(--accent2)">${info.amount.toLocaleString('ko-KR')}</div>
+        <div class="hint" style="margin:0">스푼</div>
+      </div>
+    </div>`;
+  }).join(''):'<p class="hint" style="text-align:center;padding:20px 0">해당 주차에 선물 기록이 없습니다.</p>';
+
+  const modal=document.createElement('div');
+  modal.id='dashWeekModal';
+  modal.className='modal-overlay';
+  modal.onclick=(e)=>{ if(e.target===modal)modal.remove(); };
+  modal.innerHTML=`<div class="modal-box" style="max-width:460px;max-height:82vh;overflow-y:auto">
+    <div class="modal-title"><span>📅 ${dashCalYear}년 ${dashCalMonth+1}월 ${weekNum}주차</span><button class="icon-btn" onclick="dashRemoveModal('dashWeekModal')">✕</button></div>
+    <p class="hint" style="margin-top:0">총 <b style="color:var(--accent2)">${totalSpoon.toLocaleString('ko-KR')}</b> 스푼 · 참여 ${sortedList.length}명</p>
+    ${listHtml}
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function showAddSpoonModal(){
+  dashRemoveModal('dashSpoonEditModal');
+  const today=new Date();
+  const dateStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const modal=document.createElement('div');
+  modal.id='dashSpoonEditModal';
+  modal.className='modal-overlay';
+  modal.onclick=(e)=>{ if(e.target===modal)modal.remove(); };
+  modal.innerHTML=`<div class="modal-box">
+    <div class="modal-title"><span>🎁 스푼 내역 수동 추가</span><button class="icon-btn" onclick="dashRemoveModal('dashSpoonEditModal')">✕</button></div>
+    <label>날짜</label>
+    <input type="date" id="manualSpoonDate" value="${dateStr}">
+    <label>유저 고유닉 (@제외)</label>
+    <input type="text" id="manualSpoonTag" placeholder="예: spoon123">
+    <label>유저 닉네임</label>
+    <input type="text" id="manualSpoonNick" placeholder="예: 스푼천사">
+    <label>스푼 개수</label>
+    <input type="number" id="manualSpoonAmount" value="10">
+    <div class="btn-row">
+      <button class="btn-gray" onclick="dashRemoveModal('dashSpoonEditModal')">취소</button>
+      <button class="btn-connect" onclick="saveSpoonManual()">추가하기</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveSpoonManual(){
+  const date=document.getElementById('manualSpoonDate').value;
+  const tag=document.getElementById('manualSpoonTag').value.trim().replace(/^@/,'');
+  const nickname=document.getElementById('manualSpoonNick').value.trim();
+  const amount=parseInt(document.getElementById('manualSpoonAmount').value)||0;
+  if(!date||!tag||!nickname||amount<=0)return showToast('모든 정보를 올바르게 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/dashboard/spoon',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({date,tag,nickname,amount})});
+    const d=await res.json();
+    if(d.success){
+      showToast('스푼 내역이 추가되었어요');
+      dashRemoveModal('dashSpoonEditModal');
+      await loadDashboardData();
+    } else showToast(d.error||'추가 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function editSpoonEntry(dateStr,tag,nickname,amount){
+  dashRemoveModal('dashDayModal');
+  dashRemoveModal('dashSpoonEditModal');
+  const modal=document.createElement('div');
+  modal.id='dashSpoonEditModal';
+  modal.className='modal-overlay';
+  modal.onclick=(e)=>{ if(e.target===modal)modal.remove(); };
+  modal.innerHTML=`<div class="modal-box">
+    <div class="modal-title"><span>✏️ 스푼 내역 수정</span><button class="icon-btn" onclick="dashRemoveModal('dashSpoonEditModal')">✕</button></div>
+    <p class="hint" style="margin-top:0">${escapeHtml(dateStr)} · @${escapeHtml(tag)}</p>
+    <label>유저 닉네임</label>
+    <input type="text" id="editSpoonNick" value="${escapeAttr(nickname)}">
+    <label>스푼 개수</label>
+    <input type="number" id="editSpoonAmount" value="${amount}">
+    <div class="btn-row">
+      <button class="btn-shield-reset" onclick="deleteSpoonEntry('${escapeAttr(dateStr)}','${escapeAttr(tag)}')">삭제</button>
+      <button class="btn-connect" onclick="updateSpoonEntry('${escapeAttr(dateStr)}','${escapeAttr(tag)}')">저장하기</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function updateSpoonEntry(date,tag){
+  const nickname=document.getElementById('editSpoonNick').value.trim();
+  const amount=parseInt(document.getElementById('editSpoonAmount').value)||0;
+  if(!nickname||amount<0)return showToast('올바른 정보를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/dashboard/spoon/edit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({date,tag,nickname,amount})});
+    const d=await res.json();
+    if(d.success){
+      showToast('저장했어요');
+      dashRemoveModal('dashSpoonEditModal');
+      await loadDashboardData();
+    } else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteSpoonEntry(date,tag){
+  if(!confirm('정말로 이 내역을 삭제하시겠어요?'))return;
+  try{
+    const res=await fetch(SERVER+'/dashboard/spoon/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({date,tag})});
+    const d=await res.json();
+    if(d.success){
+      showToast('삭제했어요');
+      dashRemoveModal('dashSpoonEditModal');
+      await loadDashboardData();
+    } else showToast(d.error||'삭제 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+
+
 function playEntrySoundById(category,id){
   const list=(entryData && entryData[category])||[];
   const item=list.find(m=>String(m.id)===String(id));
@@ -5369,8 +5855,8 @@ function startSSE(){
     if(d.type!=='session' && d.djId && d.djId!==djId) return;
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
-    else if(d.type==='like')addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys');
-    else if(d.type==='donation')addDonationLog(d);
+    else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); }
+    else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }

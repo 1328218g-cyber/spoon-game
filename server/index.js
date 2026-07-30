@@ -243,7 +243,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1498,6 +1498,63 @@ function clearTtsAccess(room) {
 }
 
 // ══════════════════════════════════════════════════════
+// 📊 대시보드 — 날짜별 스푼 기록(누가 얼마나 줬는지), 하트 기록, 좋아요 종류별 통계를 쌓아두고
+// 월간/주간 랭킹·MVP를 계산할 수 있게 해준다. 로컬 에디봇의 "대시보드" 탭과 동일한 데이터 구조.
+
+// 서버가 UTC로 돌아가도 항상 "한국 시간" 기준 YYYY-MM-DD를 돌려준다.
+// (자정 근처에 UTC 기준으로 날짜를 잡으면 실제로는 아직 어제인데 오늘로 찍히는 문제를 방지)
+function todayKST() {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`
+}
+
+function getDashboardData(djId, settings) {
+  if (!settings.dashboard) {
+    settings.dashboard = {
+      spoonLog: {}, // { 'YYYY-MM-DD': { total, byUser: { tag: { nickname, amount, count } } } }
+      heartLog: {}, // { tag: { nickname, count } }
+      likeStats: { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 },
+    }
+    store.saveSettings(djId, { dashboard: settings.dashboard })
+  }
+  if (!settings.dashboard.spoonLog) settings.dashboard.spoonLog = {}
+  if (!settings.dashboard.heartLog) settings.dashboard.heartLog = {}
+  if (!settings.dashboard.likeStats) settings.dashboard.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 }
+  return settings.dashboard
+}
+
+// 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
+function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
+  if (!isModuleOn(settings, 'dashboard', djId)) return
+  const dash = getDashboardData(djId, settings)
+  const today = todayKST()
+  const key = String(tag || nickname || '').trim() || nickname
+  if (!dash.spoonLog[today]) dash.spoonLog[today] = { total: 0, byUser: {} }
+  const entry = dash.spoonLog[today]
+  if (!entry.byUser[key]) entry.byUser[key] = { nickname, amount: 0, count: 0 }
+  entry.byUser[key].nickname = nickname
+  entry.byUser[key].amount += amount
+  entry.byUser[key].count += Math.max(1, Number(comboCount) || 1)
+  entry.total = (entry.total || 0) + amount
+  store.saveSettings(djId, { dashboard: dash })
+}
+
+// 좋아요를 받으면 하트 랭킹 + 무료하트 통계에 반영한다.
+// (스푼 API가 광고/플랜/유료 하트를 구분해서 알려주지 않아, 지금은 전체를 "무료하트"로 집계한다)
+function recordDashboardHeart(djId, settings, nickname, tag) {
+  if (!isModuleOn(settings, 'dashboard', djId)) return
+  const dash = getDashboardData(djId, settings)
+  const key = String(tag || nickname || '').trim() || nickname
+  if (!dash.heartLog[key]) dash.heartLog[key] = { nickname, count: 0 }
+  dash.heartLog[key].nickname = nickname
+  dash.heartLog[key].count += 1
+  if (!dash.likeStats.sessionStart) dash.likeStats.sessionStart = Date.now()
+  dash.likeStats.free = (dash.likeStats.free || 0) + 1
+  dash.likeStats.total = (dash.likeStats.total || 0) + 1
+  store.saveSettings(djId, { dashboard: dash })
+}
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -2259,6 +2316,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
           if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
+        recordDashboardHeart(djId, settings, author, likeTag)
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
         const gen = eventPayload.generator || {}
@@ -2296,6 +2354,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               }
             }
           }
+
+          recordDashboardSpoon(djId, settings, author, donationTag, amount * Math.max(1, comboCount), comboCount)
         }
       }
     } catch (e) {
@@ -3282,6 +3342,67 @@ app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
     console.log('[타입캐스트 오류]', e.message)
     res.json({ success: false, error: '타입캐스트 요청 중 오류: ' + e.message })
   }
+})
+
+// 📊 대시보드
+app.get('/dashboard/data', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const fundingItems = ((settings.funding || {}).items || []).filter(f => f.title)
+  res.json({ success: true, dashboard: dash, funding: fundingItems })
+})
+app.post('/dashboard/spoon', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dashboard', req.djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag, nickname, amount } = req.body || {}
+  const amt = Number(amount) || 0
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  const key = String(tag || nickname || '').trim().replace(/^@/, '')
+  const nick = String(nickname || key || '').trim()
+  if (!key || !nick || amt <= 0) return res.json({ success: false, error: '고유닉/닉네임/스푼 개수를 모두 입력해주세요' })
+  if (!dash.spoonLog[date]) dash.spoonLog[date] = { total: 0, byUser: {} }
+  const entry = dash.spoonLog[date]
+  if (!entry.byUser[key]) entry.byUser[key] = { nickname: nick, amount: 0, count: 0 }
+  entry.byUser[key].nickname = nick
+  entry.byUser[key].amount += amt
+  entry.byUser[key].count += 1
+  entry.total = (entry.total || 0) + amt
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/spoon/edit', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag, nickname, amount } = req.body || {}
+  const entry = dash.spoonLog[date]
+  if (!entry || !entry.byUser[tag]) return res.json({ success: false, error: '해당 기록을 찾을 수 없어요' })
+  const amt = Math.max(0, Number(amount) || 0)
+  const diff = amt - (entry.byUser[tag].amount || 0)
+  entry.byUser[tag].nickname = String(nickname || entry.byUser[tag].nickname).trim()
+  entry.byUser[tag].amount = amt
+  entry.total = (entry.total || 0) + diff
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/spoon/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag } = req.body || {}
+  const entry = dash.spoonLog[date]
+  if (!entry || !entry.byUser[tag]) return res.json({ success: false, error: '해당 기록을 찾을 수 없어요' })
+  entry.total = Math.max(0, (entry.total || 0) - (entry.byUser[tag].amount || 0))
+  delete entry.byUser[tag]
+  if (entry.total <= 0 && Object.keys(entry.byUser).length === 0) delete dash.spoonLog[date]
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now() }
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
 })
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
