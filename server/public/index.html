@@ -1183,6 +1183,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 스티커 선택 모달 (효과음 전용, 룰렛과 같은 스티커 데이터 재사용) -->
+      <div id="sfxStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeSfxStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 스티커 선택</span><button class="icon-btn" onclick="closeSfxStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="sfxStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderSfxStickerPicker()" style="flex:1">
+            <select id="sfxStickerPickerCategory" onchange="renderSfxStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div class="hint" id="sfxStickerPickerCount" style="margin:0 0 8px">0개</div>
+          <div class="sticker-grid" id="sfxStickerPickerGrid"></div>
+        </div>
+      </div>
+
       <div class="panel" data-panel="roulettelog">
         <div class="card split-card">
           <div class="split-side">
@@ -1586,11 +1601,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="sfxTriggerValueWrap" style="display:none">
             <label id="sfxTriggerValueLabel">조건 값</label>
             <div style="display:flex;gap:8px">
-              <input type="text" id="sfxTriggerValue" placeholder="예: 하트" style="flex:1">
+              <input type="text" id="sfxTriggerValue" placeholder="예: 하트" style="flex:1" oninput="handleSfxStickerInput(this.value)" autocomplete="off">
+              <button type="button" class="btn-gray" id="sfxStickerPickBtn" style="display:none;white-space:nowrap;padding:11px 14px" onclick="openSfxStickerPicker()">🖼️ 스티커 선택</button>
               <select id="sfxMatchType" style="display:none;max-width:130px">
                 <option value="atLeast">이상</option>
                 <option value="exact">정확히 일치</option>
               </select>
+            </div>
+            <div id="sfxStickerSearchResults" style="display:none;position:relative;z-index:5;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(20,20,40,.1)"></div>
+            <div class="sticker-preview-chip" id="sfxStickerPreview">
+              <img id="sfxStickerPreviewImg" src="">
+              <span id="sfxStickerPreviewTitle"></span>
             </div>
             <p class="hint" id="sfxMatchTypeHint" style="display:none;margin-top:6px">
             · <b>정확히 일치</b>: 입력한 개수와 동일한 스푼이 들어왔을 때만 재생<br>
@@ -2163,6 +2184,7 @@ function selectPanel(name){
   if(meta){document.getElementById('panelTitle').textContent=meta[0];document.getElementById('panelDesc').textContent=meta[1];}
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
+  if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -4072,20 +4094,31 @@ function renderRouletteItems(){
     wrap.innerHTML='<p class="hint">등록된 항목이 없습니다. 아래 버튼으로 추가해주세요.</p>';
     return;
   }
-  wrap.innerHTML=rlEditingItems.map((it,i)=>`
-    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-      <span style="width:22px;height:22px;border-radius:50%;background:var(--success);color:#000;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
-      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin:0;white-space:nowrap"><input type="checkbox" style="width:auto" ${it.skipHistory?'checked':''} onchange="rlEditingItems[${i}].skipHistory=this.checked">기록안함</label>
-      <input type="text" value="${escapeAttr(it.name)}" placeholder="항목 이름" oninput="rlEditingItems[${i}].name=this.value" style="flex:2">
-      <input type="text" inputmode="decimal" value="${it.percent}" placeholder="확률" oninput="rlEditingItems[${i}].percent=Number(this.value)||0;updateRoulettePercentSumOnly()" style="flex:1">
-      <span style="font-size:12px;color:var(--muted)">%</span>
-      <button class="icon-btn danger" onclick="removeRouletteItem(${i})">🗑</button>
+  wrap.innerHTML=rlEditingItems.map((it,i)=>{
+    const saveTo=it.saveTo||'keep';
+    return `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-top:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="width:22px;height:22px;border-radius:50%;background:var(--success);color:#000;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</span>
+        <input type="text" value="${escapeAttr(it.name)}" placeholder="항목 이름" oninput="rlEditingItems[${i}].name=this.value" style="flex:2">
+        <input type="text" inputmode="decimal" value="${it.percent}" placeholder="확률" oninput="rlEditingItems[${i}].percent=Number(this.value)||0;updateRoulettePercentSumOnly()" style="flex:1">
+        <span style="font-size:12px;color:var(--muted)">%</span>
+        <button class="icon-btn danger" onclick="removeRouletteItem(${i})">🗑</button>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:6px;padding-left:30px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin:0;white-space:nowrap"><input type="checkbox" style="width:auto" ${it.skipHistory?'checked':''} onchange="rlEditingItems[${i}].skipHistory=this.checked">기록안함</label>
+        <span class="hint" style="margin:0">저장 위치:</span>
+        <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap"><input type="radio" name="rlSaveTo${i}" style="width:auto" ${saveTo==='keep'?'checked':''} onchange="rlEditingItems[${i}].saveTo='keep'">📋 킵목록 (!킵)</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap"><input type="radio" name="rlSaveTo${i}" style="width:auto" ${saveTo==='misc'?'checked':''} onchange="rlEditingItems[${i}].saveTo='misc'">🗂️ 기타목록 (!내카드)</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap"><input type="radio" name="rlSaveTo${i}" style="width:auto" ${saveTo==='event'?'checked':''} onchange="rlEditingItems[${i}].saveTo='event'">🎉 이벤트목록 (!이벤트)</label>
+      </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function addRouletteItem(){
-  rlEditingItems.push({id:'ri'+(rlItemIdSeq++),name:'',percent:0,skipHistory:false});
+  rlEditingItems.push({id:'ri'+(rlItemIdSeq++),name:'',percent:0,skipHistory:false,saveTo:'keep'});
   renderRouletteItems();
 }
 
@@ -4619,19 +4652,123 @@ function onSfxTriggerTypeChange(){
   const input=document.getElementById('sfxTriggerValue');
   const matchSel=document.getElementById('sfxMatchType');
   const matchHint=document.getElementById('sfxMatchTypeHint');
+  const pickBtn=document.getElementById('sfxStickerPickBtn');
   if(type==='any'){ wrap.style.display='none'; return; }
   wrap.style.display='block';
   if(type==='sticker'){
     label.textContent='스티커 이름';
-    input.placeholder='예: 하트';
+    input.placeholder='스티커 이름 검색 또는 직접 입력';
     matchSel.style.display='none';
     matchHint.style.display='none';
+    pickBtn.style.display='inline-block';
+    loadRlStickerData();
+    updateSfxStickerPreview();
   } else {
     label.textContent='지급 스푼 개수';
     input.placeholder='예: 10';
     matchSel.style.display='block';
     matchHint.style.display='block';
+    pickBtn.style.display='none';
+    document.getElementById('sfxStickerSearchResults').style.display='none';
+    document.getElementById('sfxStickerPreview').style.display='none';
   }
+}
+
+/* ── 🖼️ 효과음용 스티커 선택 (룰렛과 같은 스티커 데이터 캐시를 재사용) ── */
+function handleSfxStickerInput(val){
+  const resDiv=document.getElementById('sfxStickerSearchResults');
+  if(!val){ resDiv.style.display='none'; updateSfxStickerPreview(); return; }
+  loadRlStickerData().then(()=>{
+    const q=val.toLowerCase();
+    const results=rlStickerData.filter(s=>s.name.toLowerCase().includes(q)||s.title.toLowerCase().includes(q)).slice(0,20);
+    if(!results.length){ resDiv.style.display='none'; return; }
+    resDiv.innerHTML=results.map(s=>`
+      <div onclick="selectSfxSticker('${escapeAttr(s.name)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border)">
+        <img src="${escapeAttr(s.image)}" style="width:28px;height:28px;object-fit:contain" onerror="this.style.visibility='hidden'">
+        <div style="flex:1">
+          <div style="font-size:12.5px;font-weight:700">${escapeHtml(s.title)}</div>
+          <div style="font-size:10.5px;color:var(--muted)">${s.price}스푼</div>
+        </div>
+      </div>
+    `).join('');
+    resDiv.style.display='block';
+  });
+}
+
+function selectSfxSticker(name){
+  document.getElementById('sfxTriggerValue').value=name;
+  document.getElementById('sfxStickerSearchResults').style.display='none';
+  updateSfxStickerPreview();
+}
+
+function updateSfxStickerPreview(){
+  const curName=(document.getElementById('sfxTriggerValue').value||'').trim();
+  const preview=document.getElementById('sfxStickerPreview');
+  const img=document.getElementById('sfxStickerPreviewImg');
+  const title=document.getElementById('sfxStickerPreviewTitle');
+  if(!curName){ preview.style.display='none'; return; }
+  const match=rlStickerData.find(s=>s.name===curName||s.title===curName);
+  if(match){
+    img.src=match.image||'';
+    title.textContent=match.title||match.name;
+  } else {
+    img.src='';
+    title.textContent=curName+' (직접 입력)';
+  }
+  preview.style.display='flex';
+}
+
+async function openSfxStickerPicker(){
+  document.getElementById('sfxStickerModalOverlay').style.display='flex';
+  document.getElementById('sfxStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('sfxStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderSfxStickerPicker();
+}
+
+function closeSfxStickerPicker(){
+  document.getElementById('sfxStickerModalOverlay').style.display='none';
+}
+
+function renderSfxStickerPicker(){
+  const grid=document.getElementById('sfxStickerPickerGrid');
+  const countEl=document.getElementById('sfxStickerPickerCount');
+  const keyword=(document.getElementById('sfxStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('sfxStickerPickerCategory').value;
+
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+
+  const curName=(document.getElementById('sfxTriggerValue').value||'').trim();
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const isSelected=s.name===curName||s.title===curName;
+    const card=document.createElement('div');
+    card.className='sticker-card'+(isSelected?' selected':'');
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>{
+      selectSfxSticker(s.name);
+      closeSfxStickerPicker();
+    });
+    grid.appendChild(card);
+  });
 }
 
 async function loadSoundFxData(){
@@ -4713,6 +4850,8 @@ function addSoundFxItem(){
         showToast('효과음을 추가했어요');
         document.getElementById('sfxName').value='';
         document.getElementById('sfxTriggerValue').value='';
+        document.getElementById('sfxStickerPreview').style.display='none';
+        document.getElementById('sfxStickerSearchResults').style.display='none';
         fileInput.value='';
         loadSoundFxData();
       } else showToast(d.error||'추가 실패');
@@ -5209,6 +5348,9 @@ async function loadDashboardData(){
     renderDashCalendar();
   }catch(e){}
 }
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData();
+},15000);
 
 function renderDashboardStats(){
   const ls=dashData.likeStats||{};
@@ -5981,22 +6123,26 @@ async function loadRouletteUsers(){
   try{
     const res=await fetch(SERVER+'/roulette/users',{headers:authHeaders()});
     const d=await res.json();
-    if(d.success){ rlUserTags=d.tags; renderRouletteUserList(); }
+    if(d.success){ rlUserTags=d.users||(d.tags||[]).map(t=>({tag:t,imgUrl:''})); renderRouletteUserList(); }
   }catch(e){}
 }
 
 function renderRouletteUserList(){
   const q=(document.getElementById('rlSearchInput').value||'').trim().toLowerCase();
   const wrap=document.getElementById('rlUserListWrap');
-  const filtered=rlUserTags.filter(t=>t.toLowerCase().includes(q));
+  const filtered=rlUserTags.filter(u=>u.tag.toLowerCase().includes(q));
   if(!filtered.length){
     wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';
     return;
   }
-  wrap.innerHTML=filtered.map(t=>{
+  wrap.innerHTML=filtered.map(u=>{
+    const t=u.tag;
     const active=t===rlSelectedTag;
+    const avatarHtml=u.imgUrl
+      ? `<img src="${escapeAttr(u.imgUrl)}" class="ic" style="width:26px;height:26px;border-radius:50%;object-fit:cover" onerror="this.style.visibility='hidden'">`
+      : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((t||'?')[0])}</span>`;
     return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="loadRouletteHistory('${escapeAttr(t)}')">
-      <span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((t||'?')[0])}</span>
+      ${avatarHtml}
       <span class="lbl">${escapeHtml(t)}</span>
       <button class="icon-btn danger" style="flex-shrink:0" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
     </div>`;

@@ -1896,6 +1896,13 @@ function percentPick(items) {
 const SECTION_FIELD = { '킵목록': 'keepList', '이벤트목록': 'eventList', '기타목록': 'miscList' }
 const SECTION_LABEL = { '킵목록': '킵', '이벤트목록': '이벤트', '기타목록': '내카드' }
 
+// 룰렛 항목마다 지정한 저장 목록(킵/기타/이벤트)에 맞춰 당첨 기록을 누적한다.
+// saveTo가 없으면(예전 데이터) 기존과 동일하게 킵목록에 저장한다.
+function addRouletteWinToList(hist, saveTo, name) {
+  const listKey = saveTo === 'event' ? 'eventList' : saveTo === 'misc' ? 'miscList' : 'keepList'
+  hist[listKey][name] = (hist[listKey][name] || 0) + 1
+}
+
 function getHistoryRec(settings, tag) {
   if (!settings.rouletteHistory) settings.rouletteHistory = {}
   if (!settings.rouletteHistory[tag]) settings.rouletteHistory[tag] = { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
@@ -2143,7 +2150,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
     wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
     if (!won.skipHistory) {
       hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
-      hist.keepList[won.name] = (hist.keepList[won.name] || 0) + 1
+      addRouletteWinToList(hist, won.saveTo, won.name)
     }
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
@@ -2186,7 +2193,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
       if (!won.skipHistory) {
         hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
-        hist.keepList[won.name] = (hist.keepList[won.name] || 0) + 1
+        addRouletteWinToList(hist, won.saveTo, won.name)
         changed = true
       }
     }
@@ -2974,7 +2981,9 @@ app.get('/settings', auth.requireAuth, (req, res) => {
 app.get('/roulette/users', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tags = Object.keys(settings.rouletteHistory || {})
-  res.json({ success: true, tags })
+  const room = getRoom(req.djId)
+  const users = tags.map(tag => ({ tag, imgUrl: getCachedProfileUrl(room, null, tag) }))
+  res.json({ success: true, tags, users })
 })
 
 // ⭐ 애청지수 유저 목록 (랭킹순)
