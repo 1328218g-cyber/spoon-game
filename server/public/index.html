@@ -6525,20 +6525,21 @@ async function loadRouletteUsers(){
 function renderRouletteUserList(){
   const q=(document.getElementById('rlSearchInput').value||'').trim().toLowerCase();
   const wrap=document.getElementById('rlUserListWrap');
-  const filtered=rlUserTags.filter(u=>u.tag.toLowerCase().includes(q));
+  const filtered=rlUserTags.filter(u=>u.tag.toLowerCase().includes(q)||(u.nickname||'').toLowerCase().includes(q));
   if(!filtered.length){
     wrap.innerHTML='<p class="hint">등록된 시청자가 없습니다.</p>';
     return;
   }
   wrap.innerHTML=filtered.map(u=>{
     const t=u.tag;
+    const nick=u.nickname||t;
     const active=t===rlSelectedTag;
     const avatarHtml=u.imgUrl
       ? `<img src="${escapeAttr(u.imgUrl)}" class="ic" style="width:26px;height:26px;border-radius:50%;object-fit:cover" onerror="this.style.visibility='hidden'">`
-      : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((t||'?')[0])}</span>`;
+      : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((nick||'?')[0])}</span>`;
     return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="loadRouletteHistory('${escapeAttr(t)}')">
       ${avatarHtml}
-      <span class="lbl">${escapeHtml(t)}</span>
+      <span class="lbl" style="line-height:1.3">${escapeHtml(nick)}${nick!==t?`<br><span style="font-size:11px;color:var(--muted)">@${escapeHtml(t)}</span>`:''}</span>
       <button class="icon-btn danger" style="flex-shrink:0" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
     </div>`;
   }).join('');
