@@ -4228,6 +4228,13 @@ app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const rec = getHistoryRec(settings, req.params.tag)
   if (action === 'add' && text) rec[key][text] = (rec[key][text] || 0) + 1
+  else if (action === 'inc' && text) rec[key][text] = (rec[key][text] || 0) + 1
+  else if (action === 'dec' && text) {
+    if (rec[key][text] != null) {
+      rec[key][text] -= 1
+      if (rec[key][text] <= 0) delete rec[key][text]
+    }
+  }
   else if (action === 'remove' && text) delete rec[key][text]
   else if (action === 'clear') rec[key] = {}
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })

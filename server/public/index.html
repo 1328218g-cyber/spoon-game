@@ -5655,20 +5655,25 @@ function renderDashboardStats(){
 }
 
 async function dashSearchRank(){
-  const tag=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
+  const input=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
   const resultEl=document.getElementById('dashRankSearchResult');
-  if(!tag){resultEl.textContent='고유닉을 입력해주세요';return;}
-  let allTotal=0,monthTotal=0,nickname=tag;
+  if(!input){resultEl.textContent='고유닉을 입력해주세요';return;}
+  const q=input.toLowerCase();
+  let allTotal=0,monthTotal=0,nickname=input,found=false;
   const now=new Date();
   const ymNow=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
-    const info=(entry.byUser||{})[tag];
-    if(!info)return;
-    allTotal+=(info.amount||0);
-    nickname=info.nickname||nickname;
-    if(date.startsWith(ymNow)) monthTotal+=(info.amount||0);
+    Object.entries(entry.byUser||{}).forEach(([key,info])=>{
+      const keyMatch=key.toLowerCase()===q;
+      const nickMatch=(info.nickname||'').toLowerCase()===q;
+      if(!keyMatch&&!nickMatch)return;
+      found=true;
+      allTotal+=(info.amount||0);
+      nickname=info.nickname||key;
+      if(date.startsWith(ymNow)) monthTotal+=(info.amount||0);
+    });
   });
-  if(allTotal===0){ resultEl.textContent='기록을 찾을 수 없어요'; return; }
+  if(!found){ resultEl.textContent='기록을 찾을 수 없어요'; return; }
   resultEl.textContent=`${nickname}\n이번 달: ${monthTotal.toLocaleString('ko-KR')} 스푼\n전체 누적: ${allTotal.toLocaleString('ko-KR')} 스푼`;
 }
 
@@ -6611,9 +6616,13 @@ async function loadRouletteHistory(tag){
 function renderRlListCard(title,listType,tag,items){
   const entries=Object.entries(items||{});
   const rows=entries.length?entries.map(([name,count])=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span>${escapeHtml(name)}${count>1?` (${count}개)`:''}</span>
-      <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove','${escapeAttr(name)}')">✕</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;gap:8px">
+      <span style="flex:1;min-width:0">${escapeHtml(name)}${count>1?` (${count}개)`:''}</span>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        <button class="icon-btn" style="padding:2px 8px;font-size:13px" onclick="rlListAction('${escapeAttr(tag)}','${listType}','dec','${escapeAttr(name)}')">−</button>
+        <button class="icon-btn" style="padding:2px 8px;font-size:13px" onclick="rlListAction('${escapeAttr(tag)}','${listType}','inc','${escapeAttr(name)}')">＋</button>
+        <button class="icon-btn danger" onclick="rlListAction('${escapeAttr(tag)}','${listType}','remove','${escapeAttr(name)}')">🗑</button>
+      </div>
     </div>`).join('') : '<p class="hint" style="margin:0">기록된 항목이 없습니다.</p>';
   return `<div class="card">
     <div class="card-title">
