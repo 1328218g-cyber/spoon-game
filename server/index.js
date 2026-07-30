@@ -4118,7 +4118,14 @@ app.post('/autofollow/request', auth.requireAuth, (req, res) => {
     expiresAt: Date.now() + Math.max(1, Number(cfg.expireMinutes) || 60) * 60000,
   }
   store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
-  res.json({ success: true, code, expireMinutes: cfg.expireMinutes || 60 })
+  const boardUrl = `https://www.spooncast.net/kr/channel/${cfg.channelId}/tab/follower-posts`
+  res.json({ success: true, code, expireMinutes: cfg.expireMinutes || 60, boardUrl })
+})
+// 팬보드 바로가기 링크만 가볍게 조회 (인증번호 발급 전에도 버튼을 바로 보여주기 위함)
+app.get('/autofollow/board-link', auth.requireAuth, (req, res) => {
+  const cfg = getAutoFollowSettings()
+  if (!cfg.channelId) return res.json({ success: false })
+  res.json({ success: true, boardUrl: `https://www.spooncast.net/kr/channel/${cfg.channelId}/tab/follower-posts` })
 })
 app.post('/autofollow/poll-now', auth.requireAuth, async (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })

@@ -1912,6 +1912,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">🖱️ 팔로잉 신청</div>
           <p class="hint" style="margin-bottom:12px">버튼을 누르면 인증번호가 발급돼요. 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 최대 1분 안에 자동으로 맞팔로우돼요.</p>
           <button class="btn-connect" style="width:100%" onclick="requestAutoFollowCode()">🤝 팔로잉 신청</button>
+          <a id="afBoardLinkBtn" href="#" target="_blank" rel="noopener" style="display:none;width:100%;box-sizing:border-box;text-align:center;margin-top:10px;padding:12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-weight:700;font-size:13.5px;text-decoration:none">🐚 에디봇 팬보드 바로가기</a>
           <div id="afMyCodeWrap" style="display:none;margin-top:14px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;padding:16px;text-align:center">
             <div class="hint" style="margin:0">발급된 인증번호</div>
             <div id="afMyCode" style="font-size:26px;font-weight:800;letter-spacing:3px;color:var(--accent);margin:6px 0"></div>
@@ -6396,6 +6397,16 @@ async function resetDiscordCooldown(){
 }
 
 /* ── 🤝 고정매니저신청 ── */
+async function loadAutoFollowBoardLink(){
+  try{
+    const res=await fetch(SERVER+'/autofollow/board-link',{headers:authHeaders()});
+    const d=await res.json();
+    const btn=document.getElementById('afBoardLinkBtn');
+    if(d.success&&d.boardUrl){ btn.href=d.boardUrl; btn.style.display='block'; }
+    else { btn.style.display='none'; }
+  }catch(e){}
+}
+
 async function requestAutoFollowCode(){
   try{
     const res=await fetch(SERVER+'/autofollow/request',{method:'POST',headers:authHeaders()});
@@ -6404,6 +6415,7 @@ async function requestAutoFollowCode(){
     document.getElementById('afMyCode').textContent=d.code;
     document.getElementById('afMyCodeExpire').textContent=`${d.expireMinutes}분 안에 관리자 팬보드에 남겨주세요`;
     document.getElementById('afMyCodeWrap').style.display='block';
+    if(d.boardUrl){ const btn=document.getElementById('afBoardLinkBtn'); btn.href=d.boardUrl; btn.style.display='block'; }
     if(document.getElementById('afAdminWrap')&&document.getElementById('afAdminWrap').style.display!=='none')loadAutoFollowData();
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -6417,6 +6429,7 @@ async function loadAutoFollowData(){
   const isAdmin=djId===ADMIN_DJ_ID;
   document.getElementById('afAdminWrap').style.display=isAdmin?'block':'none';
   document.getElementById('afNonAdminWrap').style.display=isAdmin?'none':'block';
+  loadAutoFollowBoardLink();
   if(!isAdmin)return;
   try{
     const res=await fetch(SERVER+'/autofollow/settings',{headers:authHeaders()});
