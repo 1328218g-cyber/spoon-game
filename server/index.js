@@ -1564,6 +1564,65 @@ function getDashboardData(djId, settings) {
   return settings.dashboard
 }
 
+// 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간) — 특정 방송의 데이터가 아니라
+// 스푼 플랫폼 전체 기준이라 djId별로 나누지 않고 서버 전체에서 하나만 캐싱해서 공유한다.
+// (로컬 에디봇의 rank:scan / rank:search 를 그대로 이식)
+let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0 }
+const DASH_RANK_PATH_MAP = {
+  next_choice: '/ranks/v2/dj/live/?sub-type=monthly',
+  free_like: '/ranks/v2/dj/live-free-like/?sub-type=monthly',
+  live_time: '/ranks/v2/dj/live-time/?sub-type=monthly',
+}
+
+async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
+  let address = DASH_RANK_PATH_MAP[type]
+  if (!address || !accessToken) return []
+  let list = []
+  try {
+    while (list.length < maxCount && address) {
+      const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
+      })
+      const json = await res.json().catch(() => null)
+      if (!json || !json.results) break
+      list = list.concat(json.results)
+      address = json.next || null
+    }
+  } catch (e) { /* 지금까지 모은 것만이라도 반환 */ }
+  return list
+}
+
+async function scanDashRank() {
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
+  try {
+    for (const type of ['next_choice', 'free_like', 'live_time']) {
+      dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
+    }
+    dashRankCache.lastScanned = Date.now()
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+}
+
+function searchDashRank(tag) {
+  if (dashRankCache.lastScanned === 0) return { success: false, error: '먼저 랭킹 데이터를 스캔해주세요.' }
+  const results = { nickname: '', tag, ranks: {} }
+  let found = false
+  for (const type of ['next_choice', 'free_like', 'live_time']) {
+    const idx = dashRankCache[type].findIndex(x => x.author && x.author.tag === tag)
+    if (idx !== -1) {
+      found = true
+      results.nickname = dashRankCache[type][idx].author.nickname
+      results.ranks[type] = idx + 1
+    }
+  }
+  if (!found) return { success: false, error: '랭킹 데이터에서 해당 유저를 찾을 수 없습니다.' }
+  return { success: true, data: results }
+}
+
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
@@ -2839,7 +2898,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          if (!tag) {
+            // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
+            // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
+            await new Promise(r => setTimeout(r, 1200))
+            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
@@ -3986,6 +4051,16 @@ app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
   dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now() }
   store.saveSettings(req.djId, { dashboard: dash })
   res.json({ success: true })
+})
+
+// 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간)
+app.post('/dashboard/rank/scan', auth.requireAuth, async (req, res) => {
+  const r = await scanDashRank()
+  res.json(r)
+})
+app.get('/dashboard/rank/search/:tag', auth.requireAuth, (req, res) => {
+  const r = searchDashRank(req.params.tag)
+  res.json(r)
 })
 
 // 🎡 돌림판 룰렛
