@@ -537,6 +537,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -1935,6 +1936,116 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎣 낚시 게임 -->
+      <div class="panel" data-panel="fishing">
+        <div class="card">
+          <div class="card-title"><span>🎣 낚시 게임</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFishingSettings()">💾 저장</button></div>
+          <p class="hint">시청자들이 채팅으로 물고기를 잡고, 돈을 벌고, 상점·도박·대출까지 즐기는 미니 경제 게임이에요.</p>
+          <label class="check-opt" style="margin-top:6px"><input type="checkbox" id="fishEnabled" checked> 게임 활성화</label>
+        </div>
+
+        <div class="tab-bar" id="fishTabBar">
+          <button class="tab-btn active" data-t="basic" onclick="switchFishTab('basic')">⚙️ 기본</button>
+          <button class="tab-btn" data-t="fish" onclick="switchFishTab('fish')">🐟 물고기</button>
+          <button class="tab-btn" data-t="event" onclick="switchFishTab('event')">🎁 이벤트</button>
+          <button class="tab-btn" data-t="shop" onclick="switchFishTab('shop')">🏪 상점</button>
+          <button class="tab-btn" data-t="item" onclick="switchFishTab('item')">🎒 아이템</button>
+          <button class="tab-btn" data-t="col" onclick="switchFishTab('col')">📚 컬렉션</button>
+          <button class="tab-btn" data-t="credit" onclick="switchFishTab('credit')">💳 신용</button>
+          <button class="tab-btn" data-t="theft" onclick="switchFishTab('theft')">🦹 도둑</button>
+        </div>
+
+        <div class="card" data-fishsec="basic">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"></div>
+            <div><label>일일 보너스 (원)</label><input type="number" id="fishDailyMoney" value="10000"></div>
+            <div><label>슬롯 최소 베팅 (원)</label><input type="number" id="fishSlotMinBet" value="1000"></div>
+            <div><label>주사위 승리 경험치</label><input type="number" id="fishDiceWinExp" value="10"></div>
+            <div><label>주사위 패배 경험치</label><input type="number" id="fishDiceLoseExp" value="-2"></div>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="fish" style="display:none">
+          <div class="card-title">🐟 물고기 목록</div>
+          <p class="hint">한 줄에 하나씩. 형식: <b>이름,최소가격,최대가격,확률,경험치,등급</b> (등급: common/uncommon/rare/epic/legendary)</p>
+          <textarea id="fishList" style="height:220px;font-family:monospace;font-size:12.5px"></textarea>
+        </div>
+
+        <div class="card" data-fishsec="event" style="display:none">
+          <div class="card-title">🎁 이벤트 물고기</div>
+          <p class="hint">평소엔 안 나오고, 이벤트 기간에만 등장시키고 싶은 물고기를 여기 따로 등록하세요. 형식은 물고기 목록과 동일해요.</p>
+          <textarea id="fishEventList" style="height:120px;font-family:monospace;font-size:12.5px"></textarea>
+        </div>
+
+        <div class="card" data-fishsec="shop" style="display:none">
+          <div class="card-title">🏪 상점 상품</div>
+          <p class="hint">한 줄에 하나씩. 형식: <b>이름,가격</b>. 시청자가 <code>!구매 [번호]</code>로 구매해요.</p>
+          <textarea id="fishShop" style="height:140px;font-family:monospace;font-size:12.5px"></textarea>
+        </div>
+
+        <div class="card" data-fishsec="item" style="display:none">
+          <div class="card-title">🎒 아이템 상점</div>
+          <p class="hint">형식: <b>이름,가격,효과타입,효과값,지속분,횟수,가격단위(money/points)</b><br>
+          효과타입: <code>fish_chance</code>(물고기 확률↑, 지속시간 사용) · <code>fishing_income</code>(수익%↑, 지속시간 사용) · <code>dice_chance</code>(주사위 승률↑, 횟수 사용) · <code>dice_double</code>(주사위 2배, 횟수 사용) · <code>oddeven_chance</code>(홀짝 패배→승리 전환, 횟수 사용)</p>
+          <textarea id="fishItemShop" style="height:160px;font-family:monospace;font-size:12.5px"></textarea>
+        </div>
+
+        <div class="card" data-fishsec="col" style="display:none">
+          <div class="card-title">📚 컬렉션</div>
+          <p class="hint">형식: <b>컬렉션이름:물고기1,물고기2,물고기3</b> — 해당 물고기를 전부 잡으면 완성돼요.</p>
+          <textarea id="fishCollections" style="height:120px;font-family:monospace;font-size:12.5px"></textarea>
+        </div>
+
+        <div class="card" data-fishsec="credit" style="display:none">
+          <div class="card-title">💳 신용등급 (포인트 기준 대출 한도)</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>⭐1등급 필요P</label><input type="number" id="fishCredit1P" value="0"></div>
+            <div><label>⭐2등급 필요P</label><input type="number" id="fishCredit2P" value="100"></div>
+            <div><label>⭐3등급 필요P</label><input type="number" id="fishCredit3P" value="500"></div>
+            <div><label>1등급 대출한도</label><input type="number" id="fishCredit1L" value="500000"></div>
+            <div><label>2등급 대출한도</label><input type="number" id="fishCredit2L" value="1000000"></div>
+            <div><label>3등급 대출한도</label><input type="number" id="fishCredit3L" value="3000000"></div>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="theft" style="display:none">
+          <div class="card-title">🦹 도둑 설정</div>
+          <p class="hint">!도둑 명령어 성공률이에요. 실패하면 시도 금액의 2배를 상대방에게 벌금으로 지급해요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>기본 성공률 (%)</label><input type="number" id="fishTheftBase" value="5"></div>
+            <div><label>레벨당 추가 (%)</label><input type="number" id="fishTheftLvlBonus" value="0.5" step="0.1"></div>
+            <div><label>최대 성공률 (%)</label><input type="number" id="fishTheftMax" value="70"></div>
+          </div>
+          <label>디제이 고유닉 (!돈주기 권한, 콤마로 여러 명)</label>
+          <input type="text" id="fishDjTags" placeholder="예: sum, hostnick">
+          <div class="hint" style="margin-top:6px">비워두면 방송 중인 DJ 본인과 애청지수 매니저 목록만 자동으로 권한이 있어요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🏆 잔액 랭킹 TOP 20</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadFishingLeaderboard()">🔄 새로고침</button></div>
+          <div id="fishLeaderboardWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⌨️ 채팅 명령어</div>
+          <p class="hint">
+          !낚시 · !돈줘 · !잔액 · !상태 · !지갑 · !레벨 · !도감 · !도감공유 · !컬렉션<br>
+          !상점 · !구매 [번호] · !아이템상점 · !아이템구매 [번호]<br>
+          !슬롯 [금액] · !주사위 [금액] · !홀 [금액] · !짝 [금액]<br>
+          !송금 [고유닉] [금액] · !도둑 [고유닉] [금액]<br>
+          !대출 [금액] · !상환 [금액] · !신용정보<br>
+          !돈주기 [고유닉] [금액] (DJ 전용) · !낚시도움말
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚠️ 전체 초기화</div>
+          <p class="hint">모든 시청자의 잔액/레벨/도감/아이템 데이터를 전부 삭제해요. 되돌릴 수 없어요.</p>
+          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetFishingData()">🗑️ 낚시 게임 데이터 전체 초기화</button>
+        </div>
+      </div>
+
       <!-- 🤝 고정매니저신청 -->
       <div class="panel" data-panel="autofollow">
         <div class="card">
@@ -2527,6 +2638,7 @@ const PANEL_META={
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
+  fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -2628,7 +2740,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2640,7 +2752,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3486,6 +3598,7 @@ async function loadDjSettings(){
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
+      if(document.getElementById('fishList')) loadFishingSettings();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -6727,6 +6840,103 @@ async function clearAutoFollowHistory(){
     await fetch(SERVER+'/autofollow/history/clear',{method:'POST',headers:authHeaders()});
     showToast('지웠어요');
     loadAutoFollowData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎣 낚시 게임 ── */
+function switchFishTab(t){
+  document.querySelectorAll('#fishTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('[data-fishsec]').forEach(el=>el.style.display=el.dataset.fishsec===t?'block':'none');
+}
+
+async function loadFishingSettings(){
+  try{
+    const res=await fetch(SERVER+'/fishing/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const c=d.config;
+    document.getElementById('fishEnabled').checked=c.enabled!==false;
+    document.getElementById('fishCooldown').value=c.fishingCooldown??120;
+    document.getElementById('fishDailyMoney').value=c.dailyMoney??10000;
+    document.getElementById('fishSlotMinBet').value=c.slotMinBet??1000;
+    document.getElementById('fishDiceWinExp').value=c.diceWinExp??10;
+    document.getElementById('fishDiceLoseExp').value=c.diceLoseExp??-2;
+    document.getElementById('fishList').value=c.fishList||'';
+    document.getElementById('fishEventList').value=c.eventFishList||'';
+    document.getElementById('fishShop').value=c.shopProducts||'';
+    document.getElementById('fishItemShop').value=c.itemShop||'';
+    document.getElementById('fishCollections').value=c.collections||'';
+    document.getElementById('fishCredit1P').value=c.creditTier1Points??0;
+    document.getElementById('fishCredit1L').value=c.creditTier1Loan??500000;
+    document.getElementById('fishCredit2P').value=c.creditTier2Points??100;
+    document.getElementById('fishCredit2L').value=c.creditTier2Loan??1000000;
+    document.getElementById('fishCredit3P').value=c.creditTier3Points??500;
+    document.getElementById('fishCredit3L').value=c.creditTier3Loan??3000000;
+    document.getElementById('fishTheftBase').value=c.theftBaseRate??5;
+    document.getElementById('fishTheftLvlBonus').value=c.theftLevelBonus??0.5;
+    document.getElementById('fishTheftMax').value=c.theftMaxRate??70;
+    document.getElementById('fishDjTags').value=c.djTags||'';
+  }catch(e){}
+  loadFishingLeaderboard();
+}
+
+async function saveFishingSettings(){
+  const body={
+    enabled:document.getElementById('fishEnabled').checked,
+    fishingCooldown:Number(document.getElementById('fishCooldown').value)||120,
+    dailyMoney:Number(document.getElementById('fishDailyMoney').value)||10000,
+    slotMinBet:Number(document.getElementById('fishSlotMinBet').value)||1000,
+    diceWinExp:Number(document.getElementById('fishDiceWinExp').value)||10,
+    diceLoseExp:Number(document.getElementById('fishDiceLoseExp').value)||0,
+    fishList:document.getElementById('fishList').value,
+    eventFishList:document.getElementById('fishEventList').value,
+    shopProducts:document.getElementById('fishShop').value,
+    itemShop:document.getElementById('fishItemShop').value,
+    collections:document.getElementById('fishCollections').value,
+    creditTier1Points:Number(document.getElementById('fishCredit1P').value)||0,
+    creditTier1Loan:Number(document.getElementById('fishCredit1L').value)||0,
+    creditTier2Points:Number(document.getElementById('fishCredit2P').value)||0,
+    creditTier2Loan:Number(document.getElementById('fishCredit2L').value)||0,
+    creditTier3Points:Number(document.getElementById('fishCredit3P').value)||0,
+    creditTier3Loan:Number(document.getElementById('fishCredit3L').value)||0,
+    theftBaseRate:Number(document.getElementById('fishTheftBase').value)||0,
+    theftLevelBonus:Number(document.getElementById('fishTheftLvlBonus').value)||0,
+    theftMaxRate:Number(document.getElementById('fishTheftMax').value)||0,
+    djTags:document.getElementById('fishDjTags').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/fishing/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('설정 저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadFishingLeaderboard(){
+  const wrap=document.getElementById('fishLeaderboardWrap');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/fishing/leaderboard',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.users.length){ wrap.innerHTML='<p class="hint">아직 데이터가 없습니다.</p>'; return; }
+    wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+d.users.map((u,i)=>{
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+      return `<div style="display:flex;justify-content:space-between;font-size:13px">
+        <span><span class="hint" style="margin-right:6px">${medal}</span>${escapeHtml(u.nickname)} <span class="hint" style="margin:0">Lv.${u.level}</span></span>
+        <b style="color:var(--accent2)">₩${u.balance.toLocaleString('ko-KR')}</b>
+      </div>`;
+    }).join('')+'</div>';
+  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+
+async function resetFishingData(){
+  if(!confirm('정말로 낚시 게임의 모든 시청자 데이터를 초기화할까요? 되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 진짜로 전부 삭제하시겠어요?'))return;
+  try{
+    const res=await fetch(SERVER+'/fishing/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('초기화했어요'); loadFishingLeaderboard(); }
+    else showToast(d.error||'초기화 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
