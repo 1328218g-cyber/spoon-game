@@ -475,8 +475,7 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
 const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
 
 // 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
-// actTag: 이 채팅 이벤트에서 이미 한 번 조회해둔 고유닉(있으면 재사용, API 중복 호출/실패 방지)
-async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text) {
   if (!isModuleOn(settings, 'shortcuts', djId)) return
   const commands = settings.commands
   if (!commands || !commands.length) return
@@ -505,11 +504,8 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   let response = cmd.response || ''
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
-    let tag = actTag
-    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    if (!tag) console.log(`[${djId}][단축키] '${cmd.trigger}' {tag} 조회 실패 → 닉네임(${author})으로 대체 출력`)
-    // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
-    response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
+    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
   }
   // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
   response = response.replace(/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/g, '')
@@ -3332,17 +3328,17 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
-function sendLeaveMessage(djId, settings, nickname, tag) {
+function sendLeaveMessage(djId, settings, nickname) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
   if (!isModuleOn(settings, 'entrysettings', djId)) return
   const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
   if (msgs.length > 0) {
-    // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
-    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
+    // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
+    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, '')
     setTimeout(() => sendChatToRoom(djId, text), 500)
   }
-  const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
+  const em = pickEntryMessage(settings.entryData, 'leave', nickname, null)
   if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
@@ -3404,7 +3400,7 @@ function startLeavePolling(djId, liveId) {
         room._lastLiveMembers.delete(key)
         room._memberAbsenceCount.delete(key)
         const settings = store.getSettings(djId) || {}
-        sendLeaveMessage(djId, settings, info.nickname, info.tag)
+        sendLeaveMessage(djId, settings, info.nickname)
       }
 
       for (const [key, info] of currentMembers.entries()) {
@@ -3544,7 +3540,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
-          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
           handleSongRequestCommand(djId, room, settings, author, authorId, text)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
@@ -3597,7 +3593,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
+              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
           }
@@ -3619,7 +3615,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
+          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
@@ -3651,7 +3647,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
             if (gm && gm.text && gm.text.trim()) {
               const totalCount = amount * Math.max(1, comboCount)
-              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount)
+              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : '').replace(/{count}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
             if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
