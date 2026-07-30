@@ -262,7 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'autofollow'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1909,6 +1909,152 @@ async function handleDiscordNotifyCommand(djId, room, settings, author, authorId
 }
 
 // ══════════════════════════════════════════════════════
+// 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
+// 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 서버가 주기적으로 그 팬보드를
+// 확인해서 일치하는 번호를 찾으면 그 글쓴이를 자동으로 맞팔로우한다.
+// ※ 팬보드 조회/팔로우 실행 둘 다 "관리자(sum) 계정" 기준으로 항상 동작한다
+//    (어느 DJ의 채팅에서 신청했든 관계없이, 팔로우는 항상 관리자 계정이 하는 것이기 때문)
+
+function getAutoFollowSettings() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.autoFollow) {
+    settings.autoFollow = {
+      channelId: '',       // 관리자 계정의 채널 ID (URL의 /kr/channel/{여기}/... 부분)
+      codeLength: 8,
+      expireMinutes: 60,
+      pollIntervalSec: 60,
+      pending: {},          // { code: { nickname, tag, djId, issuedAt, expiresAt } }
+      history: [],          // 최근 처리 완료 기록 (최대 100개)
+      lastPolledAt: 0,
+    }
+    store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: settings.autoFollow })
+  }
+  if (!settings.autoFollow.pending) settings.autoFollow.pending = {}
+  if (!settings.autoFollow.history) settings.autoFollow.history = []
+  return settings.autoFollow
+}
+
+function generateFollowCode(len) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // 헷갈리기 쉬운 0/O/1/I 제외
+  let code = ''
+  for (let i = 0; i < len; i++) code += chars[Math.floor(Math.random() * chars.length)]
+  return code
+}
+
+// "!팔로우신청" — 어느 DJ의 채팅에서든 사용 가능(그 DJ가 이 모듈을 켜뒀다면). 인증번호를 발급해서 안내한다.
+async function handleAutoFollowCommand(djId, settings, author, actTag, text) {
+  if (!isModuleOn(settings, 'autofollow', djId)) return
+  const cfg = getAutoFollowSettings()
+  const cmd = cfg.cmd || '!팔로우신청'
+  if (String(text || '').trim() !== cmd) return
+
+  if (!cfg.channelId) {
+    setTimeout(() => sendChatToRoom(djId, '⚠️ 팔로우 자동승인이 아직 설정되지 않았어요. (관리자에게 문의)'), 400)
+    return
+  }
+
+  // 이미 대기 중인 번호가 있으면 새로 안 만들고 그걸 다시 안내한다 (번호 남발 방지)
+  const existing = Object.entries(cfg.pending).find(([, v]) => v.djId === djId && String(v.nickname || '').trim().toLowerCase() === String(author || '').trim().toLowerCase())
+  let code
+  if (existing) {
+    code = existing[0]
+  } else {
+    code = generateFollowCode(Number(cfg.codeLength) || 8)
+    cfg.pending[code] = {
+      nickname: author,
+      tag: actTag || '',
+      djId,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + Math.max(1, Number(cfg.expireMinutes) || 60) * 60000,
+    }
+    store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  }
+  setTimeout(() => sendChatToRoom(djId, `🤝 ${author}님, 인증번호 [${code}]를 관리자(sum) 스푼 팬보드에 글로 남겨주세요! 확인되면 자동으로 맞팔로우돼요. (${Number(cfg.expireMinutes) || 60}분 이내)`), 400)
+}
+
+// 관리자 팬보드를 조회해서 대기 중인 인증번호와 일치하는 글을 찾으면 팔로우를 실행한다.
+async function pollAutoFollowBoard() {
+  try {
+    const cfg = getAutoFollowSettings()
+    if (!cfg.channelId) return
+    const pendingCodes = Object.keys(cfg.pending)
+    if (!pendingCodes.length) return // 대기 중인 신청이 없으면 굳이 조회 안 함
+
+    // 만료된 신청은 조용히 정리
+    const now = Date.now()
+    let changed = false
+    pendingCodes.forEach(code => {
+      if (cfg.pending[code].expiresAt < now) { delete cfg.pending[code]; changed = true }
+    })
+    const stillPending = Object.keys(cfg.pending)
+    if (!stillPending.length) {
+      if (changed) store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+      return
+    }
+
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    if (!accessToken) return
+
+    const res = await fetch(`https://kr-gw.spooncast.net/feed/${cfg.channelId}/FAN?contentType=POST&excludeContentType=TALK&isNext=false`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
+    })
+    const json = await res.json()
+    const posts = json.results || []
+
+    for (const post of posts) {
+      const cd = post.contentData || {}
+      const contents = String(cd.contents || '').trim().toUpperCase()
+      const authorId = cd.authorId != null ? Number(cd.authorId) : null
+      if (!contents || authorId == null) continue
+
+      // 글 내용 안에 대기 중인 인증번호가 포함돼있으면 매칭 (정확히 일치가 아니어도 인사말과 같이 남길 수 있으니 포함 여부로 체크)
+      const matchedCode = stillPending.find(code => contents.includes(code))
+      if (!matchedCode) continue
+      const req = cfg.pending[matchedCode]
+      if (!req) continue
+
+      // ✅ 팔로우 실행
+      try {
+        const followRes = await fetch(`https://kr-api.spooncast.net/users/${authorId}/follow/`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
+        })
+        if (followRes.ok) {
+          console.log(`[팔로우자동] ✅ ${req.nickname}(authorId:${authorId}) 팔로우 완료 (코드:${matchedCode})`)
+          // 매칭된 신청은 대기 목록에서 조용히 제거(=자동 숨김) 하고 처리기록으로 옮긴다
+          delete cfg.pending[matchedCode]
+          cfg.history.unshift({ nickname: req.nickname, tag: req.tag, djId: req.djId, code: matchedCode, followedAt: Date.now() })
+          if (cfg.history.length > 100) cfg.history.length = 100
+          store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+          const room = getRoom(req.djId)
+          if (room && room.isConnected) {
+            setTimeout(() => sendChatToRoom(req.djId, `🤝 ${req.nickname}님 팔로우 인증 완료! 맞팔로우했어요 💙`), 300)
+          }
+        } else {
+          console.log(`[팔로우자동] ❌ 팔로우 API 실패 (authorId:${authorId}) status:${followRes.status}`)
+        }
+      } catch (e) {
+        console.log('[팔로우자동] 팔로우 요청 오류:', e.message)
+      }
+      // 스푼 서버에 짧은 시간에 연속 요청 안 보내도록 살짝 텀을 둔다
+      await new Promise(r => setTimeout(r, 2500))
+    }
+  } catch (e) {
+    console.log('[팔로우자동] 폴링 오류:', e.message)
+  }
+}
+
+// 서버 시작 시 한 번만 등록되는 폴링 타이머 (매 60초, 설정값 반영은 다음 틱부터)
+let autoFollowPollTimer = null
+function ensureAutoFollowPolling() {
+  if (autoFollowPollTimer) return
+  autoFollowPollTimer = setInterval(() => {
+    pollAutoFollowBoard().catch(() => {})
+  }, 60000)
+}
+ensureAutoFollowPolling()
+
+// ══════════════════════════════════════════════════════
 // 🧩 퀴즈 시스템 — 문제 은행에서 무작위로 골라 정해진 간격마다 채팅에 출제하고,
 // 정확히 일치하는 답을 먼저 맞힌 사람에게 애청지수 EXP를 지급한다.
 
@@ -2600,7 +2746,16 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           }
         }
 
-        broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible })
+        // 🏷️ 채팅 뱃지 — DJ/매니저는 저희가 이미 갖고 있는 정보로 확실히 판단 가능.
+        // VIP/구독 뱃지는 스푼 API가 실제로 어떤 필드명을 쓰는지 확실치 않아 몇 가지 후보 필드를 추정해서 시도한다.
+        // (안 나오면 정확한 필드명을 몰라서일 수 있음 — 확인되면 고칠 수 있어요)
+        const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+        const chatAct = getActivitySettings(djId, settings)
+        const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+        const isVip = !!(gen.is_vip || gen.vip || gen.isVip || (gen.fan_level && Number(gen.fan_level) > 0))
+        const isSubscribe = !!(gen.is_subscribe || gen.subscribe || gen.isSubscribe || gen.plan)
+
+        broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible, isDj, isManager, isVip, isSubscribe })
         if (!isLurker) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
@@ -2630,6 +2785,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleWheelCommand(djId, room, settings, author, authorId, text)
           handleCouponCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
+          handleAutoFollowCommand(djId, settings, author, actTag, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -3929,6 +4085,44 @@ app.post('/discordnotify/reset-cooldown', auth.requireAuth, (req, res) => {
   cfg.lastSentAt = 0
   cfg.lastStreamName = ''
   store.saveSettings(req.djId, { discordNotify: cfg })
+  res.json({ success: true })
+})
+
+// 🤝 팔로우 자동승인 (관리자 전용 — 채널 ID/팔로우 실행이 전부 관리자 계정 기준이라서)
+app.get('/autofollow/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 설정할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  res.json({ success: true, settings: cfg })
+})
+app.post('/autofollow/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 설정할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  const { channelId, codeLength, expireMinutes, cmd } = req.body || {}
+  if (channelId != null) cfg.channelId = String(channelId).trim().replace(/\D/g, '')
+  if (codeLength != null) cfg.codeLength = Math.max(4, Math.min(16, Number(codeLength) || 8))
+  if (expireMinutes != null) cfg.expireMinutes = Math.max(1, Math.min(1440, Number(expireMinutes) || 60))
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!팔로우신청'
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+app.post('/autofollow/poll-now', auth.requireAuth, async (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  await pollAutoFollowBoard()
+  res.json({ success: true })
+})
+app.post('/autofollow/pending/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  delete cfg.pending[code]
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+app.post('/autofollow/history/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  cfg.history = []
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
   res.json({ success: true })
 })
 

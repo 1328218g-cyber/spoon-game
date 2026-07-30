@@ -470,6 +470,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autofollow"><span class="ic">🤝</span><span class="lbl">팔로우 자동승인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
@@ -1904,6 +1905,45 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </p>
         </div>
       </div>
+
+      <!-- 🤝 팔로우 자동승인 -->
+      <div class="panel" data-panel="autofollow">
+        <div id="afAdminWrap">
+          <div class="card">
+            <div class="card-title"><span>🤝 팔로우 자동승인 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveAutoFollowSettings()">💾 저장</button></div>
+            <p class="hint" style="margin-bottom:12px">시청자가 채팅 명령어로 인증번호를 받아 관리자(sum) 계정의 스푼 팬보드에 남기면, 봇이 주기적으로 확인해서 자동으로 맞팔로우해줘요. (이 설정은 관리자 계정에만 보여요 — 다른 DJ분들은 모듈만 켜두시면 본인 채팅에서 명령어가 동작해요)</p>
+            <label>관리자 채널 ID</label>
+            <input type="text" id="afChannelId" placeholder="예: 10071314">
+            <div class="hint" style="margin-top:6px">스푼에서 내 프로필 접속 시 주소창의 <code>/kr/channel/여기숫자/...</code> 부분이에요.</div>
+            <label>명령어</label>
+            <input type="text" id="afCmd" value="!팔로우신청">
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div>
+                <label>인증번호 자릿수</label>
+                <input type="number" id="afCodeLength" value="8" min="4" max="16">
+              </div>
+              <div>
+                <label>유효 시간 (분)</label>
+                <input type="number" id="afExpireMinutes" value="60" min="1" max="1440">
+              </div>
+            </div>
+            <button class="btn-gray" style="width:100%;margin-top:12px" onclick="pollAutoFollowNow()">🔄 지금 바로 팬보드 확인하기</button>
+          </div>
+          <div class="card">
+            <div class="card-title">⏳ 대기 중인 신청</div>
+            <p class="hint" style="margin-bottom:10px">일치하는 번호가 팬보드에서 확인되면 이 목록에서 자동으로 사라져요.</p>
+            <div id="afPendingWrap"><p class="hint">불러오는 중...</p></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span>✅ 처리 완료 기록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearAutoFollowHistory()">🗑️ 기록 지우기</button></div>
+            <div id="afHistoryWrap"><p class="hint">불러오는 중...</p></div>
+          </div>
+        </div>
+        <div id="afNonAdminWrap" class="card" style="display:none">
+          <div class="card-title">🤝 팔로우 자동승인</div>
+          <p class="hint">이 기능은 관리자(sum) 계정에서만 설정할 수 있어요. 지금 모듈이 켜져 있다면, 이 방송의 채팅에서도 인증번호 발급 명령어가 정상 동작해요.</p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -2252,6 +2292,7 @@ const PANEL_META={
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
+  autofollow:['🤝 팔로우 자동승인','시청자가 인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -2352,7 +2393,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','autofollow'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2364,7 +2405,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','autofollow']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3209,6 +3250,7 @@ async function loadDjSettings(){
       if(document.getElementById('couponTitle')) loadCouponData();
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
+      if(document.getElementById('afAdminWrap')) loadAutoFollowData();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -6341,6 +6383,83 @@ async function resetDiscordCooldown(){
     await fetch(SERVER+'/discordnotify/reset-cooldown',{method:'POST',headers:authHeaders()});
     showToast('🔄 쿨다운을 초기화했어요');
     loadDiscordNotifyData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🤝 팔로우 자동승인 (관리자 전용) ── */
+async function loadAutoFollowData(){
+  const isAdmin=djId===ADMIN_DJ_ID;
+  document.getElementById('afAdminWrap').style.display=isAdmin?'block':'none';
+  document.getElementById('afNonAdminWrap').style.display=isAdmin?'none':'block';
+  if(!isAdmin)return;
+  try{
+    const res=await fetch(SERVER+'/autofollow/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('afChannelId').value=s.channelId||'';
+    document.getElementById('afCmd').value=s.cmd||'!팔로우신청';
+    document.getElementById('afCodeLength').value=s.codeLength||8;
+    document.getElementById('afExpireMinutes').value=s.expireMinutes||60;
+
+    const pendingWrap=document.getElementById('afPendingWrap');
+    const pendingEntries=Object.entries(s.pending||{});
+    pendingWrap.innerHTML=pendingEntries.length?pendingEntries.map(([code,p])=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <div>
+          <span style="font-weight:800;letter-spacing:1px;color:var(--accent)">[${escapeHtml(code)}]</span>
+          <span style="margin-left:8px">${escapeHtml(p.nickname)}${p.tag?' (@'+escapeHtml(p.tag)+')':''}</span>
+          <div class="hint" style="margin:0">만료: ${new Date(p.expiresAt).toLocaleString('ko-KR')}</div>
+        </div>
+        <button class="icon-btn danger" onclick="deleteAutoFollowPending('${escapeAttr(code)}')">✕</button>
+      </div>`).join(''):'<p class="hint">대기 중인 신청이 없습니다.</p>';
+
+    const historyWrap=document.getElementById('afHistoryWrap');
+    historyWrap.innerHTML=(s.history||[]).length?s.history.map(h=>`
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span>${escapeHtml(h.nickname)}${h.tag?' (@'+escapeHtml(h.tag)+')':''}</span>
+        <span class="hint" style="margin:0">${new Date(h.followedAt).toLocaleString('ko-KR')}</span>
+      </div>`).join(''):'<p class="hint">처리 기록이 없습니다.</p>';
+  }catch(e){}
+}
+
+async function saveAutoFollowSettings(){
+  const body={
+    channelId:document.getElementById('afChannelId').value,
+    cmd:document.getElementById('afCmd').value,
+    codeLength:Number(document.getElementById('afCodeLength').value)||8,
+    expireMinutes:Number(document.getElementById('afExpireMinutes').value)||60,
+  };
+  try{
+    const res=await fetch(SERVER+'/autofollow/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadAutoFollowData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function pollAutoFollowNow(){
+  showToast('🔄 팬보드 확인 중...');
+  try{
+    await fetch(SERVER+'/autofollow/poll-now',{method:'POST',headers:authHeaders()});
+    showToast('확인 완료 ✓');
+    loadAutoFollowData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteAutoFollowPending(code){
+  try{
+    await fetch(SERVER+'/autofollow/pending/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({code})});
+    loadAutoFollowData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function clearAutoFollowHistory(){
+  if(!confirm('처리 완료 기록을 전부 지울까요?'))return;
+  try{
+    await fetch(SERVER+'/autofollow/history/clear',{method:'POST',headers:authHeaders()});
+    showToast('지웠어요');
+    loadAutoFollowData();
   }catch(e){showToast('오류: '+e.message);}
 }
 
