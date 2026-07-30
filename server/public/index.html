@@ -576,11 +576,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="dashboard">
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
-            <div class="card-title" style="margin-bottom:6px">🏆 이달의 스푼 랭킹 조회</div>
+            <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
             <div style="display:flex;gap:6px">
-              <input type="text" id="dashRankSearchInput" placeholder="고유닉" style="flex:1">
+              <input type="text" id="dashRankSearchInput" placeholder="DJ 고유닉" style="flex:1">
               <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="dashSearchRank()">조회</button>
             </div>
+            <div class="hint" style="margin:4px 0 0">스푼 자체 순위(초이스·좋아요·방송시간)를 조회해요. 첫 조회는 스캔 때문에 최대 1분 걸릴 수 있어요.</div>
             <div class="hint" id="dashRankSearchResult" style="margin-top:6px;white-space:pre-line"></div>
           </div>
           <div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:12px">
@@ -5879,26 +5880,26 @@ function renderDashboardStats(){
 }
 
 async function dashSearchRank(){
-  const input=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
+  const tag=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
   const resultEl=document.getElementById('dashRankSearchResult');
-  if(!input){resultEl.textContent='고유닉을 입력해주세요';return;}
-  const q=input.toLowerCase();
-  let allTotal=0,monthTotal=0,nickname=input,found=false;
-  const now=new Date();
-  const ymNow=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
-    Object.entries(entry.byUser||{}).forEach(([key,info])=>{
-      const keyMatch=key.toLowerCase()===q;
-      const nickMatch=(info.nickname||'').toLowerCase()===q;
-      if(!keyMatch&&!nickMatch)return;
-      found=true;
-      allTotal+=(info.amount||0);
-      nickname=info.nickname||key;
-      if(date.startsWith(ymNow)) monthTotal+=(info.amount||0);
-    });
-  });
-  if(!found){ resultEl.textContent='기록을 찾을 수 없어요'; return; }
-  resultEl.textContent=`${nickname}\n이번 달: ${monthTotal.toLocaleString('ko-KR')} 스푼\n전체 누적: ${allTotal.toLocaleString('ko-KR')} 스푼`;
+  if(!tag){resultEl.textContent='고유닉을 입력해주세요';return;}
+  resultEl.textContent='조회 중...';
+  try{
+    let res=await fetch(SERVER+'/dashboard/rank/search/'+encodeURIComponent(tag),{headers:authHeaders()});
+    let d=await res.json();
+    if(!d.success&&d.error&&d.error.includes('스캔')){
+      resultEl.textContent='데이터 스캔 중... (최대 1분 소요)';
+      const scanRes=await fetch(SERVER+'/dashboard/rank/scan',{method:'POST',headers:authHeaders()});
+      const scanD=await scanRes.json();
+      if(!scanD.success){ resultEl.textContent='스캔 실패: '+(scanD.error||''); return; }
+      res=await fetch(SERVER+'/dashboard/rank/search/'+encodeURIComponent(tag),{headers:authHeaders()});
+      d=await res.json();
+    }
+    if(!d.success){ resultEl.textContent=d.error||'조회 실패'; return; }
+    const r=d.data.ranks;
+    const fmt=v=>v?v+'위':'-';
+    resultEl.textContent=`${d.data.nickname}\n✨ 초이스: ${fmt(r.next_choice)}\n❤️ 좋아요: ${fmt(r.free_like)}\n⏱️ 방송시간: ${fmt(r.live_time)}`;
+  }catch(e){resultEl.textContent='오류: '+e.message;}
 }
 
 function dashCalMove(dir){
