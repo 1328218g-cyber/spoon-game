@@ -3103,10 +3103,23 @@ app.get('/stickers', async (req, res) => {
 // ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
 app.post('/auth/signup', (req, res) => {
-  const { djId, password, referrerId } = req.body || {}
-  const result = store.signup(djId, password, referrerId)
+  const { djId, password, referrerId, email } = req.body || {}
+  const result = store.signup(djId, password, referrerId, email)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
+})
+
+// 🔑 비밀번호 찾기 — 가입 시 등록한 이메일이 일치하는지 확인 후, 맞으면 새 비밀번호로 바로 변경한다.
+app.post('/auth/forgot-password', (req, res) => {
+  const { djId, email, newPassword } = req.body || {}
+  const cleanDjId = String(djId || '').trim()
+  if (!cleanDjId) return res.json({ success: false, error: '아이디를 입력해주세요' })
+  const check = store.verifyRecoveryEmail(cleanDjId, email)
+  if (!check.ok) return res.json({ success: false, error: check.error })
+  if (!newPassword) return res.json({ success: true, verified: true }) // 이메일만 먼저 확인하는 단계
+  const result = store.changePassword(cleanDjId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, verified: true, changed: true })
 })
 
 function canAutoJoin(djId) {

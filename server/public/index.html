@@ -425,13 +425,41 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <input type="password" id="authPassword" placeholder="4자 이상" onkeydown="if(event.key==='Enter'){ if(authMode==='login') submitAuth(); else document.getElementById('authPasswordConfirm').focus(); }">
     <div id="authPasswordConfirmWrap" style="display:none">
       <label>비밀번호 확인</label>
-      <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitAuth()">
+      <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')document.getElementById('authEmail').focus()">
+      <label>이메일 <span class="hint-inline">(비밀번호 찾기에 사용돼요)</span></label>
+      <input type="email" id="authEmail" placeholder="예: edibot@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
       <label>추천인 고유닉 <span class="hint-inline">(선택사항)</span></label>
       <input type="text" id="authReferrerId" placeholder="예: 단비 (없으면 비워두세요)" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
+    <button class="hint-inline" id="forgotPwLink" style="display:block;width:100%;text-align:center;margin-top:12px;background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openForgotPassword()">비밀번호를 잊으셨나요?</button>
     <div class="auth-error" id="authError"></div>
+  </div>
+
+  <!-- 🔑 비밀번호 찾기 모달 -->
+  <div id="forgotPwOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeForgotPassword()">
+    <div class="modal-box" style="max-width:380px">
+      <div class="modal-title"><span>🔑 비밀번호 찾기</span><button class="icon-btn" onclick="closeForgotPassword()">✕</button></div>
+      <div id="forgotPwStep1">
+        <p class="hint" style="margin-top:0">가입할 때 등록한 아이디와 이메일을 입력해주세요.</p>
+        <label>아이디</label>
+        <input type="text" id="forgotDjId" placeholder="아이디">
+        <label>이메일</label>
+        <input type="email" id="forgotEmail" placeholder="가입 시 등록한 이메일" onkeydown="if(event.key==='Enter')verifyForgotPassword()">
+        <button class="btn-connect" style="width:100%;margin-top:14px" onclick="verifyForgotPassword()">확인</button>
+        <div class="auth-error" id="forgotPwError1"></div>
+      </div>
+      <div id="forgotPwStep2" style="display:none">
+        <p class="hint" style="margin-top:0">✅ 확인됐어요! 새 비밀번호를 입력해주세요.</p>
+        <label>새 비밀번호</label>
+        <input type="password" id="forgotNewPassword" placeholder="4자 이상">
+        <label>새 비밀번호 확인</label>
+        <input type="password" id="forgotNewPasswordConfirm" placeholder="한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')submitForgotPassword()">
+        <button class="btn-connect" style="width:100%;margin-top:14px" onclick="submitForgotPassword()">비밀번호 변경</button>
+        <div class="auth-error" id="forgotPwError2"></div>
+      </div>
+    </div>
   </div>
 
   <div class="landing-wrap">
@@ -2071,7 +2099,9 @@ function switchAuthTab(mode){
   document.getElementById('authSubmitBtn').textContent=mode==='login'?'로그인':'회원가입';
   document.getElementById('authPasswordConfirmWrap').style.display=mode==='signup'?'block':'none';
   document.getElementById('authAutoLoginWrap').style.display=mode==='signup'?'none':'flex';
+  document.getElementById('forgotPwLink').style.display=mode==='login'?'block':'none';
   document.getElementById('authPasswordConfirm').value='';
+  document.getElementById('authEmail').value='';
   document.getElementById('authReferrerId').value='';
   document.getElementById('authError').textContent='';
 }
@@ -2087,14 +2117,17 @@ async function submitAuth(){
     const pwConfirm=document.getElementById('authPasswordConfirm').value;
     if(!pwConfirm){errEl.textContent='비밀번호 확인을 입력해주세요';return;}
     if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
+    const email=document.getElementById('authEmail').value.trim();
+    if(!email){errEl.textContent='비밀번호 찾기에 사용할 이메일을 입력해주세요';return;}
     const referrerId=document.getElementById('authReferrerId').value.trim();
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,referrerId})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,referrerId,email})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
       document.getElementById('authPassword').value='';
       document.getElementById('authPasswordConfirm').value='';
+      document.getElementById('authEmail').value='';
       document.getElementById('authReferrerId').value='';
       switchAuthTab('login');
       return;
@@ -2122,6 +2155,56 @@ async function submitAuth(){
       localStorage.removeItem('djId');
     }
     enterApp();
+  }catch(e){errEl.textContent='서버 오류: '+e.message;}
+}
+
+/* ── 🔑 비밀번호 찾기 ── */
+let forgotVerifiedDjId='';
+function openForgotPassword(){
+  document.getElementById('forgotPwOverlay').style.display='flex';
+  document.getElementById('forgotPwStep1').style.display='block';
+  document.getElementById('forgotPwStep2').style.display='none';
+  document.getElementById('forgotDjId').value=document.getElementById('authDjId').value.trim();
+  document.getElementById('forgotEmail').value='';
+  document.getElementById('forgotNewPassword').value='';
+  document.getElementById('forgotNewPasswordConfirm').value='';
+  document.getElementById('forgotPwError1').textContent='';
+  document.getElementById('forgotPwError2').textContent='';
+}
+function closeForgotPassword(){
+  document.getElementById('forgotPwOverlay').style.display='none';
+}
+async function verifyForgotPassword(){
+  const djIdInput=document.getElementById('forgotDjId').value.trim();
+  const email=document.getElementById('forgotEmail').value.trim();
+  const errEl=document.getElementById('forgotPwError1');
+  errEl.textContent='';
+  if(!djIdInput||!email){errEl.textContent='아이디와 이메일을 모두 입력해주세요';return;}
+  try{
+    const res=await fetch(SERVER+'/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:djIdInput,email})});
+    const d=await res.json();
+    if(!d.success){errEl.textContent=d.error||'확인 실패';return;}
+    forgotVerifiedDjId=djIdInput;
+    document.getElementById('forgotPwStep1').style.display='none';
+    document.getElementById('forgotPwStep2').style.display='block';
+  }catch(e){errEl.textContent='서버 오류: '+e.message;}
+}
+async function submitForgotPassword(){
+  const pw=document.getElementById('forgotNewPassword').value;
+  const pwConfirm=document.getElementById('forgotNewPasswordConfirm').value;
+  const errEl=document.getElementById('forgotPwError2');
+  errEl.textContent='';
+  if(!pw||pw.length<4){errEl.textContent='비밀번호는 4자 이상이어야 해요';return;}
+  if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
+  try{
+    const res=await fetch(SERVER+'/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:forgotVerifiedDjId,email:document.getElementById('forgotEmail').value.trim(),newPassword:pw})});
+    const d=await res.json();
+    if(!d.success){errEl.textContent=d.error||'변경 실패';return;}
+    showToast('비밀번호가 변경됐어요! 새 비밀번호로 로그인해주세요');
+    closeForgotPassword();
+    document.getElementById('authDjId').value=forgotVerifiedDjId;
+    document.getElementById('authPassword').value='';
+    document.getElementById('authPassword').focus();
   }catch(e){errEl.textContent='서버 오류: '+e.message;}
 }
 

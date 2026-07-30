@@ -146,10 +146,16 @@ function setDefaultTrialDays(days) {
   return { ok: true };
 }
 
-function signup(djId, password, referrerId) {
+function validEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function signup(djId, password, referrerId, email) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!validEmail(cleanEmail)) return { ok: false, error: '비밀번호 찾기에 사용할 이메일을 올바르게 입력해주세요' };
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
 
@@ -181,6 +187,7 @@ function signup(djId, password, referrerId) {
 
   djs[djId] = {
     passwordHash: bcrypt.hashSync(password, 10),
+    email: cleanEmail, // 비밀번호 찾기 본인확인용
     settings,
     createdAt: Date.now(),
     blocked: false,
@@ -208,6 +215,19 @@ function verifyPassword(djId, password) {
   const rec = djs[djId];
   if (!rec) return false;
   return bcrypt.compareSync(String(password || ''), rec.passwordHash);
+}
+
+// 비밀번호 찾기 — 가입할 때 등록해둔 이메일과 지금 입력한 이메일이 일치하는지 확인한다.
+// ⚠️ 실제로 그 이메일 주소로 인증코드를 발송하는 건 아니고(이메일 발송 서버가 없음),
+// "가입할 때 적은 이메일을 알고 있는지"로 본인 확인을 대신하는 방식이다.
+function verifyRecoveryEmail(djId, email) {
+  const djs = loadDjs();
+  const rec = djs[djId];
+  if (!rec) return { ok: false, error: '존재하지 않는 아이디예요' };
+  if (!rec.email) return { ok: false, error: '이 계정은 비밀번호 찾기용 이메일이 등록되어 있지 않아요. 관리자에게 문의해주세요.' };
+  const input = String(email || '').trim().toLowerCase();
+  if (!input || input !== rec.email) return { ok: false, error: '이메일이 일치하지 않아요' };
+  return { ok: true };
 }
 
 // 비밀번호만 변경 (아이디는 그대로 유지)
@@ -356,4 +376,6 @@ module.exports = {
   renameDjId,
   getDefaultTrialDays,
   setDefaultTrialDays,
+  validEmail,
+  verifyRecoveryEmail,
 };
