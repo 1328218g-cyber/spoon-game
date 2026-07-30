@@ -262,7 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'autofollow'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4104,6 +4104,21 @@ app.post('/autofollow/settings', auth.requireAuth, (req, res) => {
   if (cmd != null) cfg.cmd = String(cmd).trim() || '!팔로우신청'
   store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
   res.json({ success: true })
+})
+// 🖱️ 웹 화면 "팔로잉 신청" 버튼 — 채팅 없이도 아무 로그인한 DJ가 바로 인증번호를 받을 수 있게 한다.
+app.post('/autofollow/request', auth.requireAuth, (req, res) => {
+  const cfg = getAutoFollowSettings()
+  if (!cfg.channelId) return res.json({ success: false, error: '아직 관리자가 팔로우 자동승인을 설정하지 않았어요.' })
+  const code = generateFollowCode(Number(cfg.codeLength) || 8)
+  cfg.pending[code] = {
+    nickname: req.djId,
+    tag: '',
+    djId: req.djId,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + Math.max(1, Number(cfg.expireMinutes) || 60) * 60000,
+  }
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true, code, expireMinutes: cfg.expireMinutes || 60 })
 })
 app.post('/autofollow/poll-now', auth.requireAuth, async (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })

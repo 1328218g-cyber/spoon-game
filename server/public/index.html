@@ -470,7 +470,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="autofollow"><span class="ic">🤝</span><span class="lbl">팔로우 자동승인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autofollow"><span class="ic">🤝</span><span class="lbl">고정매니저신청</span></div>
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
@@ -1906,17 +1906,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
-      <!-- 🤝 팔로우 자동승인 -->
+      <!-- 🤝 고정매니저신청 -->
       <div class="panel" data-panel="autofollow">
+        <div class="card">
+          <div class="card-title">🖱️ 팔로잉 신청</div>
+          <p class="hint" style="margin-bottom:12px">버튼을 누르면 인증번호가 발급돼요. 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 최대 1분 안에 자동으로 맞팔로우돼요.</p>
+          <button class="btn-connect" style="width:100%" onclick="requestAutoFollowCode()">🤝 팔로잉 신청</button>
+          <div id="afMyCodeWrap" style="display:none;margin-top:14px;background:var(--bg);border:2px solid var(--accent);border-radius:12px;padding:16px;text-align:center">
+            <div class="hint" style="margin:0">발급된 인증번호</div>
+            <div id="afMyCode" style="font-size:26px;font-weight:800;letter-spacing:3px;color:var(--accent);margin:6px 0"></div>
+            <button class="btn-gray" style="padding:8px 20px;font-size:13px" onclick="copyAutoFollowCode()">📋 복사하기</button>
+            <div class="hint" id="afMyCodeExpire" style="margin-top:8px"></div>
+          </div>
+        </div>
         <div id="afAdminWrap">
           <div class="card">
-            <div class="card-title"><span>🤝 팔로우 자동승인 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveAutoFollowSettings()">💾 저장</button></div>
-            <p class="hint" style="margin-bottom:12px">시청자가 채팅 명령어로 인증번호를 받아 관리자(sum) 계정의 스푼 팬보드에 남기면, 봇이 주기적으로 확인해서 자동으로 맞팔로우해줘요. (이 설정은 관리자 계정에만 보여요 — 다른 DJ분들은 모듈만 켜두시면 본인 채팅에서 명령어가 동작해요)</p>
+            <div class="card-title"><span>🤝 고정매니저신청 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveAutoFollowSettings()">💾 저장</button></div>
+            <p class="hint" style="margin-bottom:12px">위쪽 "팔로잉 신청" 버튼으로 발급된 인증번호를 관리자(sum) 계정 팬보드에서 확인해서 자동으로 맞팔로우해요. 이 설정 화면은 관리자 계정에만 보여요.</p>
             <label>관리자 채널 ID</label>
             <input type="text" id="afChannelId" placeholder="예: 10071314">
             <div class="hint" style="margin-top:6px">스푼에서 내 프로필 접속 시 주소창의 <code>/kr/channel/여기숫자/...</code> 부분이에요.</div>
-            <label>명령어</label>
-            <input type="text" id="afCmd" value="!팔로우신청">
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <div>
                 <label>인증번호 자릿수</label>
@@ -1940,8 +1949,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div id="afNonAdminWrap" class="card" style="display:none">
-          <div class="card-title">🤝 팔로우 자동승인</div>
-          <p class="hint">이 기능은 관리자(sum) 계정에서만 설정할 수 있어요. 지금 모듈이 켜져 있다면, 이 방송의 채팅에서도 인증번호 발급 명령어가 정상 동작해요.</p>
+          <div class="card-title">ℹ️ 참고</div>
+          <p class="hint">팬보드 확인 주기·채널 설정은 관리자(sum) 계정에서만 관리해요. 위쪽 "팔로잉 신청" 버튼은 여기서도 그대로 사용하실 수 있어요.</p>
         </div>
       </div>
     </div>
@@ -2292,7 +2301,7 @@ const PANEL_META={
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
-  autofollow:['🤝 팔로우 자동승인','시청자가 인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
+  autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -2393,7 +2402,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','autofollow'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2405,7 +2414,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','autofollow']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -6386,7 +6395,24 @@ async function resetDiscordCooldown(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
-/* ── 🤝 팔로우 자동승인 (관리자 전용) ── */
+/* ── 🤝 고정매니저신청 ── */
+async function requestAutoFollowCode(){
+  try{
+    const res=await fetch(SERVER+'/autofollow/request',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'발급 실패');
+    document.getElementById('afMyCode').textContent=d.code;
+    document.getElementById('afMyCodeExpire').textContent=`${d.expireMinutes}분 안에 관리자 팬보드에 남겨주세요`;
+    document.getElementById('afMyCodeWrap').style.display='block';
+    if(document.getElementById('afAdminWrap')&&document.getElementById('afAdminWrap').style.display!=='none')loadAutoFollowData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+function copyAutoFollowCode(){
+  const code=document.getElementById('afMyCode').textContent;
+  if(!code)return;
+  navigator.clipboard.writeText(code).then(()=>showToast('복사했어요 📋')).catch(()=>showToast('복사 실패, 직접 선택해서 복사해주세요'));
+}
+
 async function loadAutoFollowData(){
   const isAdmin=djId===ADMIN_DJ_ID;
   document.getElementById('afAdminWrap').style.display=isAdmin?'block':'none';
@@ -6398,7 +6424,6 @@ async function loadAutoFollowData(){
     if(!d.success)return;
     const s=d.settings;
     document.getElementById('afChannelId').value=s.channelId||'';
-    document.getElementById('afCmd').value=s.cmd||'!팔로우신청';
     document.getElementById('afCodeLength').value=s.codeLength||8;
     document.getElementById('afExpireMinutes').value=s.expireMinutes||60;
 
@@ -6426,7 +6451,6 @@ async function loadAutoFollowData(){
 async function saveAutoFollowSettings(){
   const body={
     channelId:document.getElementById('afChannelId').value,
-    cmd:document.getElementById('afCmd').value,
     codeLength:Number(document.getElementById('afCodeLength').value)||8,
     expireMinutes:Number(document.getElementById('afExpireMinutes').value)||60,
   };
