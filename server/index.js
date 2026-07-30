@@ -1529,6 +1529,26 @@ function todayKST() {
   return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`
 }
 
+// 채팅 화면 하단 "오늘의 MVP" — 선물/좋아요/채팅 각 1명씩. 대시보드/애청지수 켜짐 여부와
+// 상관없이 항상 집계되는, 채팅 화면 전용의 가벼운 실시간 트래커다. 방 단위 메모리에만
+// 있고(자정 지나면 자동으로 새로 시작), 서버 재시작 시에는 초기화된다.
+function getTodayMvpBucket(room) {
+  const today = todayKST()
+  if (!room.todayMvp || room.todayMvp.date !== today) {
+    room.todayMvp = { date: today, gift: {}, like: {}, chat: {} }
+  }
+  return room.todayMvp
+}
+
+function recordTodayMvp(room, category, key, nickname, amount) {
+  if (!key) return
+  const bucket = getTodayMvpBucket(room)
+  const map = bucket[category]
+  if (!map[key]) map[key] = { nickname, value: 0 }
+  map[key].nickname = nickname
+  map[key].value += amount
+}
+
 function getDashboardData(djId, settings) {
   if (!settings.dashboard) {
     settings.dashboard = {
@@ -2599,6 +2619,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteMenuCommand(djId, settings, text)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
           handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
+          recordTodayMvp(room, 'chat', actTag || author, author, 1)
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
@@ -2654,6 +2675,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
+        if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
@@ -2682,6 +2704,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
+          recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
             const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
@@ -4142,6 +4165,28 @@ app.post('/chat', auth.requireAuth, async (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'chat', req.djId)) return res.json({ success: false, error: '채팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   await sendChatToRoom(req.djId, message)
+  res.json({ success: true })
+})
+
+// 🏆 채팅 화면 하단 "오늘의 MVP" — 선물/좋아요/채팅 각 1명씩
+app.get('/chat/today-mvp', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  const bucket = getTodayMvpBucket(room)
+  const topOf = (map) => {
+    const entries = Object.values(map)
+    if (!entries.length) return null
+    return entries.reduce((a, b) => (b.value > a.value ? b : a))
+  }
+  res.json({ success: true, gift: topOf(bucket.gift), like: topOf(bucket.like), chat: topOf(bucket.chat) })
+})
+
+// 📢 관리자 실시간 공지 — djId를 안 붙이고 브로드캐스트해서, 지금 접속해있는 모든 DJ의
+// 웹 화면(채팅창)에 전부 나타나게 한다. (SSE 필터 로직상 djId가 없는 메시지는 전체에게 전달됨)
+app.post('/admin/announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 공지를 보낼 수 있어요' })
+  const message = String((req.body || {}).message || '').trim()
+  if (!message) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
+  broadcast({ type: 'announce', message, ts: Date.now() })
   res.json({ success: true })
 })
 

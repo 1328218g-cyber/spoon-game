@@ -672,6 +672,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 유저 관리 (관리자 전용) -->
       <div class="panel" data-panel="userlist">
         <div class="card">
+          <div class="card-title">📢 실시간 공지</div>
+          <p class="hint" style="margin-bottom:12px">지금 접속 중인 <b>모든 디제이의 채팅 화면</b>에 즉시 나타나는 공지예요. (스푼 실제 방송 채팅이 아니라, 웹봇 화면 안에서만 보이는 내부 공지예요)</p>
+          <textarea id="announceText" placeholder="예: 오늘 밤 12시부터 1시간 서버 점검이 있습니다." style="height:70px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendAnnouncement()">📢 공지 보내기</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🆕 신규 가입 기본 이용기간</span></div>
           <p class="hint" style="margin-bottom:12px">새로 회원가입하는 계정에게 자동으로 부여되는 이용기간이에요. (예: 40으로 저장하면 앞으로 가입하는 사람은 40일짜리로 시작해요)<br>
           ※ 이미 가입한 유저에게는 영향 없고, 저장한 시점 이후 새로 가입하는 사람부터 적용돼요.<br>
@@ -763,6 +769,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="chat-input-row">
           <input type="text" id="chatInput" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter')sendChat()">
           <button onclick="sendChat()">전송</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">🏆 오늘의 MVP</div>
+          <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div class="hint" style="margin:0">🎁 선물</div>
+              <div id="chatMvpGiftName" style="font-size:15px;font-weight:700;margin-top:4px">-</div>
+              <div id="chatMvpGiftValue" class="hint" style="margin:2px 0 0;color:var(--accent2)">0 스푼</div>
+            </div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div class="hint" style="margin:0">❤️ 좋아요</div>
+              <div id="chatMvpLikeName" style="font-size:15px;font-weight:700;margin-top:4px">-</div>
+              <div id="chatMvpLikeValue" class="hint" style="margin:2px 0 0;color:var(--danger)">0회</div>
+            </div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div class="hint" style="margin:0">💬 채팅</div>
+              <div id="chatMvpChatName" style="font-size:15px;font-weight:700;margin-top:4px">-</div>
+              <div id="chatMvpChatValue" class="hint" style="margin:2px 0 0;color:var(--accent)">0회</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2240,6 +2266,7 @@ function selectPanel(name){
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
+  if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -3182,6 +3209,7 @@ async function loadDjSettings(){
       if(document.getElementById('couponTitle')) loadCouponData();
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
+      if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
   }catch(e){}
@@ -3245,6 +3273,18 @@ async function loadDefaultTrialDays(){
       if(input) input.value=d.days;
     }
   }catch(e){}
+}
+
+async function sendAnnouncement(){
+  const ta=document.getElementById('announceText');
+  const message=ta.value.trim();
+  if(!message)return showToast('공지 내용을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/announce',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message})});
+    const d=await res.json();
+    if(d.success){ showToast('공지를 보냈어요 📢'); ta.value=''; }
+    else showToast(d.error||'전송 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function saveDefaultTrialDays(){
@@ -6585,6 +6625,28 @@ async function sendChat(){
   }catch(e){showToast('전송 실패');}
 }
 
+/* ── 🏆 채팅 화면 오늘의 MVP (선물/좋아요/채팅 각 1명) ── */
+async function loadChatTodayMvp(){
+  try{
+    const res=await fetch(SERVER+'/chat/today-mvp',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const setCell=(prefix,entry,unit,fmt)=>{
+      const nameEl=document.getElementById(prefix+'Name');
+      const valEl=document.getElementById(prefix+'Value');
+      if(!nameEl||!valEl)return;
+      if(entry){ nameEl.textContent=entry.nickname; valEl.textContent=(fmt?fmt(entry.value):entry.value)+unit; }
+      else { nameEl.textContent='-'; valEl.textContent='0'+unit; }
+    };
+    setCell('chatMvpGift',d.gift,' 스푼',v=>v.toLocaleString('ko-KR'));
+    setCell('chatMvpLike',d.like,'회');
+    setCell('chatMvpChat',d.chat,'회');
+  }catch(e){}
+}
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp();
+},15000);
+
 /* ── 채팅창 배경 이미지 (첨부파일, 계정별로 이 브라우저에 저장) ── */
 function chatBgStorageKey(){
   return 'chatBg:'+(djId||'guest');
@@ -6702,14 +6764,24 @@ function startSSE(){
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
     if(d.type!=='session' && d.djId && d.djId!==djId) return;
-    if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); }
+    if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
-    else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); }
-    else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); }
+    else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
     else if(d.type==='ttsrevoke'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); renderTtsActiveList(); }
+    else if(d.type==='announce'){
+      showToast('📢 관리자 공지: '+d.message);
+      const log=document.getElementById('chatLog');
+      if(log){
+        const line=document.createElement('div');
+        line.className='log-line';
+        line.innerHTML=`<div class="log-avatar placeholder">📢</div><div class="log-body"><span class="nick" style="color:var(--danger)">관리자 공지</span><span class="log-text" style="font-weight:700">${escapeHtml(d.message)}</span></div>`;
+        log.appendChild(line);log.scrollTop=log.scrollHeight;
+      }
+    }
     else if(d.type==='wheelopen'){
       showToast(d.page!=null?`🎡 채팅에서 돌림판 ${d.page+1}페이지를 요청했어요!`:'🎡 채팅에서 돌림판을 요청했어요!');
       if(d.page!=null && document.getElementById('wheelPageTabBar')) switchWheelPage(d.page,true);
