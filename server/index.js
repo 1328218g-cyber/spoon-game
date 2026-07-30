@@ -262,7 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1971,6 +1971,681 @@ async function handleDiscordNotifyCommand(djId, room, settings, author, authorId
 }
 
 // ══════════════════════════════════════════════════════
+// 🎣 낚시 게임 — 로컬 낚시봇 외부 모듈을 그대로 이식. 물고기 잡기/상점/아이템/컬렉션/
+// 신용대출/도박(슬롯·주사위·홀짝)/송금/도둑질까지 전부 채팅 명령어로 동작하는 미니 경제 게임.
+
+const FISHING_DEFAULT_FISH_LIST = '붕어,800,1200,30,5,common\n잉어,1500,2500,25,8,common\n메기,4000,6000,15,12,uncommon\n농어,8000,12000,10,20,uncommon\n참치,25000,35000,5,40,rare\n상어,70000,90000,2,80,epic\n고래,180000,220000,0.5,200,legendary'
+const FISHING_DEFAULT_SHOP = '미끼,500\n특수미끼,2000\n낚싯대,10000\n고급낚싯대,50000'
+const FISHING_DEFAULT_ITEMSHOP = '물고기확률업,5000,fish_chance,30,30,0,money\n수익증가,8000,fishing_income,50,30,0,money\n주사위확률,3000,dice_chance,30,0,5,money\n주사위두배,10000,dice_double,0,0,3,money\n홀짝확률,2000,oddeven_chance,40,0,5,money'
+const FISHING_DEFAULT_COLLECTIONS = '강물고기:붕어,잉어,메기,농어\n바다물고기:참치,상어,고래'
+
+function getFishingSettings(djId, settings) {
+  if (!settings.fishing) {
+    settings.fishing = {
+      config: {
+        enabled: true,
+        fishingCooldown: 120,
+        dailyMoney: 10000,
+        slotMinBet: 1000,
+        diceWinExp: 10,
+        diceLoseExp: -2,
+        fishList: FISHING_DEFAULT_FISH_LIST,
+        eventFishList: '',
+        shopProducts: FISHING_DEFAULT_SHOP,
+        itemShop: FISHING_DEFAULT_ITEMSHOP,
+        collections: FISHING_DEFAULT_COLLECTIONS,
+        creditTier1Points: 0, creditTier1Loan: 500000,
+        creditTier2Points: 100, creditTier2Loan: 1000000,
+        creditTier3Points: 500, creditTier3Loan: 3000000,
+        theftBaseRate: 5, theftLevelBonus: 0.5, theftMaxRate: 70,
+        djTags: '',
+      },
+      users: {}, // { tag: {...} }
+    }
+    store.saveSettings(djId, { fishing: settings.fishing })
+  }
+  if (!settings.fishing.config) settings.fishing.config = {}
+  if (!settings.fishing.users) settings.fishing.users = {}
+  return settings.fishing
+}
+
+function _fishSplitLines(text) {
+  if (!text || typeof text !== 'string') return []
+  return text.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
+}
+function _fishParseFishList(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 3 || !p[0]) return null
+    if (p.length >= 6 && !isNaN(p[1]) && !isNaN(p[2]) && !isNaN(p[3])) {
+      const minVal = parseInt(p[1]) || 0
+      const maxVal = parseInt(p[2]) || minVal
+      return { name: p[0], minValue: Math.min(minVal, maxVal), maxValue: Math.max(minVal, maxVal), chance: parseFloat(p[3]) || 0, exp: parseInt(p[4]) || 1, rarity: p[5] || 'common' }
+    }
+    const val = parseInt(p[1]) || 0
+    return { name: p[0], minValue: val, maxValue: val, chance: parseFloat(p[2]) || 0, exp: parseInt(p[3]) || 1, rarity: p[4] || 'common' }
+  }).filter(Boolean)
+}
+function _fishParseShop(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 2 || !p[0]) return null
+    return { name: p[0], price: parseInt(p[1]) || 0 }
+  }).filter(Boolean)
+}
+function _fishParseItemShop(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 3 || !p[0]) return null
+    return { name: p[0], price: parseInt(p[1]) || 0, effect_type: p[2] || '', effect_value: parseFloat(p[3]) || 0, duration_minutes: parseInt(p[4]) || 0, uses: parseInt(p[5]) || 0, price_type: (p[6] === 'points') ? 'points' : 'money' }
+  }).filter(Boolean)
+}
+function _fishParseCollections(text) {
+  return _fishSplitLines(text).map(line => {
+    const idx = line.indexOf(':')
+    if (idx < 0) return null
+    const name = line.substring(0, idx).trim()
+    const fish = line.substring(idx + 1).split(',').map(s => s.trim()).filter(Boolean)
+    if (!name || fish.length === 0) return null
+    return { name, required_fish: fish }
+  }).filter(Boolean)
+}
+function _fishCreditTiers(cfg) {
+  return [
+    { rating: 1, required_points: cfg.creditTier1Points || 0, loan_limit: cfg.creditTier1Loan || 500000 },
+    { rating: 2, required_points: cfg.creditTier2Points || 100, loan_limit: cfg.creditTier2Loan || 1000000 },
+    { rating: 3, required_points: cfg.creditTier3Points || 500, loan_limit: cfg.creditTier3Loan || 3000000 },
+  ]
+}
+function _fishNewUser(tag, nickname) {
+  return { tag, nickname: nickname || tag, balance: 0, level: 1, exp: 0, caught_fish: {}, event_fish_catches: {}, total_fish_count: 0, heart_points: 0, credit_rating: 1, loan_amount: 0, loan_date: null, active_items: [], inventory: {}, last_fishing_time: null, last_daily_money_date: null }
+}
+function getFishingUser(fishing, tag, nickname) {
+  if (!tag) return null
+  if (!fishing.users[tag]) fishing.users[tag] = _fishNewUser(tag, nickname)
+  else if (nickname && fishing.users[tag].nickname !== nickname) fishing.users[tag].nickname = nickname
+  return fishing.users[tag]
+}
+function saveFishingUser(djId, fishing) {
+  store.saveSettings(djId, { fishing })
+}
+function _fishActiveItems(user) {
+  if (!Array.isArray(user.active_items)) return []
+  const now = Date.now()
+  return user.active_items.filter(item => {
+    if (item.expires_at && new Date(item.expires_at).getTime() <= now) return false
+    if (item.uses_remaining !== undefined && item.uses_remaining > 0) return true
+    if (item.expires_at) return true
+    return false
+  })
+}
+function _fishRecalcCredit(user, tiers) {
+  const sorted = [...tiers].sort((a, b) => b.required_points - a.required_points)
+  for (const t of sorted) {
+    if ((user.heart_points || 0) >= t.required_points) { user.credit_rating = t.rating; return }
+  }
+  user.credit_rating = 1
+}
+function _fishCheckLevelUp(user) {
+  let leveled = false
+  while (true) {
+    const need = user.level * 100
+    if (user.exp >= need) { user.exp -= need; user.level++; leveled = true }
+    else break
+  }
+  return leveled
+}
+function _fishIsDj(djId, room, settings, authorId, author) {
+  if (authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId) return true
+  const cfg = getFishingSettings(djId, settings).config
+  const list = String(cfg.djTags || '').split(',').map(s => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean)
+  if (list.includes(String(author || '').trim().toLowerCase())) return true
+  const act = getActivitySettings(djId, settings)
+  return (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+}
+
+const _fishRecentCalls = new Map()
+function _fishIsDuplicateCall(key, windowMs = 3000) {
+  const now = Date.now()
+  const last = _fishRecentCalls.get(key)
+  if (last && now - last < windowMs) return true
+  _fishRecentCalls.set(key, now)
+  if (_fishRecentCalls.size > 500) {
+    for (const [k, v] of _fishRecentCalls) { if (now - v > 30000) _fishRecentCalls.delete(k) }
+  }
+  return false
+}
+
+function fishReply(djId, msg) {
+  sendChatSplit(djId, msg, 150, 500)
+}
+
+// ── 명령어 핸들러 (전부 djId/room/settings/author/authorId/tag/parts 형태로 통일) ──
+
+async function fishCmdFishing(djId, room, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 낚시를 할 수 있습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const cooldown = (cfg.fishingCooldown || 120) * 1000
+  if (user.last_fishing_time) {
+    const elapsed = Date.now() - new Date(user.last_fishing_time).getTime()
+    if (elapsed < cooldown) { fishReply(djId, `⏰ 쿨타임 ${Math.ceil((cooldown - elapsed) / 1000)}초 남음`); return }
+  }
+  const fishList = _fishParseFishList(cfg.fishList)
+  const eventFish = _fishParseFishList(cfg.eventFishList)
+  const allFish = [...fishList.map(f => ({ ...f, isEvent: false })), ...eventFish.map(f => ({ ...f, isEvent: true }))]
+  if (allFish.length === 0) { fishReply(djId, '❌ 물고기가 등록되지 않았습니다. 설정에서 추가해주세요.'); return }
+  const items = _fishActiveItems(user)
+  const fishChanceItem = items.find(i => i.effect_type === 'fish_chance')
+  const incomeItem = items.find(i => i.effect_type === 'fishing_income')
+  let weighted = allFish
+  if (fishChanceItem && fishChanceItem.effect_value > 0) {
+    weighted = allFish.map(f => ({ ...f, chance: (f.maxValue || 0) > 10000 ? f.chance * (1 + fishChanceItem.effect_value / 100) : f.chance }))
+  }
+  const total = weighted.reduce((s, f) => s + f.chance, 0)
+  let roll = Math.random() * total
+  let caught = weighted[0]
+  for (const f of weighted) { roll -= f.chance; if (roll <= 0) { caught = f; break } }
+  const minVal = caught.minValue, maxVal = caught.maxValue
+  const baseValue = minVal === maxVal ? minVal : Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal
+  let value = baseValue
+  if (incomeItem && incomeItem.effect_value > 0) value = Math.floor(value * (1 + incomeItem.effect_value / 100))
+  user.balance += value
+  user.exp += caught.exp
+  user.total_fish_count++
+  user.last_fishing_time = new Date().toISOString()
+  if (caught.isEvent) { user.event_fish_catches[caught.name] = (user.event_fish_catches[caught.name] || 0) + 1 }
+  else { user.caught_fish[caught.name] = (user.caught_fish[caught.name] || 0) + 1 }
+  const leveled = _fishCheckLevelUp(user)
+  saveFishingUser(djId, fishing)
+  const hasRange = minVal !== maxVal
+  let msg = `🎣 와! ${author}님 ${caught.name}를 낚았습니다!\n`
+  if (incomeItem && incomeItem.effect_value > 0) {
+    msg += hasRange ? `💰 기본가 ₩${baseValue.toLocaleString()}원 (₩${minVal.toLocaleString()}~₩${maxVal.toLocaleString()})\n` : `💰 원래 가치 ₩${baseValue.toLocaleString()}원\n`
+    msg += `💰 수익 +${incomeItem.effect_value}% 적용!\n💰 보너스 적용 ₩${value.toLocaleString()}원\n`
+  } else {
+    msg += hasRange ? `💰 ₩${value.toLocaleString()}원 (₩${minVal.toLocaleString()}~₩${maxVal.toLocaleString()})\n` : `💰 ₩${value.toLocaleString()}원\n`
+  }
+  msg += `현재 잔액: ₩${user.balance.toLocaleString()}원`
+  if (leveled) msg += `\n🎉 레벨업! Lv.${user.level}`
+  fishReply(djId, msg)
+}
+
+async function fishCmdDailyMoney(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const today = new Date().toISOString().split('T')[0]
+  if (user.last_daily_money_date === today) { fishReply(djId, '💸 오늘 이미 받음'); return }
+  const amount = fishing.config.dailyMoney || 10000
+  user.balance += amount
+  user.last_daily_money_date = today
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💵 +₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdBalance(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💰 ${author}님의 현재 잔액\n ₩${user.balance.toLocaleString()}원\n🅿️${user.heart_points || 0}포인트`)
+}
+
+async function fishCmdStatus(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  let msg = `👤 ${author}님의 상태\n💰 보유금액: ₩${user.balance.toLocaleString()}원\n🎣 낚시 횟수: ${user.total_fish_count}회\n\n⭐ 경험치: ${user.exp} EXP (레벨 ${user.level})\n🎯 포인트: 🅿️${user.heart_points || 0}포인트`
+  const items = _fishActiveItems(user)
+  if (items.length > 0) {
+    msg += `\n\n🎁 활성 아이템:`
+    const groups = {}
+    items.forEach(it => { if (!groups[it.item_name]) groups[it.item_name] = []; groups[it.item_name].push(it) })
+    Object.entries(groups).forEach(([name, arr]) => {
+      const first = arr[0]
+      msg += `\n• ${name}` + (arr.length > 1 ? ` x${arr.length}` : '')
+      if (first.expires_at) { const remain = Math.ceil((new Date(first.expires_at).getTime() - Date.now()) / 60000); if (remain > 0) msg += ` (${remain}분 남음)` }
+      if (first.uses_remaining !== undefined && first.uses_remaining > 0) { const t = arr.reduce((s, x) => s + (x.uses_remaining || 0), 0); msg += ` (${t}회 남음)` }
+    })
+  }
+  fishReply(djId, msg)
+}
+
+async function fishCmdWallet(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const all = Object.values(fishing.users)
+  if (all.length === 0) { fishReply(djId, '💼 등록된 유저가 없습니다.'); return }
+  const sorted = all.sort((a, b) => (b.balance || 0) - (a.balance || 0)).slice(0, 10)
+  let msg = '💼 잔액 랭킹 TOP 10\n'
+  sorted.forEach((u, i) => { const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`; msg += `${medal} ${u.nickname}: ₩${(u.balance || 0).toLocaleString()}원\n` })
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdLevel(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const cfg = fishing.config
+  const baseRate = (cfg.theftBaseRate || 5) / 100, lvlBonus = (cfg.theftLevelBonus || 0.5) / 100, maxRate = (cfg.theftMaxRate || 70) / 100
+  const rate = Math.min(maxRate, baseRate + (user.level - 1) * lvlBonus)
+  fishReply(djId, `🎯 ${author}님의 레벨 정보\n⭐ 레벨: Lv.${user.level}\n📊 경험치: ${user.exp} EXP\n🎲 도둑 성공률: ${Math.round(rate * 100)}%`)
+}
+
+async function fishCmdSlot(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  const minBet = cfg.slotMinBet || 1000
+  if (!amount || amount < minBet) { fishReply(djId, `🎰 최소 베팅: ₩${minBet.toLocaleString()}원`); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣']
+  const r = [symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)]]
+  let win = 0, label = ''
+  if (r[0] === r[1] && r[1] === r[2]) {
+    if (r[0] === '7️⃣') { win = amount * 10; label = '🎊x10' }
+    else if (r[0] === '💎') { win = amount * 5; label = '💎x5' }
+    else { win = amount * 3; label = '🎉x3' }
+  } else if (r[0] === r[1] || r[1] === r[2] || r[0] === r[2]) { win = amount * 2; label = '✨x2' }
+  user.balance = user.balance - amount + win
+  saveFishingUser(djId, fishing)
+  let msg = `🎰 ${r.join(' ')}\n`
+  msg += win > 0 ? `${label} +₩${(win - amount).toLocaleString()}원` : `꽝 -₩${amount.toLocaleString()}원`
+  msg += `\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  fishReply(djId, msg)
+}
+
+async function fishCmdDice(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '🎲 사용법: !주사위 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  let updated = [...(user.active_items || [])]
+  const items = _fishActiveItems(user)
+  const chanceItem = items.find(i => i.effect_type === 'dice_chance')
+  const doubleItem = items.find(i => i.effect_type === 'dice_double')
+  const myDice = Math.floor(Math.random() * 6) + 1
+  let botDice = Math.floor(Math.random() * 6) + 1
+  if (myDice > botDice && Math.random() < 0.1 && botDice < 6) botDice = Math.min(6, botDice + 1)
+  let chanceUsed = false
+  if (chanceItem && chanceItem.effect_value > 0 && chanceItem.uses_remaining > 0) {
+    if (Math.random() < (chanceItem.effect_value / 100) && botDice > 1) {
+      botDice = Math.max(1, botDice - 1); chanceUsed = true
+      const idx = updated.findIndex(i => i.effect_type === 'dice_chance' && i.uses_remaining > 0)
+      if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    }
+  }
+  let msg = `🎲 ${author}(${myDice}) vs 봇(${botDice})\n`
+  if (myDice > botDice) {
+    let winAmt = amount, doubleUsed = false
+    if (doubleItem && doubleItem.uses_remaining > 0) {
+      winAmt = amount * 2; doubleUsed = true
+      const idx = updated.findIndex(i => i.effect_type === 'dice_double' && i.uses_remaining > 0)
+      if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    }
+    user.balance += winAmt
+    user.exp += cfg.diceWinExp || 10
+    user.active_items = updated
+    if (chanceUsed) msg += `🎯 확률 아이템 사용!\n`
+    if (doubleUsed) msg += `💎 두배 보상! (${amount.toLocaleString()}→${winAmt.toLocaleString()})\n`
+    msg += `🎉 승리! +₩${winAmt.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else if (myDice < botDice) {
+    user.balance -= amount
+    user.exp = Math.max(0, user.exp + (cfg.diceLoseExp || -2))
+    user.active_items = updated
+    msg += `😢 패배 -₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else {
+    user.active_items = updated
+    msg += `🤝 무승부\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  }
+  _fishCheckLevelUp(user)
+  saveFishingUser(djId, fishing)
+  fishReply(djId, msg)
+}
+
+async function fishCmdOddEven(djId, settings, author, tag, parts, isOdd) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, `🎯 사용법: ${isOdd ? '!홀' : '!짝'} [금액]`); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const items = _fishActiveItems(user)
+  const oeItem = items.find(i => i.effect_type === 'oddeven_chance')
+  const num = Math.floor(Math.random() * 10) + 1
+  const resultIsOdd = num % 2 === 1
+  let win = (isOdd && resultIsOdd) || (!isOdd && !resultIsOdd)
+  if (win && Math.random() < 0.1) win = false
+  let itemUsed = false
+  if (!win && oeItem && oeItem.uses_remaining > 0 && Math.random() < (oeItem.effect_value / 100)) {
+    win = true; itemUsed = true
+    const updated = [...user.active_items]
+    const idx = updated.findIndex(i => i.effect_type === 'oddeven_chance' && i.uses_remaining > 0)
+    if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    user.active_items = updated
+  }
+  let msg = `🎯 홀짝 게임\n결과: ${num} (${resultIsOdd ? '홀' : '짝'})\n선택: ${isOdd ? '홀' : '짝'}\n`
+  if (win) {
+    user.balance += amount
+    if (itemUsed) msg += `🎯 확률 아이템 사용! 패배→승리 전환!\n`
+    msg += `🎉 승리! +₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else {
+    user.balance -= amount
+    msg += `😢 패배 -₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  }
+  saveFishingUser(djId, fishing)
+  fishReply(djId, msg)
+}
+
+async function fishCmdShop(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const products = _fishParseShop(fishing.config.shopProducts)
+  if (products.length === 0) { fishReply(djId, '🏪 상품 없음'); return }
+  let msg = '🏪 상점\n'
+  products.forEach((p, i) => { msg += `${i + 1}. ${p.name} ₩${p.price.toLocaleString()}원\n` })
+  msg += '!구매 [번호]'
+  fishReply(djId, msg)
+}
+
+async function fishCmdItemShop(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const items = _fishParseItemShop(fishing.config.itemShop)
+  if (items.length === 0) { fishReply(djId, '🏪 아이템이 없습니다'); return }
+  let msg = '🏪 아이템 상점\n'
+  items.forEach((it, i) => { const price = it.price_type === 'points' ? `🅿️${it.price.toLocaleString()}포인트` : `💰${it.price.toLocaleString()}원`; msg += `${i + 1}. ${it.name} ${price}\n` })
+  msg += '!아이템구매 [번호]'
+  fishReply(djId, msg)
+}
+
+async function fishCmdPurchase(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const idx = parseInt(parts[1])
+  if (!idx || idx < 1) { fishReply(djId, '!구매 [번호]'); return }
+  const products = _fishParseShop(fishing.config.shopProducts)
+  const product = products[idx - 1]
+  if (!product) { fishReply(djId, '❌ 없는 상품'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < product.price) { fishReply(djId, '💸 잔액 부족'); return }
+  user.balance -= product.price
+  if (!user.inventory) user.inventory = {}
+  user.inventory[product.name] = (user.inventory[product.name] || 0) + 1
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `✅ ${product.name} 구매 완료!\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdItemPurchase(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const idx = parseInt(parts[1])
+  if (!idx || idx < 1) { fishReply(djId, '!아이템구매 [번호]'); return }
+  const items = _fishParseItemShop(fishing.config.itemShop)
+  const item = items[idx - 1]
+  if (!item) { fishReply(djId, '❌ 없는 아이템'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (item.price_type === 'points') { if ((user.heart_points || 0) < item.price) { fishReply(djId, `💸 포인트 부족 (필요: 🅿️${item.price.toLocaleString()})`); return } }
+  else { if (user.balance < item.price) { fishReply(djId, `💸 잔액 부족 (필요: ₩${item.price.toLocaleString()})`); return } }
+  if (!user.active_items) user.active_items = []
+  const now = new Date()
+  const expiresAt = item.duration_minutes > 0 ? new Date(Date.now() + item.duration_minutes * 60000).toISOString() : null
+  user.active_items.push({ item_name: item.name, effect_type: item.effect_type, effect_value: item.effect_value, expires_at: expiresAt, uses_remaining: item.uses || 0, started_at: now.toISOString() })
+  if (item.price_type === 'points') user.heart_points = (user.heart_points || 0) - item.price
+  else user.balance -= item.price
+  saveFishingUser(djId, fishing)
+  let msg = `✅ ${item.name} 구매 완료!\n`
+  msg += item.price_type === 'points' ? `⭐ 포인트: 🅿️${user.heart_points.toLocaleString()}포인트` : `💰 잔액: ₩${user.balance.toLocaleString()}원`
+  if (item.duration_minutes > 0) msg += `\n⏰ 지속시간: ${item.duration_minutes}분`
+  if (item.uses > 0) msg += `\n🎫 사용 횟수: ${item.uses}회`
+  fishReply(djId, msg)
+}
+
+async function fishCmdTransfer(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !송금 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  if (targetTag.toLowerCase() === tag.toLowerCase()) { fishReply(djId, '❌ 자기 자신에겐 송금할 수 없습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const target = fishing.users[targetTag]
+  if (!target) { fishReply(djId, `❌ ${targetTag} 유저 없음 (낚시를 한 번이라도 한 사람만 송금 가능)`); return }
+  user.balance -= amount
+  target.balance = (target.balance || 0) + amount
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💸 ${target.nickname}님께 ₩${amount.toLocaleString()}원 송금\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdTheft(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const dedupKey = '도둑:' + tag + ':' + (parts.slice(1).join(' ') || '')
+  if (_fishIsDuplicateCall(dedupKey, 3000)) return
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !도둑 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  if (targetTag.toLowerCase() === tag.toLowerCase()) { fishReply(djId, '❌ 자기 자신은 도둑질할 수 없습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const target = fishing.users[targetTag]
+  if (!target) { fishReply(djId, `❌ ${targetTag} 유저 없음`); return }
+  const baseRate = (cfg.theftBaseRate || 5) / 100, lvlBonus = (cfg.theftLevelBonus || 0.5) / 100, maxRate = (cfg.theftMaxRate || 70) / 100
+  const rate = Math.min(maxRate, baseRate + (user.level - 1) * lvlBonus)
+  const success = Math.random() < rate
+  if (success) {
+    if ((target.balance || 0) < amount) { fishReply(djId, `❌ ${target.nickname}님의 잔액이 부족합니다`); return }
+    user.balance += amount
+    target.balance -= amount
+    saveFishingUser(djId, fishing)
+    fishReply(djId, `🎉 도둑 성공! (성공률 ${Math.round(rate * 100)}%) ${target.nickname}님에게서 ₩${amount.toLocaleString()}원 훔침!\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+  } else {
+    const penalty = amount * 2
+    if (user.balance < penalty) { fishReply(djId, `❌ 도둑 실패 시 벌금(₩${penalty.toLocaleString()})을 낼 잔액이 부족`); return }
+    user.balance -= penalty
+    target.balance = (target.balance || 0) + penalty
+    saveFishingUser(djId, fishing)
+    fishReply(djId, `😢 도둑 실패! (성공률 ${Math.round(rate * 100)}%) ${target.nickname}님에게 벌금 ₩${penalty.toLocaleString()}원 지불\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+  }
+}
+
+async function fishCmdFishBook(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  const names = Object.keys(all)
+  if (names.length === 0) { fishReply(djId, '🐟 잡은 물고기 없음'); return }
+  const rarityIcons = { common: '⚪', uncommon: '🟢', rare: '🔵', epic: '🟣', legendary: '🟡' }
+  const lookup = {}
+  _fishParseFishList(fishing.config.fishList).forEach(f => { lookup[f.name] = { rarity: f.rarity, isEvent: false } })
+  _fishParseFishList(fishing.config.eventFishList).forEach(f => { lookup[f.name] = { rarity: f.rarity, isEvent: true } })
+  let msg = `📚 ${author}의 도감 (${user.total_fish_count}마리)\n\n`
+  names.slice(0, 12).forEach(name => { const info = lookup[name] || { rarity: 'common', isEvent: false }; msg += `${rarityIcons[info.rarity] || '⚪'} ${info.isEvent ? '🎁' : '🐟'} ${name} ${all[name]}마리\n` })
+  if (names.length > 12) msg += `\n외 ${names.length - 12}종`
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdFishBookShare(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  const names = Object.keys(all)
+  if (names.length === 0) { fishReply(djId, '🐟 잡은 물고기 없음'); return }
+  const lookup = {}
+  _fishParseFishList(fishing.config.fishList).forEach(f => { lookup[f.name] = f.rarity })
+  _fishParseFishList(fishing.config.eventFishList).forEach(f => { lookup[f.name] = f.rarity })
+  const counts = { legendary: 0, epic: 0, rare: 0, uncommon: 0, common: 0 }
+  names.forEach(n => { counts[lookup[n] || 'common']++ })
+  let msg = `🎣 ${author}님의 도감 공유\n\n총 ${user.total_fish_count}마리 낚음\n물고기 종류: ${names.length}종\n\n🏆 희귀도별 보유\n`
+  if (counts.legendary > 0) msg += `🟡전설: ${counts.legendary}종\n`
+  if (counts.epic > 0) msg += `🟣영웅: ${counts.epic}종\n`
+  if (counts.rare > 0) msg += `🔵희귀: ${counts.rare}종\n`
+  if (counts.uncommon > 0) msg += `🟢고급: ${counts.uncommon}종\n`
+  if (counts.common > 0) msg += `⚪일반: ${counts.common}종`
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdLoan(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '사용법: !대출 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.loan_amount > 0) { fishReply(djId, `이미 대출이 있습니다 (₩${user.loan_amount.toLocaleString()}). 먼저 상환하세요.`); return }
+  const tiers = _fishCreditTiers(fishing.config)
+  const tier = tiers.find(t => t.rating === user.credit_rating) || tiers[0]
+  if (amount > tier.loan_limit) { fishReply(djId, `신용등급 ${'⭐'.repeat(user.credit_rating)} 대출 한도: ₩${tier.loan_limit.toLocaleString()}`); return }
+  const due = new Date(); due.setDate(due.getDate() + 3)
+  user.balance += amount
+  user.loan_amount = amount
+  user.loan_date = new Date().toISOString()
+  saveFishingUser(djId, fishing)
+  const dueStr = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`
+  fishReply(djId, `✅ ₩${amount.toLocaleString()}원 대출 승인\n만기일: ${dueStr}\n잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdRepay(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '사용법: !상환 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (!user.loan_amount) { fishReply(djId, '상환할 대출이 없습니다.'); return }
+  const repay = Math.min(amount, user.loan_amount)
+  if (user.balance < repay) { fishReply(djId, `잔액 부족 (보유: ₩${user.balance.toLocaleString()})`); return }
+  user.balance -= repay
+  user.loan_amount -= repay
+  if (user.loan_amount === 0) user.loan_date = null
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `✅ ₩${repay.toLocaleString()}원 상환\n남은 대출: ₩${user.loan_amount.toLocaleString()}원\n잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdCreditInfo(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const tiers = _fishCreditTiers(fishing.config)
+  _fishRecalcCredit(user, tiers)
+  saveFishingUser(djId, fishing)
+  const tier = tiers.find(t => t.rating === user.credit_rating)
+  const next = tiers.find(t => t.rating === user.credit_rating + 1)
+  let msg = `💳 ${author}님의 신용 정보\n신용등급: ${'⭐'.repeat(user.credit_rating)}\n대출 한도: ₩${(tier && tier.loan_limit || 0).toLocaleString()}원\n`
+  msg += user.loan_amount > 0 ? `현재 대출: ₩${user.loan_amount.toLocaleString()}원\n` : `현재 대출 없음\n`
+  msg += `신용 점수: 🅿️${user.heart_points || 0}포인트`
+  if (next) { const need = next.required_points - (user.heart_points || 0); if (need > 0) msg += `\n다음 등급까지: 🅿️${need}포인트` }
+  fishReply(djId, msg)
+}
+
+async function fishCmdCollections(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const collections = _fishParseCollections(fishing.config.collections)
+  if (collections.length === 0) { fishReply(djId, '📚 등록된 컬렉션이 없습니다'); return }
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  let msg = `📚 ${author}님의 컬렉션\n\n`
+  collections.forEach(c => {
+    const have = c.required_fish.filter(n => all[n] > 0)
+    const done = have.length === c.required_fish.length
+    msg += done ? `✅ ${c.name} (완성!)\n` : `📋 ${c.name} (${have.length}/${c.required_fish.length})\n`
+    if (!done) {
+      const preview = c.required_fish.slice(0, 3).map(n => all[n] > 0 ? `✔${n}` : n).join(', ')
+      msg += `   필요: ${preview}`
+      if (c.required_fish.length > 3) msg += ` 외 ${c.required_fish.length - 3}종`
+      msg += '\n'
+    }
+  })
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdGiveMoney(djId, room, settings, author, authorId, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!_fishIsDj(djId, room, settings, authorId, author)) { fishReply(djId, '❌ 디제이 전용 명령어입니다.'); return }
+  const dedupKey = '돈주기:' + (author || 'dj') + ':' + (parts.slice(1).join(' ') || '')
+  if (_fishIsDuplicateCall(dedupKey, 3000)) return
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !돈주기 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  let target = fishing.users[targetTag]
+  if (!target) { target = _fishNewUser(targetTag); fishing.users[targetTag] = target }
+  target.balance = (target.balance || 0) + amount
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `🎁 [DJ] ${target.nickname}님께 ₩${amount.toLocaleString()}원 입금 완료\n💰 ${target.nickname} 잔액: ₩${target.balance.toLocaleString()}원`)
+}
+
+function fishCmdHelp(djId) {
+  let msg = '🎣 낚시 게임 명령어\n!낚시 / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
+  fishReply(djId, msg)
+}
+
+// ── 채팅 이벤트 마스터 디스패처 ──
+async function handleFishingCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'fishing', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
+  if (!FISH_CMDS.includes(cmd)) return
+
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
+  if (tag) rememberTagNickname(room, tag, author)
+
+  switch (cmd) {
+    case '!낚시': return fishCmdFishing(djId, room, settings, author, tag)
+    case '!돈줘': return fishCmdDailyMoney(djId, settings, author, tag)
+    case '!잔액': return fishCmdBalance(djId, settings, author, tag)
+    case '!상태': return fishCmdStatus(djId, settings, author, tag)
+    case '!지갑': return fishCmdWallet(djId, settings)
+    case '!레벨': return fishCmdLevel(djId, settings, author, tag)
+    case '!도감': return fishCmdFishBook(djId, settings, author, tag)
+    case '!도감공유': return fishCmdFishBookShare(djId, settings, author, tag)
+    case '!상점': return fishCmdShop(djId, settings)
+    case '!구매': return fishCmdPurchase(djId, settings, author, tag, parts)
+    case '!아이템상점': return fishCmdItemShop(djId, settings)
+    case '!아이템구매': return fishCmdItemPurchase(djId, settings, author, tag, parts)
+    case '!슬롯': return fishCmdSlot(djId, settings, author, tag, parts)
+    case '!주사위': return fishCmdDice(djId, settings, author, tag, parts)
+    case '!홀': return fishCmdOddEven(djId, settings, author, tag, parts, true)
+    case '!짝': return fishCmdOddEven(djId, settings, author, tag, parts, false)
+    case '!송금': return fishCmdTransfer(djId, settings, author, tag, parts)
+    case '!도둑': return fishCmdTheft(djId, settings, author, tag, parts)
+    case '!돈주기': return fishCmdGiveMoney(djId, room, settings, author, authorId, parts)
+    case '!대출': return fishCmdLoan(djId, settings, author, tag, parts)
+    case '!상환': return fishCmdRepay(djId, settings, author, tag, parts)
+    case '!신용정보': return fishCmdCreditInfo(djId, settings, author, tag)
+    case '!컬렉션': return fishCmdCollections(djId, settings, author, tag)
+    case '!낚시도움말': case '!낚시명령어': return fishCmdHelp(djId)
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
 // 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
 // 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 서버가 주기적으로 그 팬보드를
 // 확인해서 일치하는 번호를 찾으면 그 글쓴이를 자동으로 맞팔로우한다.
@@ -2885,6 +3560,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleCouponCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
           handleAutoFollowCommand(djId, settings, author, actTag, text)
+          handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -4274,6 +4950,43 @@ app.post('/autofollow/history/clear', auth.requireAuth, (req, res) => {
   const cfg = getAutoFollowSettings()
   cfg.history = []
   store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+
+// 🎣 낚시 게임
+app.get('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  res.json({ success: true, config: fishing.config, userCount: Object.keys(fishing.users).length })
+})
+app.post('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'fishing', req.djId)) return res.json({ success: false, error: '낚시 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const fishing = getFishingSettings(req.djId, settings)
+  const body = req.body || {}
+  const numKeys = ['fishingCooldown', 'dailyMoney', 'slotMinBet', 'diceWinExp', 'diceLoseExp', 'creditTier1Points', 'creditTier1Loan', 'creditTier2Points', 'creditTier2Loan', 'creditTier3Points', 'creditTier3Loan', 'theftBaseRate', 'theftLevelBonus', 'theftMaxRate']
+  const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags']
+  if (body.enabled != null) fishing.config.enabled = !!body.enabled
+  numKeys.forEach(k => { if (body[k] != null) fishing.config[k] = Number(body[k]) || 0 })
+  textKeys.forEach(k => { if (body[k] != null) fishing.config[k] = String(body[k]).slice(0, 20000) })
+  store.saveSettings(req.djId, { fishing })
+  res.json({ success: true })
+})
+app.get('/fishing/leaderboard', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  const list = Object.values(fishing.users).sort((a, b) => (b.balance || 0) - (a.balance || 0)).slice(0, 20)
+    .map(u => ({ tag: u.tag, nickname: u.nickname, balance: u.balance || 0, level: u.level || 1, total_fish_count: u.total_fish_count || 0 }))
+  res.json({ success: true, users: list })
+})
+app.post('/fishing/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (req.djId !== SHARED_TOKEN_DJID) {
+    // 관리자가 아니어도 본인 계정 방송 데이터는 리셋 가능 (자기 방송이니까)
+  }
+  const fishing = getFishingSettings(req.djId, settings)
+  fishing.users = {}
+  store.saveSettings(req.djId, { fishing })
   res.json({ success: true })
 })
 
