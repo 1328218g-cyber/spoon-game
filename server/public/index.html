@@ -7661,10 +7661,12 @@ async function loadStockUsers(){
   clearTimeout(stockUsersSearchTimer);
   stockUsersSearchTimer=setTimeout(async ()=>{
     const q=document.getElementById('stkUserSearch').value.trim();
+    body.innerHTML='<tr class="fish-empty-row"><td colspan="10">불러오는 중...</td></tr>';
     try{
       const res=await fetch(SERVER+'/stock/users?q='+encodeURIComponent(q),{headers:authHeaders()});
+      if(!res.ok){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">불러오기 실패 (HTTP ${res.status}) — 서버가 최신 버전인지 확인해주세요</td></tr>`; return; }
       const d=await res.json();
-      if(!d.success)return;
+      if(!d.success){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">${escapeHtml(d.error||'불러오기 실패')}</td></tr>`; return; }
       document.getElementById('stkUsersCount').textContent='('+d.count+')';
       if(!d.users.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="10">등록된 유저가 없어요.</td></tr>'; return; }
       body.innerHTML=d.users.map(u=>`
@@ -7686,7 +7688,7 @@ async function loadStockUsers(){
           </td>
           <td><button class="icon-btn danger" onclick="stockDeleteUser('${escapeAttr(u.tag)}','${escapeAttr(u.nickname)}')" title="유저 데이터 삭제">🗑</button></td>
         </tr>`).join('');
-    }catch(e){}
+    }catch(e){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">오류: ${escapeHtml(e.message)}</td></tr>`; }
   }, 250);
 }
 async function stockAdjustUser(tag, sign){
