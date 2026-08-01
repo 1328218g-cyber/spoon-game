@@ -280,6 +280,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .status-pill.ended{background:rgba(107,107,128,.15);color:var(--muted)}
 .status-pill.dday{background:rgba(251,146,60,.15);color:#fb923c}
 
+/* ── 🎣 낚시 게임 설정 ── */
+.fish-toggle-bar{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;width:100%;box-sizing:border-box}
+.fish-toggle-bar input{width:auto}
+.fish-tab-footer{display:flex;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.fish-tab-footer .btn-connect,.fish-tab-footer .btn-gray{padding:9px 18px;font-size:13px}
+.fish-credit-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px}
+.fish-credit-title{font-weight:700;font-size:13.5px;margin-bottom:10px}
+.fish-credit-box label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+#fishListTable input,#fishEventTable input,#fishShopTable input,#fishItemTable input,#fishColTable input,#fishListTable select,#fishEventTable select,#fishItemTable select{width:100%;box-sizing:border-box;padding:7px 8px;font-size:12.5px}
+#fishListTable td,#fishEventTable td,#fishShopTable td,#fishItemTable td,#fishColTable td{padding:6px}
+.fish-empty-row td{color:var(--muted);text-align:center;padding:18px 10px;font-size:12.5px}
+
 /* ── 유저 관리 ── */
 .user-table{width:100%;min-width:960px;border-collapse:collapse;font-size:13px}
 .user-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border)}
@@ -537,6 +549,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -576,11 +590,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="dashboard">
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
-            <div class="card-title" style="margin-bottom:6px">🏆 이달의 스푼 랭킹 조회</div>
+            <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
             <div style="display:flex;gap:6px">
-              <input type="text" id="dashRankSearchInput" placeholder="고유닉" style="flex:1">
+              <input type="text" id="dashRankSearchInput" placeholder="DJ 고유닉" style="flex:1">
               <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="dashSearchRank()">조회</button>
             </div>
+            <div class="hint" style="margin:4px 0 0">스푼 자체 순위(초이스·좋아요·방송시간)를 조회해요. 첫 조회는 스캔 때문에 최대 1분 걸릴 수 있어요.</div>
             <div class="hint" id="dashRankSearchResult" style="margin-top:6px;white-space:pre-line"></div>
           </div>
           <div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:12px">
@@ -1934,6 +1949,380 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎣 낚시 게임 -->
+      <div class="panel" data-panel="fishing">
+        <div class="card">
+          <div class="card-title"><span>🎣 낚시 게임</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFishingSettings()">💾 저장</button></div>
+          <p class="hint">시청자들이 채팅으로 물고기를 잡고, 돈을 벌고, 상점·도박·대출까지 즐기는 미니 경제 게임이에요.</p>
+        </div>
+
+        <div class="tab-bar" id="fishTabBar">
+          <button class="tab-btn active" data-t="basic" onclick="switchFishTab('basic')">⚙️ 기본</button>
+          <button class="tab-btn" data-t="fish" onclick="switchFishTab('fish')">🐟 물고기</button>
+          <button class="tab-btn" data-t="event" onclick="switchFishTab('event')">🎁 이벤트</button>
+          <button class="tab-btn" data-t="shop" onclick="switchFishTab('shop')">🏪 상점</button>
+          <button class="tab-btn" data-t="item" onclick="switchFishTab('item')">🎒 아이템</button>
+          <button class="tab-btn" data-t="col" onclick="switchFishTab('col')">📚 컬렉션</button>
+          <button class="tab-btn" data-t="credit" onclick="switchFishTab('credit')">💳 신용</button>
+          <button class="tab-btn" data-t="theft" onclick="switchFishTab('theft')">🦹 도둑</button>
+        </div>
+
+        <div class="card" data-fishsec="basic">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <p class="hint">게임 전반 동작을 설정합니다.</p>
+          <label class="fish-toggle-bar"><input type="checkbox" id="fishEnabled" checked> 게임 활성화</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"><div class="hint" style="margin-top:4px">낚시 재사용 대기 시간</div></div>
+            <div><label>일일 보너스 금액 (원)</label><input type="number" id="fishDailyMoney" value="10000"><div class="hint" style="margin-top:4px">!돈줘 명령어로 받는 금액</div></div>
+            <div><label>슬롯 최소 베팅 (원)</label><input type="number" id="fishSlotMinBet" value="1000"></div>
+            <div><label>주사위 승리 경험치</label><input type="number" id="fishDiceWinExp" value="10"></div>
+            <div><label>주사위 패배 경험치</label><input type="number" id="fishDiceLoseExp" value="-2"></div>
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('basic')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="fish" style="display:none">
+          <div class="card-title">🐟 물고기 목록 <span class="hint" id="fishListCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">최소=최대 금액이면 고정가, 다르면 낚을 때마다 랜덤 지급됩니다.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="fishListTable" style="min-width:760px">
+            <thead><tr><th>이름</th><th>최소 금액</th><th>최대 금액</th><th>확률(%)</th><th>경험치</th><th>등급</th><th></th></tr></thead>
+            <tbody id="fishListBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="fishAddRow('fish')">+ 물고기 추가</button>
+          <div class="hint" style="margin-top:8px">확률 합계가 100이 넘어도 내부에서 비율로 계산됩니다.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('fish')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="event" style="display:none">
+          <div class="card-title">🎁 이벤트 물고기 <span class="hint" id="fishEventCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">이벤트 기간에만 등장. 비워두면 이벤트 물고기 없음.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="fishEventTable" style="min-width:760px">
+            <thead><tr><th>이름</th><th>최소 금액</th><th>최대 금액</th><th>확률(%)</th><th>경험치</th><th>등급</th><th></th></tr></thead>
+            <tbody id="fishEventBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="fishAddRow('event')">+ 이벤트 물고기 추가</button>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('event')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="shop" style="display:none">
+          <div class="card-title">🏪 상점 상품 <span class="hint" id="fishShopCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">!구매 [번호]로 구매. 번호는 위에서부터 순서대로입니다.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="fishShopTable" style="min-width:420px">
+            <thead><tr><th style="width:40px">#</th><th>상품명</th><th>가격 (원)</th><th></th></tr></thead>
+            <tbody id="fishShopBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="fishAddRow('shop')">+ 상품 추가</button>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('shop')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="item" style="display:none">
+          <div class="card-title">🎒 아이템 상점 <span class="hint" id="fishItemCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">!아이템구매 [번호]로 구매하는 효과 아이템입니다.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="fishItemTable" style="min-width:820px">
+            <thead><tr><th>아이템명</th><th>가격</th><th>단위</th><th>효과 타입</th><th>효과값(%)</th><th>지속(분)</th><th>횟수</th><th></th></tr></thead>
+            <tbody id="fishItemBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="fishAddRow('item')">+ 아이템 추가</button>
+          <div class="hint" style="margin-top:10px;line-height:1.7">
+          <b>fish_chance</b> — 고가 물고기 확률+ (지속시간 사용, 횟수=0)<br>
+          <b>fishing_income</b> — 낚시 수익%+ (지속시간 사용, 횟수=0)<br>
+          <b>dice_chance</b> — 주사위 승률+ (횟수 사용, 지속=0)<br>
+          <b>dice_double</b> — 주사위 두배 (횟수 사용, 효과값=0)<br>
+          <b>oddeven_chance</b> — 홀짝 패→승 전환 (횟수 사용, 지속=0)
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('item')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="col" style="display:none">
+          <div class="card-title">📚 컬렉션 <span class="hint" id="fishColCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">특정 물고기를 모두 잡으면 완성됩니다.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="fishColTable" style="min-width:600px">
+            <thead><tr><th>컬렉션 이름</th><th>필요 물고기 (쉼표 구분)</th><th></th></tr></thead>
+            <tbody id="fishColBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="fishAddRow('col')">+ 컬렉션 추가</button>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('col')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="credit" style="display:none">
+          <div class="card-title">💳 신용등급</div>
+          <p class="hint">포인트(P) 기준으로 등급이 결정되며 등급에 따라 대출 한도가 다릅니다.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div class="fish-credit-box">
+              <div class="fish-credit-title">⭐ 1등급</div>
+              <label>필요 포인트</label><input type="number" id="fishCredit1P" value="0">
+              <label style="margin-top:10px">대출 한도 (원)</label><input type="number" id="fishCredit1L" value="500000">
+            </div>
+            <div class="fish-credit-box">
+              <div class="fish-credit-title">⭐⭐ 2등급</div>
+              <label>필요 포인트</label><input type="number" id="fishCredit2P" value="100">
+              <label style="margin-top:10px">대출 한도 (원)</label><input type="number" id="fishCredit2L" value="1000000">
+            </div>
+            <div class="fish-credit-box">
+              <div class="fish-credit-title">⭐⭐⭐ 3등급</div>
+              <label>필요 포인트</label><input type="number" id="fishCredit3P" value="500">
+              <label style="margin-top:10px">대출 한도 (원)</label><input type="number" id="fishCredit3L" value="3000000">
+            </div>
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('credit')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-fishsec="theft" style="display:none">
+          <div class="card-title">🦹 도둑 설정</div>
+          <p class="hint">!도둑 명령어의 성공률을 조정합니다. 실패 시 시도 금액의 2배를 상대방에게 지급합니다.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>기본 성공률 (%)</label><input type="number" id="fishTheftBase" value="5"><div class="hint" style="margin-top:4px">레벨 1 기준</div></div>
+            <div><label>레벨당 추가 (%)</label><input type="number" id="fishTheftLvlBonus" value="0.5" step="0.1"><div class="hint" style="margin-top:4px">레벨 1 오를 때마다 +</div></div>
+            <div><label>최대 성공률 (%)</label><input type="number" id="fishTheftMax" value="70"><div class="hint" style="margin-top:4px">레벨에 상관없이 이 이하</div></div>
+          </div>
+          <label style="margin-top:14px;display:block">디제이 고유닉 (!돈주기 권한)</label>
+          <input type="text" id="fishDjTags" placeholder="예: sum, hostnick">
+          <div class="hint" style="margin-top:6px">!돈주기 명령어를 사용할 디제이 고유닉. 콤마(,)로 여러명 등록 가능. 비워두면 봇이 자동 감지한 디제이/방장만 사용 가능.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFishingSettings()">저장</button>
+            <button class="btn-gray" onclick="fishResetTab('theft')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🏆 잔액 랭킹 TOP 20</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadFishingLeaderboard()">🔄 새로고침</button></div>
+          <div id="fishLeaderboardWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⌨️ 채팅 명령어</div>
+          <p class="hint">
+          !낚시 · !돈줘 · !잔액 · !상태 · !지갑 · !레벨 · !도감 · !도감공유 · !컬렉션<br>
+          !상점 · !구매 [번호] · !아이템상점 · !아이템구매 [번호]<br>
+          !슬롯 [금액] · !주사위 [금액] · !홀 [금액] · !짝 [금액]<br>
+          !송금 [고유닉] [금액] · !도둑 [고유닉] [금액]<br>
+          !대출 [금액] · !상환 [금액] · !신용정보<br>
+          !돈주기 [고유닉] [금액] (DJ 전용) · !낚시도움말
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚠️ 전체 초기화</div>
+          <p class="hint">모든 시청자의 잔액/레벨/도감/아이템 데이터를 전부 삭제해요. 되돌릴 수 없어요.</p>
+          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetFishingData()">🗑️ 낚시 게임 데이터 전체 초기화</button>
+        </div>
+      </div>
+
+      <!-- 🍞 증권거래소 -->
+      <div class="panel" data-panel="stock">
+        <div class="card">
+          <div class="card-title"><span>🍞 증권거래소</span></div>
+          <p class="hint">시청자들이 좋아요·채팅·스푼·출석으로 '머니'를 모아 주식에 투자하고, 슬롯·룰렛·복권 등 미니게임과 은행(예금/대출), 아이템, 랭킹을 즐기는 종합 경제 게임이에요. 시세·뉴스·배당·시장이벤트는 전부 자동으로 진행돼요.</p>
+        </div>
+
+        <div class="tab-bar" id="stockTabBar">
+          <button class="tab-btn active" data-t="basic" onclick="switchStockTab('basic')">⚙️ 기본</button>
+          <button class="tab-btn" data-t="cmd" onclick="switchStockTab('cmd')">⌨️ 명령어</button>
+          <button class="tab-btn" data-t="market" onclick="switchStockTab('market')">📈 시세·이벤트</button>
+          <button class="tab-btn" data-t="bank" onclick="switchStockTab('bank')">🏦 은행</button>
+          <button class="tab-btn" data-t="stocks" onclick="switchStockTab('stocks')">📊 종목 관리</button>
+          <button class="tab-btn" data-t="news" onclick="switchStockTab('news')">📰 뉴스 문구</button>
+          <button class="tab-btn" data-t="items" onclick="switchStockTab('items')">🛍️ 아이템 상점</button>
+        </div>
+
+        <div class="card" data-stocksec="basic">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <label class="fish-toggle-bar"><input type="checkbox" id="stkEnabled" checked> 게임 활성화</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div><label>시작금 (원)</label><input type="number" id="stkStartMoney" value="100000"></div>
+            <div><label>출석 지급액 (원)</label><input type="number" id="stkAttendMoney" value="1000"></div>
+            <div><label>좋아요 1개 (원)</label><input type="number" id="stkLikeMoney" value="50"></div>
+            <div><label>채팅 1회 (원)</label><input type="number" id="stkChatMoney" value="5"><div class="hint" style="margin-top:4px">10분마다 모아서 일괄 지급</div></div>
+            <div><label>스푼 1개 (원)</label><input type="number" id="stkSpoonMoney" value="100"></div>
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('basic')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="cmd" style="display:none">
+          <div class="card-title">⌨️ 명령어 이름 커스텀</div>
+          <p class="hint">전부 !로 시작해요. 비워두거나 !없이 입력해도 자동으로 붙어요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>시작</label><input type="text" id="stkCmdStart" value="!시작"></div>
+            <div><label>출석</label><input type="text" id="stkCmdAttend" value="!출석"></div>
+            <div><label>룰설명</label><input type="text" id="stkCmdRule" value="!룰설명"></div>
+            <div><label>내정보</label><input type="text" id="stkCmdMyInfo" value="!내정보"></div>
+            <div><label>내돈</label><input type="text" id="stkCmdMyMoney" value="!내돈"></div>
+            <div><label>주식 목록</label><input type="text" id="stkCmdStockList" value="!주식"></div>
+            <div><label>내 주식</label><input type="text" id="stkCmdMyStock" value="!내주식"></div>
+            <div><label>랭킹</label><input type="text" id="stkCmdRanking" value="!식빵랭킹"></div>
+            <div><label>잭팟 조회</label><input type="text" id="stkCmdJackpot" value="!잭팟"></div>
+            <div><label>예금</label><input type="text" id="stkCmdDeposit" value="!예금"></div>
+            <div><label>출금</label><input type="text" id="stkCmdWithdraw" value="!출금"></div>
+            <div><label>대출</label><input type="text" id="stkCmdLoan" value="!대출"></div>
+            <div><label>상환</label><input type="text" id="stkCmdRepay" value="!상환"></div>
+            <div><label>슬롯</label><input type="text" id="stkCmdSlot" value="!슬롯"></div>
+            <div><label>룰렛</label><input type="text" id="stkCmdRoulette" value="!룰렛"></div>
+            <div><label>홀짝</label><input type="text" id="stkCmdOddEven" value="!홀짝"></div>
+            <div><label>주사위</label><input type="text" id="stkCmdDice" value="!주사위"></div>
+            <div><label>복권</label><input type="text" id="stkCmdLotto" value="!복권"></div>
+            <div><label>아이템 상점</label><input type="text" id="stkCmdShop" value="!상점"></div>
+            <div><label>아이템 구매</label><input type="text" id="stkCmdBuy" value="!구매"></div>
+            <div><label>아이템 사용</label><input type="text" id="stkCmdUse" value="!사용"></div>
+          </div>
+          <div class="card-title" style="margin-top:20px">🔑 운영자 전용 명령어</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>종목 설립</label><input type="text" id="stkCmdStockCreate" value="!주식설립"></div>
+            <div><label>종목 폐지</label><input type="text" id="stkCmdStockDelete" value="!주식폐지"></div>
+            <div><label>머니 지급</label><input type="text" id="stkCmdGiveMoney" value="!머니지급"></div>
+          </div>
+          <div class="hint" style="margin-top:8px">운영자 전용 명령어는 방송 중인 DJ 본인, 또는 애청지수 메뉴의 "복권/상점 지급 권한자" 목록에 등록된 닉네임만 사용할 수 있어요.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('cmd')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="market" style="display:none">
+          <div class="card-title">📈 시세·타이머 설정</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>시세 변동 주기 (분)</label><input type="number" id="stkPriceIntervalMin" value="10"></div>
+            <div><label>가격 하한 (원)</label><input type="number" id="stkPriceFloor" value="500"></div>
+            <div><label>최소 변동률 (%)</label><input type="number" id="stkPriceMinPct" value="-5"></div>
+            <div><label>최대 변동률 (%)</label><input type="number" id="stkPriceMaxPct" value="5"></div>
+            <div><label>뉴스 발생 주기 (분)</label><input type="number" id="stkNewsIntervalMin" value="30"></div>
+            <div><label>배당 지급 주기 (분)</label><input type="number" id="stkDividendIntervalMin" value="30"></div>
+            <div><label>시장 이벤트 주기 (분)</label><input type="number" id="stkEventIntervalMin" value="60"></div>
+            <div><label>시장 이벤트 발동 확률 (%)</label><input type="number" id="stkEventChancePct" value="10"></div>
+          </div>
+          <div class="hint" style="margin-top:10px">시장 이벤트는 발동 확률에 당첨되면 강세장(+10%)/약세장(-10%)/테마주 열풍(랜덤 1종목 +20%)/금리인상(고배당주+8%·저배당주-8%) 중 하나가 균등 추첨돼요.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('market')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="bank" style="display:none">
+          <div class="card-title">🏦 은행 설정</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>예금 이자율 (%)</label><input type="number" id="stkDepositInterestPct" value="5"><div class="hint" style="margin-top:4px">방송 시작마다 자동 지급</div></div>
+            <div><label>예금 이자 적용 한도 (원)</label><input type="number" id="stkDepositInterestCap" value="10000000"></div>
+            <div><label>대출 한도 (원)</label><input type="number" id="stkLoanLimit" value="1000000"></div>
+            <div><label>대출 이자율 (%)</label><input type="number" id="stkLoanInterestPct" value="10"><div class="hint" style="margin-top:4px">방송 시작마다 잔여 대출금에 가산</div></div>
+            <div><label>파산 시 자동대출 금액 (원)</label><input type="number" id="stkAutoLoanAmount" value="500000"></div>
+          </div>
+          <div class="hint" style="margin-top:10px">현금·주식·예금이 전부 0원이 되면 자동으로 대출이 실행돼요. 이미 대출 한도까지 다 쓴 상태에서 또 파산하면 신용불량(도박 이용 불가, 이후 소득 50% 자동 상환) 상태가 돼요.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('bank')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="stocks" style="display:none">
+          <div class="card-title">📊 종목 목록 <span class="hint" id="stkStocksCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">현재 운영 중인 종목이에요. 가격/배당률을 직접 수정하거나 새 종목을 추가·삭제할 수 있어요 (최대 10개). 여기서 하는 수정은 저장 버튼 없이 바로 반영돼요.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="stkStocksTable" style="min-width:520px">
+            <thead><tr><th>종목명</th><th>현재가</th><th>배당률(%)</th><th></th></tr></thead>
+            <tbody id="stkStocksBody"></tbody>
+          </table></div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>새 종목명</label><input type="text" id="stkNewStockName" placeholder="예: 00전자"></div>
+            <div><label>시작가 (원)</label><input type="number" id="stkNewStockPrice" placeholder="10000"></div>
+            <div><label>배당률(%, 비우면 랜덤)</label><input type="number" id="stkNewStockDiv" placeholder="0.5~3.0" step="0.5"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="stockAddStock()">+ 종목 설립</button>
+          <div class="card-title" style="margin-top:20px">💎 잭팟</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="number" id="stkJackpotInput" style="max-width:220px" placeholder="현재 잭팟 금액">
+            <button class="btn-gray" onclick="stockSetJackpot()">잭팟 금액 직접 설정</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="news" style="display:none">
+          <div class="card-title">📰 호재 문구 <span class="hint" id="stkGoodCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">30분마다(설정한 주기) 랜덤 종목 + 랜덤 문구가 자동으로 뽑혀서 시세에 반영돼요.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="stkGoodTable" style="min-width:420px">
+            <thead><tr><th>문구</th><th>변동률(%)</th><th></th></tr></thead>
+            <tbody id="stkGoodBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="stockAddNews('good')">+ 호재 문구 추가</button>
+        </div>
+        <div class="card" data-stocksec="news" style="display:none">
+          <div class="card-title">📰 악재 문구 <span class="hint" id="stkBadCount" style="margin:0 0 0 4px"></span></div>
+          <div style="overflow-x:auto"><table class="user-table" id="stkBadTable" style="min-width:420px">
+            <thead><tr><th>문구</th><th>변동률(%)</th><th></th></tr></thead>
+            <tbody id="stkBadBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="stockAddNews('bad')">+ 악재 문구 추가</button>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('news')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card" data-stocksec="items" style="display:none">
+          <div class="card-title">🛍️ 아이템 상점 <span class="hint" id="stkItemsCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">!사용 명령어로 소비되는 효과 아이템이에요.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="stkItemsTable" style="min-width:520px">
+            <thead><tr><th>이름</th><th>가격(원)</th><th>설명</th><th></th></tr></thead>
+            <tbody id="stkItemsBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="stockAddItem()">+ 아이템 추가</button>
+          <div class="hint" style="margin-top:10px;line-height:1.7">
+          <b>시장분석권</b> — 지정 종목의 다음 시세 변동을 미리 예측<br>
+          <b>배당쿠폰</b> — 다음 배당 2배<br>
+          <b>보험</b> — 다음 손실의 50% 보상<br>
+          <b>행운권</b> — 다음 슬롯 당첨 확률 2배<br>
+          위 4개 이름은 실제 효과와 연결돼 있어서 이름을 바꾸면 효과가 적용 안 될 수 있어요. 가격/설명만 자유롭게 바꿔주세요.
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveStockSettings()">저장</button>
+            <button class="btn-gray" onclick="stockResetTab('items')">기본값 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🏆 자산 랭킹 TOP 20</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadStockLeaderboard()">🔄 새로고침</button></div>
+          <div id="stkLeaderboardWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⌨️ 채팅 명령어 안내</div>
+          <p class="hint">
+          !시작 · !출석 · !룰설명 [항목] · !내정보 · !내돈 · !주식 · !내주식 · !식빵랭킹 · !잭팟<br>
+          !예금 [금액] · !출금 [금액] · !대출 [금액] · !상환 [금액]<br>
+          !슬롯 [금액] · !룰렛 [빨강·검정·초록] [금액] · !홀짝 [홀·짝] [금액] · !주사위 [1~6] [금액] · !복권 [N]장<br>
+          !상점 · !구매 [아이템명] · !사용 [아이템명]<br>
+          !종목명 [N]주 매수·매도 / 전량 매수·매도 / 절반 매도<br>
+          !주식설립 [종목명] [시작가] [배당률] · !주식폐지 [종목명] · !머니지급 [닉네임] [금액] (운영자 전용)
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚠️ 전체 초기화</div>
+          <p class="hint">모든 시청자의 현금/주식/예금/대출/아이템 데이터를 전부 삭제해요. 종목·설정은 그대로 유지돼요. 되돌릴 수 없어요.</p>
+          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetStockData()">🗑️ 증권거래소 유저 데이터 전체 초기화</button>
+        </div>
+      </div>
+
       <!-- 🤝 고정매니저신청 -->
       <div class="panel" data-panel="autofollow">
         <div class="card">
@@ -2526,6 +2915,8 @@ const PANEL_META={
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
+  fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
+  stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -2627,7 +3018,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -2639,7 +3030,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3485,6 +3876,8 @@ async function loadDjSettings(){
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
+      if(document.getElementById('fishListBody')) loadFishingSettings();
+      if(document.getElementById('stkStocksBody')) loadStockSettings();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -5879,26 +6272,26 @@ function renderDashboardStats(){
 }
 
 async function dashSearchRank(){
-  const input=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
+  const tag=document.getElementById('dashRankSearchInput').value.trim().replace(/^@/,'');
   const resultEl=document.getElementById('dashRankSearchResult');
-  if(!input){resultEl.textContent='고유닉을 입력해주세요';return;}
-  const q=input.toLowerCase();
-  let allTotal=0,monthTotal=0,nickname=input,found=false;
-  const now=new Date();
-  const ymNow=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  Object.entries(dashData.spoonLog).forEach(([date,entry])=>{
-    Object.entries(entry.byUser||{}).forEach(([key,info])=>{
-      const keyMatch=key.toLowerCase()===q;
-      const nickMatch=(info.nickname||'').toLowerCase()===q;
-      if(!keyMatch&&!nickMatch)return;
-      found=true;
-      allTotal+=(info.amount||0);
-      nickname=info.nickname||key;
-      if(date.startsWith(ymNow)) monthTotal+=(info.amount||0);
-    });
-  });
-  if(!found){ resultEl.textContent='기록을 찾을 수 없어요'; return; }
-  resultEl.textContent=`${nickname}\n이번 달: ${monthTotal.toLocaleString('ko-KR')} 스푼\n전체 누적: ${allTotal.toLocaleString('ko-KR')} 스푼`;
+  if(!tag){resultEl.textContent='고유닉을 입력해주세요';return;}
+  resultEl.textContent='조회 중...';
+  try{
+    let res=await fetch(SERVER+'/dashboard/rank/search/'+encodeURIComponent(tag),{headers:authHeaders()});
+    let d=await res.json();
+    if(!d.success&&d.error&&d.error.includes('스캔')){
+      resultEl.textContent='데이터 스캔 중... (최대 1분 소요)';
+      const scanRes=await fetch(SERVER+'/dashboard/rank/scan',{method:'POST',headers:authHeaders()});
+      const scanD=await scanRes.json();
+      if(!scanD.success){ resultEl.textContent='스캔 실패: '+(scanD.error||''); return; }
+      res=await fetch(SERVER+'/dashboard/rank/search/'+encodeURIComponent(tag),{headers:authHeaders()});
+      d=await res.json();
+    }
+    if(!d.success){ resultEl.textContent=d.error||'조회 실패'; return; }
+    const r=d.data.ranks;
+    const fmt=v=>v?v+'위':'-';
+    resultEl.textContent=`${d.data.nickname}\n✨ 초이스: ${fmt(r.next_choice)}\n❤️ 좋아요: ${fmt(r.free_like)}\n⏱️ 방송시간: ${fmt(r.live_time)}`;
+  }catch(e){resultEl.textContent='오류: '+e.message;}
 }
 
 function dashCalMove(dir){
@@ -6726,6 +7119,549 @@ async function clearAutoFollowHistory(){
     await fetch(SERVER+'/autofollow/history/clear',{method:'POST',headers:authHeaders()});
     showToast('지웠어요');
     loadAutoFollowData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎣 낚시 게임 ── */
+function switchFishTab(t){
+  document.querySelectorAll('#fishTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('[data-fishsec]').forEach(el=>el.style.display=el.dataset.fishsec===t?'block':'none');
+}
+
+/* 표 편집 상태 */
+let fishRows=[], fishEventRows=[], fishShopRows=[], fishItemRows=[], fishColRows=[];
+const FISH_RARITY_OPTS=[['common','일반'],['uncommon','고급'],['rare','희귀'],['epic','영웅'],['legendary','전설']];
+const FISH_EFFECT_OPTS=['fish_chance','fishing_income','dice_chance','dice_double','oddeven_chance'];
+const FISHING_DEFAULT_FISH_LIST_TXT='붕어,800,1200,30,5,common\n잉어,1500,2500,25,8,common\n메기,4000,6000,15,12,uncommon\n농어,8000,12000,10,20,uncommon\n참치,25000,35000,5,40,rare\n상어,70000,90000,2,80,epic\n고래,180000,220000,0.5,200,legendary';
+const FISHING_DEFAULT_SHOP_TXT='미끼,500\n특수미끼,2000\n낚싯대,10000\n고급낚싯대,50000';
+const FISHING_DEFAULT_ITEMSHOP_TXT='물고기확률업,5000,fish_chance,30,30,0,money\n수익증가,8000,fishing_income,50,30,0,money\n주사위확률,3000,dice_chance,30,0,5,money\n주사위두배,10000,dice_double,0,0,3,money\n홀짝확률,2000,oddeven_chance,40,0,5,money';
+const FISHING_DEFAULT_COLLECTIONS_TXT='강물고기:붕어,잉어,메기,농어\n바다물고기:참치,상어,고래';
+
+function _fishSplitLines(text){ return String(text||'').split('\n').map(l=>l.trim()).filter(Boolean); }
+function _fishParseListText(text){
+  return _fishSplitLines(text).map(line=>{
+    const p=line.split(',').map(s=>s.trim());
+    if(p.length<3||!p[0])return null;
+    if(p.length>=6 && !isNaN(p[1]) && !isNaN(p[2]) && !isNaN(p[3])){
+      const minVal=parseInt(p[1])||0, maxVal=parseInt(p[2])||minVal;
+      return {name:p[0],min:Math.min(minVal,maxVal),max:Math.max(minVal,maxVal),chance:parseFloat(p[3])||0,exp:parseInt(p[4])||1,rarity:p[5]||'common'};
+    }
+    const val=parseInt(p[1])||0;
+    return {name:p[0],min:val,max:val,chance:parseFloat(p[2])||0,exp:parseInt(p[3])||1,rarity:p[4]||'common'};
+  }).filter(Boolean);
+}
+function _fishRowsToText(rows){ return rows.filter(r=>r.name).map(r=>[r.name,r.min,r.max,r.chance,r.exp,r.rarity].join(',')).join('\n'); }
+function _fishParseShopText(text){
+  return _fishSplitLines(text).map(line=>{
+    const p=line.split(',').map(s=>s.trim());
+    if(p.length<2||!p[0])return null;
+    return {name:p[0],price:parseInt(p[1])||0};
+  }).filter(Boolean);
+}
+function _fishShopRowsToText(rows){ return rows.filter(r=>r.name).map(r=>[r.name,r.price].join(',')).join('\n'); }
+function _fishParseItemText(text){
+  return _fishSplitLines(text).map(line=>{
+    const p=line.split(',').map(s=>s.trim());
+    if(p.length<3||!p[0])return null;
+    return {name:p[0],price:parseInt(p[1])||0,effect:p[2]||'fish_chance',value:parseFloat(p[3])||0,duration:parseInt(p[4])||0,uses:parseInt(p[5])||0,unit:(p[6]==='points')?'points':'money'};
+  }).filter(Boolean);
+}
+function _fishItemRowsToText(rows){ return rows.filter(r=>r.name).map(r=>[r.name,r.price,r.effect,r.value,r.duration,r.uses,r.unit].join(',')).join('\n'); }
+function _fishParseColText(text){
+  return _fishSplitLines(text).map(line=>{
+    const idx=line.indexOf(':');
+    if(idx<0)return null;
+    const name=line.substring(0,idx).trim();
+    const fishStr=line.substring(idx+1).trim();
+    if(!name||!fishStr)return null;
+    return {name,fishStr};
+  }).filter(Boolean);
+}
+function _fishColRowsToText(rows){ return rows.filter(r=>r.name&&r.fishStr).map(r=>r.name+':'+r.fishStr).join('\n'); }
+
+function fishRarityOptions(sel){ return FISH_RARITY_OPTS.map(([v,l])=>`<option value="${v}" ${sel===v?'selected':''}>${l}</option>`).join(''); }
+function fishEffectOptions(sel){ return FISH_EFFECT_OPTS.map(v=>`<option value="${v}" ${sel===v?'selected':''}>${v}</option>`).join(''); }
+
+function renderFishListTable(){
+  const body=document.getElementById('fishListBody');
+  document.getElementById('fishListCount').textContent='('+fishRows.length+')';
+  if(!fishRows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="7">등록된 물고기가 없습니다.</td></tr>'; return; }
+  body.innerHTML=fishRows.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(r.name)}" oninput="fishRows[${i}].name=this.value"></td>
+      <td><input type="number" value="${r.min}" oninput="fishRows[${i}].min=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.max}" oninput="fishRows[${i}].max=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.chance}" step="0.1" oninput="fishRows[${i}].chance=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.exp}" oninput="fishRows[${i}].exp=Number(this.value)||0"></td>
+      <td><select onchange="fishRows[${i}].rarity=this.value">${fishRarityOptions(r.rarity)}</select></td>
+      <td><button class="icon-btn danger" onclick="fishRemoveRow('fish',${i})">✕</button></td>
+    </tr>`).join('');
+}
+function renderFishEventTable(){
+  const body=document.getElementById('fishEventBody');
+  document.getElementById('fishEventCount').textContent='('+fishEventRows.length+')';
+  if(!fishEventRows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="7">등록된 이벤트 물고기가 없습니다.</td></tr>'; return; }
+  body.innerHTML=fishEventRows.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(r.name)}" oninput="fishEventRows[${i}].name=this.value"></td>
+      <td><input type="number" value="${r.min}" oninput="fishEventRows[${i}].min=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.max}" oninput="fishEventRows[${i}].max=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.chance}" step="0.1" oninput="fishEventRows[${i}].chance=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.exp}" oninput="fishEventRows[${i}].exp=Number(this.value)||0"></td>
+      <td><select onchange="fishEventRows[${i}].rarity=this.value">${fishRarityOptions(r.rarity)}</select></td>
+      <td><button class="icon-btn danger" onclick="fishRemoveRow('event',${i})">✕</button></td>
+    </tr>`).join('');
+}
+function renderFishShopTable(){
+  const body=document.getElementById('fishShopBody');
+  document.getElementById('fishShopCount').textContent='('+fishShopRows.length+')';
+  if(!fishShopRows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="4">등록된 상품이 없습니다.</td></tr>'; return; }
+  body.innerHTML=fishShopRows.map((r,i)=>`
+    <tr>
+      <td>${i+1}</td>
+      <td><input type="text" value="${escapeAttr(r.name)}" oninput="fishShopRows[${i}].name=this.value"></td>
+      <td><input type="number" value="${r.price}" oninput="fishShopRows[${i}].price=Number(this.value)||0"></td>
+      <td><button class="icon-btn danger" onclick="fishRemoveRow('shop',${i})">✕</button></td>
+    </tr>`).join('');
+}
+function renderFishItemTable(){
+  const body=document.getElementById('fishItemBody');
+  document.getElementById('fishItemCount').textContent='('+fishItemRows.length+')';
+  if(!fishItemRows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="8">등록된 아이템이 없습니다.</td></tr>'; return; }
+  body.innerHTML=fishItemRows.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(r.name)}" oninput="fishItemRows[${i}].name=this.value"></td>
+      <td><input type="number" value="${r.price}" oninput="fishItemRows[${i}].price=Number(this.value)||0"></td>
+      <td><select onchange="fishItemRows[${i}].unit=this.value">
+        <option value="money" ${r.unit==='money'?'selected':''}>🪙 원</option>
+        <option value="points" ${r.unit==='points'?'selected':''}>P 포인트</option>
+      </select></td>
+      <td><select onchange="fishItemRows[${i}].effect=this.value">${fishEffectOptions(r.effect)}</select></td>
+      <td><input type="number" value="${r.value}" oninput="fishItemRows[${i}].value=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.duration}" oninput="fishItemRows[${i}].duration=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.uses}" oninput="fishItemRows[${i}].uses=Number(this.value)||0"></td>
+      <td><button class="icon-btn danger" onclick="fishRemoveRow('item',${i})">✕</button></td>
+    </tr>`).join('');
+}
+function renderFishColTable(){
+  const body=document.getElementById('fishColBody');
+  document.getElementById('fishColCount').textContent='('+fishColRows.length+')';
+  if(!fishColRows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="3">등록된 컬렉션이 없습니다.</td></tr>'; return; }
+  body.innerHTML=fishColRows.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(r.name)}" oninput="fishColRows[${i}].name=this.value"></td>
+      <td><input type="text" value="${escapeAttr(r.fishStr)}" placeholder="붕어,잉어,메기" oninput="fishColRows[${i}].fishStr=this.value"></td>
+      <td><button class="icon-btn danger" onclick="fishRemoveRow('col',${i})">✕</button></td>
+    </tr>`).join('');
+}
+
+function fishAddRow(type){
+  if(type==='fish'){ fishRows.push({name:'',min:0,max:0,chance:0,exp:1,rarity:'common'}); renderFishListTable(); }
+  else if(type==='event'){ fishEventRows.push({name:'',min:0,max:0,chance:0,exp:1,rarity:'common'}); renderFishEventTable(); }
+  else if(type==='shop'){ fishShopRows.push({name:'',price:0}); renderFishShopTable(); }
+  else if(type==='item'){ fishItemRows.push({name:'',price:0,unit:'money',effect:'fish_chance',value:0,duration:0,uses:0}); renderFishItemTable(); }
+  else if(type==='col'){ fishColRows.push({name:'',fishStr:''}); renderFishColTable(); }
+}
+function fishRemoveRow(type,i){
+  if(type==='fish'){ fishRows.splice(i,1); renderFishListTable(); }
+  else if(type==='event'){ fishEventRows.splice(i,1); renderFishEventTable(); }
+  else if(type==='shop'){ fishShopRows.splice(i,1); renderFishShopTable(); }
+  else if(type==='item'){ fishItemRows.splice(i,1); renderFishItemTable(); }
+  else if(type==='col'){ fishColRows.splice(i,1); renderFishColTable(); }
+}
+
+function fishResetTab(tab){
+  if(!confirm('이 탭을 기본값으로 초기화할까요? (저장을 눌러야 실제로 반영돼요)'))return;
+  if(tab==='basic'){
+    document.getElementById('fishEnabled').checked=true;
+    document.getElementById('fishCooldown').value=120;
+    document.getElementById('fishDailyMoney').value=10000;
+    document.getElementById('fishSlotMinBet').value=1000;
+    document.getElementById('fishDiceWinExp').value=10;
+    document.getElementById('fishDiceLoseExp').value=-2;
+  }else if(tab==='fish'){
+    fishRows=_fishParseListText(FISHING_DEFAULT_FISH_LIST_TXT); renderFishListTable();
+  }else if(tab==='event'){
+    fishEventRows=[]; renderFishEventTable();
+  }else if(tab==='shop'){
+    fishShopRows=_fishParseShopText(FISHING_DEFAULT_SHOP_TXT); renderFishShopTable();
+  }else if(tab==='item'){
+    fishItemRows=_fishParseItemText(FISHING_DEFAULT_ITEMSHOP_TXT); renderFishItemTable();
+  }else if(tab==='col'){
+    fishColRows=_fishParseColText(FISHING_DEFAULT_COLLECTIONS_TXT); renderFishColTable();
+  }else if(tab==='credit'){
+    document.getElementById('fishCredit1P').value=0;
+    document.getElementById('fishCredit1L').value=500000;
+    document.getElementById('fishCredit2P').value=100;
+    document.getElementById('fishCredit2L').value=1000000;
+    document.getElementById('fishCredit3P').value=500;
+    document.getElementById('fishCredit3L').value=3000000;
+  }else if(tab==='theft'){
+    document.getElementById('fishTheftBase').value=5;
+    document.getElementById('fishTheftLvlBonus').value=0.5;
+    document.getElementById('fishTheftMax').value=70;
+    document.getElementById('fishDjTags').value='';
+  }
+  showToast('기본값으로 초기화했어요');
+}
+
+async function loadFishingSettings(){
+  try{
+    const res=await fetch(SERVER+'/fishing/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const c=d.config;
+    document.getElementById('fishEnabled').checked=c.enabled!==false;
+    document.getElementById('fishCooldown').value=c.fishingCooldown??120;
+    document.getElementById('fishDailyMoney').value=c.dailyMoney??10000;
+    document.getElementById('fishSlotMinBet').value=c.slotMinBet??1000;
+    document.getElementById('fishDiceWinExp').value=c.diceWinExp??10;
+    document.getElementById('fishDiceLoseExp').value=c.diceLoseExp??-2;
+    fishRows=_fishParseListText(c.fishList||'');
+    fishEventRows=_fishParseListText(c.eventFishList||'');
+    fishShopRows=_fishParseShopText(c.shopProducts||'');
+    fishItemRows=_fishParseItemText(c.itemShop||'');
+    fishColRows=_fishParseColText(c.collections||'');
+    renderFishListTable();
+    renderFishEventTable();
+    renderFishShopTable();
+    renderFishItemTable();
+    renderFishColTable();
+    document.getElementById('fishCredit1P').value=c.creditTier1Points??0;
+    document.getElementById('fishCredit1L').value=c.creditTier1Loan??500000;
+    document.getElementById('fishCredit2P').value=c.creditTier2Points??100;
+    document.getElementById('fishCredit2L').value=c.creditTier2Loan??1000000;
+    document.getElementById('fishCredit3P').value=c.creditTier3Points??500;
+    document.getElementById('fishCredit3L').value=c.creditTier3Loan??3000000;
+    document.getElementById('fishTheftBase').value=c.theftBaseRate??5;
+    document.getElementById('fishTheftLvlBonus').value=c.theftLevelBonus??0.5;
+    document.getElementById('fishTheftMax').value=c.theftMaxRate??70;
+    document.getElementById('fishDjTags').value=c.djTags||'';
+  }catch(e){}
+  loadFishingLeaderboard();
+}
+
+async function saveFishingSettings(){
+  const body={
+    enabled:document.getElementById('fishEnabled').checked,
+    fishingCooldown:Number(document.getElementById('fishCooldown').value)||120,
+    dailyMoney:Number(document.getElementById('fishDailyMoney').value)||10000,
+    slotMinBet:Number(document.getElementById('fishSlotMinBet').value)||1000,
+    diceWinExp:Number(document.getElementById('fishDiceWinExp').value)||10,
+    diceLoseExp:Number(document.getElementById('fishDiceLoseExp').value)||0,
+    fishList:_fishRowsToText(fishRows),
+    eventFishList:_fishRowsToText(fishEventRows),
+    shopProducts:_fishShopRowsToText(fishShopRows),
+    itemShop:_fishItemRowsToText(fishItemRows),
+    collections:_fishColRowsToText(fishColRows),
+    creditTier1Points:Number(document.getElementById('fishCredit1P').value)||0,
+    creditTier1Loan:Number(document.getElementById('fishCredit1L').value)||0,
+    creditTier2Points:Number(document.getElementById('fishCredit2P').value)||0,
+    creditTier2Loan:Number(document.getElementById('fishCredit2L').value)||0,
+    creditTier3Points:Number(document.getElementById('fishCredit3P').value)||0,
+    creditTier3Loan:Number(document.getElementById('fishCredit3L').value)||0,
+    theftBaseRate:Number(document.getElementById('fishTheftBase').value)||0,
+    theftLevelBonus:Number(document.getElementById('fishTheftLvlBonus').value)||0,
+    theftMaxRate:Number(document.getElementById('fishTheftMax').value)||0,
+    djTags:document.getElementById('fishDjTags').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/fishing/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('설정 저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadFishingLeaderboard(){
+  const wrap=document.getElementById('fishLeaderboardWrap');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/fishing/leaderboard',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.users.length){ wrap.innerHTML='<p class="hint">아직 데이터가 없습니다.</p>'; return; }
+    wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+d.users.map((u,i)=>{
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+      return `<div style="display:flex;justify-content:space-between;font-size:13px">
+        <span><span class="hint" style="margin-right:6px">${medal}</span>${escapeHtml(u.nickname)} <span class="hint" style="margin:0">Lv.${u.level}</span></span>
+        <b style="color:var(--accent2)">₩${u.balance.toLocaleString('ko-KR')}</b>
+      </div>`;
+    }).join('')+'</div>';
+  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+
+async function resetFishingData(){
+  if(!confirm('정말로 낚시 게임의 모든 시청자 데이터를 초기화할까요? 되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 진짜로 전부 삭제하시겠어요?'))return;
+  try{
+    const res=await fetch(SERVER+'/fishing/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('초기화했어요'); loadFishingLeaderboard(); }
+    else showToast(d.error||'초기화 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🍞 증권거래소 ── */
+function switchStockTab(t){
+  document.querySelectorAll('#stockTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('[data-stocksec]').forEach(el=>el.style.display=el.dataset.stocksec===t?'block':'none');
+}
+
+const STOCK_DEFAULT_GOOD_NEWS=[['신제품 출시 대박!',12],['대규모 수주 계약 체결!',15],['어닝 서프라이즈!',10],['해외 시장 진출 성공!',8],['신기술 특허 등록!',10],['대기업 투자 유치!',18],['정부 지원 사업 선정!',8],['초대형 인수합병 발표!',15],['신사업 진출 선언!',6],['연구 결과 대성공!',20]];
+const STOCK_DEFAULT_BAD_NEWS=[['제품 결함 전량 리콜…',-12],['공장 화재 발생…',-15],['어닝 쇼크…',-10],['대형 계약 파기…',-12],['경영진 구설수…',-8],['세무조사 착수…',-8],['핵심 인력 대거 퇴사…',-10],['기술 유출 사고…',-15],['대형 소송 패소…',-18],['신사업 대실패…',-20]];
+const STOCK_DEFAULT_ITEMS=[{name:'시장분석권',price:30000,desc:'지정 종목의 다음 시세 변동을 예측'},{name:'배당쿠폰',price:20000,desc:'다음 배당 2배'},{name:'보험',price:30000,desc:'폭락 손실 50% 보상'},{name:'행운권',price:20000,desc:'다음 슬롯 확률 2배'}];
+
+let stockConfig={};
+let stockStocks=[];
+let stockGoodNews=[];
+let stockBadNews=[];
+let stockItems=[];
+
+function renderStockStocksTable(){
+  const body=document.getElementById('stkStocksBody');
+  document.getElementById('stkStocksCount').textContent='('+stockStocks.length+')';
+  if(!stockStocks.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="4">등록된 종목이 없어요. 아래에서 새 종목을 설립해주세요.</td></tr>'; return; }
+  body.innerHTML=stockStocks.map((st,i)=>`
+    <tr>
+      <td>${escapeHtml(st.name)}</td>
+      <td><input type="number" value="${Math.round(st.price)}" onchange="stockUpdateStock('${escapeAttr(st.name)}',{price:Number(this.value)||1})"></td>
+      <td><input type="number" value="${st.dividendRate}" step="0.5" onchange="stockUpdateStock('${escapeAttr(st.name)}',{dividendRate:Number(this.value)||0})"></td>
+      <td><button class="icon-btn danger" onclick="stockDeleteStock('${escapeAttr(st.name)}')">✕</button></td>
+    </tr>`).join('');
+}
+function renderStockNewsTable(type){
+  const rows = type==='good'?stockGoodNews:stockBadNews;
+  const body=document.getElementById(type==='good'?'stkGoodBody':'stkBadBody');
+  document.getElementById(type==='good'?'stkGoodCount':'stkBadCount').textContent='('+rows.length+')';
+  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="3">등록된 문구가 없어요.</td></tr>'; return; }
+  body.innerHTML=rows.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(r[0])}" oninput="(${type==='good'?'stockGoodNews':'stockBadNews'})[${i}][0]=this.value"></td>
+      <td><input type="number" value="${r[1]}" oninput="(${type==='good'?'stockGoodNews':'stockBadNews'})[${i}][1]=Number(this.value)||0"></td>
+      <td><button class="icon-btn danger" onclick="stockRemoveNews('${type}',${i})">✕</button></td>
+    </tr>`).join('');
+}
+function renderStockItemsTable(){
+  const body=document.getElementById('stkItemsBody');
+  document.getElementById('stkItemsCount').textContent='('+stockItems.length+')';
+  if(!stockItems.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="4">등록된 아이템이 없어요.</td></tr>'; return; }
+  body.innerHTML=stockItems.map((it,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(it.name)}" oninput="stockItems[${i}].name=this.value"></td>
+      <td><input type="number" value="${it.price}" oninput="stockItems[${i}].price=Number(this.value)||0"></td>
+      <td><input type="text" value="${escapeAttr(it.desc||'')}" oninput="stockItems[${i}].desc=this.value"></td>
+      <td><button class="icon-btn danger" onclick="stockRemoveItem(${i})">✕</button></td>
+    </tr>`).join('');
+}
+
+function stockAddNews(type){
+  if(type==='good') stockGoodNews.push(['',0]); else stockBadNews.push(['',0]);
+  renderStockNewsTable(type);
+}
+function stockRemoveNews(type,i){
+  if(type==='good') stockGoodNews.splice(i,1); else stockBadNews.splice(i,1);
+  renderStockNewsTable(type);
+}
+function stockAddItem(){
+  stockItems.push({name:'',price:0,desc:''});
+  renderStockItemsTable();
+}
+function stockRemoveItem(i){
+  stockItems.splice(i,1);
+  renderStockItemsTable();
+}
+
+async function stockAddStock(){
+  const name=document.getElementById('stkNewStockName').value.trim();
+  const price=Number(document.getElementById('stkNewStockPrice').value);
+  const divRaw=document.getElementById('stkNewStockDiv').value;
+  if(!name||!price)return showToast('종목명과 시작가를 입력해주세요');
+  try{
+    const body={name,price};
+    if(divRaw!=='') body.dividendRate=Number(divRaw);
+    const res=await fetch(SERVER+'/stock/stocks',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){
+      stockStocks=d.stocks; renderStockStocksTable();
+      document.getElementById('stkNewStockName').value='';
+      document.getElementById('stkNewStockPrice').value='';
+      document.getElementById('stkNewStockDiv').value='';
+      showToast('종목 설립 완료 ✓');
+    } else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function stockUpdateStock(name,patch){
+  try{
+    const res=await fetch(SERVER+'/stock/stocks/'+encodeURIComponent(name)+'/update',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(patch)});
+    const d=await res.json();
+    if(d.success){ stockStocks=d.stocks; showToast('반영됨 ✓'); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function stockDeleteStock(name){
+  if(!confirm(name+' 종목을 폐지할까요? 보유자 전원에게 현재가로 자동 정산돼요.'))return;
+  try{
+    const res=await fetch(SERVER+'/stock/stocks/'+encodeURIComponent(name)+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ stockStocks=d.stocks; renderStockStocksTable(); showToast('종목을 폐지했어요'); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function stockSetJackpot(){
+  const v=Number(document.getElementById('stkJackpotInput').value);
+  if(!Number.isFinite(v)||v<0)return showToast('올바른 금액을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/stock/jackpot',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({amount:v})});
+    const d=await res.json();
+    if(d.success)showToast('잭팟 금액을 설정했어요 ✓');
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function stockResetTab(tab){
+  if(!confirm('이 탭을 기본값으로 초기화할까요? (저장을 눌러야 실제로 반영돼요)'))return;
+  if(tab==='basic'){
+    document.getElementById('stkEnabled').checked=true;
+    document.getElementById('stkStartMoney').value=100000;
+    document.getElementById('stkAttendMoney').value=1000;
+    document.getElementById('stkLikeMoney').value=50;
+    document.getElementById('stkChatMoney').value=5;
+    document.getElementById('stkSpoonMoney').value=100;
+  }else if(tab==='cmd'){
+    const defaults={stkCmdStart:'!시작',stkCmdAttend:'!출석',stkCmdRule:'!룰설명',stkCmdMyInfo:'!내정보',stkCmdMyMoney:'!내돈',stkCmdStockList:'!주식',stkCmdMyStock:'!내주식',stkCmdRanking:'!식빵랭킹',stkCmdJackpot:'!잭팟',stkCmdDeposit:'!예금',stkCmdWithdraw:'!출금',stkCmdLoan:'!대출',stkCmdRepay:'!상환',stkCmdSlot:'!슬롯',stkCmdRoulette:'!룰렛',stkCmdOddEven:'!홀짝',stkCmdDice:'!주사위',stkCmdLotto:'!복권',stkCmdShop:'!상점',stkCmdBuy:'!구매',stkCmdUse:'!사용',stkCmdStockCreate:'!주식설립',stkCmdStockDelete:'!주식폐지',stkCmdGiveMoney:'!머니지급'};
+    Object.keys(defaults).forEach(id=>{ const el=document.getElementById(id); if(el) el.value=defaults[id]; });
+  }else if(tab==='market'){
+    document.getElementById('stkPriceIntervalMin').value=10;
+    document.getElementById('stkPriceFloor').value=500;
+    document.getElementById('stkPriceMinPct').value=-5;
+    document.getElementById('stkPriceMaxPct').value=5;
+    document.getElementById('stkNewsIntervalMin').value=30;
+    document.getElementById('stkDividendIntervalMin').value=30;
+    document.getElementById('stkEventIntervalMin').value=60;
+    document.getElementById('stkEventChancePct').value=10;
+  }else if(tab==='bank'){
+    document.getElementById('stkDepositInterestPct').value=5;
+    document.getElementById('stkDepositInterestCap').value=10000000;
+    document.getElementById('stkLoanLimit').value=1000000;
+    document.getElementById('stkLoanInterestPct').value=10;
+    document.getElementById('stkAutoLoanAmount').value=500000;
+  }else if(tab==='news'){
+    stockGoodNews=JSON.parse(JSON.stringify(STOCK_DEFAULT_GOOD_NEWS));
+    stockBadNews=JSON.parse(JSON.stringify(STOCK_DEFAULT_BAD_NEWS));
+    renderStockNewsTable('good'); renderStockNewsTable('bad');
+  }else if(tab==='items'){
+    stockItems=JSON.parse(JSON.stringify(STOCK_DEFAULT_ITEMS));
+    renderStockItemsTable();
+  }
+  showToast('기본값으로 초기화했어요');
+}
+
+async function loadStockSettings(){
+  try{
+    const res=await fetch(SERVER+'/stock/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    stockConfig=d.config||{};
+    stockStocks=d.stocks||[];
+    stockGoodNews=(stockConfig.goodNews&&stockConfig.goodNews.length)?stockConfig.goodNews.map(r=>[r[0],r[1]]):JSON.parse(JSON.stringify(STOCK_DEFAULT_GOOD_NEWS));
+    stockBadNews=(stockConfig.badNews&&stockConfig.badNews.length)?stockConfig.badNews.map(r=>[r[0],r[1]]):JSON.parse(JSON.stringify(STOCK_DEFAULT_BAD_NEWS));
+    stockItems=(stockConfig.items&&stockConfig.items.length)?stockConfig.items.map(it=>({...it})):JSON.parse(JSON.stringify(STOCK_DEFAULT_ITEMS));
+
+    document.getElementById('stkEnabled').checked=stockConfig.enabled!==false;
+    document.getElementById('stkStartMoney').value=stockConfig.startMoney??100000;
+    document.getElementById('stkAttendMoney').value=stockConfig.attendMoney??1000;
+    document.getElementById('stkLikeMoney').value=stockConfig.likeMoney??50;
+    document.getElementById('stkChatMoney').value=stockConfig.chatMoney??5;
+    document.getElementById('stkSpoonMoney').value=stockConfig.spoonMoney??100;
+
+    ['cmdStart','cmdAttend','cmdRule','cmdMyInfo','cmdMyMoney','cmdStockList','cmdMyStock','cmdRanking','cmdJackpot','cmdDeposit','cmdWithdraw','cmdLoan','cmdRepay','cmdSlot','cmdRoulette','cmdOddEven','cmdDice','cmdLotto','cmdShop','cmdBuy','cmdUse','cmdStockCreate','cmdStockDelete','cmdGiveMoney'].forEach(k=>{
+      const el=document.getElementById('stk'+k.charAt(0).toUpperCase()+k.slice(1));
+      if(el && stockConfig[k]!=null) el.value=stockConfig[k];
+    });
+
+    document.getElementById('stkPriceIntervalMin').value=stockConfig.priceIntervalMin??10;
+    document.getElementById('stkPriceFloor').value=stockConfig.priceFloor??500;
+    document.getElementById('stkPriceMinPct').value=stockConfig.priceMinPct??-5;
+    document.getElementById('stkPriceMaxPct').value=stockConfig.priceMaxPct??5;
+    document.getElementById('stkNewsIntervalMin').value=stockConfig.newsIntervalMin??30;
+    document.getElementById('stkDividendIntervalMin').value=stockConfig.dividendIntervalMin??30;
+    document.getElementById('stkEventIntervalMin').value=stockConfig.eventIntervalMin??60;
+    document.getElementById('stkEventChancePct').value=stockConfig.eventChancePct??10;
+
+    document.getElementById('stkDepositInterestPct').value=stockConfig.depositInterestPct??5;
+    document.getElementById('stkDepositInterestCap').value=stockConfig.depositInterestCap??10000000;
+    document.getElementById('stkLoanLimit').value=stockConfig.loanLimit??1000000;
+    document.getElementById('stkLoanInterestPct').value=stockConfig.loanInterestPct??10;
+    document.getElementById('stkAutoLoanAmount').value=stockConfig.autoLoanAmount??500000;
+
+    document.getElementById('stkJackpotInput').value=d.jackpot??1000000;
+
+    renderStockStocksTable();
+    renderStockNewsTable('good');
+    renderStockNewsTable('bad');
+    renderStockItemsTable();
+  }catch(e){}
+  loadStockLeaderboard();
+}
+
+async function saveStockSettings(){
+  const cmdKeys=['cmdStart','cmdAttend','cmdRule','cmdMyInfo','cmdMyMoney','cmdStockList','cmdMyStock','cmdRanking','cmdJackpot','cmdDeposit','cmdWithdraw','cmdLoan','cmdRepay','cmdSlot','cmdRoulette','cmdOddEven','cmdDice','cmdLotto','cmdShop','cmdBuy','cmdUse','cmdStockCreate','cmdStockDelete','cmdGiveMoney'];
+  const body={
+    enabled:document.getElementById('stkEnabled').checked,
+    startMoney:Number(document.getElementById('stkStartMoney').value)||0,
+    attendMoney:Number(document.getElementById('stkAttendMoney').value)||0,
+    likeMoney:Number(document.getElementById('stkLikeMoney').value)||0,
+    chatMoney:Number(document.getElementById('stkChatMoney').value)||0,
+    spoonMoney:Number(document.getElementById('stkSpoonMoney').value)||0,
+    priceIntervalMin:Number(document.getElementById('stkPriceIntervalMin').value)||10,
+    priceFloor:Number(document.getElementById('stkPriceFloor').value)||500,
+    priceMinPct:Number(document.getElementById('stkPriceMinPct').value),
+    priceMaxPct:Number(document.getElementById('stkPriceMaxPct').value),
+    newsIntervalMin:Number(document.getElementById('stkNewsIntervalMin').value)||30,
+    dividendIntervalMin:Number(document.getElementById('stkDividendIntervalMin').value)||30,
+    eventIntervalMin:Number(document.getElementById('stkEventIntervalMin').value)||60,
+    eventChancePct:Number(document.getElementById('stkEventChancePct').value)||0,
+    depositInterestPct:Number(document.getElementById('stkDepositInterestPct').value)||0,
+    depositInterestCap:Number(document.getElementById('stkDepositInterestCap').value)||0,
+    loanLimit:Number(document.getElementById('stkLoanLimit').value)||0,
+    loanInterestPct:Number(document.getElementById('stkLoanInterestPct').value)||0,
+    autoLoanAmount:Number(document.getElementById('stkAutoLoanAmount').value)||0,
+    goodNews:stockGoodNews.filter(r=>r[0]),
+    badNews:stockBadNews.filter(r=>r[0]),
+    items:stockItems.filter(it=>it.name),
+  };
+  cmdKeys.forEach(k=>{
+    const el=document.getElementById('stk'+k.charAt(0).toUpperCase()+k.slice(1));
+    if(el) body[k]=el.value;
+  });
+  try{
+    const res=await fetch(SERVER+'/stock/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadStockSettings();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadStockLeaderboard(){
+  const wrap=document.getElementById('stkLeaderboardWrap');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/stock/leaderboard',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.users.length){ wrap.innerHTML='<p class="hint">아직 등록된 유저가 없어요.</p>'; return; }
+    const rows=d.users.map((u,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(u.nickname)}</td><td>${Math.round(u.total).toLocaleString()}원</td><td>${u.creditBad?'<span class="status-pill ended">신용불량</span>':'<span class="status-pill ongoing">정상</span>'}</td></tr>`).join('');
+    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table"><thead><tr><th>순위</th><th>닉네임</th><th>총자산</th><th>상태</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }catch(e){ wrap.innerHTML='<p class="hint">불러오기 실패</p>'; }
+}
+
+async function resetStockData(){
+  if(!confirm('정말로 증권거래소의 모든 시청자 데이터를 초기화할까요? 되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 진짜로 전부 삭제하시겠어요?'))return;
+  try{
+    const res=await fetch(SERVER+'/stock/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('초기화했어요'); loadStockLeaderboard(); }
+    else showToast(d.error||'초기화 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 

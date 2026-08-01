@@ -262,7 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -475,7 +475,8 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
 const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
 
 // 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
-async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text) {
+// actTag: 이 채팅 이벤트에서 이미 한 번 조회해둔 고유닉(있으면 재사용, API 중복 호출/실패 방지)
+async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
   if (!isModuleOn(settings, 'shortcuts', djId)) return
   const commands = settings.commands
   if (!commands || !commands.length) return
@@ -504,8 +505,11 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   let response = cmd.response || ''
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
-    const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
-    response = response.replace(/{tag}/g, tag ? `@${tag}` : '')
+    let tag = actTag
+    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    if (!tag) console.log(`[${djId}][단축키] '${cmd.trigger}' {tag} 조회 실패 → 닉네임(${author})으로 대체 출력`)
+    // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
+    response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
   }
   // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
   response = response.replace(/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/g, '')
@@ -1564,6 +1568,65 @@ function getDashboardData(djId, settings) {
   return settings.dashboard
 }
 
+// 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간) — 특정 방송의 데이터가 아니라
+// 스푼 플랫폼 전체 기준이라 djId별로 나누지 않고 서버 전체에서 하나만 캐싱해서 공유한다.
+// (로컬 에디봇의 rank:scan / rank:search 를 그대로 이식)
+let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0 }
+const DASH_RANK_PATH_MAP = {
+  next_choice: '/ranks/v2/dj/live/?sub-type=monthly',
+  free_like: '/ranks/v2/dj/live-free-like/?sub-type=monthly',
+  live_time: '/ranks/v2/dj/live-time/?sub-type=monthly',
+}
+
+async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
+  let address = DASH_RANK_PATH_MAP[type]
+  if (!address || !accessToken) return []
+  let list = []
+  try {
+    while (list.length < maxCount && address) {
+      const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
+      })
+      const json = await res.json().catch(() => null)
+      if (!json || !json.results) break
+      list = list.concat(json.results)
+      address = json.next || null
+    }
+  } catch (e) { /* 지금까지 모은 것만이라도 반환 */ }
+  return list
+}
+
+async function scanDashRank() {
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
+  try {
+    for (const type of ['next_choice', 'free_like', 'live_time']) {
+      dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
+    }
+    dashRankCache.lastScanned = Date.now()
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+}
+
+function searchDashRank(tag) {
+  if (dashRankCache.lastScanned === 0) return { success: false, error: '먼저 랭킹 데이터를 스캔해주세요.' }
+  const results = { nickname: '', tag, ranks: {} }
+  let found = false
+  for (const type of ['next_choice', 'free_like', 'live_time']) {
+    const idx = dashRankCache[type].findIndex(x => x.author && x.author.tag === tag)
+    if (idx !== -1) {
+      found = true
+      results.nickname = dashRankCache[type][idx].author.nickname
+      results.ranks[type] = idx + 1
+    }
+  }
+  if (!found) return { success: false, error: '랭킹 데이터에서 해당 유저를 찾을 수 없습니다.' }
+  return { success: true, data: results }
+}
+
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
@@ -1910,6 +1973,1498 @@ async function handleDiscordNotifyCommand(djId, room, settings, author, authorId
     return
   }
 }
+
+// ══════════════════════════════════════════════════════
+// 🎣 낚시 게임 — 로컬 낚시봇 외부 모듈을 그대로 이식. 물고기 잡기/상점/아이템/컬렉션/
+// 신용대출/도박(슬롯·주사위·홀짝)/송금/도둑질까지 전부 채팅 명령어로 동작하는 미니 경제 게임.
+
+const FISHING_DEFAULT_FISH_LIST = '붕어,800,1200,30,5,common\n잉어,1500,2500,25,8,common\n메기,4000,6000,15,12,uncommon\n농어,8000,12000,10,20,uncommon\n참치,25000,35000,5,40,rare\n상어,70000,90000,2,80,epic\n고래,180000,220000,0.5,200,legendary'
+const FISHING_DEFAULT_SHOP = '미끼,500\n특수미끼,2000\n낚싯대,10000\n고급낚싯대,50000'
+const FISHING_DEFAULT_ITEMSHOP = '물고기확률업,5000,fish_chance,30,30,0,money\n수익증가,8000,fishing_income,50,30,0,money\n주사위확률,3000,dice_chance,30,0,5,money\n주사위두배,10000,dice_double,0,0,3,money\n홀짝확률,2000,oddeven_chance,40,0,5,money'
+const FISHING_DEFAULT_COLLECTIONS = '강물고기:붕어,잉어,메기,농어\n바다물고기:참치,상어,고래'
+
+function getFishingSettings(djId, settings) {
+  if (!settings.fishing) {
+    settings.fishing = {
+      config: {
+        enabled: true,
+        fishingCooldown: 120,
+        dailyMoney: 10000,
+        slotMinBet: 1000,
+        diceWinExp: 10,
+        diceLoseExp: -2,
+        fishList: FISHING_DEFAULT_FISH_LIST,
+        eventFishList: '',
+        shopProducts: FISHING_DEFAULT_SHOP,
+        itemShop: FISHING_DEFAULT_ITEMSHOP,
+        collections: FISHING_DEFAULT_COLLECTIONS,
+        creditTier1Points: 0, creditTier1Loan: 500000,
+        creditTier2Points: 100, creditTier2Loan: 1000000,
+        creditTier3Points: 500, creditTier3Loan: 3000000,
+        theftBaseRate: 5, theftLevelBonus: 0.5, theftMaxRate: 70,
+        djTags: '',
+      },
+      users: {}, // { tag: {...} }
+    }
+    store.saveSettings(djId, { fishing: settings.fishing })
+  }
+  if (!settings.fishing.config) settings.fishing.config = {}
+  if (!settings.fishing.users) settings.fishing.users = {}
+  return settings.fishing
+}
+
+function _fishSplitLines(text) {
+  if (!text || typeof text !== 'string') return []
+  return text.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
+}
+function _fishParseFishList(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 3 || !p[0]) return null
+    if (p.length >= 6 && !isNaN(p[1]) && !isNaN(p[2]) && !isNaN(p[3])) {
+      const minVal = parseInt(p[1]) || 0
+      const maxVal = parseInt(p[2]) || minVal
+      return { name: p[0], minValue: Math.min(minVal, maxVal), maxValue: Math.max(minVal, maxVal), chance: parseFloat(p[3]) || 0, exp: parseInt(p[4]) || 1, rarity: p[5] || 'common' }
+    }
+    const val = parseInt(p[1]) || 0
+    return { name: p[0], minValue: val, maxValue: val, chance: parseFloat(p[2]) || 0, exp: parseInt(p[3]) || 1, rarity: p[4] || 'common' }
+  }).filter(Boolean)
+}
+function _fishParseShop(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 2 || !p[0]) return null
+    return { name: p[0], price: parseInt(p[1]) || 0 }
+  }).filter(Boolean)
+}
+function _fishParseItemShop(text) {
+  return _fishSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 3 || !p[0]) return null
+    return { name: p[0], price: parseInt(p[1]) || 0, effect_type: p[2] || '', effect_value: parseFloat(p[3]) || 0, duration_minutes: parseInt(p[4]) || 0, uses: parseInt(p[5]) || 0, price_type: (p[6] === 'points') ? 'points' : 'money' }
+  }).filter(Boolean)
+}
+function _fishParseCollections(text) {
+  return _fishSplitLines(text).map(line => {
+    const idx = line.indexOf(':')
+    if (idx < 0) return null
+    const name = line.substring(0, idx).trim()
+    const fish = line.substring(idx + 1).split(',').map(s => s.trim()).filter(Boolean)
+    if (!name || fish.length === 0) return null
+    return { name, required_fish: fish }
+  }).filter(Boolean)
+}
+function _fishCreditTiers(cfg) {
+  return [
+    { rating: 1, required_points: cfg.creditTier1Points || 0, loan_limit: cfg.creditTier1Loan || 500000 },
+    { rating: 2, required_points: cfg.creditTier2Points || 100, loan_limit: cfg.creditTier2Loan || 1000000 },
+    { rating: 3, required_points: cfg.creditTier3Points || 500, loan_limit: cfg.creditTier3Loan || 3000000 },
+  ]
+}
+function _fishNewUser(tag, nickname) {
+  return { tag, nickname: nickname || tag, balance: 0, level: 1, exp: 0, caught_fish: {}, event_fish_catches: {}, total_fish_count: 0, heart_points: 0, credit_rating: 1, loan_amount: 0, loan_date: null, active_items: [], inventory: {}, last_fishing_time: null, last_daily_money_date: null }
+}
+function getFishingUser(fishing, tag, nickname) {
+  if (!tag) return null
+  if (!fishing.users[tag]) fishing.users[tag] = _fishNewUser(tag, nickname)
+  else if (nickname && fishing.users[tag].nickname !== nickname) fishing.users[tag].nickname = nickname
+  return fishing.users[tag]
+}
+function saveFishingUser(djId, fishing) {
+  store.saveSettings(djId, { fishing })
+}
+function _fishActiveItems(user) {
+  if (!Array.isArray(user.active_items)) return []
+  const now = Date.now()
+  return user.active_items.filter(item => {
+    if (item.expires_at && new Date(item.expires_at).getTime() <= now) return false
+    if (item.uses_remaining !== undefined && item.uses_remaining > 0) return true
+    if (item.expires_at) return true
+    return false
+  })
+}
+function _fishRecalcCredit(user, tiers) {
+  const sorted = [...tiers].sort((a, b) => b.required_points - a.required_points)
+  for (const t of sorted) {
+    if ((user.heart_points || 0) >= t.required_points) { user.credit_rating = t.rating; return }
+  }
+  user.credit_rating = 1
+}
+function _fishCheckLevelUp(user) {
+  let leveled = false
+  while (true) {
+    const need = user.level * 100
+    if (user.exp >= need) { user.exp -= need; user.level++; leveled = true }
+    else break
+  }
+  return leveled
+}
+function _fishIsDj(djId, room, settings, authorId, author) {
+  if (authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId) return true
+  const cfg = getFishingSettings(djId, settings).config
+  const list = String(cfg.djTags || '').split(',').map(s => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean)
+  if (list.includes(String(author || '').trim().toLowerCase())) return true
+  const act = getActivitySettings(djId, settings)
+  return (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+}
+
+const _fishRecentCalls = new Map()
+function _fishIsDuplicateCall(key, windowMs = 3000) {
+  const now = Date.now()
+  const last = _fishRecentCalls.get(key)
+  if (last && now - last < windowMs) return true
+  _fishRecentCalls.set(key, now)
+  if (_fishRecentCalls.size > 500) {
+    for (const [k, v] of _fishRecentCalls) { if (now - v > 30000) _fishRecentCalls.delete(k) }
+  }
+  return false
+}
+
+function fishReply(djId, msg) {
+  sendChatSplit(djId, msg, 150, 500)
+}
+
+// ── 명령어 핸들러 (전부 djId/room/settings/author/authorId/tag/parts 형태로 통일) ──
+
+async function fishCmdFishing(djId, room, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 낚시를 할 수 있습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const cooldown = (cfg.fishingCooldown || 120) * 1000
+  if (user.last_fishing_time) {
+    const elapsed = Date.now() - new Date(user.last_fishing_time).getTime()
+    if (elapsed < cooldown) { fishReply(djId, `⏰ 쿨타임 ${Math.ceil((cooldown - elapsed) / 1000)}초 남음`); return }
+  }
+  const fishList = _fishParseFishList(cfg.fishList)
+  const eventFish = _fishParseFishList(cfg.eventFishList)
+  const allFish = [...fishList.map(f => ({ ...f, isEvent: false })), ...eventFish.map(f => ({ ...f, isEvent: true }))]
+  if (allFish.length === 0) { fishReply(djId, '❌ 물고기가 등록되지 않았습니다. 설정에서 추가해주세요.'); return }
+  const items = _fishActiveItems(user)
+  const fishChanceItem = items.find(i => i.effect_type === 'fish_chance')
+  const incomeItem = items.find(i => i.effect_type === 'fishing_income')
+  let weighted = allFish
+  if (fishChanceItem && fishChanceItem.effect_value > 0) {
+    weighted = allFish.map(f => ({ ...f, chance: (f.maxValue || 0) > 10000 ? f.chance * (1 + fishChanceItem.effect_value / 100) : f.chance }))
+  }
+  const total = weighted.reduce((s, f) => s + f.chance, 0)
+  let roll = Math.random() * total
+  let caught = weighted[0]
+  for (const f of weighted) { roll -= f.chance; if (roll <= 0) { caught = f; break } }
+  const minVal = caught.minValue, maxVal = caught.maxValue
+  const baseValue = minVal === maxVal ? minVal : Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal
+  let value = baseValue
+  if (incomeItem && incomeItem.effect_value > 0) value = Math.floor(value * (1 + incomeItem.effect_value / 100))
+  user.balance += value
+  user.exp += caught.exp
+  user.total_fish_count++
+  user.last_fishing_time = new Date().toISOString()
+  if (caught.isEvent) { user.event_fish_catches[caught.name] = (user.event_fish_catches[caught.name] || 0) + 1 }
+  else { user.caught_fish[caught.name] = (user.caught_fish[caught.name] || 0) + 1 }
+  const leveled = _fishCheckLevelUp(user)
+  saveFishingUser(djId, fishing)
+  const hasRange = minVal !== maxVal
+  let msg = `🎣 와! ${author}님 ${caught.name}를 낚았습니다!\n`
+  if (incomeItem && incomeItem.effect_value > 0) {
+    msg += hasRange ? `💰 기본가 ₩${baseValue.toLocaleString()}원 (₩${minVal.toLocaleString()}~₩${maxVal.toLocaleString()})\n` : `💰 원래 가치 ₩${baseValue.toLocaleString()}원\n`
+    msg += `💰 수익 +${incomeItem.effect_value}% 적용!\n💰 보너스 적용 ₩${value.toLocaleString()}원\n`
+  } else {
+    msg += hasRange ? `💰 ₩${value.toLocaleString()}원 (₩${minVal.toLocaleString()}~₩${maxVal.toLocaleString()})\n` : `💰 ₩${value.toLocaleString()}원\n`
+  }
+  msg += `현재 잔액: ₩${user.balance.toLocaleString()}원`
+  if (leveled) msg += `\n🎉 레벨업! Lv.${user.level}`
+  fishReply(djId, msg)
+}
+
+async function fishCmdDailyMoney(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const today = new Date().toISOString().split('T')[0]
+  if (user.last_daily_money_date === today) { fishReply(djId, '💸 오늘 이미 받음'); return }
+  const amount = fishing.config.dailyMoney || 10000
+  user.balance += amount
+  user.last_daily_money_date = today
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💵 +₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdBalance(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💰 ${author}님의 현재 잔액\n ₩${user.balance.toLocaleString()}원\n🅿️${user.heart_points || 0}포인트`)
+}
+
+async function fishCmdStatus(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  let msg = `👤 ${author}님의 상태\n💰 보유금액: ₩${user.balance.toLocaleString()}원\n🎣 낚시 횟수: ${user.total_fish_count}회\n\n⭐ 경험치: ${user.exp} EXP (레벨 ${user.level})\n🎯 포인트: 🅿️${user.heart_points || 0}포인트`
+  const items = _fishActiveItems(user)
+  if (items.length > 0) {
+    msg += `\n\n🎁 활성 아이템:`
+    const groups = {}
+    items.forEach(it => { if (!groups[it.item_name]) groups[it.item_name] = []; groups[it.item_name].push(it) })
+    Object.entries(groups).forEach(([name, arr]) => {
+      const first = arr[0]
+      msg += `\n• ${name}` + (arr.length > 1 ? ` x${arr.length}` : '')
+      if (first.expires_at) { const remain = Math.ceil((new Date(first.expires_at).getTime() - Date.now()) / 60000); if (remain > 0) msg += ` (${remain}분 남음)` }
+      if (first.uses_remaining !== undefined && first.uses_remaining > 0) { const t = arr.reduce((s, x) => s + (x.uses_remaining || 0), 0); msg += ` (${t}회 남음)` }
+    })
+  }
+  fishReply(djId, msg)
+}
+
+async function fishCmdWallet(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const all = Object.values(fishing.users)
+  if (all.length === 0) { fishReply(djId, '💼 등록된 유저가 없습니다.'); return }
+  const sorted = all.sort((a, b) => (b.balance || 0) - (a.balance || 0)).slice(0, 10)
+  let msg = '💼 잔액 랭킹 TOP 10\n'
+  sorted.forEach((u, i) => { const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`; msg += `${medal} ${u.nickname}: ₩${(u.balance || 0).toLocaleString()}원\n` })
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdLevel(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const cfg = fishing.config
+  const baseRate = (cfg.theftBaseRate || 5) / 100, lvlBonus = (cfg.theftLevelBonus || 0.5) / 100, maxRate = (cfg.theftMaxRate || 70) / 100
+  const rate = Math.min(maxRate, baseRate + (user.level - 1) * lvlBonus)
+  fishReply(djId, `🎯 ${author}님의 레벨 정보\n⭐ 레벨: Lv.${user.level}\n📊 경험치: ${user.exp} EXP\n🎲 도둑 성공률: ${Math.round(rate * 100)}%`)
+}
+
+async function fishCmdSlot(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  const minBet = cfg.slotMinBet || 1000
+  if (!amount || amount < minBet) { fishReply(djId, `🎰 최소 베팅: ₩${minBet.toLocaleString()}원`); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣']
+  const r = [symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)], symbols[Math.floor(Math.random() * symbols.length)]]
+  let win = 0, label = ''
+  if (r[0] === r[1] && r[1] === r[2]) {
+    if (r[0] === '7️⃣') { win = amount * 10; label = '🎊x10' }
+    else if (r[0] === '💎') { win = amount * 5; label = '💎x5' }
+    else { win = amount * 3; label = '🎉x3' }
+  } else if (r[0] === r[1] || r[1] === r[2] || r[0] === r[2]) { win = amount * 2; label = '✨x2' }
+  user.balance = user.balance - amount + win
+  saveFishingUser(djId, fishing)
+  let msg = `🎰 ${r.join(' ')}\n`
+  msg += win > 0 ? `${label} +₩${(win - amount).toLocaleString()}원` : `꽝 -₩${amount.toLocaleString()}원`
+  msg += `\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  fishReply(djId, msg)
+}
+
+async function fishCmdDice(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '🎲 사용법: !주사위 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  let updated = [...(user.active_items || [])]
+  const items = _fishActiveItems(user)
+  const chanceItem = items.find(i => i.effect_type === 'dice_chance')
+  const doubleItem = items.find(i => i.effect_type === 'dice_double')
+  const myDice = Math.floor(Math.random() * 6) + 1
+  let botDice = Math.floor(Math.random() * 6) + 1
+  if (myDice > botDice && Math.random() < 0.1 && botDice < 6) botDice = Math.min(6, botDice + 1)
+  let chanceUsed = false
+  if (chanceItem && chanceItem.effect_value > 0 && chanceItem.uses_remaining > 0) {
+    if (Math.random() < (chanceItem.effect_value / 100) && botDice > 1) {
+      botDice = Math.max(1, botDice - 1); chanceUsed = true
+      const idx = updated.findIndex(i => i.effect_type === 'dice_chance' && i.uses_remaining > 0)
+      if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    }
+  }
+  let msg = `🎲 ${author}(${myDice}) vs 봇(${botDice})\n`
+  if (myDice > botDice) {
+    let winAmt = amount, doubleUsed = false
+    if (doubleItem && doubleItem.uses_remaining > 0) {
+      winAmt = amount * 2; doubleUsed = true
+      const idx = updated.findIndex(i => i.effect_type === 'dice_double' && i.uses_remaining > 0)
+      if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    }
+    user.balance += winAmt
+    user.exp += cfg.diceWinExp || 10
+    user.active_items = updated
+    if (chanceUsed) msg += `🎯 확률 아이템 사용!\n`
+    if (doubleUsed) msg += `💎 두배 보상! (${amount.toLocaleString()}→${winAmt.toLocaleString()})\n`
+    msg += `🎉 승리! +₩${winAmt.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else if (myDice < botDice) {
+    user.balance -= amount
+    user.exp = Math.max(0, user.exp + (cfg.diceLoseExp || -2))
+    user.active_items = updated
+    msg += `😢 패배 -₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else {
+    user.active_items = updated
+    msg += `🤝 무승부\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  }
+  _fishCheckLevelUp(user)
+  saveFishingUser(djId, fishing)
+  fishReply(djId, msg)
+}
+
+async function fishCmdOddEven(djId, settings, author, tag, parts, isOdd) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, `🎯 사용법: ${isOdd ? '!홀' : '!짝'} [금액]`); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const items = _fishActiveItems(user)
+  const oeItem = items.find(i => i.effect_type === 'oddeven_chance')
+  const num = Math.floor(Math.random() * 10) + 1
+  const resultIsOdd = num % 2 === 1
+  let win = (isOdd && resultIsOdd) || (!isOdd && !resultIsOdd)
+  if (win && Math.random() < 0.1) win = false
+  let itemUsed = false
+  if (!win && oeItem && oeItem.uses_remaining > 0 && Math.random() < (oeItem.effect_value / 100)) {
+    win = true; itemUsed = true
+    const updated = [...user.active_items]
+    const idx = updated.findIndex(i => i.effect_type === 'oddeven_chance' && i.uses_remaining > 0)
+    if (idx >= 0) { if (updated[idx].uses_remaining > 1) updated[idx] = { ...updated[idx], uses_remaining: updated[idx].uses_remaining - 1 }; else updated.splice(idx, 1) }
+    user.active_items = updated
+  }
+  let msg = `🎯 홀짝 게임\n결과: ${num} (${resultIsOdd ? '홀' : '짝'})\n선택: ${isOdd ? '홀' : '짝'}\n`
+  if (win) {
+    user.balance += amount
+    if (itemUsed) msg += `🎯 확률 아이템 사용! 패배→승리 전환!\n`
+    msg += `🎉 승리! +₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  } else {
+    user.balance -= amount
+    msg += `😢 패배 -₩${amount.toLocaleString()}원\n💰 잔액: ₩${user.balance.toLocaleString()}원`
+  }
+  saveFishingUser(djId, fishing)
+  fishReply(djId, msg)
+}
+
+async function fishCmdShop(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const products = _fishParseShop(fishing.config.shopProducts)
+  if (products.length === 0) { fishReply(djId, '🏪 상품 없음'); return }
+  let msg = '🏪 상점\n'
+  products.forEach((p, i) => { msg += `${i + 1}. ${p.name} ₩${p.price.toLocaleString()}원\n` })
+  msg += '!구매 [번호]'
+  fishReply(djId, msg)
+}
+
+async function fishCmdItemShop(djId, settings) {
+  const fishing = getFishingSettings(djId, settings)
+  const items = _fishParseItemShop(fishing.config.itemShop)
+  if (items.length === 0) { fishReply(djId, '🏪 아이템이 없습니다'); return }
+  let msg = '🏪 아이템 상점\n'
+  items.forEach((it, i) => { const price = it.price_type === 'points' ? `🅿️${it.price.toLocaleString()}포인트` : `💰${it.price.toLocaleString()}원`; msg += `${i + 1}. ${it.name} ${price}\n` })
+  msg += '!아이템구매 [번호]'
+  fishReply(djId, msg)
+}
+
+async function fishCmdPurchase(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const idx = parseInt(parts[1])
+  if (!idx || idx < 1) { fishReply(djId, '!구매 [번호]'); return }
+  const products = _fishParseShop(fishing.config.shopProducts)
+  const product = products[idx - 1]
+  if (!product) { fishReply(djId, '❌ 없는 상품'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < product.price) { fishReply(djId, '💸 잔액 부족'); return }
+  user.balance -= product.price
+  if (!user.inventory) user.inventory = {}
+  user.inventory[product.name] = (user.inventory[product.name] || 0) + 1
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `✅ ${product.name} 구매 완료!\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdItemPurchase(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const idx = parseInt(parts[1])
+  if (!idx || idx < 1) { fishReply(djId, '!아이템구매 [번호]'); return }
+  const items = _fishParseItemShop(fishing.config.itemShop)
+  const item = items[idx - 1]
+  if (!item) { fishReply(djId, '❌ 없는 아이템'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (item.price_type === 'points') { if ((user.heart_points || 0) < item.price) { fishReply(djId, `💸 포인트 부족 (필요: 🅿️${item.price.toLocaleString()})`); return } }
+  else { if (user.balance < item.price) { fishReply(djId, `💸 잔액 부족 (필요: ₩${item.price.toLocaleString()})`); return } }
+  if (!user.active_items) user.active_items = []
+  const now = new Date()
+  const expiresAt = item.duration_minutes > 0 ? new Date(Date.now() + item.duration_minutes * 60000).toISOString() : null
+  user.active_items.push({ item_name: item.name, effect_type: item.effect_type, effect_value: item.effect_value, expires_at: expiresAt, uses_remaining: item.uses || 0, started_at: now.toISOString() })
+  if (item.price_type === 'points') user.heart_points = (user.heart_points || 0) - item.price
+  else user.balance -= item.price
+  saveFishingUser(djId, fishing)
+  let msg = `✅ ${item.name} 구매 완료!\n`
+  msg += item.price_type === 'points' ? `⭐ 포인트: 🅿️${user.heart_points.toLocaleString()}포인트` : `💰 잔액: ₩${user.balance.toLocaleString()}원`
+  if (item.duration_minutes > 0) msg += `\n⏰ 지속시간: ${item.duration_minutes}분`
+  if (item.uses > 0) msg += `\n🎫 사용 횟수: ${item.uses}회`
+  fishReply(djId, msg)
+}
+
+async function fishCmdTransfer(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !송금 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  if (targetTag.toLowerCase() === tag.toLowerCase()) { fishReply(djId, '❌ 자기 자신에겐 송금할 수 없습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.balance < amount) { fishReply(djId, '💸 잔액 부족'); return }
+  const target = fishing.users[targetTag]
+  if (!target) { fishReply(djId, `❌ ${targetTag} 유저 없음 (낚시를 한 번이라도 한 사람만 송금 가능)`); return }
+  user.balance -= amount
+  target.balance = (target.balance || 0) + amount
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💸 ${target.nickname}님께 ₩${amount.toLocaleString()}원 송금\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdTheft(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  const cfg = fishing.config
+  if (!cfg.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const dedupKey = '도둑:' + tag + ':' + (parts.slice(1).join(' ') || '')
+  if (_fishIsDuplicateCall(dedupKey, 3000)) return
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !도둑 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  if (targetTag.toLowerCase() === tag.toLowerCase()) { fishReply(djId, '❌ 자기 자신은 도둑질할 수 없습니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const target = fishing.users[targetTag]
+  if (!target) { fishReply(djId, `❌ ${targetTag} 유저 없음`); return }
+  const baseRate = (cfg.theftBaseRate || 5) / 100, lvlBonus = (cfg.theftLevelBonus || 0.5) / 100, maxRate = (cfg.theftMaxRate || 70) / 100
+  const rate = Math.min(maxRate, baseRate + (user.level - 1) * lvlBonus)
+  const success = Math.random() < rate
+  if (success) {
+    if ((target.balance || 0) < amount) { fishReply(djId, `❌ ${target.nickname}님의 잔액이 부족합니다`); return }
+    user.balance += amount
+    target.balance -= amount
+    saveFishingUser(djId, fishing)
+    fishReply(djId, `🎉 도둑 성공! (성공률 ${Math.round(rate * 100)}%) ${target.nickname}님에게서 ₩${amount.toLocaleString()}원 훔침!\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+  } else {
+    const penalty = amount * 2
+    if (user.balance < penalty) { fishReply(djId, `❌ 도둑 실패 시 벌금(₩${penalty.toLocaleString()})을 낼 잔액이 부족`); return }
+    user.balance -= penalty
+    target.balance = (target.balance || 0) + penalty
+    saveFishingUser(djId, fishing)
+    fishReply(djId, `😢 도둑 실패! (성공률 ${Math.round(rate * 100)}%) ${target.nickname}님에게 벌금 ₩${penalty.toLocaleString()}원 지불\n💰 잔액: ₩${user.balance.toLocaleString()}원`)
+  }
+}
+
+async function fishCmdFishBook(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  const names = Object.keys(all)
+  if (names.length === 0) { fishReply(djId, '🐟 잡은 물고기 없음'); return }
+  const rarityIcons = { common: '⚪', uncommon: '🟢', rare: '🔵', epic: '🟣', legendary: '🟡' }
+  const lookup = {}
+  _fishParseFishList(fishing.config.fishList).forEach(f => { lookup[f.name] = { rarity: f.rarity, isEvent: false } })
+  _fishParseFishList(fishing.config.eventFishList).forEach(f => { lookup[f.name] = { rarity: f.rarity, isEvent: true } })
+  let msg = `📚 ${author}의 도감 (${user.total_fish_count}마리)\n\n`
+  names.slice(0, 12).forEach(name => { const info = lookup[name] || { rarity: 'common', isEvent: false }; msg += `${rarityIcons[info.rarity] || '⚪'} ${info.isEvent ? '🎁' : '🐟'} ${name} ${all[name]}마리\n` })
+  if (names.length > 12) msg += `\n외 ${names.length - 12}종`
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdFishBookShare(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  const names = Object.keys(all)
+  if (names.length === 0) { fishReply(djId, '🐟 잡은 물고기 없음'); return }
+  const lookup = {}
+  _fishParseFishList(fishing.config.fishList).forEach(f => { lookup[f.name] = f.rarity })
+  _fishParseFishList(fishing.config.eventFishList).forEach(f => { lookup[f.name] = f.rarity })
+  const counts = { legendary: 0, epic: 0, rare: 0, uncommon: 0, common: 0 }
+  names.forEach(n => { counts[lookup[n] || 'common']++ })
+  let msg = `🎣 ${author}님의 도감 공유\n\n총 ${user.total_fish_count}마리 낚음\n물고기 종류: ${names.length}종\n\n🏆 희귀도별 보유\n`
+  if (counts.legendary > 0) msg += `🟡전설: ${counts.legendary}종\n`
+  if (counts.epic > 0) msg += `🟣영웅: ${counts.epic}종\n`
+  if (counts.rare > 0) msg += `🔵희귀: ${counts.rare}종\n`
+  if (counts.uncommon > 0) msg += `🟢고급: ${counts.uncommon}종\n`
+  if (counts.common > 0) msg += `⚪일반: ${counts.common}종`
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdLoan(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '사용법: !대출 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (user.loan_amount > 0) { fishReply(djId, `이미 대출이 있습니다 (₩${user.loan_amount.toLocaleString()}). 먼저 상환하세요.`); return }
+  const tiers = _fishCreditTiers(fishing.config)
+  const tier = tiers.find(t => t.rating === user.credit_rating) || tiers[0]
+  if (amount > tier.loan_limit) { fishReply(djId, `신용등급 ${'⭐'.repeat(user.credit_rating)} 대출 한도: ₩${tier.loan_limit.toLocaleString()}`); return }
+  const due = new Date(); due.setDate(due.getDate() + 3)
+  user.balance += amount
+  user.loan_amount = amount
+  user.loan_date = new Date().toISOString()
+  saveFishingUser(djId, fishing)
+  const dueStr = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`
+  fishReply(djId, `✅ ₩${amount.toLocaleString()}원 대출 승인\n만기일: ${dueStr}\n잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdRepay(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const amount = parseInt(parts[1]) || 0
+  if (amount <= 0) { fishReply(djId, '사용법: !상환 [금액]'); return }
+  const user = getFishingUser(fishing, tag, author)
+  if (!user.loan_amount) { fishReply(djId, '상환할 대출이 없습니다.'); return }
+  const repay = Math.min(amount, user.loan_amount)
+  if (user.balance < repay) { fishReply(djId, `잔액 부족 (보유: ₩${user.balance.toLocaleString()})`); return }
+  user.balance -= repay
+  user.loan_amount -= repay
+  if (user.loan_amount === 0) user.loan_date = null
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `✅ ₩${repay.toLocaleString()}원 상환\n남은 대출: ₩${user.loan_amount.toLocaleString()}원\n잔액: ₩${user.balance.toLocaleString()}원`)
+}
+
+async function fishCmdCreditInfo(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const tiers = _fishCreditTiers(fishing.config)
+  _fishRecalcCredit(user, tiers)
+  saveFishingUser(djId, fishing)
+  const tier = tiers.find(t => t.rating === user.credit_rating)
+  const next = tiers.find(t => t.rating === user.credit_rating + 1)
+  let msg = `💳 ${author}님의 신용 정보\n신용등급: ${'⭐'.repeat(user.credit_rating)}\n대출 한도: ₩${(tier && tier.loan_limit || 0).toLocaleString()}원\n`
+  msg += user.loan_amount > 0 ? `현재 대출: ₩${user.loan_amount.toLocaleString()}원\n` : `현재 대출 없음\n`
+  msg += `신용 점수: 🅿️${user.heart_points || 0}포인트`
+  if (next) { const need = next.required_points - (user.heart_points || 0); if (need > 0) msg += `\n다음 등급까지: 🅿️${need}포인트` }
+  fishReply(djId, msg)
+}
+
+async function fishCmdCollections(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  saveFishingUser(djId, fishing)
+  const collections = _fishParseCollections(fishing.config.collections)
+  if (collections.length === 0) { fishReply(djId, '📚 등록된 컬렉션이 없습니다'); return }
+  const all = { ...(user.caught_fish || {}), ...(user.event_fish_catches || {}) }
+  let msg = `📚 ${author}님의 컬렉션\n\n`
+  collections.forEach(c => {
+    const have = c.required_fish.filter(n => all[n] > 0)
+    const done = have.length === c.required_fish.length
+    msg += done ? `✅ ${c.name} (완성!)\n` : `📋 ${c.name} (${have.length}/${c.required_fish.length})\n`
+    if (!done) {
+      const preview = c.required_fish.slice(0, 3).map(n => all[n] > 0 ? `✔${n}` : n).join(', ')
+      msg += `   필요: ${preview}`
+      if (c.required_fish.length > 3) msg += ` 외 ${c.required_fish.length - 3}종`
+      msg += '\n'
+    }
+  })
+  fishReply(djId, msg.trim())
+}
+
+async function fishCmdGiveMoney(djId, room, settings, author, authorId, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!_fishIsDj(djId, room, settings, authorId, author)) { fishReply(djId, '❌ 디제이 전용 명령어입니다.'); return }
+  const dedupKey = '돈주기:' + (author || 'dj') + ':' + (parts.slice(1).join(' ') || '')
+  if (_fishIsDuplicateCall(dedupKey, 3000)) return
+  const targetTag = (parts[1] || '').replace(/^@/, '')
+  const amount = parseInt(parts[2]) || 0
+  if (!targetTag || !amount) { fishReply(djId, '사용법: !돈주기 [고유닉] [금액]'); return }
+  if (amount <= 0) { fishReply(djId, '❌ 0보다 큰 금액'); return }
+  let target = fishing.users[targetTag]
+  if (!target) { target = _fishNewUser(targetTag); fishing.users[targetTag] = target }
+  target.balance = (target.balance || 0) + amount
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `🎁 [DJ] ${target.nickname}님께 ₩${amount.toLocaleString()}원 입금 완료\n💰 ${target.nickname} 잔액: ₩${target.balance.toLocaleString()}원`)
+}
+
+function fishCmdHelp(djId) {
+  let msg = '🎣 낚시 게임 명령어\n!낚시 / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
+  fishReply(djId, msg)
+}
+
+// ── 채팅 이벤트 마스터 디스패처 ──
+async function handleFishingCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'fishing', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
+  if (!FISH_CMDS.includes(cmd)) return
+
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
+  if (tag) rememberTagNickname(room, tag, author)
+
+  switch (cmd) {
+    case '!낚시': return fishCmdFishing(djId, room, settings, author, tag)
+    case '!돈줘': return fishCmdDailyMoney(djId, settings, author, tag)
+    case '!잔액': return fishCmdBalance(djId, settings, author, tag)
+    case '!상태': return fishCmdStatus(djId, settings, author, tag)
+    case '!지갑': return fishCmdWallet(djId, settings)
+    case '!레벨': return fishCmdLevel(djId, settings, author, tag)
+    case '!도감': return fishCmdFishBook(djId, settings, author, tag)
+    case '!도감공유': return fishCmdFishBookShare(djId, settings, author, tag)
+    case '!상점': return fishCmdShop(djId, settings)
+    case '!구매': return fishCmdPurchase(djId, settings, author, tag, parts)
+    case '!아이템상점': return fishCmdItemShop(djId, settings)
+    case '!아이템구매': return fishCmdItemPurchase(djId, settings, author, tag, parts)
+    case '!슬롯': return fishCmdSlot(djId, settings, author, tag, parts)
+    case '!주사위': return fishCmdDice(djId, settings, author, tag, parts)
+    case '!홀': return fishCmdOddEven(djId, settings, author, tag, parts, true)
+    case '!짝': return fishCmdOddEven(djId, settings, author, tag, parts, false)
+    case '!송금': return fishCmdTransfer(djId, settings, author, tag, parts)
+    case '!도둑': return fishCmdTheft(djId, settings, author, tag, parts)
+    case '!돈주기': return fishCmdGiveMoney(djId, room, settings, author, authorId, parts)
+    case '!대출': return fishCmdLoan(djId, settings, author, tag, parts)
+    case '!상환': return fishCmdRepay(djId, settings, author, tag, parts)
+    case '!신용정보': return fishCmdCreditInfo(djId, settings, author, tag)
+    case '!컬렉션': return fishCmdCollections(djId, settings, author, tag)
+    case '!낚시도움말': case '!낚시명령어': return fishCmdHelp(djId)
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
+// 🍞 증권거래소 — 방송용 종합 경제 게임
+// 좋아요·채팅·스푼·출석으로 '머니'를 모아 주식에 투자하고, 슬롯·룰렛·복권 등 미니게임과
+// 은행(예금/대출), 아이템, 랭킹이 하나의 경제로 연결된다. 시세/뉴스/배당/시장이벤트는 전부
+// 타이머로 자동 진행되고, 종목은 운영자가 명령어로 직접 설립/폐지한다.
+// 모든 명령어는 ! 로 시작하고, 유저 데이터는 "닉네임" 키로 저장한다 (룰렛/애청지수와 동일 관례).
+
+function stkDefaultConfig() {
+  return {
+    enabled: true,
+    cmdStart: '!시작', cmdAttend: '!출석', cmdRule: '!룰설명',
+    cmdMyInfo: '!내정보', cmdMyMoney: '!내돈', cmdStockList: '!주식', cmdMyStock: '!내주식',
+    cmdRanking: '!식빵랭킹', cmdJackpot: '!잭팟',
+    cmdDeposit: '!예금', cmdWithdraw: '!출금', cmdLoan: '!대출', cmdRepay: '!상환',
+    cmdSlot: '!슬롯', cmdRoulette: '!룰렛', cmdOddEven: '!홀짝', cmdDice: '!주사위', cmdLotto: '!복권',
+    cmdShop: '!상점', cmdBuy: '!구매', cmdUse: '!사용',
+    cmdStockCreate: '!주식설립', cmdStockDelete: '!주식폐지', cmdGiveMoney: '!머니지급',
+    startMoney: 100000,
+    likeMoney: 50, chatMoney: 5, spoonMoney: 100, attendMoney: 1000,
+    priceIntervalMin: 10, priceMinPct: -5, priceMaxPct: 5, priceFloor: 500,
+    newsIntervalMin: 30,
+    dividendIntervalMin: 30,
+    eventIntervalMin: 60, eventChancePct: 10,
+    depositInterestPct: 5, depositInterestCap: 10000000,
+    loanLimit: 1000000, loanInterestPct: 10, autoLoanAmount: 500000,
+    jackpotSeed: 1000000,
+    goodNews: [
+      ['신제품 출시 대박!', 12], ['대규모 수주 계약 체결!', 15], ['어닝 서프라이즈!', 10],
+      ['해외 시장 진출 성공!', 8], ['신기술 특허 등록!', 10], ['대기업 투자 유치!', 18],
+      ['정부 지원 사업 선정!', 8], ['초대형 인수합병 발표!', 15], ['신사업 진출 선언!', 6],
+      ['연구 결과 대성공!', 20],
+    ],
+    badNews: [
+      ['제품 결함 전량 리콜…', -12], ['공장 화재 발생…', -15], ['어닝 쇼크…', -10],
+      ['대형 계약 파기…', -12], ['경영진 구설수…', -8], ['세무조사 착수…', -8],
+      ['핵심 인력 대거 퇴사…', -10], ['기술 유출 사고…', -15], ['대형 소송 패소…', -18],
+      ['신사업 대실패…', -20],
+    ],
+    items: [
+      { name: '시장분석권', price: 30000, desc: '지정 종목의 다음 시세 변동을 예측' },
+      { name: '배당쿠폰', price: 20000, desc: '다음 배당 2배' },
+      { name: '보험', price: 30000, desc: '폭락 손실 50% 보상' },
+      { name: '행운권', price: 20000, desc: '다음 슬롯 확률 2배' },
+    ],
+  }
+}
+
+function getStockSettings(djId, settings) {
+  if (!settings.stock) {
+    settings.stock = { config: stkDefaultConfig(), stocks: [], jackpot: 1000000, pendingChange: {}, users: {}, chatAccrual: {}, lastDailyRunAt: 0 }
+    store.saveSettings(djId, { stock: settings.stock })
+  }
+  const s = settings.stock
+  if (!s.config) s.config = stkDefaultConfig()
+  if (!Array.isArray(s.stocks)) s.stocks = []
+  if (typeof s.jackpot !== 'number') s.jackpot = Number(s.config.jackpotSeed) || 1000000
+  if (!s.pendingChange) s.pendingChange = {}
+  if (!s.users) s.users = {}
+  if (!s.chatAccrual) s.chatAccrual = {}
+  return s
+}
+function saveStock(djId, stock) { store.saveSettings(djId, { stock }) }
+
+function stkNewUser(nickname) {
+  return {
+    nickname, cash: 0, holdings: {}, deposit: 0, loan: 0, items: {},
+    started: false, attended: false, creditBad: false,
+    nextDividendX2: false, nextInsurance: false, nextLuckyTicket: false,
+    stats: { totalDividend: 0, gambleWin: 0, gambleLose: 0, tradeCount: 0, bankruptCount: 0 },
+  }
+}
+function stkGetUser(stock, nickname) {
+  if (!nickname) return null
+  if (!stock.users[nickname]) stock.users[nickname] = stkNewUser(nickname)
+  if (!stock.users[nickname].stats) stock.users[nickname].stats = { totalDividend: 0, gambleWin: 0, gambleLose: 0, tradeCount: 0, bankruptCount: 0 }
+  if (!stock.users[nickname].holdings) stock.users[nickname].holdings = {}
+  if (!stock.users[nickname].items) stock.users[nickname].items = {}
+  return stock.users[nickname]
+}
+function stkFmt(n) { return Math.round(Number(n) || 0).toLocaleString() + '원' }
+function stkParseMoney(str) {
+  if (!str) return 0
+  let s = String(str).trim().replace(/원$/, '').replace(/,/g, '')
+  if (/^\d+$/.test(s)) return parseInt(s, 10)
+  let total = 0, m
+  m = s.match(/(\d+)억/); if (m) { total += parseInt(m[1], 10) * 100000000; s = s.replace(m[0], '') }
+  m = s.match(/(\d+)만/); if (m) { total += parseInt(m[1], 10) * 10000; s = s.replace(m[0], '') }
+  m = s.match(/(\d+)천/); if (m) { total += parseInt(m[1], 10) * 1000; s = s.replace(m[0], '') }
+  s = s.trim()
+  if (/^\d+$/.test(s)) total += parseInt(s, 10)
+  return total
+}
+function stkReply(djId, msg) { sendChatSplit(djId, msg, 150, 500) }
+function stkTotalAssets(stock, user) {
+  let stockValue = 0
+  for (const name in user.holdings) {
+    const h = user.holdings[name]
+    const st = stock.stocks.find(s => s.name === name)
+    if (st && h) stockValue += h.qty * st.price
+  }
+  return (user.cash || 0) + stockValue + (user.deposit || 0) - (user.loan || 0)
+}
+function stkTitle(total) {
+  if (total >= 20000000) return '재벌'
+  if (total >= 5000000) return '큰손'
+  if (total >= 1000000) return '우량주 투자자'
+  if (total >= 300000) return '개미 투자자'
+  return '초보 개미'
+}
+function _stkIsDj(djId, room, settings, authorId, author) {
+  if (authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId) return true
+  const act = getActivitySettings(djId, settings)
+  return (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+}
+
+// 파산했는데 이미 대출 한도까지 다 쓴 상태 → 신용불량 (도박 이용 불가, 이후 소득 50% 자동 상환)
+function stkAddIncome(djId, stock, u, amount) {
+  if (!u || amount <= 0) return
+  if (u.creditBad && (u.loan || 0) > 0) {
+    const toLoan = Math.round(amount * 0.5)
+    const pay = Math.min(toLoan, u.loan)
+    u.loan -= pay
+    u.cash = (u.cash || 0) + (amount - pay)
+    if (u.loan <= 0) {
+      u.loan = 0
+      u.creditBad = false
+      setTimeout(() => sendChatToRoom(djId, `✅ ${u.nickname}님, 대출을 전액 상환해서 신용불량 상태가 해제됐어요!`), 500)
+    }
+  } else {
+    u.cash = (u.cash || 0) + amount
+  }
+}
+
+function stkCheckBankrupt(djId, stock, u) {
+  let stockValue = 0
+  for (const name in u.holdings) {
+    const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name)
+    if (st && h) stockValue += h.qty * st.price
+  }
+  if ((u.cash || 0) > 0 || stockValue > 0 || (u.deposit || 0) > 0) return
+  const limit = Number(stock.config.loanLimit) || 1000000
+  if ((u.loan || 0) >= limit) {
+    if (!u.creditBad) {
+      u.creditBad = true
+      u.stats.bankruptCount = (u.stats.bankruptCount || 0) + 1
+      setTimeout(() => sendChatToRoom(djId, `🚫 ${u.nickname}님 파산! 대출 한도를 모두 사용해서 신용불량 상태가 됐어요. (도박 이용 불가, 이후 소득의 50%가 자동 상환에 사용돼요)`), 400)
+    }
+    return
+  }
+  const amt = Number(stock.config.autoLoanAmount) || 500000
+  const room = Math.max(0, limit - (u.loan || 0))
+  const give = Math.min(amt, room)
+  if (give <= 0) return
+  u.loan = (u.loan || 0) + give
+  u.cash = (u.cash || 0) + give
+  u.stats.bankruptCount = (u.stats.bankruptCount || 0) + 1
+  setTimeout(() => sendChatToRoom(djId, `🆘 ${u.nickname}님 파산! 자동 대출 ${stkFmt(give)} 실행\n💳 대출 잔액 ${stkFmt(u.loan)} (방송일마다 이자 ${stock.config.loanInterestPct}%)`), 400)
+}
+
+// 보험 아이템 정산 — 지정 종목의 가격이 내려갔을 때, nextInsurance 플래그가 있는 보유자에게 손실의 50%를 환급
+function stkApplyInsurance(djId, stock, lossMap) {
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    if (!u.nextInsurance) continue
+    let totalLoss = 0
+    for (const name in lossMap) {
+      const h = u.holdings[name]
+      const perShareLoss = lossMap[name]
+      if (h && h.qty > 0 && perShareLoss > 0) totalLoss += h.qty * perShareLoss
+    }
+    if (totalLoss > 0) {
+      const refund = Math.round(totalLoss * 0.5)
+      u.cash = (u.cash || 0) + refund
+      u.nextInsurance = false
+      setTimeout(() => sendChatToRoom(djId, `🛡️ 보험 적용! ${u.nickname}님 손실의 50% (${stkFmt(refund)}) 보상 완료`), 600)
+    }
+  }
+}
+
+// ── 타이머: 시세/뉴스/배당/시장이벤트 ──
+function stkPriceTick(djId) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled !== false && stock.stocks.length) {
+    stock.stocks.forEach(st => {
+      let pct = stock.pendingChange[st.name]
+      if (typeof pct === 'number') delete stock.pendingChange[st.name]
+      else pct = (Number(cfg.priceMinPct) || -5) + Math.random() * ((Number(cfg.priceMaxPct) || 5) - (Number(cfg.priceMinPct) || -5))
+      const floor = Number(cfg.priceFloor) || 500
+      const newPrice = Math.max(floor, Math.round((st.price * (1 + pct / 100)) / 10) * 10)
+      st.lastPct = st.price > 0 ? ((newPrice - st.price) / st.price) * 100 : 0
+      st.price = newPrice
+    })
+  }
+  for (const nick in stock.chatAccrual) {
+    const amt = stock.chatAccrual[nick]
+    if (amt > 0) {
+      const u = stkGetUser(stock, nick)
+      stkAddIncome(djId, stock, u, amt)
+    }
+  }
+  stock.chatAccrual = {}
+  saveStock(djId, stock)
+}
+
+function stkNewsTick(djId) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled === false || !stock.stocks.length) return
+  const st = stock.stocks[Math.floor(Math.random() * stock.stocks.length)]
+  const good = Math.random() < 0.5
+  const pool = good ? cfg.goodNews : cfg.badNews
+  if (!pool || !pool.length) return
+  const [phrase, pct] = pool[Math.floor(Math.random() * pool.length)]
+  const floor = Number(cfg.priceFloor) || 500
+  const oldPrice = st.price
+  const newPrice = Math.max(floor, Math.round((oldPrice * (1 + pct / 100)) / 10) * 10)
+  st.lastPct = oldPrice > 0 ? ((newPrice - oldPrice) / oldPrice) * 100 : 0
+  st.price = newPrice
+  if (newPrice < oldPrice) stkApplyInsurance(djId, stock, { [st.name]: oldPrice - newPrice })
+  saveStock(djId, stock)
+  const sign = pct >= 0 ? '+' : ''
+  setTimeout(() => sendChatToRoom(djId, `📰 [속보] ${st.name} ${phrase} ${sign}${pct}%\n📈 현재가 ${Math.round(st.price).toLocaleString()}원`), 400)
+}
+
+function stkDividendTick(djId) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled === false || !stock.stocks.length) return
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    let total = 0
+    const names = []
+    for (const name in (u.holdings || {})) {
+      const h = u.holdings[name]
+      const st = stock.stocks.find(s => s.name === name)
+      if (!st || !h || !h.qty) continue
+      const rate = (Number(st.dividendRate) || 0) / 100
+      total += h.qty * st.price * rate
+      names.push(name)
+    }
+    if (total <= 0) continue
+    if (u.nextDividendX2) { total *= 2; u.nextDividendX2 = false }
+    total = Math.round(total)
+    stkAddIncome(djId, stock, u, total)
+    u.stats.totalDividend = (u.stats.totalDividend || 0) + total
+    const extra = names.length > 1 ? ` 외 ${names.length - 1}종목` : ''
+    setTimeout(() => sendChatToRoom(djId, `💵 배당 지급! ${u.nickname}님 +${total.toLocaleString()}원 (${names[0]}${extra})`), 400)
+  }
+  saveStock(djId, stock)
+}
+
+function stkEventTick(djId) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled === false || !stock.stocks.length) return
+  if (Math.random() * 100 >= (Number(cfg.eventChancePct) || 10)) return
+  const floor = Number(cfg.priceFloor) || 500
+  const types = ['bull', 'bear', 'theme', 'rate']
+  const type = types[Math.floor(Math.random() * types.length)]
+  let msg = ''
+  if (type === 'bull') {
+    stock.stocks.forEach(st => { st.price = Math.max(floor, Math.round(st.price * 1.10 / 10) * 10) })
+    msg = '📈 강세장! 전 종목 +10%'
+  } else if (type === 'bear') {
+    const lossMap = {}
+    stock.stocks.forEach(st => {
+      const old = st.price
+      st.price = Math.max(floor, Math.round(st.price * 0.90 / 10) * 10)
+      if (st.price < old) lossMap[st.name] = old - st.price
+    })
+    stkApplyInsurance(djId, stock, lossMap)
+    msg = '📉 약세장! 전 종목 -10%'
+  } else if (type === 'theme') {
+    const st = stock.stocks[Math.floor(Math.random() * stock.stocks.length)]
+    st.price = Math.max(floor, Math.round(st.price * 1.20 / 10) * 10)
+    msg = `🔥 테마주 열풍! ${st.name} +20%`
+  } else {
+    const lossMap = {}
+    stock.stocks.forEach(st => {
+      const old = st.price
+      if ((Number(st.dividendRate) || 0) >= 2) st.price = Math.max(floor, Math.round(st.price * 1.08 / 10) * 10)
+      else st.price = Math.max(floor, Math.round(st.price * 0.92 / 10) * 10)
+      if (st.price < old) lossMap[st.name] = old - st.price
+    })
+    stkApplyInsurance(djId, stock, lossMap)
+    msg = '🏦 금리 인상! 고배당주(배당2%↑) +8% / 저배당주 -8%'
+  }
+  saveStock(djId, stock)
+  setTimeout(() => sendChatToRoom(djId, `🌍 [시장 이벤트] ${msg}`), 400)
+}
+
+function stkDailyRoutine(djId) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  const cap = Number(cfg.depositInterestCap) || 10000000
+  const depRate = (Number(cfg.depositInterestPct) || 5) / 100
+  const loanRate = (Number(cfg.loanInterestPct) || 10) / 100
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    if (u.deposit > 0) u.deposit += Math.round(Math.min(u.deposit, cap) * depRate)
+    if (u.loan > 0) u.loan += Math.round(u.loan * loanRate)
+    u.attended = false
+  }
+  stock.lastDailyRunAt = Date.now()
+  saveStock(djId, stock)
+  console.log(`[증권거래소:${djId}] 방송일 루틴 실행 (예금이자/대출이자/출석초기화)`)
+}
+
+function stkBumpNext(djId, field, ms) {
+  const settings = store.getSettings(djId); if (!settings) return
+  const stock = getStockSettings(djId, settings)
+  stock[field] = Date.now() + ms
+  saveStock(djId, stock)
+}
+function stopStockTimers(djId) {
+  const room = getRoom(djId);
+  ['stockPriceTimer', 'stockNewsTimer', 'stockDividendTimer', 'stockEventTimer'].forEach(k => {
+    if (room[k]) { clearInterval(room[k]); room[k] = null }
+  })
+}
+function startStockTimers(djId, liveId) {
+  stopStockTimers(djId)
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'stock', djId)) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled === false) return
+
+  const priceMs = Math.max(1, Number(cfg.priceIntervalMin) || 10) * 60000
+  const newsMs = Math.max(1, Number(cfg.newsIntervalMin) || 30) * 60000
+  const divMs = Math.max(1, Number(cfg.dividendIntervalMin) || 30) * 60000
+  const eventMs = Math.max(1, Number(cfg.eventIntervalMin) || 60) * 60000
+
+  const now = Date.now()
+  stock.nextPriceAt = now + priceMs
+  stock.nextNewsAt = now + newsMs
+  stock.nextDividendAt = now + divMs
+  stock.nextEventAt = now + eventMs
+  saveStock(djId, stock)
+
+  room.stockPriceTimer = setInterval(() => { stkPriceTick(djId); stkBumpNext(djId, 'nextPriceAt', priceMs) }, priceMs)
+  room.stockNewsTimer = setInterval(() => { stkNewsTick(djId); stkBumpNext(djId, 'nextNewsAt', newsMs) }, newsMs)
+  room.stockDividendTimer = setInterval(() => { stkDividendTick(djId); stkBumpNext(djId, 'nextDividendAt', divMs) }, divMs)
+  room.stockEventTimer = setInterval(() => { stkEventTick(djId); stkBumpNext(djId, 'nextEventAt', eventMs) }, eventMs)
+
+  if (now - (stock.lastDailyRunAt || 0) > 4 * 60 * 60 * 1000) stkDailyRoutine(djId)
+  console.log(`[증권거래소:${djId}] 타이머 시작`)
+}
+
+// ── 채팅 적립 훅 (좋아요/채팅/스푼) ──
+function handleStockChatHook(djId, settings, author) {
+  if (!isModuleOn(settings, 'stock', djId)) return
+  const stock = getStockSettings(djId, settings)
+  if (stock.config.enabled === false) return
+  const u = stock.users[author]
+  if (!u || !u.started) return
+  stock.chatAccrual[author] = (stock.chatAccrual[author] || 0) + (Number(stock.config.chatMoney) || 5)
+  saveStock(djId, stock)
+}
+function handleStockHeartHook(djId, settings, author) {
+  if (!isModuleOn(settings, 'stock', djId)) return
+  const stock = getStockSettings(djId, settings)
+  if (stock.config.enabled === false) return
+  const u = stock.users[author]
+  if (!u || !u.started) return
+  stkAddIncome(djId, stock, u, Number(stock.config.likeMoney) || 50)
+  saveStock(djId, stock)
+}
+function handleStockDonationHook(djId, settings, author, spoonCount) {
+  if (!isModuleOn(settings, 'stock', djId)) return
+  const stock = getStockSettings(djId, settings)
+  if (stock.config.enabled === false) return
+  const u = stock.users[author]
+  if (!u || !u.started) return
+  stkAddIncome(djId, stock, u, Math.max(0, spoonCount) * (Number(stock.config.spoonMoney) || 100))
+  saveStock(djId, stock)
+}
+
+// ── 명령어 핸들러 ──
+function stkCmdStart(djId, stock, author) {
+  const u = stkGetUser(stock, author)
+  if (u.started) { stkReply(djId, `⚠️ ${author}님은 이미 시작했어요. ${stock.config.cmdMyInfo}로 확인하세요.`); return }
+  u.started = true
+  u.cash = (u.cash || 0) + (Number(stock.config.startMoney) || 100000)
+  saveStock(djId, stock)
+  stkReply(djId, `🍞 ${author}님, 식빵 증권거래소에 오신 걸 환영해요! 시작금 ${stkFmt(stock.config.startMoney || 100000)} 지급 완료!`)
+}
+function stkCmdAttend(djId, stock, author) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.attended) { stkReply(djId, '⚠️ 오늘 방송에서는 이미 출석했어요.'); return }
+  u.attended = true
+  const amt = Number(stock.config.attendMoney) || 1000
+  stkAddIncome(djId, stock, u, amt)
+  saveStock(djId, stock)
+  stkReply(djId, `📅 출석 완료! +${stkFmt(amt)} (보유 현금: ${stkFmt(u.cash)})`)
+}
+const STK_RULE_TOPICS = ['주식', '배당', '뉴스', '슬롯', '잭팟', '룰렛', '홀짝', '주사위', '복권', '은행', '아이템', '랭킹']
+function stkCmdRule(djId, cfg, parts) {
+  const topic = parts.slice(1).join(' ').trim()
+  if (!topic) {
+    stkReply(djId, `📖 식빵 증권거래소 룰설명 항목\n${STK_RULE_TOPICS.join(' · ')}\n→ ${cfg.cmdRule} [항목] 으로 확인하세요`)
+    return
+  }
+  const texts = {
+    '주식': `📈 주식 룰\n· ${cfg.priceIntervalMin}분마다 전 종목 시세가 ${cfg.priceMinPct}% ~ +${cfg.priceMaxPct}% 랜덤 변동\n· ${cfg.cmdStockList} 으로 시세 확인 → !종목명 3주 매수 · !종목명 전량 매도 로 거래\n· ${cfg.newsIntervalMin}분마다 뉴스로 급등락, ${cfg.eventIntervalMin}분마다 시장 이벤트 발생 가능`,
+    '배당': `💵 배당 룰\n· ${cfg.dividendIntervalMin}분마다 보유 주식 평가액 × 종목 배당률 자동 지급\n· 종목별 배당률은 ${cfg.cmdStockList} 에서 확인`,
+    '뉴스': `📰 뉴스 룰\n· ${cfg.newsIntervalMin}분마다 랜덤 종목에 호재 또는 악재가 발생\n· 즉시 시세에 반영돼요`,
+    '슬롯': `🎰 슬롯 룰 (${cfg.cmdSlot} 1만·5만·10만·50만)\n· 3개 일치 100배 / 50배 / 20배 · 2개 일치 2배\n· 777 이 나오면 잭팟 전액!`,
+    '잭팟': `💎 잭팟 룰\n· 모든 슬롯 배팅액의 1%가 자동 적립\n· 슬롯에서 777 이 뜨면 누적금 전액 획득\n· ${cfg.cmdJackpot} 으로 현재 누적금 확인`,
+    '룰렛': `🎡 룰렛 룰 (${cfg.cmdRoulette} 빨강 5만원)\n· 빨강 2배 · 검정 2배 · 초록 14배`,
+    '홀짝': `⚫ 홀짝 룰 (${cfg.cmdOddEven} 홀 5만원)\n· 홀/짝 반반, 맞히면 2배`,
+    '주사위': `🎲 주사위 룰 (${cfg.cmdDice} 3 5만원)\n· 1~6 중 숫자 선택, 맞히면 6배 / 틀리면 0`,
+    '복권': `🎟️ 복권 룰 (${cfg.cmdLotto} 5장)\n· 1장 100,000원, 1회 최대 10장, 결과 즉시 발표\n· 1등 1,000만 / 2등 300만 / 3등 100만`,
+    '은행': `🏦 은행 룰\n· ${cfg.cmdDeposit} [금액] → 방송일마다 이자 ${cfg.depositInterestPct}% 자동 지급\n· ${cfg.cmdLoan} [금액] → 한도 ${stkFmt(cfg.loanLimit)}, 방송일마다 이자 ${cfg.loanInterestPct}% 가산\n· 전 재산이 0원이 되면 자동 대출 ${stkFmt(cfg.autoLoanAmount)} 실행`,
+    '아이템': `🛍️ 아이템 룰 (${cfg.cmdShop} → ${cfg.cmdBuy} → ${cfg.cmdUse})\n· 시장분석권 : 지정 종목의 다음 시세 변동 예측\n· 배당쿠폰 : 다음 배당 2배 / 보험 : 폭락 손실 50% 보상 / 행운권 : 다음 슬롯 확률 2배`,
+    '랭킹': `🏆 랭킹 룰\n· 총자산 = 현금 + 주식 평가액 + 예금 - 대출\n· ${cfg.cmdRanking} 으로 TOP5 확인`,
+  }
+  const t = texts[topic]
+  stkReply(djId, t || `⚠️ '${topic}' 항목을 찾을 수 없어요. ${cfg.cmdRule} 으로 목록을 확인해주세요.`)
+}
+function stkCmdMyInfo(djId, stock, author) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  let stockValue = 0
+  for (const name in u.holdings) { const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name); if (st) stockValue += h.qty * st.price }
+  const total = stkTotalAssets(stock, u)
+  stkReply(djId, `🍞 ${author}님의 자산 정보\n🏅 칭호 : ${stkTitle(total)}\n💰 현금 : ${stkFmt(u.cash)}\n📊 주식 : ${stkFmt(stockValue)}\n🏦 예금 : ${stkFmt(u.deposit)}\n💳 대출 : -${stkFmt(u.loan)}\n━━━━━━━━━━━━━━\n💎 총자산 : ${stkFmt(total)}`)
+}
+function stkCmdMyMoney(djId, stock, author) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  stkReply(djId, `💰 ${author}님의 보유 현금: ${stkFmt(u.cash)}`)
+}
+function stkCmdStockList(djId, stock) {
+  if (!stock.stocks.length) { stkReply(djId, '📊 아직 개설된 종목이 없어요.'); return }
+  const lines = stock.stocks.map(st => {
+    const pct = st.lastPct || 0
+    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '-'
+    return `${st.name}  ${Math.round(st.price).toLocaleString()}  ${arrow}${Math.abs(pct).toFixed(1)}% (배당 ${st.dividendRate}%)`
+  })
+  const nextPrice = Math.max(0, Math.round(((stock.nextPriceAt || Date.now()) - Date.now()) / 60000))
+  const nextDiv = Math.max(0, Math.round(((stock.nextDividendAt || Date.now()) - Date.now()) / 60000))
+  stkReply(djId, `🍞 식빵 증권거래소 🍞\n━━━━━━━━━━━━━━\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n⏰ 다음 시세변경 : ${nextPrice}분\n💵 다음 배당까지 : ${nextDiv}분\n💎 현재 잭팟 : ${stkFmt(stock.jackpot)}`)
+}
+function stkCmdMyStock(djId, stock, author) {
+  const u = stkGetUser(stock, author)
+  const names = Object.keys(u.holdings || {}).filter(n => u.holdings[n].qty > 0)
+  if (!names.length) { stkReply(djId, `📊 ${author}님은 보유 중인 주식이 없어요.`); return }
+  let totalVal = 0, totalCost = 0
+  const lines = names.map((name, i) => {
+    const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name)
+    const price = st ? st.price : h.avgPrice
+    const val = h.qty * price
+    const cost = h.qty * h.avgPrice
+    totalVal += val; totalCost += cost
+    const pct = cost > 0 ? ((val - cost) / cost * 100) : 0
+    return `${i + 1}. ${name} ${h.qty}주 | 평단 ${Math.round(h.avgPrice).toLocaleString()} | ${pct >= 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(1)}%`
+  })
+  const diff = totalVal - totalCost
+  stkReply(djId, `📊 ${author}님의 포트폴리오\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 평가액 ${stkFmt(totalVal)} (${diff >= 0 ? '+' : ''}${stkFmt(diff)})`)
+}
+function stkCmdRanking(djId, stock, cfg) {
+  const entries = Object.values(stock.users).filter(u => u.started).map(u => ({ nickname: u.nickname, total: stkTotalAssets(stock, u) })).sort((a, b) => b.total - a.total).slice(0, 5)
+  if (!entries.length) { stkReply(djId, '🏆 아직 등록된 유저가 없어요.'); return }
+  const lines = entries.map((e, i) => `${i + 1}위 : ${e.nickname} ${stkFmt(e.total)}`)
+  stkReply(djId, `🏆 ${String(cfg.cmdRanking || '!식빵랭킹').replace('!', '')} 🏆\n${lines.join('\n')}`)
+}
+function stkCmdJackpot(djId, stock) { stkReply(djId, `💎 현재 잭팟 누적금: ${stkFmt(stock.jackpot)}`) }
+
+function stkCmdDeposit(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const amt = stkParseMoney(parts.slice(1).join(' '))
+  if (!amt || amt <= 0) { stkReply(djId, '사용법: !예금 [금액] (예: !예금 5만원)'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= amt; u.deposit = (u.deposit || 0) + amt
+  saveStock(djId, stock)
+  stkReply(djId, `🏦 예금 완료! ${stkFmt(amt)} (예금 잔액: ${stkFmt(u.deposit)})`)
+}
+function stkCmdWithdraw(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const amt = stkParseMoney(parts.slice(1).join(' '))
+  if (!amt || amt <= 0) { stkReply(djId, '사용법: !출금 [금액]'); return }
+  if ((u.deposit || 0) < amt) { stkReply(djId, '❌ 예금 잔액이 부족해요.'); return }
+  u.deposit -= amt; u.cash = (u.cash || 0) + amt
+  saveStock(djId, stock)
+  stkReply(djId, `🏦 출금 완료! ${stkFmt(amt)} (보유 현금: ${stkFmt(u.cash)})`)
+}
+function stkCmdLoan(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const amt = stkParseMoney(parts.slice(1).join(' '))
+  if (!amt || amt <= 0) { stkReply(djId, '사용법: !대출 [금액]'); return }
+  const limit = Number(stock.config.loanLimit) || 1000000
+  if ((u.loan || 0) + amt > limit) { stkReply(djId, `❌ 대출 한도(${stkFmt(limit)})를 초과해요. (현재 대출: ${stkFmt(u.loan)})`); return }
+  u.loan = (u.loan || 0) + amt; u.cash = (u.cash || 0) + amt
+  saveStock(djId, stock)
+  stkReply(djId, `💳 대출 실행! ${stkFmt(amt)} 지급 (대출 잔액: ${stkFmt(u.loan)})`)
+}
+function stkCmdRepay(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const amt = stkParseMoney(parts.slice(1).join(' '))
+  if (!amt || amt <= 0) { stkReply(djId, '사용법: !상환 [금액]'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  const pay = Math.min(amt, u.loan || 0)
+  u.cash -= pay; u.loan -= pay
+  if (u.loan <= 0) { u.loan = 0; u.creditBad = false }
+  saveStock(djId, stock)
+  stkReply(djId, `💳 상환 완료! ${stkFmt(pay)} (남은 대출: ${stkFmt(u.loan)})`)
+}
+
+const STK_SLOT_ALLOWED = [10000, 50000, 100000, 500000]
+function stkCmdSlot(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
+  const amt = stkParseMoney(parts.slice(1).join(' '))
+  if (!STK_SLOT_ALLOWED.includes(amt)) { stkReply(djId, '사용법: !슬롯 [1만/5만/10만/50만] (예: !슬롯 5만원)'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= amt
+  stock.jackpot = (stock.jackpot || 0) + Math.round(amt * 0.01)
+
+  let odds = [
+    { key: '777', p: 0.0005, mult: 'jackpot', symbols: ['7️⃣', '7️⃣', '7️⃣'] },
+    { key: 'hi', p: 0.002, mult: 100, symbols: ['🪙', '🪙', '🪙'] },
+    { key: 'mid', p: 0.005, mult: 50, symbols: ['⭐', '⭐', '⭐'] },
+    { key: 'lo', p: 0.013, mult: 20, symbols: ['🍀', '🍀', '🍀'] },
+    { key: 'pair', p: 0.08, mult: 2, symbols: null },
+  ]
+  if (u.nextLuckyTicket) { odds = odds.map(o => ({ ...o, p: o.p * 2 })); u.nextLuckyTicket = false }
+
+  const roll = Math.random()
+  let acc = 0, result = null
+  for (const o of odds) { acc += o.p; if (roll < acc) { result = o; break } }
+
+  let winAmount = 0, symbols
+  const pool = ['🍒', '🔔', '🍋', '🍇']
+  if (!result) {
+    const a = pool[Math.floor(Math.random() * pool.length)]
+    let b = a; while (b === a) b = pool[Math.floor(Math.random() * pool.length)]
+    let c = a; while (c === a || c === b) c = pool[Math.floor(Math.random() * pool.length)]
+    symbols = [a, b, c]
+  } else if (result.key === '777') {
+    winAmount = stock.jackpot
+    stock.jackpot = Number(stock.config.jackpotSeed) || 1000000
+    symbols = result.symbols
+  } else if (result.key === 'pair') {
+    winAmount = amt * 2
+    const a = pool[Math.floor(Math.random() * pool.length)]
+    let b = a; while (b === a) b = pool[Math.floor(Math.random() * pool.length)]
+    symbols = [a, a, b]
+  } else {
+    winAmount = amt * result.mult
+    symbols = result.symbols
+  }
+  if (winAmount > 0) { u.cash += winAmount; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 }
+  else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
+  stkCheckBankrupt(djId, stock, u)
+  saveStock(djId, stock)
+  const net = winAmount - amt
+  stkReply(djId, `🎰 ${author}님의 슬롯\n${symbols.join(' | ')}\n${winAmount > 0 ? `✨ 당첨! +${stkFmt(winAmount)}` : '😢 꽝!'} (${net >= 0 ? '+' : ''}${stkFmt(net)})\n💎 현재 잭팟 : ${stkFmt(stock.jackpot)}`)
+}
+function stkCmdRoulette(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
+  const color = parts[1]
+  const amt = stkParseMoney(parts.slice(2).join(' '))
+  const colorMap = { '빨강': { p: 0.47, mult: 2 }, '검정': { p: 0.47, mult: 2 }, '초록': { p: 0.06, mult: 14 } }
+  if (!colorMap[color] || !amt || amt <= 0) { stkReply(djId, '사용법: !룰렛 [빨강·검정·초록] [금액]'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= amt
+  const roll = Math.random()
+  let acc = 0, resultColor = '초록'
+  for (const c of ['빨강', '검정', '초록']) { acc += colorMap[c].p; if (roll < acc) { resultColor = c; break } }
+  const win = resultColor === color
+  const payout = win ? amt * colorMap[color].mult : 0
+  if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
+  stkCheckBankrupt(djId, stock, u)
+  saveStock(djId, stock)
+  stkReply(djId, `🎡 ${author}님의 룰렛 (선택: ${color})\n결과: ${resultColor}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
+}
+function stkCmdOddEven(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
+  const pick = parts[1]
+  const amt = stkParseMoney(parts.slice(2).join(' '))
+  if (!['홀', '짝'].includes(pick) || !amt || amt <= 0) { stkReply(djId, '사용법: !홀짝 [홀·짝] [금액]'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= amt
+  const result = Math.random() < 0.5 ? '홀' : '짝'
+  const win = result === pick
+  const payout = win ? amt * 2 : 0
+  if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
+  stkCheckBankrupt(djId, stock, u)
+  saveStock(djId, stock)
+  stkReply(djId, `⚫ ${author}님의 홀짝 (선택: ${pick})\n결과: ${result}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
+}
+function stkCmdDice(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
+  const pick = parseInt(parts[1], 10)
+  const amt = stkParseMoney(parts.slice(2).join(' '))
+  if (!(pick >= 1 && pick <= 6) || !amt || amt <= 0) { stkReply(djId, '사용법: !주사위 [1~6] [금액]'); return }
+  if ((u.cash || 0) < amt) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= amt
+  const result = 1 + Math.floor(Math.random() * 6)
+  const win = result === pick
+  const payout = win ? amt * 6 : 0
+  if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
+  stkCheckBankrupt(djId, stock, u)
+  saveStock(djId, stock)
+  stkReply(djId, `🎲 ${author}님의 주사위 (선택: ${pick})\n데굴데굴... 결과는 [ ${result} ]!\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 아쉽습니다! -${stkFmt(amt)}`}`)
+}
+function stkCmdLotto(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
+  let n = parseInt(parts[1], 10); if (!n || n < 1) n = 1
+  n = Math.min(n, 10)
+  const price = 100000
+  const cost = price * n
+  if ((u.cash || 0) < cost) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= cost
+  let totalWin = 0
+  const lines = []
+  for (let i = 1; i <= n; i++) {
+    const r = Math.random() * 100
+    let label = '꽝', amt = 0
+    if (r < 0.1) { label = '🥇 1등 당첨! +10,000,000원'; amt = 10000000 }
+    else if (r < 0.6) { label = '🥈 2등 당첨! +3,000,000원'; amt = 3000000 }
+    else if (r < 3.6) { label = '🥉 3등 당첨! +1,000,000원'; amt = 1000000 }
+    totalWin += amt
+    lines.push(`${i}. ${label}`)
+  }
+  u.cash += totalWin
+  if (totalWin > 0) u.stats.gambleWin = (u.stats.gambleWin || 0) + 1; else u.stats.gambleLose = (u.stats.gambleLose || 0) + 1
+  stkCheckBankrupt(djId, stock, u)
+  saveStock(djId, stock)
+  stkReply(djId, `🎟️ ${author}님의 복권 ${n}장\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 총 당첨 ${stkFmt(totalWin)} / 구매 ${stkFmt(cost)}`)
+}
+
+function stkCmdShop(djId, cfg) {
+  const lines = (cfg.items || []).map((it, i) => `${i + 1}. ${it.name} — ${stkFmt(it.price)} (${it.desc || ''})`)
+  stkReply(djId, `🛍️ 아이템 상점\n${lines.join('\n')}\n→ !구매 [아이템명] 으로 구매하세요`)
+}
+function stkCmdBuyItem(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const name = parts.slice(1).join(' ').trim()
+  const item = (stock.config.items || []).find(it => it.name === name)
+  if (!item) { stkReply(djId, '❌ 없는 아이템이에요. !상점 으로 목록을 확인해주세요.'); return }
+  if ((u.cash || 0) < item.price) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
+  u.cash -= item.price
+  u.items[item.name] = (u.items[item.name] || 0) + 1
+  saveStock(djId, stock)
+  stkReply(djId, `🛍️ ${item.name} 구매 완료! (보유: ${u.items[item.name]}개)`)
+}
+function stkCmdUseItem(djId, stock, author, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const name = parts[1]
+  if (!name || !u.items[name] || u.items[name] <= 0) { stkReply(djId, '❌ 보유하지 않은 아이템이에요.'); return }
+  if (name === '시장분석권') {
+    const target = parts.slice(2).join(' ').trim()
+    const st = stock.stocks.find(s => s.name === target)
+    if (!st) { stkReply(djId, '사용법: !사용 시장분석권 [종목명]'); return }
+    const cfg = stock.config
+    let pct = stock.pendingChange[st.name]
+    if (typeof pct !== 'number') {
+      pct = (Number(cfg.priceMinPct) || -5) + Math.random() * ((Number(cfg.priceMaxPct) || 5) - (Number(cfg.priceMinPct) || -5))
+      stock.pendingChange[st.name] = pct
+    }
+    u.items[name]--
+    saveStock(djId, stock)
+    stkReply(djId, `🔍 ${author}님의 시장분석 결과 — ${st.name}은(는) 다음 시세 변동에서 ${pct >= 0 ? '상승' : '하락'}할 것으로 보여요! (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`)
+    return
+  }
+  if (name === '배당쿠폰') { u.items[name]--; u.nextDividendX2 = true; saveStock(djId, stock); stkReply(djId, '🎫 배당쿠폰 사용! 다음 배당이 2배가 돼요.'); return }
+  if (name === '보험') { u.items[name]--; u.nextInsurance = true; saveStock(djId, stock); stkReply(djId, '🛡️ 보험 사용! 다음 손실의 50%를 보상받아요.'); return }
+  if (name === '행운권') { u.items[name]--; u.nextLuckyTicket = true; saveStock(djId, stock); stkReply(djId, '🍀 행운권 사용! 다음 슬롯 확률이 2배가 돼요.'); return }
+  stkReply(djId, '❌ 사용할 수 없는 아이템이에요.')
+}
+
+function stkCmdTrade(djId, stock, author, st, parts) {
+  const u = stkGetUser(stock, author)
+  if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
+  const rest = parts.slice(1).join('').replace(/\s+/g, '')
+  let qty = 0, action = null
+  if (/^전량매수$/.test(rest)) { action = 'buy'; qty = Math.floor((u.cash || 0) / st.price) }
+  else if (/^전량매도$/.test(rest)) { action = 'sell'; qty = (u.holdings[st.name] && u.holdings[st.name].qty) || 0 }
+  else if (/^절반매도$/.test(rest)) { action = 'sell'; qty = Math.floor(((u.holdings[st.name] && u.holdings[st.name].qty) || 0) / 2) }
+  else {
+    const m = rest.match(/^(\d+)주?(매수|매도)$/)
+    if (m) { qty = parseInt(m[1], 10); action = m[2] === '매수' ? 'buy' : 'sell' }
+  }
+  if (!action || qty <= 0) return
+  if (action === 'buy') {
+    const cost = qty * st.price
+    if ((u.cash || 0) < cost) { stkReply(djId, `❌ 현금이 부족해요. (필요: ${stkFmt(cost)}, 보유: ${stkFmt(u.cash)})`); return }
+    u.cash -= cost
+    const h = u.holdings[st.name] || { qty: 0, avgPrice: 0 }
+    const newQty = h.qty + qty
+    h.avgPrice = Math.round((h.avgPrice * h.qty + st.price * qty) / newQty)
+    h.qty = newQty
+    u.holdings[st.name] = h
+    u.stats.tradeCount = (u.stats.tradeCount || 0) + 1
+    saveStock(djId, stock)
+    stkReply(djId, `📈 매수 완료! ${st.name} ${qty}주 @ ${Math.round(st.price).toLocaleString()}원 (총 ${stkFmt(cost)})\n💰 남은 현금: ${stkFmt(u.cash)}`)
+  } else {
+    const h = u.holdings[st.name]
+    if (!h || h.qty < qty) { stkReply(djId, `❌ 보유 수량이 부족해요. (보유: ${h ? h.qty : 0}주)`); return }
+    const proceeds = qty * st.price
+    h.qty -= qty
+    if (h.qty <= 0) delete u.holdings[st.name]
+    u.cash += proceeds
+    u.stats.tradeCount = (u.stats.tradeCount || 0) + 1
+    saveStock(djId, stock)
+    stkCheckBankrupt(djId, stock, u)
+    saveStock(djId, stock)
+    stkReply(djId, `📉 매도 완료! ${st.name} ${qty}주 @ ${Math.round(st.price).toLocaleString()}원 (총 ${stkFmt(proceeds)})\n💰 보유 현금: ${stkFmt(u.cash)}`)
+  }
+}
+
+function stkCmdStockCreate(djId, stock, parts) {
+  if (stock.stocks.length >= 10) { stkReply(djId, '❌ 종목은 최대 10개까지 운영할 수 있어요.'); return }
+  const name = parts[1]
+  const priceRaw = parts[2]
+  if (!name || !priceRaw) { stkReply(djId, '사용법: !주식설립 [종목명] [시작가] [배당률(선택)]'); return }
+  if (stock.stocks.find(s => s.name === name)) { stkReply(djId, '❌ 이미 있는 종목명이에요.'); return }
+  const price = stkParseMoney(priceRaw)
+  let divRate = parts[3] != null ? parseFloat(parts[3]) : NaN
+  if (isNaN(divRate)) divRate = Math.round((0.5 + Math.random() * 2.5) * 2) / 2
+  stock.stocks.push({ name, price, dividendRate: divRate, lastPct: 0 })
+  saveStock(djId, stock)
+  stkReply(djId, `✅ 종목 설립 완료! ${name} (시작가 ${Math.round(price).toLocaleString()}원, 배당률 ${divRate}%)`)
+}
+function stkCmdStockDelete(djId, stock, parts) {
+  const name = parts[1]
+  const idx = stock.stocks.findIndex(s => s.name === name)
+  if (idx < 0) { stkReply(djId, '❌ 없는 종목이에요.'); return }
+  const st = stock.stocks[idx]
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    const h = u.holdings[name]
+    if (h && h.qty > 0) { u.cash += h.qty * st.price; delete u.holdings[name] }
+  }
+  stock.stocks.splice(idx, 1)
+  saveStock(djId, stock)
+  stkReply(djId, `🗑️ ${name} 종목이 폐지됐어요. 보유자 전원에게 현재가로 정산 완료.`)
+}
+function stkCmdGiveMoney(djId, stock, parts) {
+  const nickname = parts[1]
+  const amt = stkParseMoney(parts.slice(2).join(' '))
+  if (!nickname || !amt) { stkReply(djId, '사용법: !머니지급 [닉네임] [금액]'); return }
+  const u = stkGetUser(stock, nickname)
+  u.cash = (u.cash || 0) + amt
+  saveStock(djId, stock)
+  stkReply(djId, `🎁 [운영자] ${nickname}님께 ${stkFmt(amt)} 지급 완료 (보유 현금: ${stkFmt(u.cash)})`)
+}
+
+// ── 채팅 이벤트 마스터 디스패처 ──
+async function handleStockCommand(djId, room, settings, author, authorId, liveId, text) {
+  if (!isModuleOn(settings, 'stock', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const stock = getStockSettings(djId, settings)
+  const cfg = stock.config
+  if (cfg.enabled === false) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+  const isDj = _stkIsDj(djId, room, settings, authorId, author)
+
+  if (cmd === cfg.cmdStockCreate) { if (isDj) stkCmdStockCreate(djId, stock, parts); return }
+  if (cmd === cfg.cmdStockDelete) { if (isDj) stkCmdStockDelete(djId, stock, parts); return }
+  if (cmd === cfg.cmdGiveMoney) { if (isDj) stkCmdGiveMoney(djId, stock, parts); return }
+
+  if (cmd === cfg.cmdStart) return stkCmdStart(djId, stock, author)
+  if (cmd === cfg.cmdAttend) return stkCmdAttend(djId, stock, author)
+  if (cmd === cfg.cmdRule) return stkCmdRule(djId, cfg, parts)
+  if (cmd === cfg.cmdMyInfo) return stkCmdMyInfo(djId, stock, author)
+  if (cmd === cfg.cmdMyMoney) return stkCmdMyMoney(djId, stock, author)
+  if (cmd === cfg.cmdStockList) return stkCmdStockList(djId, stock)
+  if (cmd === cfg.cmdMyStock) return stkCmdMyStock(djId, stock, author)
+  if (cmd === cfg.cmdRanking) return stkCmdRanking(djId, stock, cfg)
+  if (cmd === cfg.cmdJackpot) return stkCmdJackpot(djId, stock)
+  if (cmd === cfg.cmdDeposit) return stkCmdDeposit(djId, stock, author, parts)
+  if (cmd === cfg.cmdWithdraw) return stkCmdWithdraw(djId, stock, author, parts)
+  if (cmd === cfg.cmdLoan) return stkCmdLoan(djId, stock, author, parts)
+  if (cmd === cfg.cmdRepay) return stkCmdRepay(djId, stock, author, parts)
+  if (cmd === cfg.cmdSlot) return stkCmdSlot(djId, stock, author, parts)
+  if (cmd === cfg.cmdRoulette) return stkCmdRoulette(djId, stock, author, parts)
+  if (cmd === cfg.cmdOddEven) return stkCmdOddEven(djId, stock, author, parts)
+  if (cmd === cfg.cmdDice) return stkCmdDice(djId, stock, author, parts)
+  if (cmd === cfg.cmdLotto) return stkCmdLotto(djId, stock, author, parts)
+  if (cmd === cfg.cmdShop) return stkCmdShop(djId, cfg)
+  if (cmd === cfg.cmdBuy) return stkCmdBuyItem(djId, stock, author, parts)
+  if (cmd === cfg.cmdUse) return stkCmdUseItem(djId, stock, author, parts)
+
+  const stockName = cmd.slice(1)
+  const st = stock.stocks.find(s => s.name === stockName)
+  if (st) return stkCmdTrade(djId, stock, author, st, parts)
+}
+
 
 // ══════════════════════════════════════════════════════
 // 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
@@ -2594,17 +4149,17 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
-function sendLeaveMessage(djId, settings, nickname) {
+function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
   if (!isModuleOn(settings, 'entrysettings', djId)) return
   const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
   if (msgs.length > 0) {
-    // {tag}는 조회 API 호출이 필요해서 퇴장 멘트에서는 지원하지 않음 (빈 값 처리)
-    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, '')
+    // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
+    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
     setTimeout(() => sendChatToRoom(djId, text), 500)
   }
-  const em = pickEntryMessage(settings.entryData, 'leave', nickname, null)
+  const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
   if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
@@ -2666,7 +4221,7 @@ function startLeavePolling(djId, liveId) {
         room._lastLiveMembers.delete(key)
         room._memberAbsenceCount.delete(key)
         const settings = store.getSettings(djId) || {}
-        sendLeaveMessage(djId, settings, info.nickname)
+        sendLeaveMessage(djId, settings, info.nickname, info.tag)
       }
 
       for (const [key, info] of currentMembers.entries()) {
@@ -2697,6 +4252,7 @@ function rebootDjConnection(djId) {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   clearQuizTimers(room)
@@ -2751,6 +4307,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     repeatLastSent[djId] = {}
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
+    // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
+    startStockTimers(djId, liveId)
     // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
     try {
       const s = store.getSettings(djId) || {}
@@ -2806,7 +4364,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
-          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text)
+          handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleSongRequestCommand(djId, room, settings, author, authorId, text)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
@@ -2826,6 +4384,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleCouponCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
           handleAutoFollowCommand(djId, settings, author, actTag, text)
+          handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
+          handleStockCommand(djId, room, settings, author, authorId, liveId, text)
+          handleStockChatHook(djId, settings, author)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -2839,7 +4400,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          const tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          if (!tag) {
+            // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
+            // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
+            await new Promise(r => setTimeout(r, 1200))
+            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
@@ -2852,7 +4419,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : '')
+              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
           }
@@ -2871,10 +4438,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
+        if (!isLurker) handleStockHeartHook(djId, settings, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : '')
+          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
@@ -2900,13 +4468,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
+          handleStockDonationHook(djId, settings, author, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
             const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
             if (gm && gm.text && gm.text.trim()) {
               const totalCount = amount * Math.max(1, comboCount)
-              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : '').replace(/{count}/g, totalCount)
+              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
             if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
@@ -2936,6 +4505,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.ws = null
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    stopStockTimers(djId)
     clearReminderTimers(room)
     clearTtsAccess(room)
     clearQuizTimers(room)
@@ -3988,6 +5558,16 @@ app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간)
+app.post('/dashboard/rank/scan', auth.requireAuth, async (req, res) => {
+  const r = await scanDashRank()
+  res.json(r)
+})
+app.get('/dashboard/rank/search/:tag', auth.requireAuth, (req, res) => {
+  const r = searchDashRank(req.params.tag)
+  res.json(r)
+})
+
 // 🎡 돌림판 룰렛
 app.get('/wheel/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -4202,6 +5782,134 @@ app.post('/autofollow/history/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎣 낚시 게임
+app.get('/stock/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const nextPrice = Math.max(0, Math.round(((stock.nextPriceAt || Date.now()) - Date.now()) / 60000))
+  const nextNews = Math.max(0, Math.round(((stock.nextNewsAt || Date.now()) - Date.now()) / 60000))
+  const nextDividend = Math.max(0, Math.round(((stock.nextDividendAt || Date.now()) - Date.now()) / 60000))
+  const nextEvent = Math.max(0, Math.round(((stock.nextEventAt || Date.now()) - Date.now()) / 60000))
+  res.json({ success: true, config: stock.config, stocks: stock.stocks, jackpot: stock.jackpot, userCount: Object.keys(stock.users).length, nextPrice, nextNews, nextDividend, nextEvent })
+})
+app.post('/stock/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'stock', req.djId)) return res.json({ success: false, error: '증권거래소 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const stock = getStockSettings(req.djId, settings)
+  const body = req.body || {}
+  const numKeys = ['startMoney', 'likeMoney', 'chatMoney', 'spoonMoney', 'attendMoney', 'priceIntervalMin', 'priceMinPct', 'priceMaxPct', 'priceFloor', 'newsIntervalMin', 'dividendIntervalMin', 'eventIntervalMin', 'eventChancePct', 'depositInterestPct', 'depositInterestCap', 'loanLimit', 'loanInterestPct', 'autoLoanAmount', 'jackpotSeed']
+  const cmdKeys = ['cmdStart', 'cmdAttend', 'cmdRule', 'cmdMyInfo', 'cmdMyMoney', 'cmdStockList', 'cmdMyStock', 'cmdRanking', 'cmdJackpot', 'cmdDeposit', 'cmdWithdraw', 'cmdLoan', 'cmdRepay', 'cmdSlot', 'cmdRoulette', 'cmdOddEven', 'cmdDice', 'cmdLotto', 'cmdShop', 'cmdBuy', 'cmdUse', 'cmdStockCreate', 'cmdStockDelete', 'cmdGiveMoney']
+  if (body.enabled != null) stock.config.enabled = !!body.enabled
+  numKeys.forEach(k => { if (body[k] != null) stock.config[k] = Number(body[k]) || 0 })
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) stock.config[k] = v.slice(0, 30) } })
+  if (Array.isArray(body.goodNews)) stock.config.goodNews = body.goodNews.filter(r => Array.isArray(r) && r[0]).map(r => [String(r[0]).slice(0, 60), Number(r[1]) || 0]).slice(0, 50)
+  if (Array.isArray(body.badNews)) stock.config.badNews = body.badNews.filter(r => Array.isArray(r) && r[0]).map(r => [String(r[0]).slice(0, 60), Number(r[1]) || 0]).slice(0, 50)
+  if (Array.isArray(body.items)) stock.config.items = body.items.filter(it => it && it.name).map(it => ({ name: String(it.name).slice(0, 30), price: Number(it.price) || 0, desc: String(it.desc || '').slice(0, 60) })).slice(0, 20)
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+app.post('/stock/stocks', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'stock', req.djId)) return res.json({ success: false, error: '증권거래소 메뉴가 꺼져있어요.' })
+  const stock = getStockSettings(req.djId, settings)
+  const body = req.body || {}
+  const name = String(body.name || '').trim()
+  const price = Number(body.price) || 0
+  if (!name || price <= 0) return res.json({ success: false, error: '종목명과 시작가를 입력해주세요.' })
+  if (stock.stocks.length >= 10) return res.json({ success: false, error: '종목은 최대 10개까지 운영할 수 있어요.' })
+  if (stock.stocks.find(s => s.name === name)) return res.json({ success: false, error: '이미 있는 종목명이에요.' })
+  let divRate = body.dividendRate != null ? Number(body.dividendRate) : NaN
+  if (isNaN(divRate)) divRate = Math.round((0.5 + Math.random() * 2.5) * 2) / 2
+  stock.stocks.push({ name, price, dividendRate: divRate, lastPct: 0 })
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/stocks/:name/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const st = stock.stocks.find(s => s.name === req.params.name)
+  if (!st) return res.json({ success: false, error: '없는 종목이에요.' })
+  const body = req.body || {}
+  if (body.price != null) st.price = Math.max(1, Number(body.price) || st.price)
+  if (body.dividendRate != null) st.dividendRate = Number(body.dividendRate) || 0
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/stocks/:name/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const idx = stock.stocks.findIndex(s => s.name === req.params.name)
+  if (idx < 0) return res.json({ success: false, error: '없는 종목이에요.' })
+  const st = stock.stocks[idx]
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    const h = u.holdings[st.name]
+    if (h && h.qty > 0) { u.cash += h.qty * st.price; delete u.holdings[st.name] }
+  }
+  stock.stocks.splice(idx, 1)
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/jackpot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const amt = Number((req.body || {}).amount)
+  if (!Number.isFinite(amt) || amt < 0) return res.json({ success: false, error: '올바른 금액을 입력해주세요.' })
+  stock.jackpot = amt
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, jackpot: stock.jackpot })
+})
+app.get('/stock/leaderboard', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const list = Object.values(stock.users).filter(u => u.started).map(u => ({ nickname: u.nickname, total: stkTotalAssets(stock, u), cash: u.cash || 0, loan: u.loan || 0, creditBad: !!u.creditBad })).sort((a, b) => b.total - a.total).slice(0, 20)
+  res.json({ success: true, users: list })
+})
+app.post('/stock/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  stock.users = {}
+  stock.chatAccrual = {}
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+
+app.get('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  res.json({ success: true, config: fishing.config, userCount: Object.keys(fishing.users).length })
+})
+app.post('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'fishing', req.djId)) return res.json({ success: false, error: '낚시 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const fishing = getFishingSettings(req.djId, settings)
+  const body = req.body || {}
+  const numKeys = ['fishingCooldown', 'dailyMoney', 'slotMinBet', 'diceWinExp', 'diceLoseExp', 'creditTier1Points', 'creditTier1Loan', 'creditTier2Points', 'creditTier2Loan', 'creditTier3Points', 'creditTier3Loan', 'theftBaseRate', 'theftLevelBonus', 'theftMaxRate']
+  const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags']
+  if (body.enabled != null) fishing.config.enabled = !!body.enabled
+  numKeys.forEach(k => { if (body[k] != null) fishing.config[k] = Number(body[k]) || 0 })
+  textKeys.forEach(k => { if (body[k] != null) fishing.config[k] = String(body[k]).slice(0, 20000) })
+  store.saveSettings(req.djId, { fishing })
+  res.json({ success: true })
+})
+app.get('/fishing/leaderboard', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  const list = Object.values(fishing.users).sort((a, b) => (b.balance || 0) - (a.balance || 0)).slice(0, 20)
+    .map(u => ({ tag: u.tag, nickname: u.nickname, balance: u.balance || 0, level: u.level || 1, total_fish_count: u.total_fish_count || 0 }))
+  res.json({ success: true, users: list })
+})
+app.post('/fishing/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (req.djId !== SHARED_TOKEN_DJID) {
+    // 관리자가 아니어도 본인 계정 방송 데이터는 리셋 가능 (자기 방송이니까)
+  }
+  const fishing = getFishingSettings(req.djId, settings)
+  fishing.users = {}
+  store.saveSettings(req.djId, { fishing })
+  res.json({ success: true })
+})
+
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const tag = req.params.tag
@@ -4315,6 +6023,7 @@ async function checkAdminAutoJoin() {
           room.watchingTag = ''
           stopLeavePolling(djId)
           stopLottoAutoTimer(djId)
+          stopStockTimers(djId)
           clearReminderTimers(room)
           clearTtsAccess(room)
           broadcast({ type: 'status', djId, isConnected: false })
@@ -4424,6 +6133,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   broadcast({ type: 'status', djId, isConnected: false })
