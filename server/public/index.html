@@ -550,7 +550,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+<<<<<<< HEAD
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+=======
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 
   </nav>
 
@@ -2129,6 +2132,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+<<<<<<< HEAD
       <!-- 🍞 증권거래소 -->
       <div class="panel" data-panel="stock">
         <div class="card">
@@ -2323,6 +2327,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+=======
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
       <!-- 🤝 고정매니저신청 -->
       <div class="panel" data-panel="autofollow">
         <div class="card">
@@ -2916,7 +2922,10 @@ const PANEL_META={
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
+<<<<<<< HEAD
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
+=======
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -3018,7 +3027,11 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
+<<<<<<< HEAD
 const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock'];
+=======
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing'];
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3030,7 +3043,11 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
+<<<<<<< HEAD
 const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+=======
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3877,7 +3894,10 @@ async function loadDjSettings(){
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
       if(document.getElementById('fishListBody')) loadFishingSettings();
+<<<<<<< HEAD
       if(document.getElementById('stkStocksBody')) loadStockSettings();
+=======
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -7401,6 +7421,7 @@ async function resetFishingData(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+<<<<<<< HEAD
 /* ── 🍞 증권거래소 ── */
 function switchStockTab(t){
   document.querySelectorAll('#stockTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
@@ -7665,6 +7686,8 @@ async function resetStockData(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+=======
+>>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 
 
 
