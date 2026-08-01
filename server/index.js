@@ -1652,8 +1652,12 @@ function formatRankSummary(ranks) {
 // (대시보드에 등록해둔 "본인" 고유닉 기준 — 채팅 친 시청자가 아니라 방송하는 DJ 본인 정보)
 function buildDashboardRankVars(settings) {
   const dash = settings && settings.dashboard
-  const rd = dash && dash.rankData
-  if (!rd) return { nickname: '', tag: dash ? (dash.djTag || '') : '', rank: '', choice_rank: '', like_rank: '', time_rank: '' }
+  const warn = '[대시보드에 고유닉 미등록]'
+  if (!dash || !dash.djTag) {
+    return { nickname: '', tag: '', rank: warn, choice_rank: warn, like_rank: warn, time_rank: warn }
+  }
+  const rd = dash.rankData
+  if (!rd) return { nickname: '', tag: dash.djTag, rank: warn, choice_rank: warn, like_rank: warn, time_rank: warn }
   const r = rd.ranks || {}
   return {
     nickname: rd.nickname || '',

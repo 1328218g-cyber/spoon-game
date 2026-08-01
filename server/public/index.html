@@ -618,7 +618,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
             <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
-            <div id="dashRankWarnBanner" style="display:none;background:rgba(225,29,72,.1);border:1px solid var(--danger);color:var(--danger);border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:8px">⚠️ 고유닉이 등록되지 않았어요.</div>
             <div style="display:flex;gap:6px">
               <input type="text" id="dashRankSearchInput" placeholder="고유닉 입력 (예: sum)" style="flex:1">
               <button class="btn-connect" style="padding:9px 12px;font-size:12px;flex-shrink:0" onclick="dashSearchRank()">등록+조회</button>
@@ -6320,17 +6319,14 @@ async function loadDashboardData(){
   }catch(e){}
 }
 function renderDashRankStatus(){
-  const banner=document.getElementById('dashRankWarnBanner');
   const input=document.getElementById('dashRankSearchInput');
   const resultEl=document.getElementById('dashRankSearchResult');
-  if(!banner||!input||!resultEl)return;
+  if(!input||!resultEl)return;
   const djTag=dashData.djTag||'';
   if(!djTag){
-    banner.style.display='block';
     resultEl.textContent='';
     return;
   }
-  banner.style.display='none';
   if(document.activeElement!==input) input.value=djTag;
   const rd=dashData.rankData;
   if(!rd){ resultEl.textContent='등록은 됐지만 아직 조회된 랭킹이 없어요. "등록+조회"를 한번 눌러주세요.'; return; }
