@@ -74,6 +74,7 @@ async function fetchUserStatusByTag(tag) {
       nickname: match.nickname || '',
       is_live: !!match.is_live,
       current_live_id: match.current_live_id || null,
+      photoUrl: match.profile_url || match.profileUrl || match.image_url || match.imageUrl || match.thumbnail_url || '',
     }
   } catch (e) {
     return null
@@ -4957,12 +4958,26 @@ app.get('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings })
 })
 
-app.get('/roulette/users', auth.requireAuth, (req, res) => {
+app.get('/roulette/users', auth.requireAuth, async (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const hist = settings.rouletteHistory || {}
   const tags = Object.keys(hist)
   const room = getRoom(req.djId)
-  const users = tags.map(tag => ({ tag, nickname: (hist[tag] && hist[tag].nickname) || tag, imgUrl: getCachedProfileUrl(room, null, tag) }))
+  const users = await Promise.all(tags.map(async tag => {
+    const nickname = (hist[tag] && hist[tag].nickname) || tag
+    let imgUrl = getCachedProfileUrl(room, null, tag)
+    if (!imgUrl) {
+      // 캐시에 없으면(최근에 채팅/좋아요 등으로 확인된 적 없으면) 스푼 검색 API로 실제 프로필 사진을 직접 조회한다.
+      try {
+        const info = await fetchUserStatusByTag(tag)
+        if (info && info.photoUrl) {
+          imgUrl = info.photoUrl
+          rememberProfileUrl(room, tag, nickname, imgUrl)
+        }
+      } catch (e) { /* 조회 실패 시 그냥 이니셜 아바타로 대체 */ }
+    }
+    return { tag, nickname, imgUrl }
+  }))
   res.json({ success: true, tags, users })
 })
 

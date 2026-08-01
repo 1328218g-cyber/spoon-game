@@ -29,15 +29,15 @@
   --radius:14px;
 }
 html[data-theme="dark"]{
-  --bg:#0b1420;
-  --panel:#111c2b;
-  --surface:#131f30;
-  --surface2:#17253a;
-  --border:#22374d;
+  --bg:#0a0a12;
+  --panel:#151520;
+  --surface:#181824;
+  --surface2:#1e1e2c;
+  --border:#2c2c3c;
   --accent:#38bdf8;
   --accent2:#fb923c;
-  --text:#e6f1f8;
-  --muted:#96b3c6;
+  --text:#ffffff;
+  --muted:#a3a3b8;
   --success:#22c55e;
   --danger:#f5576e;
   --warn:#f59e0b;
@@ -466,7 +466,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <label>이메일 <span class="hint-inline">(비밀번호 찾기에 사용돼요)</span></label>
       <input type="email" id="authEmail" placeholder="예: edibot@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
       <label>디제이 고유닉 <span class="hint-inline">(필수)</span></label>
-      <input type="text" id="authDjTag" placeholder="예: 단비 (로그인 후 자동입장 다중감시에 바로 등록돼요)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <input type="text" id="authDjTag" placeholder="예: sum (방송에자동입장할고유닉)" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
