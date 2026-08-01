@@ -262,11 +262,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-<<<<<<< HEAD
 const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock'] // 새로 추가하는 모듈은 여기에 키를 등록한다
-=======
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing'] // 새로 추가하는 모듈은 여기에 키를 등록한다
->>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2654,7 +2650,6 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
 
 
 // ══════════════════════════════════════════════════════
-<<<<<<< HEAD
 // 🍞 증권거래소 — 방송용 종합 경제 게임
 // 좋아요·채팅·스푼·출석으로 '머니'를 모아 주식에 투자하고, 슬롯·룰렛·복권 등 미니게임과
 // 은행(예금/대출), 아이템, 랭킹이 하나의 경제로 연결된다. 시세/뉴스/배당/시장이벤트는 전부
@@ -3472,8 +3467,6 @@ async function handleStockCommand(djId, room, settings, author, authorId, liveId
 
 
 // ══════════════════════════════════════════════════════
-=======
->>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 // 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
 // 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 서버가 주기적으로 그 팬보드를
 // 확인해서 일치하는 번호를 찾으면 그 글쓴이를 자동으로 맞팔로우한다.
@@ -4392,11 +4385,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
           handleAutoFollowCommand(djId, settings, author, actTag, text)
           handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
-<<<<<<< HEAD
           handleStockCommand(djId, room, settings, author, authorId, liveId, text)
           handleStockChatHook(djId, settings, author)
-=======
->>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -5793,7 +5783,6 @@ app.post('/autofollow/history/clear', auth.requireAuth, (req, res) => {
 })
 
 // 🎣 낚시 게임
-<<<<<<< HEAD
 app.get('/stock/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const stock = getStockSettings(req.djId, settings)
@@ -5885,8 +5874,6 @@ app.post('/stock/reset', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-=======
->>>>>>> dc1a142a7e5142d8924a4087409270f699150a7b
 app.get('/fishing/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const fishing = getFishingSettings(req.djId, settings)
