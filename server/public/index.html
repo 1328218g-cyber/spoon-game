@@ -28,6 +28,22 @@
   --warn:#d97706;
   --radius:14px;
 }
+html[data-theme="dark"]{
+  --bg:#0b1420;
+  --panel:#111c2b;
+  --surface:#131f30;
+  --surface2:#17253a;
+  --border:#22374d;
+  --accent:#38bdf8;
+  --accent2:#fb923c;
+  --text:#e6f1f8;
+  --muted:#84a2b5;
+  --success:#22c55e;
+  --danger:#f5576e;
+  --warn:#f59e0b;
+}
+html[data-theme="dark"] body{background:var(--bg)}
+html[data-theme="dark"] img{filter:brightness(.92)}
 html,body{height:100%;width:100%;max-width:100%;overflow-x:hidden}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
 *{min-width:0}
@@ -67,6 +83,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .topbar h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
 .topbar .desc{font-size:12px;color:var(--muted);margin-top:2px}
 .status-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:6px 14px;border-radius:20px;flex-shrink:0}
+.theme-toggle-btn{flex-shrink:0;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s}
+.theme-toggle-btn:hover{transform:scale(1.08)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:background 0.3s}
 .dot.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
 .dot.off{background:var(--danger)}
@@ -418,6 +436,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip img{width:28px;height:28px;object-fit:contain}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
+<script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 </head>
 <body>
 
@@ -440,8 +459,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <input type="password" id="authPasswordConfirm" placeholder="비밀번호를 한 번 더 입력해주세요" onkeydown="if(event.key==='Enter')document.getElementById('authEmail').focus()">
       <label>이메일 <span class="hint-inline">(비밀번호 찾기에 사용돼요)</span></label>
       <input type="email" id="authEmail" placeholder="예: edibot@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
-      <label>추천인 고유닉 <span class="hint-inline">(선택사항)</span></label>
-      <input type="text" id="authReferrerId" placeholder="예: 단비 (없으면 비워두세요)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <label>디제이 고유닉 <span class="hint-inline">(필수)</span></label>
+      <input type="text" id="authDjTag" placeholder="예: sum(방송자동입장)" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
@@ -563,6 +582,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
       </div>
       <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
+      <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="다크모드 전환">🌙</button>
+      <button class="theme-toggle-btn" onclick="openCommandsModal()" title="전체 명령어 보기">📋</button>
       <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
     </div>
 
@@ -2434,6 +2455,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   </div>
 </div>
 
+<!-- 📋 전체 명령어 보기 -->
+<div id="commandsModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeCommandsModal()">
+  <div class="modal-box" style="max-width:600px;max-height:82vh;display:flex;flex-direction:column">
+    <div class="modal-title"><span>📋 전체 명령어 보기 <span class="hint" id="cmdModalCount" style="margin:0 0 0 4px"></span></span><button class="icon-btn" onclick="closeCommandsModal()">✕</button></div>
+    <input type="text" id="cmdModalSearch" placeholder="명령어 검색..." oninput="renderCommandsModal()" style="margin-bottom:12px">
+    <div id="cmdModalBody" style="overflow-y:auto;flex:1"><p class="hint">불러오는 중...</p></div>
+  </div>
+</div>
+
 <!-- 💎 유료 전환 안내 -->
 <div id="paidInfoModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePaidInfoModal()">
   <div class="paid-modal-box">
@@ -2507,6 +2537,55 @@ function authHeaders(){
   return djToken ? {'Authorization':'Bearer '+djToken} : {};
 }
 
+let cmdModalGroups=[];
+async function openCommandsModal(){
+  document.getElementById('commandsModalOverlay').style.display='flex';
+  document.getElementById('cmdModalSearch').value='';
+  document.getElementById('cmdModalBody').innerHTML='<p class="hint">불러오는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/commands/list',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ document.getElementById('cmdModalBody').innerHTML='<p class="hint">불러오기 실패</p>'; return; }
+    cmdModalGroups=d.groups;
+    document.getElementById('cmdModalCount').textContent='(총 '+d.total+'개)';
+    renderCommandsModal();
+  }catch(e){ document.getElementById('cmdModalBody').innerHTML='<p class="hint">오류: '+escapeHtml(e.message)+'</p>'; }
+}
+function closeCommandsModal(){ document.getElementById('commandsModalOverlay').style.display='none'; }
+function renderCommandsModal(){
+  const body=document.getElementById('cmdModalBody');
+  const q=document.getElementById('cmdModalSearch').value.trim().toLowerCase();
+  const filtered=cmdModalGroups.map(g=>({
+    ...g,
+    items:g.items.filter(it=>!q || it.cmd.toLowerCase().includes(q) || (it.desc||'').toLowerCase().includes(q) || g.label.toLowerCase().includes(q))
+  })).filter(g=>g.items.length);
+  if(!filtered.length){ body.innerHTML='<p class="hint">'+(cmdModalGroups.length?'검색 결과가 없어요.':'현재 켜져있는 모듈 중 채팅 명령어가 있는 게 없어요. 사이드바에서 원하는 메뉴를 먼저 켜주세요.')+'</p>'; return; }
+  body.innerHTML=filtered.map(g=>`
+    <div style="margin-bottom:18px">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:8px">${g.icon} ${escapeHtml(g.label)} <span class="hint" style="margin-left:4px">(${g.items.length})</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${g.items.map(it=>`
+          <div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+            <code style="font-weight:700;color:var(--accent);white-space:nowrap">${escapeHtml(it.cmd)}</code>
+            ${it.desc?`<span class="hint" style="margin:0">${escapeHtml(it.desc)}</span>`:''}
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function applyThemeIcon(){
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  const btn=document.getElementById('themeToggleBtn');
+  if(btn){ btn.textContent=isDark?'☀️':'🌙'; btn.title=isDark?'라이트모드 전환':'다크모드 전환'; }
+}
+function toggleTheme(){
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  if(isDark){ document.documentElement.removeAttribute('data-theme'); localStorage.setItem('theme','light'); }
+  else { document.documentElement.setAttribute('data-theme','dark'); localStorage.setItem('theme','dark'); }
+  applyThemeIcon();
+}
+applyThemeIcon();
+
 function switchAuthTab(mode){
   authMode=mode;
   document.getElementById('tabLogin').classList.toggle('active',mode==='login');
@@ -2517,7 +2596,7 @@ function switchAuthTab(mode){
   document.getElementById('forgotPwLink').style.display=mode==='login'?'block':'none';
   document.getElementById('authPasswordConfirm').value='';
   document.getElementById('authEmail').value='';
-  document.getElementById('authReferrerId').value='';
+  document.getElementById('authDjTag').value='';
   document.getElementById('authError').textContent='';
 }
 
@@ -2534,16 +2613,17 @@ async function submitAuth(){
     if(pw!==pwConfirm){errEl.textContent='비밀번호가 서로 일치하지 않아요';return;}
     const email=document.getElementById('authEmail').value.trim();
     if(!email){errEl.textContent='비밀번호 찾기에 사용할 이메일을 입력해주세요';return;}
-    const referrerId=document.getElementById('authReferrerId').value.trim();
+    const djTag=document.getElementById('authDjTag').value.trim();
+    if(!djTag){errEl.textContent='디제이 고유닉을 입력해주세요';return;}
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,referrerId,email})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
       document.getElementById('authPassword').value='';
       document.getElementById('authPasswordConfirm').value='';
       document.getElementById('authEmail').value='';
-      document.getElementById('authReferrerId').value='';
+      document.getElementById('authDjTag').value='';
       switchAuthTab('login');
       return;
     }catch(e){errEl.textContent='서버 오류: '+e.message;return;}
@@ -8236,7 +8316,7 @@ function updateAutoJoinStatus(d){
   const watchEl=document.getElementById('watchStatus');
   if(d.status==='watching'){ if(watchEl)watchEl.textContent='⏳ @'+d.tag+' 감시 중...'; return; }
   if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
-  if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
+  if(d.status==='live'){ if(watchEl)watchEl.textContent='🟢 @'+d.tag+' 방송 중 감지!'; return; }
   if(!el)return;
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
   else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}

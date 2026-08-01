@@ -4703,8 +4703,8 @@ app.get('/stickers', async (req, res) => {
 // ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
 app.post('/auth/signup', (req, res) => {
-  const { djId, password, referrerId, email } = req.body || {}
-  const result = store.signup(djId, password, referrerId, email)
+  const { djId, password, djTag, email } = req.body || {}
+  const result = store.signup(djId, password, djTag, email)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
 })
@@ -5889,6 +5889,97 @@ app.post('/stock/jackpot', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { stock })
   res.json({ success: true, jackpot: stock.jackpot })
 })
+// 📋 명령어 보기 — 이 계정에 현재 켜져있는 모든 모듈의 채팅 명령어를 한 번에 모아서 보여준다.
+const FISHING_STATIC_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
+app.get('/commands/list', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const on = (key) => isModuleOn(settings, key, djId)
+  const groups = []
+
+  if (on('shortcuts') && Array.isArray(settings.commands) && settings.commands.length) {
+    groups.push({ key: 'shortcuts', icon: '⌨️', label: '단축키 명령어', items: settings.commands.map(c => ({ cmd: c.trigger, desc: String(c.response || '').slice(0, 40) })).filter(x => x.cmd) })
+  }
+  if (on('request') && settings.songRequest) {
+    const s = settings.songRequest
+    groups.push({
+      key: 'request', icon: '🎵', label: '신청곡 관리', items: [
+        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (관리자)' },
+        { cmd: s.cmdClose, desc: '접수 마감 (관리자)' }, { cmd: s.cmdOpen, desc: '접수 재개 (관리자)' },
+        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (관리자)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (관리자)' },
+        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (관리자)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('shield') && settings.shield && settings.shield.cmd) {
+    groups.push({ key: 'shield', icon: '🛡️', label: '실드 관리', items: [{ cmd: settings.shield.cmd, desc: '실드 개수 조회/적립' }] })
+  }
+  if (on('funding') && settings.funding && settings.funding.cmd) {
+    groups.push({ key: 'funding', icon: '💰', label: '펀딩 관리', items: [{ cmd: settings.funding.cmd, desc: '펀딩 현황 조회' }] })
+  }
+  if (on('flag') && settings.flags && settings.flags.cmd) {
+    groups.push({ key: 'flag', icon: '🚩', label: '단비 깃발', items: [{ cmd: settings.flags.cmd, desc: '깃발 현황 조회' }] })
+  }
+  if (on('loyalty')) {
+    const act = getActivitySettings(djId, settings)
+    groups.push({
+      key: 'loyalty', icon: '⭐', label: '애청지수', items: [
+        { cmd: act.cmdMyInfo, desc: '내 애청지수 조회' }, { cmd: act.cmdCreate, desc: '애청지수 데이터 생성' }, { cmd: act.cmdDelete, desc: '애청지수 데이터 삭제' },
+        { cmd: act.cmdRank, desc: '랭킹 조회' }, { cmd: act.cmdLotto, desc: '복권 사용' }, { cmd: act.cmdAttend, desc: '출석 체크' },
+        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdShop, desc: '상점 조회' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('lottoauto')) {
+    const la = getLottoAutoSettings(djId, settings)
+    groups.push({
+      key: 'lottoauto', icon: '🎟️', label: '복권 자동지급', items: [
+        { cmd: la.cmdStatus, desc: '자동지급 상태 확인' }, { cmd: la.cmdNow, desc: '즉시 지급 실행 (관리자)' },
+        { cmd: la.cmdPause, desc: '자동지급 정지 (관리자)' }, { cmd: la.cmdResume, desc: '자동지급 재개 (관리자)' }, { cmd: la.cmdRefresh, desc: '설정 갱신 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('reactiontimer') && settings.reminderTimer && settings.reminderTimer.cmd) {
+    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [{ cmd: settings.reminderTimer.cmd, desc: '[명령어] [분] [내용] 형식으로 예약 알림 등록' }] })
+  }
+  if (on('dday') && settings.dday && settings.dday.cmd) {
+    groups.push({ key: 'dday', icon: '📅', label: '디데이', items: [{ cmd: settings.dday.cmd, desc: '디데이 등록/조회' }] })
+  }
+  if (on('raffle') && settings.raffle && settings.raffle.cmd) {
+    groups.push({ key: 'raffle', icon: '🎊', label: '추첨', items: [{ cmd: settings.raffle.cmd, desc: '추첨 실행 (관리자)' }] })
+  }
+  if (on('dice') && settings.dice && settings.dice.cmd) {
+    groups.push({ key: 'dice', icon: '🎲', label: '주사위', items: [{ cmd: settings.dice.cmd, desc: '주사위 굴리기' }] })
+  }
+  if (on('couponcheck') && settings.couponCheck) {
+    const cc = settings.couponCheck
+    groups.push({
+      key: 'couponcheck', icon: '🎟️', label: '쿠폰 확인', items: [
+        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive, desc: '룰렛권 지급 (관리자)' }, { cmd: cc.cmdSync, desc: '쿠폰 동기화 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('fishing')) {
+    groups.push({ key: 'fishing', icon: '🎣', label: '낚시 게임', items: FISHING_STATIC_CMDS.map(c => ({ cmd: c, desc: '' })) })
+  }
+  if (on('stock')) {
+    const stock = getStockSettings(djId, settings)
+    const cfg = stock.config
+    const labelMap = {
+      cmdStart: '게임 시작', cmdAttend: '출석', cmdRule: '룰설명', cmdMyInfo: '내 자산 정보', cmdMyMoney: '내 현금 조회',
+      cmdStockList: '전체 시세 조회', cmdMyStock: '내 포트폴리오', cmdRanking: '자산 랭킹', cmdJackpot: '잭팟 조회',
+      cmdDeposit: '예금', cmdWithdraw: '출금', cmdLoan: '대출', cmdRepay: '대출 상환',
+      cmdSlot: '슬롯머신', cmdRoulette: '룰렛', cmdOddEven: '홀짝', cmdDice: '주사위', cmdLotto: '복권',
+      cmdShop: '아이템 상점', cmdBuy: '아이템 구매', cmdUse: '아이템 사용',
+      cmdStockCreate: '종목 설립 (관리자)', cmdStockDelete: '종목 폐지 (관리자)', cmdGiveMoney: '머니 지급 (관리자)',
+    }
+    groups.push({ key: 'stock', icon: '🍞', label: '증권거래소', items: Object.keys(labelMap).map(k => ({ cmd: cfg[k], desc: labelMap[k] })).filter(x => x.cmd) })
+  }
+
+  const total = groups.reduce((s, g) => s + g.items.length, 0)
+  res.json({ success: true, groups, total })
+})
+
 app.get('/stock/leaderboard', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const stock = getStockSettings(req.djId, settings)

@@ -150,7 +150,7 @@ function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
 
-function signup(djId, password, referrerId, email) {
+function signup(djId, password, djTag, email) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
@@ -159,18 +159,10 @@ function signup(djId, password, referrerId, email) {
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
 
-  // 추천인 고유닉은 선택 사항. 입력했다면 실제로 존재하는 계정인지, 본인 아이디는 아닌지 확인한다.
-  let cleanReferrer = null;
-  const rawReferrer = String(referrerId || '').trim().replace(/^@/, '');
-  if (rawReferrer) {
-    if (rawReferrer.toLowerCase() === djId.toLowerCase()) {
-      return { ok: false, error: '본인 아이디는 추천인으로 입력할 수 없어요' };
-    }
-    if (!djs[rawReferrer]) {
-      return { ok: false, error: '존재하지 않는 추천인 고유닉이에요' };
-    }
-    cleanReferrer = rawReferrer;
-  }
+  // 디제이 고유닉은 필수. 가입 즉시 다중감시(자동입장) 목록에 자동으로 등록해서,
+  // 로그인 후 별도 설정 없이도 자동입장이 바로 동작하게 한다.
+  const cleanTag = String(djTag || '').trim().replace(/^@/, '');
+  if (!cleanTag) return { ok: false, error: '디제이 고유닉을 입력해주세요 (자동입장에 사용돼요)' };
 
   // 최초 가입 시 기본 이용기간은 관리자가 설정한 일수(초기값 4일)로 적용한다 (관리자 sum 계정은 예외로 무제한).
   // 0으로 설정해두면 신규가입자도 처음부터 무제한으로 시작한다. 이후 관리자가 유저 관리 화면에서
@@ -185,6 +177,20 @@ function signup(djId, password, referrerId, email) {
     }
   }
 
+  // 가입한 고유닉을 다중감시 목록에 바로 등록해서, 로그인 직후 자동입장 화면에서 별도 설정 없이 동작하게 한다.
+  settings.autoJoinTags = [cleanTag];
+  settings.autoJoinWatch = true;
+  settings.autoJoinTag = cleanTag;
+
+  // 입장/좋아요 인사말은 기본으로 하나씩 켜둬서, 별도 설정 없이도 바로 인사멘트가 나가게 한다.
+  settings.entryData = {
+    entry: [{ id: 1, enabled: true, target: '', text: '{nickname}님 어서오세요! 🎉', delay: 1, sound: '' }],
+    leave: [],
+    like: [{ id: 1, enabled: true, target: '', text: '{nickname}님 좋아요 감사해요! ❤️', delay: 1, sound: '' }],
+    gift: [],
+    repeat: [],
+  };
+
   djs[djId] = {
     passwordHash: bcrypt.hashSync(password, 10),
     email: cleanEmail, // 비밀번호 찾기 본인확인용
@@ -192,7 +198,7 @@ function signup(djId, password, referrerId, email) {
     createdAt: Date.now(),
     blocked: false,
     autoJoinEnabled: true, // 다중감시(자동입장)는 이제 별도 관리자 권한 없이 누구나 기본 사용 가능
-    referrerId: cleanReferrer, // 가입 시 입력한 추천인 고유닉 (없으면 null)
+    djTag: cleanTag, // 가입 시 등록한 본인 디제이 고유닉
   };
   saveDjs(djs);
   return { ok: true };
