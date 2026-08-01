@@ -2492,7 +2492,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 <div class="toast" id="toast"></div>
 <script>
-const SERVER='https://spoon-game-production.up.railway.app';
+// 접속한 주소(본섭/dev 등) 기준으로 자동으로 맞는 서버를 사용한다.
+// localhost에서 파일을 직접 열어서 테스트하는 경우에만 예외적으로 본섭 주소를 기본값으로 사용한다.
+const SERVER=(location.origin && location.origin.startsWith('http')) ? location.origin : 'https://spoon-game-production.up.railway.app';
 
 /* ── 인증 (디제이 로그인) ── */
 let djToken=localStorage.getItem('djToken')||sessionStorage.getItem('djToken')||'';
