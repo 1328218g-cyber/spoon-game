@@ -5951,6 +5951,30 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
   if (on('dice') && settings.dice && settings.dice.cmd) {
     groups.push({ key: 'dice', icon: '🎲', label: '주사위', items: [{ cmd: settings.dice.cmd, desc: '주사위 굴리기' }] })
   }
+  if (on('roulette')) {
+    const items = []
+    const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
+    list.forEach((rt, i) => {
+      const idx = i + 1
+      const name = rt.name || `룰렛${idx}`
+      items.push({ cmd: `!룰렛${idx}`, desc: `[${name}] 돌리기 (뒤에 숫자 붙이면 여러 번: !룰렛${idx} 3)` })
+      items.push({ cmd: `!룰렛메뉴${idx}`, desc: `[${name}] 항목 목록 확인` })
+      items.push({ cmd: `!룰렛지급${idx}`, desc: `[${name}] 권 지급 (관리자, 예: !룰렛지급${idx} 고유닉 1)` })
+    })
+    items.push(
+      { cmd: '!킵', desc: '내 킵목록 조회 (뒤에 페이지 번호 가능)' },
+      { cmd: '!킵확인N', desc: '[고유닉] 다른 사람 킵목록 조회 (예: !킵확인1 고유닉)' },
+      { cmd: '!킵추가', desc: '[고유닉] [내용] 킵 추가 (관리자)' },
+      { cmd: '!킵사용', desc: '[번호] [수량] 킵 사용 (관리자)' },
+      { cmd: '!이벤트', desc: '내 이벤트목록 조회' },
+      { cmd: '!이벤트확인N', desc: '[고유닉] 다른 사람 이벤트목록 조회' },
+      { cmd: '!이벤트사용', desc: '[번호] [수량] 이벤트 항목 사용 (관리자)' },
+      { cmd: '!내카드', desc: '내 기타목록 조회' },
+      { cmd: '!내카드확인N', desc: '[고유닉] 다른 사람 기타목록 조회' },
+      { cmd: '!내카드사용', desc: '[번호] [수량] 기타 항목 사용 (관리자)' },
+    )
+    groups.push({ key: 'roulette', icon: '🎡', label: '룰렛', items })
+  }
   if (on('couponcheck') && settings.couponCheck) {
     const cc = settings.couponCheck
     groups.push({
