@@ -512,8 +512,17 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
     // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
     response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
   }
-  // 호스트/랭킹 변수는 아직 미지원 — 빈 값으로 처리
-  response = response.replace(/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/g, '')
+  // 호스트(대시보드에 등록해둔 방송하는 DJ 본인) 정보 및 이달의 DJ 랭킹 변수
+  if (/{host_nickname}|{host_tag}|{rank}|{choice_rank}|{like_rank}|{time_rank}/.test(response)) {
+    const rv = buildDashboardRankVars(settings)
+    response = response
+      .replace(/{host_nickname}/g, rv.nickname)
+      .replace(/{host_tag}/g, rv.tag ? `@${rv.tag}` : '')
+      .replace(/{rank}/g, rv.rank)
+      .replace(/{choice_rank}/g, rv.choice_rank)
+      .replace(/{like_rank}/g, rv.like_rank)
+      .replace(/{time_rank}/g, rv.time_rank)
+  }
 
   setTimeout(() => sendChatToRoom(djId, response), 400)
 }
@@ -1560,12 +1569,16 @@ function getDashboardData(djId, settings) {
       spoonLog: {}, // { 'YYYY-MM-DD': { total, byUser: { tag: { nickname, amount, count } } } }
       heartLog: {}, // { tag: { nickname, count } }
       likeStats: { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 },
+      djTag: '', // 이달의 DJ 랭킹(초이스/좋아요/방송시간) 조회에 쓸, 등록해둔 본인 고유닉
+      rankData: null, // { nickname, tag, ranks:{next_choice,free_like,live_time}, updatedAt }
     }
     store.saveSettings(djId, { dashboard: settings.dashboard })
   }
   if (!settings.dashboard.spoonLog) settings.dashboard.spoonLog = {}
   if (!settings.dashboard.heartLog) settings.dashboard.heartLog = {}
   if (!settings.dashboard.likeStats) settings.dashboard.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 }
+  if (settings.dashboard.djTag == null) settings.dashboard.djTag = ''
+  if (settings.dashboard.rankData === undefined) settings.dashboard.rankData = null
   return settings.dashboard
 }
 
@@ -1627,6 +1640,77 @@ function searchDashRank(tag) {
   if (!found) return { success: false, error: '랭킹 데이터에서 해당 유저를 찾을 수 없습니다.' }
   return { success: true, data: results }
 }
+
+// "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위" 형태의 한 줄 요약 문구를 만든다.
+function formatRankSummary(ranks) {
+  if (!ranks) return ''
+  const fmt = v => (v ? v + '위' : '순위없음')
+  return `✨초이스: ${fmt(ranks.next_choice)} | ❤️좋아요: ${fmt(ranks.free_like)} | ⏱시간: ${fmt(ranks.live_time)}`
+}
+
+// 반복문구/단축키 명령어에서 쓰는 {nickname}{tag}{rank}{choice_rank}{like_rank}{time_rank}
+// (대시보드에 등록해둔 "본인" 고유닉 기준 — 채팅 친 시청자가 아니라 방송하는 DJ 본인 정보)
+function buildDashboardRankVars(settings) {
+  const dash = settings && settings.dashboard
+  const rd = dash && dash.rankData
+  if (!rd) return { nickname: '', tag: dash ? (dash.djTag || '') : '', rank: '', choice_rank: '', like_rank: '', time_rank: '' }
+  const r = rd.ranks || {}
+  return {
+    nickname: rd.nickname || '',
+    tag: rd.tag || dash.djTag || '',
+    rank: formatRankSummary(r),
+    choice_rank: r.next_choice ? `${r.next_choice}위` : '',
+    like_rank: r.free_like ? `${r.free_like}위` : '',
+    time_rank: r.live_time ? `${r.live_time}위` : '',
+  }
+}
+
+// 등록된 djTag 기준으로 랭킹을 다시 조회해서 settings.dashboard.rankData에 저장한다.
+// needScan이 true면(캐시가 없거나 너무 오래됐으면) 전체 랭킹판을 먼저 새로 긁어온다.
+async function refreshDashboardRankFor(djId, settings) {
+  const dash = getDashboardData(djId, settings)
+  if (!dash.djTag) return { success: false, error: '등록된 고유닉이 없어요' }
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) return scanResult
+  }
+  const r = searchDashRank(dash.djTag)
+  if (!r.success) {
+    dash.rankData = { nickname: '', tag: dash.djTag, ranks: {}, updatedAt: Date.now(), notFound: true }
+    store.saveSettings(djId, { dashboard: dash })
+    return r
+  }
+  dash.rankData = { nickname: r.data.nickname, tag: dash.djTag, ranks: r.data.ranks, updatedAt: Date.now(), notFound: false }
+  store.saveSettings(djId, { dashboard: dash })
+  return { success: true, data: dash.rankData }
+}
+
+// 봇이 방송에 접속해있는 동안, 고유닉을 등록해둔 계정은 10분마다 자동으로 랭킹을 갱신한다.
+// 랭킹판 전체 스캔은 무거워서(전체 DJ 대상) 한 번만 하고, 등록된 모든 계정이 그 결과를 같이 사용한다.
+const DASH_RANK_AUTO_REFRESH_MS = 10 * 60 * 1000
+setInterval(async () => {
+  const targets = []
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'dashboard', djId)) continue
+    const dash = getDashboardData(djId, settings)
+    if (dash.djTag) targets.push(djId)
+  }
+  if (!targets.length) return
+  const scanResult = await scanDashRank()
+  if (!scanResult.success) { console.log('[대시보드랭킹] 자동 갱신 스캔 실패:', scanResult.error); return }
+  for (const djId of targets) {
+    const settings = store.getSettings(djId) || {}
+    const dash = getDashboardData(djId, settings)
+    const r = searchDashRank(dash.djTag)
+    if (r.success) dash.rankData = { nickname: r.data.nickname, tag: dash.djTag, ranks: r.data.ranks, updatedAt: Date.now(), notFound: false }
+    else dash.rankData = { nickname: '', tag: dash.djTag, ranks: {}, updatedAt: Date.now(), notFound: true }
+    store.saveSettings(djId, { dashboard: dash })
+  }
+  console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
+}, DASH_RANK_AUTO_REFRESH_MS)
 
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
@@ -4601,7 +4685,14 @@ setInterval(() => {
         return
       }
       if (now - last >= intervalMs) {
-        const out = text.replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+        const rv = buildDashboardRankVars(settings)
+        const out = text
+          .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+          .replace(/{nickname}/g, rv.nickname)
+          .replace(/{rank}/g, rv.rank)
+          .replace(/{choice_rank}/g, rv.choice_rank)
+          .replace(/{like_rank}/g, rv.like_rank)
+          .replace(/{time_rank}/g, rv.time_rank)
         sendChatToRoom(djId, out)
         lastMap[m.id] = now
       }
@@ -4994,7 +5085,10 @@ app.get('/live/members', auth.requireAuth, async (req, res) => {
   try {
     const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
-    members.forEach(u => { if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag) })
+    members.forEach(u => {
+      if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag)
+      if (u.imgUrl) rememberProfileUrl(room, u.tag, u.nickname, u.imgUrl)
+    })
     res.json({ success: true, members })
   } catch (e) {
     res.json({ success: false, error: e.message })
@@ -5017,9 +5111,23 @@ app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
   res.json({ success: true, key, nickname: d.nickname || key, lotto: d.lotto })
 })
 
-app.get('/activity/users', auth.requireAuth, (req, res) => {
+app.get('/activity/users', auth.requireAuth, async (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const act = getActivitySettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  let changed = false
+  await Promise.all(Object.entries(act.users).map(async ([key, d]) => {
+    if (d.imgUrl) { rememberProfileUrl(room, d.tag, d.nickname, d.imgUrl); return }
+    let imgUrl = getCachedProfileUrl(room, d.tag, d.nickname)
+    if (!imgUrl && d.tag) {
+      try {
+        const info = await fetchUserStatusByTag(d.tag)
+        if (info && info.photoUrl) imgUrl = info.photoUrl
+      } catch (e) { /* 조회 실패 시 이니셜 아바타로 대체 */ }
+    }
+    if (imgUrl) { d.imgUrl = imgUrl; changed = true; rememberProfileUrl(room, d.tag, d.nickname, imgUrl) }
+  }))
+  if (changed) store.saveSettings(req.djId, { activity: act })
   const list = Object.entries(act.users).map(([key, d]) => {
     const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
     return { key, nickname: d.nickname || key, tag: d.tag || '', exp: d.exp || 0, level, curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lotto: d.lotto || 0, imgUrl: d.imgUrl || '' }
@@ -5611,6 +5719,20 @@ app.post('/dashboard/rank/scan', auth.requireAuth, async (req, res) => {
 app.get('/dashboard/rank/search/:tag', auth.requireAuth, (req, res) => {
   const r = searchDashRank(req.params.tag)
   res.json(r)
+})
+// 대시보드에 "본인 고유닉"을 등록 + 즉시 랭킹 조회. 반복문구/단축키의 {nickname}{tag}{rank}
+// {choice_rank}{like_rank}{time_rank} 변수는 전부 여기서 등록한 값을 기준으로 채워진다.
+app.post('/dashboard/rank/register', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dashboard', req.djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const dash = getDashboardData(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace(/^@/, '')
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  dash.djTag = tag
+  store.saveSettings(req.djId, { dashboard: dash })
+  const r = await refreshDashboardRankFor(req.djId, settings)
+  if (!r.success) return res.json({ success: false, error: r.error || '랭킹 조회에 실패했어요', djTag: tag })
+  res.json({ success: true, data: r.data })
 })
 
 // 🎡 돌림판 룰렛
