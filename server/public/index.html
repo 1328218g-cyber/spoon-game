@@ -2144,6 +2144,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="tab-btn" data-t="stocks" onclick="switchStockTab('stocks')">📊 종목 관리</button>
           <button class="tab-btn" data-t="news" onclick="switchStockTab('news')">📰 뉴스 문구</button>
           <button class="tab-btn" data-t="items" onclick="switchStockTab('items')">🛍️ 아이템 상점</button>
+          <button class="tab-btn" data-t="users" onclick="switchStockTab('users')">👤 유저 관리</button>
         </div>
 
         <div class="card" data-stocksec="basic">
@@ -2297,6 +2298,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-connect" onclick="saveStockSettings()">저장</button>
             <button class="btn-gray" onclick="stockResetTab('items')">기본값 초기화</button>
           </div>
+        </div>
+
+        <div class="card" data-stocksec="users" style="display:none">
+          <div class="card-title"><span>👤 유저 관리 <span class="hint" id="stkUsersCount" style="margin:0 0 0 4px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadStockUsers()">🔄 새로고침</button></div>
+          <p class="hint">전부 고유닉 기준으로 관리돼요. 돈 지급/차감은 즉시 반영되고, 채팅으로도 안내 메시지가 나가요.</p>
+          <input type="text" id="stkUserSearch" placeholder="고유닉 또는 닉네임으로 검색" oninput="loadStockUsers()" style="margin-bottom:10px">
+          <div style="overflow-x:auto"><table class="user-table" id="stkUsersTable" style="min-width:920px">
+            <thead><tr><th>고유닉</th><th>닉네임</th><th>현금</th><th>예금</th><th>대출</th><th>주식평가액</th><th>총자산</th><th>상태</th><th style="min-width:220px">조정</th><th></th></tr></thead>
+            <tbody id="stkUsersBody"></tbody>
+          </table></div>
         </div>
 
         <div class="card">
@@ -7602,6 +7613,7 @@ async function loadStockSettings(){
     renderStockItemsTable();
   }catch(e){}
   loadStockLeaderboard();
+  loadStockUsers();
 }
 
 async function saveStockSettings(){
@@ -7642,6 +7654,63 @@ async function saveStockSettings(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+let stockUsersSearchTimer=null;
+async function loadStockUsers(){
+  const body=document.getElementById('stkUsersBody');
+  if(!body)return;
+  clearTimeout(stockUsersSearchTimer);
+  stockUsersSearchTimer=setTimeout(async ()=>{
+    const q=document.getElementById('stkUserSearch').value.trim();
+    try{
+      const res=await fetch(SERVER+'/stock/users?q='+encodeURIComponent(q),{headers:authHeaders()});
+      const d=await res.json();
+      if(!d.success)return;
+      document.getElementById('stkUsersCount').textContent='('+d.count+')';
+      if(!d.users.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="10">등록된 유저가 없어요.</td></tr>'; return; }
+      body.innerHTML=d.users.map(u=>`
+        <tr>
+          <td>@${escapeHtml(u.tag)}</td>
+          <td>${escapeHtml(u.nickname)}</td>
+          <td>${Math.round(u.cash).toLocaleString()}원</td>
+          <td>${Math.round(u.deposit).toLocaleString()}원</td>
+          <td>${Math.round(u.loan).toLocaleString()}원</td>
+          <td>${Math.round(u.stockValue).toLocaleString()}원</td>
+          <td><b>${Math.round(u.total).toLocaleString()}원</b></td>
+          <td>${u.creditBad?'<span class="status-pill ended">신용불량</span>':(u.started?'<span class="status-pill ongoing">정상</span>':'<span class="status-pill">미시작</span>')}</td>
+          <td>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="number" id="stkAdjAmt_${escapeAttr(u.tag)}" placeholder="금액" style="width:100px;padding:6px 8px;font-size:12px">
+              <button class="btn-gray" style="padding:6px 10px;font-size:11.5px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',1)">+지급</button>
+              <button class="btn-gray" style="padding:6px 10px;font-size:11.5px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',-1)">-차감</button>
+            </div>
+          </td>
+          <td><button class="icon-btn danger" onclick="stockDeleteUser('${escapeAttr(u.tag)}','${escapeAttr(u.nickname)}')" title="유저 데이터 삭제">🗑</button></td>
+        </tr>`).join('');
+    }catch(e){}
+  }, 250);
+}
+async function stockAdjustUser(tag, sign){
+  const input=document.getElementById('stkAdjAmt_'+tag);
+  const raw=Number(input.value);
+  if(!raw||raw<=0)return showToast('조정할 금액을 입력해주세요');
+  const delta=raw*sign;
+  try{
+    const res=await fetch(SERVER+'/stock/users/'+encodeURIComponent(tag)+'/adjust',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({delta})});
+    const d=await res.json();
+    if(d.success){ showToast(sign>0?'지급 완료 ✓':'차감 완료 ✓'); loadStockUsers(); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function stockDeleteUser(tag, nickname){
+  if(!confirm(nickname+'(@'+tag+') 유저의 증권거래소 데이터를 삭제할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/stock/users/'+encodeURIComponent(tag),{method:'DELETE',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('삭제했어요'); loadStockUsers(); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function loadStockLeaderboard(){
   const wrap=document.getElementById('stkLeaderboardWrap');
   if(!wrap)return;
@@ -7660,7 +7729,7 @@ async function resetStockData(){
   try{
     const res=await fetch(SERVER+'/stock/reset',{method:'POST',headers:authHeaders()});
     const d=await res.json();
-    if(d.success){ showToast('초기화했어요'); loadStockLeaderboard(); }
+    if(d.success){ showToast('초기화했어요'); loadStockLeaderboard(); loadStockUsers(); }
     else showToast(d.error||'초기화 실패');
   }catch(e){showToast('오류: '+e.message);}
 }

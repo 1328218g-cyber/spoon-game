@@ -2712,21 +2712,26 @@ function getStockSettings(djId, settings) {
 }
 function saveStock(djId, stock) { store.saveSettings(djId, { stock }) }
 
-function stkNewUser(nickname) {
+// 유저 데이터는 "고유닉(tag)"을 기준 키로 저장한다 (닉네임은 바뀔 수 있어서 신뢰 불가).
+function stkNewUser(tag, nickname) {
   return {
-    nickname, cash: 0, holdings: {}, deposit: 0, loan: 0, items: {},
+    tag, nickname: nickname || tag, cash: 0, holdings: {}, deposit: 0, loan: 0, items: {},
     started: false, attended: false, creditBad: false,
     nextDividendX2: false, nextInsurance: false, nextLuckyTicket: false,
     stats: { totalDividend: 0, gambleWin: 0, gambleLose: 0, tradeCount: 0, bankruptCount: 0 },
   }
 }
-function stkGetUser(stock, nickname) {
-  if (!nickname) return null
-  if (!stock.users[nickname]) stock.users[nickname] = stkNewUser(nickname)
-  if (!stock.users[nickname].stats) stock.users[nickname].stats = { totalDividend: 0, gambleWin: 0, gambleLose: 0, tradeCount: 0, bankruptCount: 0 }
-  if (!stock.users[nickname].holdings) stock.users[nickname].holdings = {}
-  if (!stock.users[nickname].items) stock.users[nickname].items = {}
-  return stock.users[nickname]
+// tag가 없으면(고유닉 조회 실패) null을 반환한다 — 증권거래소 관련 동작은 전부 고유닉 기준으로만 처리한다.
+function stkGetUser(stock, tag, nickname) {
+  if (!tag) return null
+  const key = String(tag).trim().toLowerCase()
+  if (!stock.users[key]) stock.users[key] = stkNewUser(key, nickname)
+  const u = stock.users[key]
+  if (!u.stats) u.stats = { totalDividend: 0, gambleWin: 0, gambleLose: 0, tradeCount: 0, bankruptCount: 0 }
+  if (!u.holdings) u.holdings = {}
+  if (!u.items) u.items = {}
+  if (nickname) u.nickname = nickname
+  return u
 }
 function stkFmt(n) { return Math.round(Number(n) || 0).toLocaleString() + '원' }
 function stkParseMoney(str) {
@@ -2810,8 +2815,8 @@ function stkCheckBankrupt(djId, stock, u) {
 
 // 보험 아이템 정산 — 지정 종목의 가격이 내려갔을 때, nextInsurance 플래그가 있는 보유자에게 손실의 50%를 환급
 function stkApplyInsurance(djId, stock, lossMap) {
-  for (const nick in stock.users) {
-    const u = stock.users[nick]
+  for (const key in stock.users) {
+    const u = stock.users[key]
     if (!u.nextInsurance) continue
     let totalLoss = 0
     for (const name in lossMap) {
@@ -2844,11 +2849,11 @@ function stkPriceTick(djId) {
       st.price = newPrice
     })
   }
-  for (const nick in stock.chatAccrual) {
-    const amt = stock.chatAccrual[nick]
+  for (const key in stock.chatAccrual) {
+    const amt = stock.chatAccrual[key]
     if (amt > 0) {
-      const u = stkGetUser(stock, nick)
-      stkAddIncome(djId, stock, u, amt)
+      const u = stock.users[key]
+      if (u) stkAddIncome(djId, stock, u, amt)
     }
   }
   stock.chatAccrual = {}
@@ -2881,8 +2886,8 @@ function stkDividendTick(djId) {
   const stock = getStockSettings(djId, settings)
   const cfg = stock.config
   if (cfg.enabled === false || !stock.stocks.length) return
-  for (const nick in stock.users) {
-    const u = stock.users[nick]
+  for (const key in stock.users) {
+    const u = stock.users[key]
     let total = 0
     const names = []
     for (const name in (u.holdings || {})) {
@@ -2952,8 +2957,8 @@ function stkDailyRoutine(djId) {
   const cap = Number(cfg.depositInterestCap) || 10000000
   const depRate = (Number(cfg.depositInterestPct) || 5) / 100
   const loanRate = (Number(cfg.loanInterestPct) || 10) / 100
-  for (const nick in stock.users) {
-    const u = stock.users[nick]
+  for (const key in stock.users) {
+    const u = stock.users[key]
     if (u.deposit > 0) u.deposit += Math.round(Math.min(u.deposit, cap) * depRate)
     if (u.loan > 0) u.loan += Math.round(u.loan * loanRate)
     u.attended = false
@@ -3005,46 +3010,53 @@ function startStockTimers(djId, liveId) {
   console.log(`[증권거래소:${djId}] 타이머 시작`)
 }
 
-// ── 채팅 적립 훅 (좋아요/채팅/스푼) ──
-function handleStockChatHook(djId, settings, author) {
+// ── 채팅 적립 훅 (좋아요/채팅/스푼) — 전부 고유닉(tag) 기준으로만 적립한다 ──
+function handleStockChatHook(djId, settings, tag, nickname) {
+  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const u = stock.users[author]
+  const key = String(tag).trim().toLowerCase()
+  const u = stock.users[key]
   if (!u || !u.started) return
-  stock.chatAccrual[author] = (stock.chatAccrual[author] || 0) + (Number(stock.config.chatMoney) || 5)
+  if (nickname) u.nickname = nickname
+  stock.chatAccrual[key] = (stock.chatAccrual[key] || 0) + (Number(stock.config.chatMoney) || 5)
   saveStock(djId, stock)
 }
-function handleStockHeartHook(djId, settings, author) {
+function handleStockHeartHook(djId, settings, tag, nickname) {
+  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const u = stock.users[author]
+  const u = stkGetUser(stock, tag, nickname)
   if (!u || !u.started) return
   stkAddIncome(djId, stock, u, Number(stock.config.likeMoney) || 50)
   saveStock(djId, stock)
 }
-function handleStockDonationHook(djId, settings, author, spoonCount) {
+function handleStockDonationHook(djId, settings, tag, nickname, spoonCount) {
+  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const u = stock.users[author]
+  const u = stkGetUser(stock, tag, nickname)
   if (!u || !u.started) return
   stkAddIncome(djId, stock, u, Math.max(0, spoonCount) * (Number(stock.config.spoonMoney) || 100))
   saveStock(djId, stock)
 }
 
-// ── 명령어 핸들러 ──
-function stkCmdStart(djId, stock, author) {
-  const u = stkGetUser(stock, author)
-  if (u.started) { stkReply(djId, `⚠️ ${author}님은 이미 시작했어요. ${stock.config.cmdMyInfo}로 확인하세요.`); return }
+// ── 명령어 핸들러 (전부 tag를 받아서 stkGetUser로 유저를 찾는다. nickname은 표시용) ──
+function stkCmdStart(djId, stock, tag, nickname) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
+  if (u.started) { stkReply(djId, `⚠️ ${nickname}님은 이미 시작했어요. ${stock.config.cmdMyInfo}로 확인하세요.`); return }
   u.started = true
   u.cash = (u.cash || 0) + (Number(stock.config.startMoney) || 100000)
   saveStock(djId, stock)
-  stkReply(djId, `🍞 ${author}님, 식빵 증권거래소에 오신 걸 환영해요! 시작금 ${stkFmt(stock.config.startMoney || 100000)} 지급 완료!`)
+  stkReply(djId, `🍞 ${nickname}님, 식빵 증권거래소에 오신 걸 환영해요! 시작금 ${stkFmt(stock.config.startMoney || 100000)} 지급 완료!`)
 }
-function stkCmdAttend(djId, stock, author) {
-  const u = stkGetUser(stock, author)
+function stkCmdAttend(djId, stock, tag, nickname) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.attended) { stkReply(djId, '⚠️ 오늘 방송에서는 이미 출석했어요.'); return }
   u.attended = true
@@ -3077,18 +3089,20 @@ function stkCmdRule(djId, cfg, parts) {
   const t = texts[topic]
   stkReply(djId, t || `⚠️ '${topic}' 항목을 찾을 수 없어요. ${cfg.cmdRule} 으로 목록을 확인해주세요.`)
 }
-function stkCmdMyInfo(djId, stock, author) {
-  const u = stkGetUser(stock, author)
+function stkCmdMyInfo(djId, stock, tag, nickname) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   let stockValue = 0
   for (const name in u.holdings) { const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name); if (st) stockValue += h.qty * st.price }
   const total = stkTotalAssets(stock, u)
-  stkReply(djId, `🍞 ${author}님의 자산 정보\n🏅 칭호 : ${stkTitle(total)}\n💰 현금 : ${stkFmt(u.cash)}\n📊 주식 : ${stkFmt(stockValue)}\n🏦 예금 : ${stkFmt(u.deposit)}\n💳 대출 : -${stkFmt(u.loan)}\n━━━━━━━━━━━━━━\n💎 총자산 : ${stkFmt(total)}`)
+  stkReply(djId, `🍞 ${u.nickname}님의 자산 정보\n🏅 칭호 : ${stkTitle(total)}\n💰 현금 : ${stkFmt(u.cash)}\n📊 주식 : ${stkFmt(stockValue)}\n🏦 예금 : ${stkFmt(u.deposit)}\n💳 대출 : -${stkFmt(u.loan)}\n━━━━━━━━━━━━━━\n💎 총자산 : ${stkFmt(total)}`)
 }
-function stkCmdMyMoney(djId, stock, author) {
-  const u = stkGetUser(stock, author)
+function stkCmdMyMoney(djId, stock, tag, nickname) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
-  stkReply(djId, `💰 ${author}님의 보유 현금: ${stkFmt(u.cash)}`)
+  stkReply(djId, `💰 ${u.nickname}님의 보유 현금: ${stkFmt(u.cash)}`)
 }
 function stkCmdStockList(djId, stock) {
   if (!stock.stocks.length) { stkReply(djId, '📊 아직 개설된 종목이 없어요.'); return }
@@ -3101,10 +3115,11 @@ function stkCmdStockList(djId, stock) {
   const nextDiv = Math.max(0, Math.round(((stock.nextDividendAt || Date.now()) - Date.now()) / 60000))
   stkReply(djId, `🍞 식빵 증권거래소 🍞\n━━━━━━━━━━━━━━\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n⏰ 다음 시세변경 : ${nextPrice}분\n💵 다음 배당까지 : ${nextDiv}분\n💎 현재 잭팟 : ${stkFmt(stock.jackpot)}`)
 }
-function stkCmdMyStock(djId, stock, author) {
-  const u = stkGetUser(stock, author)
+function stkCmdMyStock(djId, stock, tag, nickname) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   const names = Object.keys(u.holdings || {}).filter(n => u.holdings[n].qty > 0)
-  if (!names.length) { stkReply(djId, `📊 ${author}님은 보유 중인 주식이 없어요.`); return }
+  if (!names.length) { stkReply(djId, `📊 ${u.nickname}님은 보유 중인 주식이 없어요.`); return }
   let totalVal = 0, totalCost = 0
   const lines = names.map((name, i) => {
     const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name)
@@ -3116,7 +3131,7 @@ function stkCmdMyStock(djId, stock, author) {
     return `${i + 1}. ${name} ${h.qty}주 | 평단 ${Math.round(h.avgPrice).toLocaleString()} | ${pct >= 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(1)}%`
   })
   const diff = totalVal - totalCost
-  stkReply(djId, `📊 ${author}님의 포트폴리오\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 평가액 ${stkFmt(totalVal)} (${diff >= 0 ? '+' : ''}${stkFmt(diff)})`)
+  stkReply(djId, `📊 ${u.nickname}님의 포트폴리오\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 평가액 ${stkFmt(totalVal)} (${diff >= 0 ? '+' : ''}${stkFmt(diff)})`)
 }
 function stkCmdRanking(djId, stock, cfg) {
   const entries = Object.values(stock.users).filter(u => u.started).map(u => ({ nickname: u.nickname, total: stkTotalAssets(stock, u) })).sort((a, b) => b.total - a.total).slice(0, 5)
@@ -3126,8 +3141,9 @@ function stkCmdRanking(djId, stock, cfg) {
 }
 function stkCmdJackpot(djId, stock) { stkReply(djId, `💎 현재 잭팟 누적금: ${stkFmt(stock.jackpot)}`) }
 
-function stkCmdDeposit(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdDeposit(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const amt = stkParseMoney(parts.slice(1).join(' '))
   if (!amt || amt <= 0) { stkReply(djId, '사용법: !예금 [금액] (예: !예금 5만원)'); return }
@@ -3136,8 +3152,9 @@ function stkCmdDeposit(djId, stock, author, parts) {
   saveStock(djId, stock)
   stkReply(djId, `🏦 예금 완료! ${stkFmt(amt)} (예금 잔액: ${stkFmt(u.deposit)})`)
 }
-function stkCmdWithdraw(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdWithdraw(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const amt = stkParseMoney(parts.slice(1).join(' '))
   if (!amt || amt <= 0) { stkReply(djId, '사용법: !출금 [금액]'); return }
@@ -3146,8 +3163,9 @@ function stkCmdWithdraw(djId, stock, author, parts) {
   saveStock(djId, stock)
   stkReply(djId, `🏦 출금 완료! ${stkFmt(amt)} (보유 현금: ${stkFmt(u.cash)})`)
 }
-function stkCmdLoan(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdLoan(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const amt = stkParseMoney(parts.slice(1).join(' '))
   if (!amt || amt <= 0) { stkReply(djId, '사용법: !대출 [금액]'); return }
@@ -3157,8 +3175,9 @@ function stkCmdLoan(djId, stock, author, parts) {
   saveStock(djId, stock)
   stkReply(djId, `💳 대출 실행! ${stkFmt(amt)} 지급 (대출 잔액: ${stkFmt(u.loan)})`)
 }
-function stkCmdRepay(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdRepay(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const amt = stkParseMoney(parts.slice(1).join(' '))
   if (!amt || amt <= 0) { stkReply(djId, '사용법: !상환 [금액]'); return }
@@ -3171,8 +3190,9 @@ function stkCmdRepay(djId, stock, author, parts) {
 }
 
 const STK_SLOT_ALLOWED = [10000, 50000, 100000, 500000]
-function stkCmdSlot(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdSlot(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   const amt = stkParseMoney(parts.slice(1).join(' '))
@@ -3219,10 +3239,11 @@ function stkCmdSlot(djId, stock, author, parts) {
   stkCheckBankrupt(djId, stock, u)
   saveStock(djId, stock)
   const net = winAmount - amt
-  stkReply(djId, `🎰 ${author}님의 슬롯\n${symbols.join(' | ')}\n${winAmount > 0 ? `✨ 당첨! +${stkFmt(winAmount)}` : '😢 꽝!'} (${net >= 0 ? '+' : ''}${stkFmt(net)})\n💎 현재 잭팟 : ${stkFmt(stock.jackpot)}`)
+  stkReply(djId, `🎰 ${u.nickname}님의 슬롯\n${symbols.join(' | ')}\n${winAmount > 0 ? `✨ 당첨! +${stkFmt(winAmount)}` : '😢 꽝!'} (${net >= 0 ? '+' : ''}${stkFmt(net)})\n💎 현재 잭팟 : ${stkFmt(stock.jackpot)}`)
 }
-function stkCmdRoulette(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdRoulette(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   const color = parts[1]
@@ -3239,10 +3260,11 @@ function stkCmdRoulette(djId, stock, author, parts) {
   if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
   stkCheckBankrupt(djId, stock, u)
   saveStock(djId, stock)
-  stkReply(djId, `🎡 ${author}님의 룰렛 (선택: ${color})\n결과: ${resultColor}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
+  stkReply(djId, `🎡 ${u.nickname}님의 룰렛 (선택: ${color})\n결과: ${resultColor}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
 }
-function stkCmdOddEven(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdOddEven(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   const pick = parts[1]
@@ -3256,10 +3278,11 @@ function stkCmdOddEven(djId, stock, author, parts) {
   if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
   stkCheckBankrupt(djId, stock, u)
   saveStock(djId, stock)
-  stkReply(djId, `⚫ ${author}님의 홀짝 (선택: ${pick})\n결과: ${result}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
+  stkReply(djId, `⚫ ${u.nickname}님의 홀짝 (선택: ${pick})\n결과: ${result}\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 실패! -${stkFmt(amt)}`}`)
 }
-function stkCmdDice(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdDice(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   const pick = parseInt(parts[1], 10)
@@ -3273,10 +3296,11 @@ function stkCmdDice(djId, stock, author, parts) {
   if (win) { u.cash += payout; u.stats.gambleWin = (u.stats.gambleWin || 0) + 1 } else { u.stats.gambleLose = (u.stats.gambleLose || 0) + 1 }
   stkCheckBankrupt(djId, stock, u)
   saveStock(djId, stock)
-  stkReply(djId, `🎲 ${author}님의 주사위 (선택: ${pick})\n데굴데굴... 결과는 [ ${result} ]!\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 아쉽습니다! -${stkFmt(amt)}`}`)
+  stkReply(djId, `🎲 ${u.nickname}님의 주사위 (선택: ${pick})\n데굴데굴... 결과는 [ ${result} ]!\n${win ? `🎉 적중! +${stkFmt(payout - amt)}` : `😢 아쉽습니다! -${stkFmt(amt)}`}`)
 }
-function stkCmdLotto(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdLotto(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   let n = parseInt(parts[1], 10); if (!n || n < 1) n = 1
@@ -3300,15 +3324,16 @@ function stkCmdLotto(djId, stock, author, parts) {
   if (totalWin > 0) u.stats.gambleWin = (u.stats.gambleWin || 0) + 1; else u.stats.gambleLose = (u.stats.gambleLose || 0) + 1
   stkCheckBankrupt(djId, stock, u)
   saveStock(djId, stock)
-  stkReply(djId, `🎟️ ${author}님의 복권 ${n}장\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 총 당첨 ${stkFmt(totalWin)} / 구매 ${stkFmt(cost)}`)
+  stkReply(djId, `🎟️ ${u.nickname}님의 복권 ${n}장\n${lines.join('\n')}\n━━━━━━━━━━━━━━\n💰 총 당첨 ${stkFmt(totalWin)} / 구매 ${stkFmt(cost)}`)
 }
 
 function stkCmdShop(djId, cfg) {
   const lines = (cfg.items || []).map((it, i) => `${i + 1}. ${it.name} — ${stkFmt(it.price)} (${it.desc || ''})`)
   stkReply(djId, `🛍️ 아이템 상점\n${lines.join('\n')}\n→ !구매 [아이템명] 으로 구매하세요`)
 }
-function stkCmdBuyItem(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdBuyItem(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const name = parts.slice(1).join(' ').trim()
   const item = (stock.config.items || []).find(it => it.name === name)
@@ -3319,8 +3344,9 @@ function stkCmdBuyItem(djId, stock, author, parts) {
   saveStock(djId, stock)
   stkReply(djId, `🛍️ ${item.name} 구매 완료! (보유: ${u.items[item.name]}개)`)
 }
-function stkCmdUseItem(djId, stock, author, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdUseItem(djId, stock, tag, nickname, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const name = parts[1]
   if (!name || !u.items[name] || u.items[name] <= 0) { stkReply(djId, '❌ 보유하지 않은 아이템이에요.'); return }
@@ -3336,7 +3362,7 @@ function stkCmdUseItem(djId, stock, author, parts) {
     }
     u.items[name]--
     saveStock(djId, stock)
-    stkReply(djId, `🔍 ${author}님의 시장분석 결과 — ${st.name}은(는) 다음 시세 변동에서 ${pct >= 0 ? '상승' : '하락'}할 것으로 보여요! (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`)
+    stkReply(djId, `🔍 ${u.nickname}님의 시장분석 결과 — ${st.name}은(는) 다음 시세 변동에서 ${pct >= 0 ? '상승' : '하락'}할 것으로 보여요! (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`)
     return
   }
   if (name === '배당쿠폰') { u.items[name]--; u.nextDividendX2 = true; saveStock(djId, stock); stkReply(djId, '🎫 배당쿠폰 사용! 다음 배당이 2배가 돼요.'); return }
@@ -3345,8 +3371,9 @@ function stkCmdUseItem(djId, stock, author, parts) {
   stkReply(djId, '❌ 사용할 수 없는 아이템이에요.')
 }
 
-function stkCmdTrade(djId, stock, author, st, parts) {
-  const u = stkGetUser(stock, author)
+function stkCmdTrade(djId, stock, tag, nickname, st, parts) {
+  const u = stkGetUser(stock, tag, nickname)
+  if (!u) { stkReply(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'); return }
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   const rest = parts.slice(1).join('').replace(/\s+/g, '')
   let qty = 0, action = null
@@ -3403,8 +3430,8 @@ function stkCmdStockDelete(djId, stock, parts) {
   const idx = stock.stocks.findIndex(s => s.name === name)
   if (idx < 0) { stkReply(djId, '❌ 없는 종목이에요.'); return }
   const st = stock.stocks[idx]
-  for (const nick in stock.users) {
-    const u = stock.users[nick]
+  for (const key in stock.users) {
+    const u = stock.users[key]
     const h = u.holdings[name]
     if (h && h.qty > 0) { u.cash += h.qty * st.price; delete u.holdings[name] }
   }
@@ -3412,18 +3439,21 @@ function stkCmdStockDelete(djId, stock, parts) {
   saveStock(djId, stock)
   stkReply(djId, `🗑️ ${name} 종목이 폐지됐어요. 보유자 전원에게 현재가로 정산 완료.`)
 }
-function stkCmdGiveMoney(djId, stock, parts) {
-  const nickname = parts[1]
+// !머니지급 [고유닉] [금액] — 닉네임이 아니라 반드시 "고유닉"을 직접 입력해야 한다.
+function stkCmdGiveMoney(djId, room, stock, parts) {
+  let targetTag = parts[1]
   const amt = stkParseMoney(parts.slice(2).join(' '))
-  if (!nickname || !amt) { stkReply(djId, '사용법: !머니지급 [닉네임] [금액]'); return }
-  const u = stkGetUser(stock, nickname)
+  if (!targetTag || !amt) { stkReply(djId, '사용법: !머니지급 [고유닉] [금액] (닉네임이 아니라 고유닉을 입력해주세요)'); return }
+  targetTag = targetTag.replace(/^@/, '').trim().toLowerCase()
+  const knownNickname = (room && room.tagToNickname && room.tagToNickname.get(targetTag)) || targetTag
+  const u = stkGetUser(stock, targetTag, knownNickname)
   u.cash = (u.cash || 0) + amt
   saveStock(djId, stock)
-  stkReply(djId, `🎁 [운영자] ${nickname}님께 ${stkFmt(amt)} 지급 완료 (보유 현금: ${stkFmt(u.cash)})`)
+  stkReply(djId, `🎁 [운영자] ${u.nickname}님(@${targetTag})께 ${stkFmt(amt)} 지급 완료 (보유 현금: ${stkFmt(u.cash)})`)
 }
 
-// ── 채팅 이벤트 마스터 디스패처 ──
-async function handleStockCommand(djId, room, settings, author, authorId, liveId, text) {
+// ── 채팅 이벤트 마스터 디스패처 ── actTag: 이 메시지에서 이미 조회해둔 발화자의 고유닉 (재사용, 중복 API 호출 방지)
+async function handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
   if (!isModuleOn(settings, 'stock', djId)) return
   const msg = String(text || '').trim()
   if (!msg.startsWith('!')) return
@@ -3436,33 +3466,33 @@ async function handleStockCommand(djId, room, settings, author, authorId, liveId
 
   if (cmd === cfg.cmdStockCreate) { if (isDj) stkCmdStockCreate(djId, stock, parts); return }
   if (cmd === cfg.cmdStockDelete) { if (isDj) stkCmdStockDelete(djId, stock, parts); return }
-  if (cmd === cfg.cmdGiveMoney) { if (isDj) stkCmdGiveMoney(djId, stock, parts); return }
+  if (cmd === cfg.cmdGiveMoney) { if (isDj) stkCmdGiveMoney(djId, room, stock, parts); return }
 
-  if (cmd === cfg.cmdStart) return stkCmdStart(djId, stock, author)
-  if (cmd === cfg.cmdAttend) return stkCmdAttend(djId, stock, author)
+  if (cmd === cfg.cmdStart) return stkCmdStart(djId, stock, actTag, author)
+  if (cmd === cfg.cmdAttend) return stkCmdAttend(djId, stock, actTag, author)
   if (cmd === cfg.cmdRule) return stkCmdRule(djId, cfg, parts)
-  if (cmd === cfg.cmdMyInfo) return stkCmdMyInfo(djId, stock, author)
-  if (cmd === cfg.cmdMyMoney) return stkCmdMyMoney(djId, stock, author)
+  if (cmd === cfg.cmdMyInfo) return stkCmdMyInfo(djId, stock, actTag, author)
+  if (cmd === cfg.cmdMyMoney) return stkCmdMyMoney(djId, stock, actTag, author)
   if (cmd === cfg.cmdStockList) return stkCmdStockList(djId, stock)
-  if (cmd === cfg.cmdMyStock) return stkCmdMyStock(djId, stock, author)
+  if (cmd === cfg.cmdMyStock) return stkCmdMyStock(djId, stock, actTag, author)
   if (cmd === cfg.cmdRanking) return stkCmdRanking(djId, stock, cfg)
   if (cmd === cfg.cmdJackpot) return stkCmdJackpot(djId, stock)
-  if (cmd === cfg.cmdDeposit) return stkCmdDeposit(djId, stock, author, parts)
-  if (cmd === cfg.cmdWithdraw) return stkCmdWithdraw(djId, stock, author, parts)
-  if (cmd === cfg.cmdLoan) return stkCmdLoan(djId, stock, author, parts)
-  if (cmd === cfg.cmdRepay) return stkCmdRepay(djId, stock, author, parts)
-  if (cmd === cfg.cmdSlot) return stkCmdSlot(djId, stock, author, parts)
-  if (cmd === cfg.cmdRoulette) return stkCmdRoulette(djId, stock, author, parts)
-  if (cmd === cfg.cmdOddEven) return stkCmdOddEven(djId, stock, author, parts)
-  if (cmd === cfg.cmdDice) return stkCmdDice(djId, stock, author, parts)
-  if (cmd === cfg.cmdLotto) return stkCmdLotto(djId, stock, author, parts)
+  if (cmd === cfg.cmdDeposit) return stkCmdDeposit(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdWithdraw) return stkCmdWithdraw(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdLoan) return stkCmdLoan(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdRepay) return stkCmdRepay(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdSlot) return stkCmdSlot(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdRoulette) return stkCmdRoulette(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdOddEven) return stkCmdOddEven(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdDice) return stkCmdDice(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdLotto) return stkCmdLotto(djId, stock, actTag, author, parts)
   if (cmd === cfg.cmdShop) return stkCmdShop(djId, cfg)
-  if (cmd === cfg.cmdBuy) return stkCmdBuyItem(djId, stock, author, parts)
-  if (cmd === cfg.cmdUse) return stkCmdUseItem(djId, stock, author, parts)
+  if (cmd === cfg.cmdBuy) return stkCmdBuyItem(djId, stock, actTag, author, parts)
+  if (cmd === cfg.cmdUse) return stkCmdUseItem(djId, stock, actTag, author, parts)
 
   const stockName = cmd.slice(1)
   const st = stock.stocks.find(s => s.name === stockName)
-  if (st) return stkCmdTrade(djId, stock, author, st, parts)
+  if (st) return stkCmdTrade(djId, stock, actTag, author, st, parts)
 }
 
 
@@ -4385,8 +4415,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
           handleAutoFollowCommand(djId, settings, author, actTag, text)
           handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
-          handleStockCommand(djId, room, settings, author, authorId, liveId, text)
-          handleStockChatHook(djId, settings, author)
+          handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleStockChatHook(djId, settings, actTag, author)
         }
 
       } else if (eventName === 'RoomJoin') {
@@ -4438,7 +4468,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
-        if (!isLurker) handleStockHeartHook(djId, settings, author)
+        if (!isLurker) handleStockHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
@@ -4468,7 +4498,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
-          handleStockDonationHook(djId, settings, author, amount * Math.max(1, comboCount))
+          handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -5862,7 +5892,7 @@ app.post('/stock/jackpot', auth.requireAuth, (req, res) => {
 app.get('/stock/leaderboard', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const stock = getStockSettings(req.djId, settings)
-  const list = Object.values(stock.users).filter(u => u.started).map(u => ({ nickname: u.nickname, total: stkTotalAssets(stock, u), cash: u.cash || 0, loan: u.loan || 0, creditBad: !!u.creditBad })).sort((a, b) => b.total - a.total).slice(0, 20)
+  const list = Object.values(stock.users).filter(u => u.started).map(u => ({ tag: u.tag, nickname: u.nickname, total: stkTotalAssets(stock, u), cash: u.cash || 0, loan: u.loan || 0, creditBad: !!u.creditBad })).sort((a, b) => b.total - a.total).slice(0, 20)
   res.json({ success: true, users: list })
 })
 app.post('/stock/reset', auth.requireAuth, (req, res) => {
@@ -5870,6 +5900,46 @@ app.post('/stock/reset', auth.requireAuth, (req, res) => {
   const stock = getStockSettings(req.djId, settings)
   stock.users = {}
   stock.chatAccrual = {}
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+
+// ── 🍞 증권거래소 유저 관리 화면 (전부 고유닉 기준) ──
+app.get('/stock/users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const q = String(req.query.q || '').trim().toLowerCase()
+  let list = Object.values(stock.users).map(u => ({
+    tag: u.tag, nickname: u.nickname,
+    cash: u.cash || 0, deposit: u.deposit || 0, loan: u.loan || 0,
+    stockValue: (() => { let v = 0; for (const name in u.holdings) { const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name); if (st && h) v += h.qty * st.price }; return v })(),
+    total: stkTotalAssets(stock, u),
+    started: !!u.started, creditBad: !!u.creditBad,
+  }))
+  if (q) list = list.filter(u => u.tag.includes(q) || String(u.nickname || '').toLowerCase().includes(q))
+  list.sort((a, b) => b.total - a.total)
+  res.json({ success: true, users: list, count: list.length })
+})
+app.post('/stock/users/:tag/adjust', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const tag = String(req.params.tag || '').trim().toLowerCase()
+  const delta = Number((req.body || {}).delta)
+  if (!tag || !Number.isFinite(delta) || delta === 0) return res.json({ success: false, error: '올바른 금액을 입력해주세요.' })
+  const u = stock.users[tag]
+  if (!u) return res.json({ success: false, error: '없는 유저예요.' })
+  u.cash = Math.max(0, (u.cash || 0) + delta)
+  store.saveSettings(req.djId, { stock })
+  setTimeout(() => sendChatToRoom(req.djId, `🎁 [운영자] ${u.nickname}님(@${u.tag}) 잔액이 ${delta > 0 ? '+' : ''}${delta.toLocaleString()}원 조정됐어요. (현재 현금: ${Math.round(u.cash).toLocaleString()}원)`), 300)
+  res.json({ success: true, user: u })
+})
+app.delete('/stock/users/:tag', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const tag = String(req.params.tag || '').trim().toLowerCase()
+  if (!stock.users[tag]) return res.json({ success: false, error: '없는 유저예요.' })
+  delete stock.users[tag]
+  delete stock.chatAccrual[tag]
   store.saveSettings(req.djId, { stock })
   res.json({ success: true })
 })
