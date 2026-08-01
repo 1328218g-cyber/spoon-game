@@ -2304,8 +2304,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title"><span>👤 유저 관리 <span class="hint" id="stkUsersCount" style="margin:0 0 0 4px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadStockUsers()">🔄 새로고침</button></div>
           <p class="hint">전부 고유닉 기준으로 관리돼요. 돈 지급/차감은 즉시 반영되고, 채팅으로도 안내 메시지가 나가요.</p>
           <input type="text" id="stkUserSearch" placeholder="고유닉 또는 닉네임으로 검색" oninput="loadStockUsers()" style="margin-bottom:10px">
-          <div style="overflow-x:auto"><table class="user-table" id="stkUsersTable" style="min-width:920px">
-            <thead><tr><th>고유닉</th><th>닉네임</th><th>현금</th><th>예금</th><th>대출</th><th>주식평가액</th><th>총자산</th><th>상태</th><th style="min-width:220px">조정</th><th></th></tr></thead>
+          <div style="overflow-x:auto"><table class="user-table" id="stkUsersTable" style="min-width:760px">
+            <thead><tr><th>고유닉</th><th>닉네임</th><th>현금</th><th>예금</th><th>대출</th><th>주식평가액</th><th>총자산</th><th>상태</th><th style="min-width:190px">관리</th></tr></thead>
             <tbody id="stkUsersBody"></tbody>
           </table></div>
         </div>
@@ -7663,34 +7663,34 @@ async function loadStockUsers(){
   clearTimeout(stockUsersSearchTimer);
   stockUsersSearchTimer=setTimeout(async ()=>{
     const q=document.getElementById('stkUserSearch').value.trim();
-    body.innerHTML='<tr class="fish-empty-row"><td colspan="10">불러오는 중...</td></tr>';
+    body.innerHTML='<tr class="fish-empty-row"><td colspan="9">불러오는 중...</td></tr>';
     try{
       const res=await fetch(SERVER+'/stock/users?q='+encodeURIComponent(q),{headers:authHeaders()});
-      if(!res.ok){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">불러오기 실패 (HTTP ${res.status}) — 서버가 최신 버전인지 확인해주세요</td></tr>`; return; }
+      if(!res.ok){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="9">불러오기 실패 (HTTP ${res.status}) — 서버가 최신 버전인지 확인해주세요</td></tr>`; return; }
       const d=await res.json();
-      if(!d.success){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">${escapeHtml(d.error||'불러오기 실패')}</td></tr>`; return; }
+      if(!d.success){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="9">${escapeHtml(d.error||'불러오기 실패')}</td></tr>`; return; }
       document.getElementById('stkUsersCount').textContent='('+d.count+')';
-      if(!d.users.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="10">등록된 유저가 없어요.</td></tr>'; return; }
+      if(!d.users.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="9">등록된 유저가 없어요.</td></tr>'; return; }
       body.innerHTML=d.users.map(u=>`
         <tr>
-          <td>@${escapeHtml(u.tag)}</td>
+          <td style="font-size:12px">@${escapeHtml(u.tag)}</td>
           <td>${escapeHtml(u.nickname)}</td>
-          <td>${Math.round(u.cash).toLocaleString()}원</td>
-          <td>${Math.round(u.deposit).toLocaleString()}원</td>
-          <td>${Math.round(u.loan).toLocaleString()}원</td>
-          <td>${Math.round(u.stockValue).toLocaleString()}원</td>
-          <td><b>${Math.round(u.total).toLocaleString()}원</b></td>
+          <td style="font-size:12.5px">${Math.round(u.cash).toLocaleString()}</td>
+          <td style="font-size:12.5px">${Math.round(u.deposit).toLocaleString()}</td>
+          <td style="font-size:12.5px">${Math.round(u.loan).toLocaleString()}</td>
+          <td style="font-size:12.5px">${Math.round(u.stockValue).toLocaleString()}</td>
+          <td style="font-size:12.5px"><b>${Math.round(u.total).toLocaleString()}</b></td>
           <td>${u.creditBad?'<span class="status-pill ended">신용불량</span>':(u.started?'<span class="status-pill ongoing">정상</span>':'<span class="status-pill">미시작</span>')}</td>
           <td>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" id="stkAdjAmt_${escapeAttr(u.tag)}" placeholder="금액" style="width:100px;padding:6px 8px;font-size:12px">
-              <button class="btn-gray" style="padding:6px 10px;font-size:11.5px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',1)">+지급</button>
-              <button class="btn-gray" style="padding:6px 10px;font-size:11.5px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',-1)">-차감</button>
+            <div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">
+              <input type="number" id="stkAdjAmt_${escapeAttr(u.tag)}" placeholder="금액" style="width:72px;padding:5px 6px;font-size:11.5px">
+              <button class="btn-gray" style="padding:5px 7px;font-size:11px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',1)">지급</button>
+              <button class="btn-gray" style="padding:5px 7px;font-size:11px" onclick="stockAdjustUser('${escapeAttr(u.tag)}',-1)">차감</button>
+              <button class="icon-btn danger" style="padding:2px 4px" onclick="stockDeleteUser('${escapeAttr(u.tag)}','${escapeAttr(u.nickname)}')" title="유저 데이터 삭제">🗑</button>
             </div>
           </td>
-          <td><button class="icon-btn danger" onclick="stockDeleteUser('${escapeAttr(u.tag)}','${escapeAttr(u.nickname)}')" title="유저 데이터 삭제">🗑</button></td>
         </tr>`).join('');
-    }catch(e){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="10">오류: ${escapeHtml(e.message)}</td></tr>`; }
+    }catch(e){ body.innerHTML=`<tr class="fish-empty-row"><td colspan="9">오류: ${escapeHtml(e.message)}</td></tr>`; }
   }, 250);
 }
 async function stockAdjustUser(tag, sign){
