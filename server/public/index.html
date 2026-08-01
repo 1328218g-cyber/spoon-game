@@ -593,6 +593,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
     </div>
 
+    <div id="impersonateBanner" style="display:none;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:9px 16px;font-size:13px;font-weight:600">
+      <span id="impersonateBannerText">🔍 관리자 모드로 계정을 보고 있어요</span>
+      <button onclick="returnToAdminAccount()" style="background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;flex-shrink:0">← 관리자 계정으로 돌아가기</button>
+    </div>
+
     <div class="expiry-row" id="expiryRow">
       <div class="expiry-banner" id="expiryBanner">
         <div class="eb-left">
@@ -760,7 +765,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
-          <div class="card-title"><span>👥 가입 유저 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
@@ -2948,6 +2954,17 @@ function enterApp(){
   document.getElementById('appRoot').classList.add('ready');
   document.getElementById('djIdLabel').textContent=djId;
 
+  const impersonating=sessionStorage.getItem('adminOriginalToken');
+  const bannerEl=document.getElementById('impersonateBanner');
+  if(bannerEl){
+    if(impersonating){
+      bannerEl.style.display='flex';
+      document.getElementById('impersonateBannerText').textContent='🔍 관리자 모드로 "'+djId+'" 계정을 보고 있어요';
+    } else {
+      bannerEl.style.display='none';
+    }
+  }
+
   const isAdmin = djId===ADMIN_DJ_ID;
   const canAutoJoin = true; // 다중감시는 이제 관리자 권한 없이 누구나 사용 가능
   const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
@@ -3411,7 +3428,7 @@ function setShield(){
 function addShieldDelta(sign){
   const v=Math.abs(Number(document.getElementById('shieldInput').value))||0;
   if(!v)return showToast('숫자를 입력해주세요');
-  shieldData.count=Math.max(0,(shieldData.count||0)+v*sign);
+  shieldData.count=(shieldData.count||0)+v*sign;
   document.getElementById('shieldInput').value='';
   renderShield();
   persistShieldCount();
@@ -4087,6 +4104,7 @@ async function saveDefaultTrialDays(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+let adminUserListData=[];
 async function loadUserList(){
   loadDefaultTrialDays();
   const wrap=document.getElementById('userListWrap');
@@ -4094,8 +4112,30 @@ async function loadUserList(){
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
     const d=await res.json();
     if(!d.success){wrap.innerHTML='<p class="hint">불러오지 못했어요: '+(d.error||'')+'</p>';return;}
-    if(!d.users.length){wrap.innerHTML='<p class="hint">아직 가입한 디제이가 없습니다.</p>';return;}
-    const rows=d.users.map(u=>{
+    adminUserListData=d.users||[];
+    renderUserListTable();
+  }catch(e){
+    wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
+  }
+}
+function renderUserListTable(){
+  const wrap=document.getElementById('userListWrap');
+  const countEl=document.getElementById('userListConnectedCount');
+  const q=(document.getElementById('userListSearch')?.value||'').trim().toLowerCase();
+
+  const connectedCount=adminUserListData.filter(u=>u.isConnected).length;
+  if(countEl) countEl.textContent=`(총 ${adminUserListData.length}명 · 🟢 현재 접속중 ${connectedCount}명)`;
+
+  if(!adminUserListData.length){wrap.innerHTML='<p class="hint">아직 가입한 디제이가 없습니다.</p>';return;}
+
+  let list=adminUserListData;
+  if(q) list=list.filter(u=>u.djId.toLowerCase().includes(q)||(u.autoJoinTag||'').toLowerCase().includes(q));
+  // 현재 접속중인 유저를 맨 위로 정렬
+  list=[...list].sort((a,b)=>(b.isConnected?1:0)-(a.isConnected?1:0));
+
+  if(!list.length){wrap.innerHTML='<p class="hint">검색 결과가 없어요.</p>';return;}
+
+  const rows=list.map(u=>{
       const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
       const isSum=u.djId==='sum';
       const expiryCell = `
@@ -4114,6 +4154,7 @@ async function loadUserList(){
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td><span class="status-pill ongoing">항상 허용</span></td>
+        <td>${isSum?'':`<button class="btn-connect" style="padding:5px 10px;font-size:11.5px" onclick="viewUserSettings('${escapeAttr(u.djId)}')">🔍 설정 보기</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleBlockUser('${escapeAttr(u.djId)}',${!u.blocked})">${u.blocked?'차단 해제':'차단'}</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="adminChangeUserPassword('${escapeAttr(u.djId)}')">🔑 비번변경</button>`}</td>
         <td>${isSum?'':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="rebootUserConnection('${escapeAttr(u.djId)}')">🔁 재부팅</button>`}</td>
@@ -4122,12 +4163,38 @@ async function loadUserList(){
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
-  }catch(e){
-    wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
-  }
+}
+
+
+// 관리자 계정으로 특정 디제이의 설정 화면을 비밀번호 없이 바로 확인/수정하러 들어간다.
+// 원래 관리자 세션은 따로 보관해뒀다가, 화면 상단 배너의 "관리자 계정으로 돌아가기"로 복귀할 수 있다.
+async function viewUserSettings(targetDjId){
+  if(!confirm(targetDjId+' 계정으로 전환해서 설정을 확인할까요?\n(비밀번호 없이 바로 들어가요. 상단 배너로 언제든 관리자 계정으로 돌아올 수 있어요)'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/impersonate',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:targetDjId})});
+    const d=await res.json();
+    if(!d.success){showToast(d.error||'전환 실패');return;}
+    sessionStorage.setItem('adminOriginalToken',djToken);
+    sessionStorage.setItem('adminOriginalDjId',djId);
+    localStorage.setItem('djToken',d.token);
+    localStorage.setItem('djId',d.djId);
+    sessionStorage.removeItem('djToken');
+    sessionStorage.removeItem('djId');
+    location.reload();
+  }catch(e){showToast('오류: '+e.message);}
+}
+function returnToAdminAccount(){
+  const origToken=sessionStorage.getItem('adminOriginalToken');
+  const origDjId=sessionStorage.getItem('adminOriginalDjId');
+  if(!origToken||!origDjId){showToast('원래 관리자 세션 정보를 찾을 수 없어요. 다시 로그인해주세요.');return;}
+  sessionStorage.removeItem('adminOriginalToken');
+  sessionStorage.removeItem('adminOriginalDjId');
+  localStorage.setItem('djToken',origToken);
+  localStorage.setItem('djId',origDjId);
+  location.reload();
 }
 
 async function setUserExpiry(djIdTarget){

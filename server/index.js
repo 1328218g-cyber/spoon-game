@@ -324,7 +324,7 @@ async function handleShieldCommand(djId, room, settings, author, authorId, liveI
     return
   }
 
-  shield.count = Math.max(0, (shield.count || 0) + delta)
+  shield.count = (shield.count || 0) + delta
   store.saveSettings(djId, { shield })
   broadcast({ type: 'shield', djId, count: shield.count })
 
@@ -3882,6 +3882,38 @@ function percentPick(items) {
 }
 
 const SECTION_FIELD = { '킵목록': 'keepList', '이벤트목록': 'eventList', '기타목록': 'miscList' }
+// 룰렛 항목 이름에 "실드 +10" / "실드 -20" 또는 "복권 10장" 같은 패턴이 들어있으면,
+// 당첨 시 자동으로 실드(방송 전체 공용)/복권(당첨자 개인)을 적립·차감해준다.
+// 킵/이벤트/기타 목록 기록은 항목별 설정(skipHistory 등) 그대로 별개로 계속 남는다.
+function applySpecialRouletteItem(djId, settings, authorTag, author, itemName) {
+  const name = String(itemName || '').trim()
+
+  const shieldM = name.match(/실드\s*([+-]?\d+)/)
+  if (shieldM) {
+    const delta = parseInt(shieldM[1], 10)
+    if (delta && settings.shield) {
+      settings.shield.count = (settings.shield.count || 0) + delta
+      store.saveSettings(djId, { shield: settings.shield })
+      broadcast({ type: 'shield', djId, count: settings.shield.count })
+      setTimeout(() => sendChatToRoom(djId, `🛡️ [룰렛 당첨] 실드 ${delta > 0 ? '+' : ''}${delta}개 ${delta > 0 ? '적립' : '차감'}! (현재: ${settings.shield.count}개)`), 700)
+    }
+    return
+  }
+
+  const lottoM = name.match(/복권\s*(\d+)\s*장?/)
+  if (lottoM) {
+    const amount = parseInt(lottoM[1], 10)
+    if (amount > 0) {
+      const act = getActivitySettings(djId, settings)
+      const key = actResolveKey(act, author, authorTag) || authorTag || author
+      const d = actEnsureUser(act, key, author, authorTag)
+      d.lotto = (d.lotto || 0) + amount
+      store.saveSettings(djId, { activity: act })
+      setTimeout(() => sendChatToRoom(djId, `🎟️ [룰렛 당첨] ${author}님 복권 ${amount}장 적립! (현재 보유: ${d.lotto}장)`), 700)
+    }
+  }
+}
+
 const SECTION_LABEL = { '킵목록': '킵', '이벤트목록': '이벤트', '기타목록': '내카드' }
 
 // 룰렛 항목마다 지정한 저장 목록(킵/기타/이벤트)에 맞춰 당첨 기록을 누적한다.
@@ -4174,6 +4206,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
       hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
       addRouletteWinToList(hist, won.saveTo, won.name)
     }
+    applySpecialRouletteItem(djId, settings, authorTag, author, won.name)
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag: histKey })
@@ -4221,6 +4254,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
         addRouletteWinToList(hist, won.saveTo, won.name)
         changed = true
       }
+      applySpecialRouletteItem(djId, settings, authorTag, author, won.name)
     }
     const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
@@ -4917,6 +4951,16 @@ app.get('/admin/users', auth.requireAuth, (req, res) => {
     return { ...u, isConnected: room.isConnected }
   })
   res.json({ success: true, users })
+})
+
+// 관리자(sum) 전용 — 비밀번호 없이 특정 디제이 계정으로 전환해서 설정을 바로 확인/수정할 수 있게 토큰을 발급한다.
+app.post('/admin/impersonate', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: '아이디를 입력해주세요' })
+  if (!store.exists(targetDjId)) return res.json({ success: false, error: '존재하지 않는 계정이에요' })
+  const token = auth.issueToken(targetDjId)
+  res.json({ success: true, token, djId: targetDjId })
 })
 
 // 관리자(sum) 전용 — 특정 디제이의 비밀번호를 본인 확인 없이 직접 변경한다.
