@@ -21,6 +21,20 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
 const SHARED_TOKEN_DJID = 'sum'
 
+// 기본은 관리자(sum) 공유 세션을 쓰지만, 해당 디제이 본인이 "세션 연결"에서 자기 쿠키를
+// 직접 업로드해뒀으면 그걸 우선 사용한다. 개인 세션이 없거나 만료됐으면 공유 세션으로 자동 대체된다.
+function getEffectiveTokenOwner(djId) {
+  if (djId && djId !== SHARED_TOKEN_DJID) {
+    try {
+      if (tokenManager.hasCookies(djId) && tokenManager.getAccessToken(djId)) return djId
+    } catch (e) { /* 개인 세션 없음 → 아래에서 공유 세션으로 대체 */ }
+  }
+  return SHARED_TOKEN_DJID
+}
+function getEffectiveToken(djId) {
+  return tokenManager.getAccessToken(getEffectiveTokenOwner(djId))
+}
+
 // 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
 // 절대 프론트엔드(index.html) 코드에 직접 넣지 않는다 — 브라우저 소스보기로 그대로 노출되기 때문.
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
@@ -229,7 +243,7 @@ async function fetchLiveInfo(liveId, accessToken) {
 
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   if (!room.streamName || !accessToken) return
   try {
     const headers = {
@@ -263,7 +277,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -306,7 +320,7 @@ async function handleShieldCommand(djId, room, settings, author, authorId, liveI
   // 2) 못 찾았으면, 그 자리에서 시청자 명단(더 안정적인 API)을 다시 조회해서 이 사람의 실제 태그를 확인한다.
   if (!isPermUser && perms.length && liveId) {
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = getEffectiveToken(djId)
       const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
       const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
       if (me && me.tag) {
@@ -507,7 +521,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
     let tag = actTag
-    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
     if (!tag) console.log(`[${djId}][단축키] '${cmd.trigger}' {tag} 조회 실패 → 닉네임(${author})으로 대체 출력`)
     // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
     response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
@@ -554,6 +568,7 @@ function getSongRequestSettings(djId, settings) {
       accepting: true, priorityMode: false, showRequester: true,
       cmdRequest: '!신청곡', cmdRemove: '!제거', cmdReset: '리셋', cmdClose: '!마감', cmdOpen: '!접수',
       cmdPriorityOn: '!우선온', cmdPriorityOff: '!우선오프', cmdNameOn: '!이름온', cmdNameOff: '!이름오프',
+      cmdRecommend: '!추천곡',
       doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
       listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
       maxCharsPerMsg: 100, msgIntervalMs: 600, items: []
@@ -561,7 +576,48 @@ function getSongRequestSettings(djId, settings) {
     // 최초 1회는 실제로 저장해서, 이후 /settings 조회(웹 화면)에서도 같은 값이 보이도록 한다.
     store.saveSettings(djId, { songRequest: settings.songRequest })
   }
+  if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
   return settings.songRequest
+}
+
+// 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
+// 멜론은 페이지 HTML 구조라 정규식으로 제목/가수를 뽑는다 — 멜론이 마크업을 바꾸면 깨질 수 있다.
+let melonChartCache = { list: [], fetchedAt: 0 }
+const MELON_CHART_URLS = [
+  'https://www.melon.com/chart/index.htm',
+  'https://www.melon.com/chart/hot100/index.htm',
+  'https://www.melon.com/chart/day/index.htm?classCd=AB0000',
+]
+async function fetchMelonChartSongs() {
+  if (melonChartCache.list.length && Date.now() - melonChartCache.fetchedAt < 30 * 60 * 1000) {
+    return melonChartCache.list
+  }
+  const all = []
+  for (const url of MELON_CHART_URLS) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': CHROME_UA,
+          'Referer': 'https://www.melon.com/',
+          'Accept': 'text/html',
+        }
+      })
+      const html = await res.text()
+      // <tr> 안의 곡명(rank01)/아티스트(rank02)를 순서대로 페어링해서 뽑는다.
+      const titleMatches = [...html.matchAll(/class="ellipsis rank01"[\s\S]*?title="([^"]+)\s*"/g)].map(m => m[1].trim())
+      const artistMatches = [...html.matchAll(/class="ellipsis rank02"[\s\S]*?title="([^"]+)"/g)].map(m => m[1].trim())
+      const count = Math.min(titleMatches.length, artistMatches.length)
+      for (let i = 0; i < count; i++) {
+        if (titleMatches[i] && artistMatches[i]) all.push({ title: titleMatches[i], artist: artistMatches[i] })
+      }
+    } catch (e) {
+      console.log('[멜론차트 조회 실패]', url, e.message)
+    }
+  }
+  if (all.length) {
+    melonChartCache = { list: all, fetchedAt: Date.now() }
+  }
+  return melonChartCache.list
 }
 
 function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
@@ -572,6 +628,16 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
 
   const save = () => store.saveSettings(djId, { songRequest: sr })
   const reqPrefix = sr.cmdRequest + ' '
+
+  // !추천곡 — 멜론 차트(TOP100/HOT100/DAILY100)에서 랜덤 한 곡 추천
+  if (sr.cmdRecommend && msg === sr.cmdRecommend) {
+    fetchMelonChartSongs().then(list => {
+      if (!list.length) { sendChatSplit(djId, '😥 지금 추천곡을 불러오지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+      const pick = list[Math.floor(Math.random() * list.length)]
+      sendChatSplit(djId, `🎧 오늘의 추천곡!\n${pick.artist} - ${pick.title}`, 150, 300)
+    })
+    return
+  }
 
   // !신청곡 [가수] [제목]
   if (msg.startsWith(reqPrefix)) {
@@ -1127,7 +1193,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 
   let members = []
   try {
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = getEffectiveToken(djId)
     members = await fetchLiveMembers(liveId, accessToken, 5)
   } catch (e) { console.log(`[자동복권:${djId}] 시청자 명단 조회 오류`, e.message) }
 
@@ -1386,7 +1452,7 @@ async function handleRaffleCommand(djId, room, settings, author, authorId, liveI
   const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
   if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/매니저만 사용할 수 있습니다.'), 400); return }
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   const members = await fetchLiveMembers(liveId, accessToken, 5)
   if (!members.length) { setTimeout(() => sendChatToRoom(djId, '🎁 지금 방송에 접속 중인 시청자가 없어요.'), 400); return }
   const winner = members[Math.floor(Math.random() * members.length)]
@@ -1732,18 +1798,19 @@ function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount)
   store.saveSettings(djId, { dashboard: dash })
 }
 
-// 좋아요를 받으면 하트 랭킹 + 무료하트 통계에 반영한다.
-// (스푼 API가 광고/플랜/유료 하트를 구분해서 알려주지 않아, 지금은 전체를 "무료하트"로 집계한다)
-function recordDashboardHeart(djId, settings, nickname, tag) {
+// 좋아요를 받으면 하트 랭킹 + 무료/광고/플랜/유료 하트 통계에 반영한다.
+// type: 'free'(일반 좋아요 탭) | 'ad'(광고/룰렛 하트) | 'plan'(플랜 하트) | 'paid'(그 외 유료 하트)
+function recordDashboardHeart(djId, settings, nickname, tag, type = 'free', amount = 1) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
   const dash = getDashboardData(djId, settings)
   const key = String(tag || nickname || '').trim() || nickname
   if (!dash.heartLog[key]) dash.heartLog[key] = { nickname, count: 0 }
   dash.heartLog[key].nickname = nickname
-  dash.heartLog[key].count += 1
+  dash.heartLog[key].count += amount
   if (!dash.likeStats.sessionStart) dash.likeStats.sessionStart = Date.now()
-  dash.likeStats.free = (dash.likeStats.free || 0) + 1
-  dash.likeStats.total = (dash.likeStats.total || 0) + 1
+  const safeType = ['free', 'ad', 'plan', 'paid'].includes(type) ? type : 'free'
+  dash.likeStats[safeType] = (dash.likeStats[safeType] || 0) + amount
+  dash.likeStats.total = (dash.likeStats.total || 0) + amount
   store.saveSettings(djId, { dashboard: dash })
 }
 
@@ -1844,7 +1911,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     const act = getActivitySettings(djId, settings)
     const key = findActUserKey(act, author)
     const lotto = key ? (act.users[key].lotto || 0) : 0
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = getEffectiveToken(djId)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -2705,7 +2772,7 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
   if (!FISH_CMDS.includes(cmd)) return
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (tag) rememberTagNickname(room, tag, author)
 
@@ -3586,6 +3653,210 @@ async function handleStockCommand(djId, room, settings, author, authorId, liveId
 
 
 // ══════════════════════════════════════════════════════
+// 🔨 경매 시스템 — 누적 입찰 방식의 경매. 후원(스티커)으로 입찰하고 총액으로 경쟁한다.
+// 후원 → 정해진 유효시간(기본 60초) 안에 "!경매 [번호]"를 쳐야 그 후원액이 해당 경매에 입찰로 반영된다.
+// 같은 사람이 같은 경매에 여러 번 입찰하면 총액이 누적된다 (경매마다 별도 누적).
+// 공개 방식(visibility) 4종에 따라 닉네임/누적금액/순위 공개 여부가 달라진다.
+
+function auctionDefaultConfig() {
+  return {
+    enabled: true,
+    announceOnBid: true,
+    announceOnRankChange: true,
+    donationExpirySeconds: 60,
+    cmd: '!경매',
+    cmdMyBid: '!내입찰',
+    cmdEnd: '!경매종료',
+    cmdCancel: '!경매취소',
+  }
+}
+const AUCTION_VIS = {
+  full_blind: { nickname: false, amount: false, rank: false },
+  price_blind: { nickname: true, amount: false, rank: true },
+  info_blind: { nickname: false, amount: true, rank: false },
+  public: { nickname: true, amount: true, rank: true },
+}
+function auctionVisOf(auc) { return AUCTION_VIS[auc.visibility] || AUCTION_VIS.public }
+
+function getAuctionSettings(djId, settings) {
+  if (!settings.auction) {
+    settings.auction = { config: auctionDefaultConfig(), list: [], nextId: 1, pending: {} }
+    store.saveSettings(djId, { auction: settings.auction })
+  }
+  const a = settings.auction
+  if (!a.config) a.config = auctionDefaultConfig()
+  if (!Array.isArray(a.list)) a.list = []
+  if (!a.nextId) a.nextId = (a.list.reduce((m, x) => Math.max(m, x.id || 0), 0) || 0) + 1
+  if (!a.pending) a.pending = {}
+  return a
+}
+function saveAuction(djId, a) { store.saveSettings(djId, { auction: a }) }
+function auctionRanking(auc) {
+  return Object.entries(auc.bids || {}).map(([tag, b]) => ({ tag, ...b })).sort((x, y) => y.total - x.total)
+}
+function auctionFmt(n) { return Math.round(Number(n) || 0).toLocaleString() }
+
+// 선물(후원) 수신 시 — 해당 유저에게 "곧 경매 명령어를 칠 수 있는" 후원 효력을 등록/누적한다.
+function handleAuctionDonationHook(djId, settings, author, tag, spoonTotal) {
+  if (!isModuleOn(settings, 'auction', djId)) return
+  if (!tag || spoonTotal <= 0) return
+  const a = getAuctionSettings(djId, settings)
+  if (a.config.enabled === false) return
+  const key = String(tag).toLowerCase()
+  const expiryMs = Math.max(5, Number(a.config.donationExpirySeconds) || 60) * 1000
+  const existing = a.pending[key]
+  if (existing && existing.expiresAt > Date.now()) {
+    existing.amount += spoonTotal
+    existing.expiresAt = Date.now() + expiryMs
+    existing.nickname = author
+  } else {
+    a.pending[key] = { amount: spoonTotal, expiresAt: Date.now() + expiryMs, nickname: author }
+  }
+  saveAuction(djId, a)
+}
+
+function auctionListMsg(djId, a) {
+  const active = a.list.filter(x => x.status === 'active')
+  if (!active.length) { sendChatSplit(djId, '🔨 진행중인 경매가 없어요.', 150, 300); return }
+  const lines = active.map(x => {
+    const remain = Math.max(0, x.endAt - Date.now())
+    const mins = Math.floor(remain / 60000), secs = Math.floor((remain % 60000) / 1000)
+    const count = Object.keys(x.bids || {}).length
+    return `[${x.id}번] ${x.itemName} · ⏰${mins}분${secs}초 남음 · 👥${count}명 참여`
+  })
+  sendChatSplit(djId, `🔨 진행중인 경매\n${lines.join('\n')}\n→ 후원 후 !경매 [번호] 로 입찰하세요`, 150, 300)
+}
+
+function auctionMyBids(djId, a, tag, author) {
+  if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  const key = tag.toLowerCase()
+  const mine = a.list.filter(x => x.bids && x.bids[key])
+  if (!mine.length) { sendChatSplit(djId, `📋 ${author}님은 참여중인 경매가 없어요.`, 150, 300); return }
+  const lines = mine.map(x => {
+    const vis = auctionVisOf(x)
+    const ranking = auctionRanking(x)
+    const rank = ranking.findIndex(r => r.tag === key) + 1
+    const my = x.bids[key]
+    const showDetail = x.status !== 'active' // 종료/취소된 경매는 블라인드 상관없이 본인껀 다 보여줌
+    let line = `[${x.id}번] ${x.itemName}`
+    if (vis.amount || showDetail) line += ` - 누적 ${auctionFmt(my.total)}스푼`
+    if (vis.rank || showDetail) line += ` (${rank}위)`
+    if (x.status === 'ended') line += (x.winner && x.winner.tag === key) ? ' 🏆낙찰!' : ' (종료)'
+    if (x.status === 'cancelled') line += ' (취소됨)'
+    return line
+  })
+  sendChatSplit(djId, `📋 ${author}님의 입찰 현황\n${lines.join('\n')}`, 150, 300)
+}
+
+function auctionPlaceBid(djId, a, id, tag, author) {
+  const auc = a.list.find(x => x.id === id)
+  if (!auc || auc.status !== 'active') { sendChatSplit(djId, '❌ 진행중인 경매가 아니에요.', 150, 300); return }
+  if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  const key = tag.toLowerCase()
+  const pend = a.pending[key]
+  if (!pend || pend.expiresAt < Date.now() || pend.amount <= 0) {
+    sendChatSplit(djId, `❌ ${author}님, 유효한 후원 내역이 없어요. 먼저 후원(스티커) 후 ${a.config.cmd} [번호]를 입력해주세요.`, 150, 300)
+    return
+  }
+  const amount = pend.amount
+  delete a.pending[key]
+
+  if (!auc.bids) auc.bids = {}
+  const bid = auc.bids[key] || { nickname: author, total: 0 }
+  bid.total += amount
+  bid.nickname = author
+  bid.lastBidAt = Date.now()
+  auc.bids[key] = bid
+  saveAuction(djId, a)
+
+  const vis = auctionVisOf(auc)
+  const ranking = auctionRanking(auc)
+  const myRank = ranking.findIndex(r => r.tag === key) + 1
+
+  if (a.config.announceOnBid) {
+    let msg = `💰 [${auc.id}번:${auc.itemName}] `
+    msg += vis.nickname ? `${author}님 ` : `누군가 `
+    msg += `+${auctionFmt(amount)}스푼 입찰!`
+    if (vis.amount) msg += ` (누적 ${auctionFmt(bid.total)}스푼)`
+    if (vis.rank) msg += ` [현재 ${myRank}위]`
+    sendChatSplit(djId, msg, 150, 300)
+  }
+
+  const newLeader = ranking[0]
+  if (newLeader && auc.leaderTag !== newLeader.tag) {
+    auc.leaderTag = newLeader.tag
+    saveAuction(djId, a)
+    if (a.config.announceOnRankChange) {
+      let msg = `🏆 [${auc.id}번:${auc.itemName}] 1위 변경!`
+      if (vis.nickname) msg += ` ${newLeader.nickname}님`
+      if (vis.amount) msg += ` (${auctionFmt(newLeader.total)}스푼)`
+      setTimeout(() => sendChatToRoom(djId, msg), 600)
+    }
+  }
+}
+
+function auctionEnd(djId, a, id, status) {
+  const auc = a.list.find(x => x.id === id)
+  if (!auc || auc.status !== 'active') return
+  auc.status = status
+  if (status === 'ended') {
+    const ranking = auctionRanking(auc)
+    if (ranking.length) {
+      auc.winner = { tag: ranking[0].tag, nickname: ranking[0].nickname, total: ranking[0].total }
+      sendChatSplit(djId, `🎉 [${auc.id}번:${auc.itemName}] 경매 종료! 낙찰자: ${auc.winner.nickname}님 (${auctionFmt(auc.winner.total)}스푼)`, 150, 300)
+    } else {
+      sendChatSplit(djId, `🔨 [${auc.id}번:${auc.itemName}] 경매가 참여자 없이 종료됐어요.`, 150, 300)
+    }
+  } else {
+    sendChatSplit(djId, `🚫 [${auc.id}번:${auc.itemName}] 경매가 취소됐어요.`, 150, 300)
+  }
+  saveAuction(djId, a)
+}
+
+async function handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'auction', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const a = getAuctionSettings(djId, settings)
+  const cfg = a.config
+  if (cfg.enabled === false) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+
+  let m
+  if (cfg.cmdEnd && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmdEnd)}\\s*(\\d+)$`)))) {
+    if (isDj) auctionEnd(djId, a, parseInt(m[1], 10), 'ended')
+    return
+  }
+  if (cfg.cmdCancel && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmdCancel)}\\s*(\\d+)$`)))) {
+    if (isDj) auctionEnd(djId, a, parseInt(m[1], 10), 'cancelled')
+    return
+  }
+  if (cfg.cmdMyBid && msg === cfg.cmdMyBid) { auctionMyBids(djId, a, actTag, author); return }
+
+  if (cfg.cmd && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmd)}\\s*(\\d+)?$`)))) {
+    if (m[1]) auctionPlaceBid(djId, a, parseInt(m[1], 10), actTag, author)
+    else auctionListMsg(djId, a)
+  }
+}
+
+// 방송에 봇이 접속해있는 동안, 종료 시간이 지난 진행중 경매를 자동으로 종료 처리한다.
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'auction', djId)) continue
+    const a = getAuctionSettings(djId, settings)
+    a.list.forEach(auc => {
+      if (auc.status === 'active' && auc.endAt && Date.now() >= auc.endAt) {
+        auctionEnd(djId, a, auc.id, 'ended')
+      }
+    })
+  }
+}, 20000)
+
+
+// ══════════════════════════════════════════════════════
 // 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
 // 그 번호를 관리자(sum) 계정의 스푼 팬보드에 글로 남기면, 서버가 주기적으로 그 팬보드를
 // 확인해서 일치하는 번호를 찾으면 그 글쓴이를 자동으로 맞팔로우한다.
@@ -4029,7 +4300,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = getEffectiveToken(djId)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -4081,7 +4352,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = getEffectiveToken(djId)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -4175,7 +4446,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -4235,7 +4506,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 
   // ⚠️ 스푼 태그(고유닉) 조회 API가 가끔 결과가 오락가락했었는데, getCachedUserTag가 응답 id
   // 검증 + 캐싱까지 해줘서 이제 신뢰할 수 있다. 닉네임이 바뀌어도 항상 같은 사람으로 인식되도록 태그를 우선 사용한다.
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -4328,7 +4599,7 @@ function startLeavePolling(djId, liveId) {
     if (room._leavePollInFlight) return
     room._leavePollInFlight = true
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = getEffectiveToken(djId)
       const users = await fetchLiveMembers(liveId, accessToken)
       if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
 
@@ -4424,7 +4695,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(djId)
   const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
@@ -4511,7 +4782,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
           //  '고유닉'으로 등록해둔 권한자 목록과 못 맞는 문제가 생김)
-          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const actTag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
           rememberTagNickname(room, actTag, author)
 
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
@@ -4539,6 +4810,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleAutoFollowCommand(djId, settings, author, actTag, text)
           handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
           handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -4553,12 +4825,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          let tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
           if (!tag) {
             // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
             // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
             await new Promise(r => setTimeout(r, 1200))
-            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+            tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
           }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
@@ -4587,7 +4859,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
-        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
@@ -4602,7 +4874,42 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
           if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
-        recordDashboardHeart(djId, settings, author, likeTag)
+        recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
+
+      } else if (eventName === 'LiveItemUse' || eventName === 'live_item_use') {
+        // 유료 아이템(좋아요 효과) — itemId로 광고하트(37)/플랜하트(510,511)/그 외 유료하트를 구분한다.
+        const effectType = String(eventPayload.effectType || eventPayload.effect_type || '').toUpperCase()
+        if (effectType === 'LIKE' || effectType === 'HEART') {
+          const author = eventPayload.nickname || eventPayload.author?.nickname || eventPayload.user?.nickname || '시청자'
+          const authorId = eventPayload.userId || eventPayload.user_id || eventPayload.author?.id || eventPayload.user?.id || null
+          const baseAmount = Math.max(0, Number(eventPayload.amount) || 0)
+          const extraAmount = Math.max(0, Number(eventPayload.extraAmount) || 0)
+          const total = baseAmount + extraAmount
+          const itemId = Number(eventPayload.itemId || eventPayload.item_id || 0)
+          const AD_ITEM_IDS = [37]
+          const PLAN_ITEM_IDS = [510, 511]
+          let likeType = 'paid'
+          if (AD_ITEM_IDS.includes(itemId)) likeType = 'ad'
+          else if (PLAN_ITEM_IDS.includes(itemId)) likeType = 'plan'
+          if (total > 0) {
+            const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+            rememberTagNickname(room, likeTag, author)
+            if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
+          }
+        }
+
+      } else if (eventName === 'LivePaidLike' || eventName === 'live_paid_like') {
+        // 유료 하트(직접 구매) — 항상 '유료하트'로 집계
+        const author = eventPayload.nickname || eventPayload.author?.nickname || '시청자'
+        const authorId = eventPayload.userId || eventPayload.user_id || null
+        const baseAmount = Math.max(0, Number(eventPayload.amount) || 0)
+        const extraAmount = Math.max(0, Number(eventPayload.extraAmount) || 0)
+        const total = baseAmount + extraAmount
+        if (total > 0) {
+          const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+          rememberTagNickname(room, likeTag, author)
+          if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
+        }
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
         const gen = eventPayload.generator || {}
@@ -4617,11 +4924,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
-          const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const donationTag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
+          handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -4954,6 +5262,22 @@ app.get('/admin/users', auth.requireAuth, (req, res) => {
 })
 
 // 관리자(sum) 전용 — 비밀번호 없이 특정 디제이 계정으로 전환해서 설정을 바로 확인/수정할 수 있게 토큰을 발급한다.
+// 관리자(sum) 전용 — 현재 봇이 접속해있는 모든 디제이의 방송 채팅에 한 번에 공지 메시지를 보낸다.
+app.post('/admin/broadcast-chat', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const rawMsg = String((req.body || {}).message || '').trim()
+  if (!rawMsg) return res.json({ success: false, error: '메시지를 입력해주세요' })
+  const sentTo = []
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (room.isConnected) {
+      sendChatToRoom(djId, rawMsg)
+      sentTo.push(djId)
+    }
+  }
+  res.json({ success: true, count: sentTo.length, djIds: sentTo })
+})
+
 app.post('/admin/impersonate', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const targetDjId = String((req.body || {}).djId || '').trim()
@@ -5131,7 +5455,7 @@ app.get('/live/members', auth.requireAuth, async (req, res) => {
     return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
   }
   try {
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = getEffectiveToken(djId)
     const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
     members.forEach(u => {
       if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag)
@@ -5480,7 +5804,7 @@ app.post('/raffle/run-now', auth.requireAuth, async (req, res) => {
   if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const room = getRoom(req.djId)
   if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = getEffectiveToken(req.djId)
   const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
   if (!members.length) return res.json({ success: false, error: '지금 방송에 접속 중인 시청자가 없어요' })
   const cfg = getRaffleSettings(req.djId, settings)
@@ -5865,7 +6189,7 @@ app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
   const room = getRoom(djId)
   if (room.isConnected && room.autoJoinedFor) {
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = getEffectiveToken(djId)
       live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
       // 실시간 접속자 API가 프로필 사진을 안 줄 수 있어서, 이미 채팅/좋아요/선물에서
       // 실제로 확인된 프로필 사진(캐시)이 있으면 그걸 우선 사용한다 — 훨씬 더 잘 맞음.
@@ -6093,6 +6417,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
         { cmd: s.cmdClose, desc: '접수 마감 (관리자)' }, { cmd: s.cmdOpen, desc: '접수 재개 (관리자)' },
         { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (관리자)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (관리자)' },
         { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (관리자)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (관리자)' },
+        { cmd: s.cmdRecommend, desc: '멜론 차트 랜덤 추천곡' },
       ].filter(x => x.cmd)
     })
   }
@@ -6160,6 +6485,18 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     )
     groups.push({ key: 'roulette', icon: '🎡', label: '룰렛', items })
   }
+  if (on('auction') && settings.auction && settings.auction.config) {
+    const acfg = settings.auction.config
+    groups.push({
+      key: 'auction', icon: '🔨', label: '경매', items: [
+        { cmd: acfg.cmd, desc: '진행중인 경매 목록 조회' },
+        { cmd: acfg.cmd + ' [번호]', desc: '해당 경매에 입찰 (후원 후 입력)' },
+        { cmd: acfg.cmdMyBid, desc: '내 입찰 현황 조회' },
+        { cmd: acfg.cmdEnd + ' [번호]', desc: '경매 즉시 종료 (관리자)' },
+        { cmd: acfg.cmdCancel + ' [번호]', desc: '경매 취소 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
   if (on('couponcheck') && settings.couponCheck) {
     const cc = settings.couponCheck
     groups.push({
@@ -6187,6 +6524,82 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
 
   const total = groups.reduce((s, g) => s + g.items.length, 0)
   res.json({ success: true, groups, total })
+})
+
+// ── 🔨 경매 시스템 API ──
+app.get('/auction/list', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const list = [...a.list].sort((x, y) => {
+    if (x.status === 'active' && y.status !== 'active') return -1
+    if (x.status !== 'active' && y.status === 'active') return 1
+    return y.createdAt - x.createdAt
+  }).map(x => ({ ...x, participantCount: Object.keys(x.bids || {}).length }))
+  res.json({ success: true, config: a.config, list })
+})
+app.post('/auction/create', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const a = getAuctionSettings(req.djId, settings)
+  const b = req.body || {}
+  const itemName = String(b.itemName || '').trim()
+  const endAt = Number(b.endAt)
+  if (!itemName) return res.json({ success: false, error: '물건 이름을 입력해주세요' })
+  if (!endAt || endAt <= Date.now()) return res.json({ success: false, error: '종료 시간을 미래로 설정해주세요' })
+  const visibility = ['public', 'price_blind', 'info_blind', 'full_blind'].includes(b.visibility) ? b.visibility : 'public'
+  const auc = {
+    id: a.nextId++, itemName, status: 'active', visibility,
+    minBidSpoons: Math.max(0, Number(b.minBidSpoons) || 0),
+    minRaiseSpoons: Math.max(0, Number(b.minRaiseSpoons) || 0),
+    endAt, createdAt: Date.now(), bids: {}, leaderTag: null, winner: null,
+  }
+  a.list.push(auc)
+  saveAuction(req.djId, a)
+  res.json({ success: true, auction: auc })
+})
+app.post('/auction/:id/end', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const auc = a.list.find(x => x.id === id)
+  if (!auc) return res.json({ success: false, error: '없는 경매예요.' })
+  if (auc.status !== 'active') return res.json({ success: false, error: '이미 종료되었거나 취소된 경매예요.' })
+  auctionEnd(req.djId, a, id, 'ended')
+  res.json({ success: true })
+})
+app.post('/auction/:id/cancel', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const auc = a.list.find(x => x.id === id)
+  if (!auc) return res.json({ success: false, error: '없는 경매예요.' })
+  if (auc.status !== 'active') return res.json({ success: false, error: '이미 종료되었거나 취소된 경매예요.' })
+  auctionEnd(req.djId, a, id, 'cancelled')
+  res.json({ success: true })
+})
+app.post('/auction/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const idx = a.list.findIndex(x => x.id === id)
+  if (idx < 0) return res.json({ success: false, error: '없는 경매예요.' })
+  if (a.list[idx].status === 'active') return res.json({ success: false, error: '진행중인 경매는 먼저 종료/취소해주세요.' })
+  a.list.splice(idx, 1)
+  saveAuction(req.djId, a)
+  res.json({ success: true })
+})
+app.post('/auction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const a = getAuctionSettings(req.djId, settings)
+  const b = req.body || {}
+  if (b.announceOnBid != null) a.config.announceOnBid = !!b.announceOnBid
+  if (b.announceOnRankChange != null) a.config.announceOnRankChange = !!b.announceOnRankChange
+  if (b.donationExpirySeconds != null) a.config.donationExpirySeconds = Math.max(5, Number(b.donationExpirySeconds) || 60)
+  const cmdKeys = ['cmd', 'cmdMyBid', 'cmdEnd', 'cmdCancel']
+  cmdKeys.forEach(k => { if (b[k] != null) { let v = String(b[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) a.config[k] = v.slice(0, 30) } })
+  saveAuction(req.djId, a)
+  res.json({ success: true })
 })
 
 app.get('/stock/leaderboard', auth.requireAuth, (req, res) => {
@@ -6365,11 +6778,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
+// 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 계정마다 실행되며,
+// 본인 세션이 연결돼있으면 그걸 쓰고 없으면 관리자 공유 세션으로 자동 대체된다.
 async function checkAdminAutoJoin() {
   for (const djId of store.listDjIds()) {
     if (!canAutoJoin(djId)) continue
-    if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) continue // 관리자 계정에 아직 발급된 토큰이 없으면 건너뜀
+    if (!getEffectiveToken(djId)) continue // 본인 세션도 관리자 공유 세션도 없으면 건너뜀
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
@@ -6407,7 +6821,7 @@ async function checkAdminAutoJoin() {
         if (status && status.is_live && status.current_live_id) {
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
+          const roomToken = await tokenManager.fetchRoomToken(getEffectiveTokenOwner(djId), liveId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -6465,7 +6879,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
-  if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
+  if (!getEffectiveToken(djId)) {
     return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
 
@@ -6480,7 +6894,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     }
 
     const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
+    const roomToken = await tokenManager.fetchRoomToken(getEffectiveTokenOwner(djId), liveId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -6513,11 +6927,13 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
 app.get('/status', auth.requireAuth, (req, res) => {
   const room = getRoom(req.djId)
   const settings = store.getSettings(req.djId)
+  const owner = getEffectiveTokenOwner(req.djId)
   res.json({
     isConnected: room.isConnected,
     autoJoinTag: settings?.autoJoinTag || '',
-    hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
-    hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID),
+    hasSession: tokenManager.hasCookies(owner),
+    hasToken: !!getEffectiveToken(req.djId),
+    usingOwnSession: owner === req.djId,
   })
 })
 
@@ -6553,26 +6969,34 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에만 연결된다. (djId별 멀티 계정 구조)
-// ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
+// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에 연결된다.
+// 관리자(sum)가 올리면 모두가 기본으로 쓰는 "공유 세션"이 되고, 일반 DJ가 올리면
+// 그 사람 전용 "개인 세션"이 되어 이후 그 계정의 모든 활동이 자기 세션을 우선 사용한다.
 app.post('/session/upload', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
-  const adminSettings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(adminSettings, 'session', req.djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'session', req.djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
+  tokenManager.setCookies(req.djId, { cookies, localStorage, sessionStorage })
   // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
   // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  tokenManager.ensureAutoRefresh(SHARED_TOKEN_DJID, 180)
-  console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
-  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
+  tokenManager.ensureAutoRefresh(req.djId, 180)
+  console.log(`[세션:${req.djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  const isShared = req.djId === SHARED_TOKEN_DJID
+  res.json({ success: true, msg: isShared ? '쿠키 업로드 완료(공유 세션). accessToken 발급을 시도합니다.' : '쿠키 업로드 완료(개인 세션). 이제 이 계정은 본인 세션을 우선 사용해요.' })
 })
 
-app.get('/session/status', (req, res) => {
-  res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
+app.get('/session/status', auth.requireAuth, (req, res) => {
+  const owner = getEffectiveTokenOwner(req.djId)
+  res.json({
+    hasSession: tokenManager.hasCookies(owner),
+    hasToken: !!tokenManager.getAccessToken(owner),
+    usingOwnSession: owner === req.djId,
+    hasOwnSession: req.djId !== SHARED_TOKEN_DJID && tokenManager.hasCookies(req.djId),
+    hasSharedSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
+  })
 })
 
 app.get('/events', (req, res) => {

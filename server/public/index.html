@@ -576,6 +576,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -665,7 +666,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div id="dashLikePaid" style="font-size:16px;font-weight:800;color:var(--accent2)">0</div>
           </div>
         </div>
-        <p class="hint">※ 스푼 API가 광고/플랜/유료 하트를 구분해서 알려주지 않아, 지금은 좋아요 전부를 "무료하트"로 집계해요.</p>
+        <p class="hint">※ 무료(일반 좋아요 탭)/광고·룰렛 하트/플랜 하트/그 외 유료 하트를 자동으로 구분해서 집계해요.</p>
 
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
           <div class="card" style="margin-bottom:0">
@@ -733,6 +734,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel active" data-panel="session">
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
+          <p class="hint" id="sessionOwnNote" style="margin-bottom:10px"></p>
+          <p class="hint" style="margin-bottom:10px">기본적으로는 관리자 계정의 공유 세션을 사용해요. <b>본인 계정으로 직접 방송하고 싶으면</b> 아래에 본인 스푼 쿠키를 업로드하세요 — 그 순간부터 이 계정은 본인 세션을 우선 사용해요.</p>
           <label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
           <textarea id="sessionCookies" class="mono" placeholder='{"cookies":[...],"localStorage":{...}}'></textarea>
           <label>관리자 키 (Railway에 ADMIN_KEY를 설정한 경우에만 입력)</label>
@@ -763,6 +766,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <span class="hint" style="margin:0">일</span>
             <button class="btn-connect" style="padding:11px 20px" onclick="saveDefaultTrialDays()">저장</button>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📢 전체 접속중 방송에 공지 보내기</span></div>
+          <p class="hint">지금 봇이 접속해있는 모든 디제이의 방송 채팅에 한 번에 메시지를 보내요.</p>
+          <textarea id="broadcastChatInput" placeholder="예: 곧 서버 점검이 있을 예정이에요. 잠시 후 봇이 재시작될 수 있어요." style="height:70px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendBroadcastChat()">📢 전체 접속중인 방송에 공지 보내기</button>
         </div>
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
@@ -1182,6 +1191,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>신청자닉 표시 ON (기본: !이름온)</label><input type="text" id="srCmdNameOn" value="!이름온"></div>
             <div><label>신청자닉 표시 OFF (기본: !이름오프)</label><input type="text" id="srCmdNameOff" value="!이름오프"></div>
           </div>
+          <label>멜론 차트 랜덤 추천곡 (기본: !추천곡)</label>
+          <input type="text" id="srCmdRecommend" value="!추천곡">
+          <div class="hint" style="margin-top:4px">멜론 TOP100·HOT100·DAILY100 차트 중에서 랜덤으로 한 곡을 추천해줘요.</div>
           <label>신청 완료 문구</label>
           <input type="text" id="srDoneTemplate" value="✅ [{artist} - {title}] 신청 완료! (대기: {count}번)">
           <div class="hint">변수: {artist}, {title}, {count}</div>
@@ -2377,7 +2389,69 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
-      <!-- 🤝 고정매니저신청 -->
+      <!-- 🔨 경매 시스템 -->
+      <div class="panel" data-panel="auction">
+        <div class="card">
+          <div class="card-title"><span>🔨 경매 시스템</span></div>
+          <p class="hint">시청자가 후원(스티커)으로 누적 입찰하는 경매예요. 후원 후 정해진 시간 안에 <b>!경매 [번호]</b>를 쳐야 그 후원액이 입찰로 반영되고, 같은 사람이 여러 번 입찰하면 총액이 누적돼요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="acEnabled" checked> 경매 기능 활성화</label>
+          <label class="check-opt"><input type="checkbox" id="acAnnounceOnBid" checked> 입찰 시 채팅 알림</label>
+          <label class="check-opt"><input type="checkbox" id="acAnnounceOnRankChange" checked> 1위 변동 시 채팅 알림</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>후원 효력 유효 시간 (초)</label><input type="number" id="acDonationExpiry" value="60"><div class="hint" style="margin-top:4px">후원 후 이 시간 안에 !경매 [번호]를 쳐야 입찰로 인정돼요</div></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-top:10px">
+            <div><label>목록/입찰</label><input type="text" id="acCmd" value="!경매"></div>
+            <div><label>내 입찰 조회</label><input type="text" id="acCmdMyBid" value="!내입찰"></div>
+            <div><label>종료(관리자)</label><input type="text" id="acCmdEnd" value="!경매종료"></div>
+            <div><label>취소(관리자)</label><input type="text" id="acCmdCancel" value="!경매취소"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveAuctionSettings()">저장</button>
+        </div>
+
+        <div class="btn-row" style="grid-template-columns:1.1fr 1fr;align-items:start">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title"><span>진행중인 경매 <span class="hint" id="acActiveCount" style="margin:0 0 0 4px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadAuctionList()">🔄 새로고침</button></div>
+            <div id="acActiveList"><p class="hint">불러오는 중...</p></div>
+          </div>
+
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title">+ 새 경매 등록</div>
+            <label style="margin-top:0">물건 이름</label>
+            <input type="text" id="acNewItemName" placeholder="예: 다음 곡 선곡권">
+            <label>종료 날짜 및 시간</label>
+            <input type="datetime-local" id="acNewEndAt">
+            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="acAddMinutes(1)">+1분</button>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="acAddMinutes(10)">+10분</button>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="acAddMinutes(60)">+1시간</button>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="acAddMinutes(1440)">+1일</button>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr">
+              <div><label>최소 입찰 스푼</label><input type="number" id="acNewMinBid" value="10"><div class="hint" style="margin-top:4px">최초 참여를 위한 최소 스푼</div></div>
+              <div><label>최소 상회 스푼</label><input type="number" id="acNewMinRaise" value="5"><div class="hint" style="margin-top:4px">추가 입찰을 위한 최소 스푼</div></div>
+            </div>
+            <label>공개 방식</label>
+            <select id="acNewVisibility">
+              <option value="public">공개 경매 — 닉네임 O, 누적 O, 순위 O</option>
+              <option value="price_blind">가격 블라인드 — 닉네임 O, 누적 X, 순위 O</option>
+              <option value="info_blind">정보 블라인드 — 닉네임 X, 누적 O, 순위 X</option>
+              <option value="full_blind">전체 블라인드 — 닉네임 X, 누적 X, 순위 X</option>
+            </select>
+            <button class="btn-connect" style="width:100%;margin-top:12px" onclick="createAuction()">+ 경매 등록</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>지난 경매 기록</span></div>
+          <div id="acPastList"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <div class="panel" data-panel="autofollow">
         <div class="card">
           <div class="card-title">🖱️ 팔로잉 신청</div>
@@ -3043,6 +3117,7 @@ const PANEL_META={
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
+  auction:['🔨 경매','후원(스티커)으로 누적 입찰하는 경매 시스템입니다. 블라인드 옵션 4종을 지원해요'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -3144,7 +3219,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3156,7 +3231,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4014,6 +4089,7 @@ async function loadDjSettings(){
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
       if(document.getElementById('fishListBody')) loadFishingSettings();
       if(document.getElementById('stkStocksBody')) loadStockSettings();
+      if(document.getElementById('acActiveList')) loadAuctionList();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -4030,7 +4106,7 @@ async function uploadSession(){
   if(!payload.cookies || !payload.cookies.length) return showToast('쿠키 데이터를 찾을 수 없습니다');
   try{
     const adminKey=document.getElementById('adminKey').value.trim();
-    const headers={'Content-Type':'application/json'};
+    const headers={'Content-Type':'application/json',...authHeaders()};
     if(adminKey) headers['x-admin-key']=adminKey;
     const res=await fetch(SERVER+'/session/upload',{method:'POST',headers,body:JSON.stringify(payload)});
     const d=await res.json();
@@ -4044,12 +4120,21 @@ async function uploadSession(){
 
 async function checkSessionStatus(){
   try{
-    const res=await fetch(SERVER+'/session/status');
+    const res=await fetch(SERVER+'/session/status',{headers:authHeaders()});
     const d=await res.json();
     const pill=document.getElementById('sessionPill');
-    if(d.hasToken){pill.textContent='연결됨';pill.className='session-pill ok';}
+    if(d.hasToken){
+      pill.textContent=d.usingOwnSession?'연결됨 (개인 세션)':'연결됨 (공유 세션)';
+      pill.className='session-pill ok';
+    }
     else if(d.hasSession){pill.textContent='토큰 발급 중';pill.className='session-pill';}
     else{pill.textContent='미연결';pill.className='session-pill bad';}
+    const noteEl=document.getElementById('sessionOwnNote');
+    if(noteEl){
+      if(d.hasOwnSession) noteEl.textContent='✅ 본인 계정으로 업로드한 개인 세션을 사용 중이에요.';
+      else if(d.hasSharedSession) noteEl.textContent='ℹ️ 아직 개인 세션이 없어서, 기본값인 관리자 공유 세션을 사용 중이에요. 본인 계정으로 방송하고 싶으면 위에 본인 쿠키를 업로드해주세요.';
+      else noteEl.textContent='';
+    }
   }catch{}
 }
 
@@ -4171,6 +4256,19 @@ function renderUserListTable(){
 
 // 관리자 계정으로 특정 디제이의 설정 화면을 비밀번호 없이 바로 확인/수정하러 들어간다.
 // 원래 관리자 세션은 따로 보관해뒀다가, 화면 상단 배너의 "관리자 계정으로 돌아가기"로 복귀할 수 있다.
+async function sendBroadcastChat(){
+  const msg=document.getElementById('broadcastChatInput').value.trim();
+  if(!msg)return showToast('보낼 메시지를 입력해주세요');
+  const connectedCount=adminUserListData.filter(u=>u.isConnected).length;
+  if(!confirm(`지금 접속중인 ${connectedCount}개 방송에 이 메시지를 보낼까요?\n\n"${msg}"`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/broadcast-chat',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message:msg})});
+    const d=await res.json();
+    if(d.success){ showToast(`${d.count}개 방송에 전송 완료 ✓`); document.getElementById('broadcastChatInput').value=''; }
+    else showToast(d.error||'전송 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function viewUserSettings(targetDjId){
   if(!confirm(targetDjId+' 계정으로 전환해서 설정을 확인할까요?\n(비밀번호 없이 바로 들어가요. 상단 배너로 언제든 관리자 계정으로 돌아올 수 있어요)'))return;
   try{
@@ -4445,7 +4543,7 @@ async function saveGreetGlobal(){
 }
 
 /* ── 신청곡 관리 ── */
-let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]};
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]};
 
 /* ── 애청지수 ── */
 const ACT_DEFAULT={
@@ -4888,6 +4986,7 @@ function saveSrCustom(){
   srData.cmdPriorityOff=document.getElementById('srCmdPriorityOff').value.trim()||'!우선오프';
   srData.cmdNameOn=document.getElementById('srCmdNameOn').value.trim()||'!이름온';
   srData.cmdNameOff=document.getElementById('srCmdNameOff').value.trim()||'!이름오프';
+  srData.cmdRecommend=document.getElementById('srCmdRecommend').value.trim()||'!추천곡';
   srData.doneTemplate=document.getElementById('srDoneTemplate').value;
   srData.listTitle=document.getElementById('srListTitle').value;
   srData.listItemTemplate=document.getElementById('srListItemTemplate').value;
@@ -7924,6 +8023,182 @@ async function resetStockData(){
     const d=await res.json();
     if(d.success){ showToast('초기화했어요'); loadStockLeaderboard(); loadStockUsers(); }
     else showToast(d.error||'초기화 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🔨 경매 시스템 ── */
+let acData=[];
+let acConfig={};
+const AC_VIS_LABEL={
+  public:'공개 경매', price_blind:'가격 블라인드', info_blind:'정보 블라인드', full_blind:'전체 블라인드',
+};
+
+function acAddMinutes(mins){
+  const input=document.getElementById('acNewEndAt');
+  const base=input.value?new Date(input.value):new Date();
+  const now=new Date();
+  const start=base>now?base:now;
+  const next=new Date(start.getTime()+mins*60000);
+  const pad=n=>String(n).padStart(2,'0');
+  input.value=`${next.getFullYear()}-${pad(next.getMonth()+1)}-${pad(next.getDate())}T${pad(next.getHours())}:${pad(next.getMinutes())}`;
+}
+
+async function loadAuctionList(){
+  try{
+    const res=await fetch(SERVER+'/auction/list',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    acConfig=d.config||{};
+    acData=d.list||[];
+    document.getElementById('acEnabled').checked=acConfig.enabled!==false;
+    document.getElementById('acAnnounceOnBid').checked=acConfig.announceOnBid!==false;
+    document.getElementById('acAnnounceOnRankChange').checked=acConfig.announceOnRankChange!==false;
+    document.getElementById('acDonationExpiry').value=acConfig.donationExpirySeconds??60;
+    document.getElementById('acCmd').value=acConfig.cmd||'!경매';
+    document.getElementById('acCmdMyBid').value=acConfig.cmdMyBid||'!내입찰';
+    document.getElementById('acCmdEnd').value=acConfig.cmdEnd||'!경매종료';
+    document.getElementById('acCmdCancel').value=acConfig.cmdCancel||'!경매취소';
+    renderAuctionLists();
+  }catch(e){}
+}
+
+function acFmtRemain(endAt){
+  const remain=Math.max(0,endAt-Date.now());
+  const m=Math.floor(remain/60000), s=Math.floor((remain%60000)/1000);
+  return `${m}분 ${s}초`;
+}
+
+function renderAuctionLists(){
+  const activeWrap=document.getElementById('acActiveList');
+  const pastWrap=document.getElementById('acPastList');
+  if(!activeWrap||!pastWrap)return;
+
+  const active=acData.filter(x=>x.status==='active');
+  document.getElementById('acActiveCount').textContent='('+active.length+')';
+
+  if(!active.length){
+    activeWrap.innerHTML='<p class="hint">진행중인 경매가 없어요.</p>';
+  }else{
+    activeWrap.innerHTML=active.map(x=>`
+      <div class="card" style="background:var(--surface2);margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div style="font-weight:700;font-size:15px">[${x.id}번] ${escapeHtml(x.itemName)}</div>
+          <div style="display:flex;gap:6px">
+            <span class="status-pill ongoing">진행중</span>
+            <span class="status-pill">${AC_VIS_LABEL[x.visibility]||'공개 경매'}</span>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:6px">⏱️ <span id="acTimer-${x.id}">${acFmtRemain(x.endAt)}</span> 남음 · 👥 ${x.participantCount||0}명 참여</div>
+        <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:8px">
+          <div><label style="margin-top:0">최소 입찰</label><div style="padding:9px 0;font-weight:600">${Math.round(x.minBidSpoons).toLocaleString()}스푼</div></div>
+          <div><label style="margin-top:0">최소 상회</label><div style="padding:9px 0;font-weight:600">${Math.round(x.minRaiseSpoons).toLocaleString()}스푼</div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn-connect" style="flex:1" onclick="endAuction(${x.id})">✅ 지금 종료</button>
+          <button class="btn-shield-reset" style="flex:1" onclick="cancelAuction(${x.id})">✕ 취소</button>
+        </div>
+      </div>`).join('');
+  }
+
+  const past=acData.filter(x=>x.status!=='active').slice(0,20);
+  if(!past.length){
+    pastWrap.innerHTML='<p class="hint">지난 경매 기록이 없어요.</p>';
+  }else{
+    const rows=past.map(x=>{
+      const statusLabel=x.status==='ended'?'<span class="status-pill ongoing">종료</span>':'<span class="status-pill ended">취소됨</span>';
+      const winnerText=x.winner?`${escapeHtml(x.winner.nickname)} (${Math.round(x.winner.total).toLocaleString()}스푼)`:'-';
+      return `<tr>
+        <td>${x.id}</td>
+        <td>${escapeHtml(x.itemName)}</td>
+        <td>${AC_VIS_LABEL[x.visibility]||'공개 경매'}</td>
+        <td>${x.participantCount||0}명</td>
+        <td>${statusLabel}</td>
+        <td>${winnerText}</td>
+        <td><button class="icon-btn danger" onclick="deleteAuction(${x.id})" title="기록 삭제">🗑</button></td>
+      </tr>`;
+    }).join('');
+    pastWrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
+      <thead><tr><th>번호</th><th>물건</th><th>공개방식</th><th>참여</th><th>상태</th><th>낙찰자</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }
+}
+
+setInterval(()=>{
+  acData.filter(x=>x.status==='active').forEach(x=>{
+    const el=document.getElementById('acTimer-'+x.id);
+    if(el) el.textContent=acFmtRemain(x.endAt);
+  });
+},1000);
+
+async function saveAuctionSettings(){
+  const body={
+    enabled:document.getElementById('acEnabled').checked,
+    announceOnBid:document.getElementById('acAnnounceOnBid').checked,
+    announceOnRankChange:document.getElementById('acAnnounceOnRankChange').checked,
+    donationExpirySeconds:Number(document.getElementById('acDonationExpiry').value)||60,
+    cmd:document.getElementById('acCmd').value,
+    cmdMyBid:document.getElementById('acCmdMyBid').value,
+    cmdEnd:document.getElementById('acCmdEnd').value,
+    cmdCancel:document.getElementById('acCmdCancel').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/auction/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('설정 저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function createAuction(){
+  const itemName=document.getElementById('acNewItemName').value.trim();
+  const endAtRaw=document.getElementById('acNewEndAt').value;
+  if(!itemName)return showToast('물건 이름을 입력해주세요');
+  if(!endAtRaw)return showToast('종료 날짜 및 시간을 선택해주세요');
+  const endAt=new Date(endAtRaw).getTime();
+  if(!endAt||endAt<=Date.now())return showToast('종료 시간을 미래로 설정해주세요');
+  const body={
+    itemName, endAt,
+    minBidSpoons:Number(document.getElementById('acNewMinBid').value)||0,
+    minRaiseSpoons:Number(document.getElementById('acNewMinRaise').value)||0,
+    visibility:document.getElementById('acNewVisibility').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/auction/create',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'등록 실패');
+    showToast('경매를 등록했어요 ✓');
+    document.getElementById('acNewItemName').value='';
+    document.getElementById('acNewEndAt').value='';
+    loadAuctionList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function endAuction(id){
+  if(!confirm(id+'번 경매를 지금 바로 종료할까요? 현재 1위가 낙찰돼요.'))return;
+  try{
+    const res=await fetch(SERVER+'/auction/'+id+'/end',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('경매를 종료했어요');loadAuctionList();}
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function cancelAuction(id){
+  if(!confirm(id+'번 경매를 취소할까요? 낙찰자 없이 종료돼요.'))return;
+  try{
+    const res=await fetch(SERVER+'/auction/'+id+'/cancel',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('경매를 취소했어요');loadAuctionList();}
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function deleteAuction(id){
+  if(!confirm(id+'번 경매 기록을 완전히 삭제할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/auction/'+id+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast('삭제했어요');loadAuctionList();}
+    else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
