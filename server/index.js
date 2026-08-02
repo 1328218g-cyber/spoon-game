@@ -263,7 +263,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -3852,6 +3852,4547 @@ setInterval(() => {
   }
 }, 20000)
 
+// ══════════════════════════════════════════════════════
+// ⚔️ 검키우기 — 기존 "Sopia" 봇용으로 만들어져 있던 게임을 이 서버(Express) 구조로 이식.
+// 게임 로직(강화/던전/배틀/랭킹 등 계산 공식)은 원본 그대로이고, 메시지 송수신 부분만
+// 이 서버의 채팅 파이프라인에 맞게 다시 연결했다.
+// 유저 데이터(검 레벨/골드 등)는 기존처럼 Base44(외부 DB)에 저장돼있던 걸 그대로 쓴다 —
+// !저장/!로드 명령어로 수동 동기화(원본과 동일한 방식). 설정(강화확률/상점 등)은
+// 관리자(sum) 계정 아래 공용으로 저장해서, 이 모듈을 켠 모든 방송이 같은 설정을 공유한다
+// (플레이어 데이터가 Base44에 태그 기준으로 전역 저장되는 것과 같은 맥락).
+//
+// ⚠️ 1차 이식 범위: 강화·던전·배틀·랭킹·검정보(프로필)·판매·창고·유물·룬·탐험·룬제작/판매/강화·
+// 출석·저장/로드·검온오프·도움말. 상점/구매, 펫, 몬스터박스, 방보스, 자동배틀, 거래소,
+// 관리자 지급/차단/복구 명령어는 다음 차수에서 이어서 추가한다.
+
+const APP_URL = 'https://copy-09a708e1.base44.app'
+let API_TOKEN = process.env.SWORD_API_TOKEN || '102810aa'
+
+let localUsers = new Map()
+let localSettings = null
+let enhanceCooldowns = new Map()
+let battleCooldowns = new Map()
+let dungeonCooldowns = new Map()
+let loadCooldowns = new Map()
+let bannedUsersCache = new Set()
+let lastBannedCheck = 0
+
+async function checkBannedUser(tag) {
+  // 5분마다 캐시 갱신
+  if (Date.now() - lastBannedCheck > 300000) {
+    try {
+      const response = await apiRequest('getBannedUsers', 'GET', {});
+      if (response.success && response.banned_tags) {
+        bannedUsersCache = new Set(response.banned_tags);
+        lastBannedCheck = Date.now();
+      }
+    } catch (error) {
+      console.log('[차단 체크 실패]', error);
+    }
+  }
+  
+  return bannedUsersCache.has(tag);
+}
+
+async function apiRequest(endpoint, method = 'GET', params = {}, body = null) {
+  const url = new URL(APP_URL + '/functions/' + endpoint);
+  if (method === 'GET') {
+    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+  }
+  const options = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + API_TOKEN,
+    },
+  };
+  if (body) options.body = JSON.stringify(body);
+  const response = await fetch(url, options);
+  return await response.json();
+}
+
+async function loadUserFromDB(tag) {
+  try {
+    const response = await apiRequest('loadGlobalSwordUser', 'POST', {}, { tag });
+    return response.success && response.user ? response.user : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function saveUserToDB(user) {
+  try {
+    const payload = {
+      tag: user.tag,
+      userData: {
+        nickname: user.nickname,
+        gold: user.gold,
+        sword_level: user.sword_level,
+        max_sword_level: user.max_sword_level,
+        attack_power: user.attack_power,
+        weapon_bonus: user.weapon_bonus,
+        weapon_bonus2: user.weapon_bonus2,
+        weapon_bonus3: user.weapon_bonus3,
+        battle_wins: user.battle_wins,
+        battle_losses: user.battle_losses,
+        inventory: user.inventory,
+        special_weapon: user.special_weapon,
+        last_daily_money_date: user.last_daily_money_date,
+        current_dungeon_floor: user.current_dungeon_floor,
+        relics: user.relics,
+        dungeon_tickets: user.dungeon_tickets,
+        runes: user.runes,
+        rune_fragments: user.rune_fragments,
+        last_explore_date: user.last_explore_date,
+        explore_count: user.explore_count,
+        user_plan_level: user.user_plan_level
+      }
+    };
+    await apiRequest('saveGlobalSwordUser', 'POST', {}, payload);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function initializeSettings() {
+  if (localSettings) return localSettings;
+
+  // DB에서 불러온 설정이 있으면 사용
+  const savedSettings = {
+  "enabled": true,
+  "initial_gold": 2000000,
+  "daily_money": 1500000,
+  "like_reward": 500000,
+  "spoon_to_gold_rate": 1,
+  "enhance_cooldown": 4,
+  "battle_cooldown": 6,
+  "dungeon_cooldown": 5,
+  "enhance_success_rates": [
+    {
+      "level": 0,
+      "cost": 10,
+      "success_rate": 100,
+      "fail_rate": 0,
+      "down_rate": 0,
+      "destroy_rate": 0
+    },
+    {
+      "level": 1,
+      "cost": 20,
+      "success_rate": 95,
+      "fail_rate": 5,
+      "down_rate": 0,
+      "destroy_rate": 0
+    },
+    {
+      "level": 2,
+      "cost": 50,
+      "success_rate": 90,
+      "fail_rate": 10,
+      "down_rate": 0,
+      "destroy_rate": 0
+    },
+    {
+      "level": 3,
+      "cost": 100,
+      "success_rate": 85,
+      "fail_rate": 15,
+      "down_rate": 0,
+      "destroy_rate": 0
+    },
+    {
+      "level": 4,
+      "cost": 200,
+      "success_rate": 80,
+      "fail_rate": 20,
+      "down_rate": 0,
+      "destroy_rate": 0
+    },
+    {
+      "level": 5,
+      "cost": 500,
+      "success_rate": 75,
+      "fail_rate": 20,
+      "down_rate": 5,
+      "destroy_rate": 0
+    },
+    {
+      "level": 6,
+      "cost": 1000,
+      "success_rate": 70,
+      "fail_rate": 20,
+      "down_rate": 10,
+      "destroy_rate": 0
+    },
+    {
+      "level": 7,
+      "cost": 2000,
+      "success_rate": 65,
+      "fail_rate": 20,
+      "down_rate": 15,
+      "destroy_rate": 0
+    },
+    {
+      "level": 8,
+      "cost": 5000,
+      "success_rate": 60,
+      "fail_rate": 20,
+      "down_rate": 15,
+      "destroy_rate": 5
+    },
+    {
+      "level": 9,
+      "cost": 10000,
+      "success_rate": 55,
+      "fail_rate": 20,
+      "down_rate": 15,
+      "destroy_rate": 10
+    },
+    {
+      "level": 10,
+      "cost": 20000,
+      "success_rate": 50,
+      "fail_rate": 20,
+      "down_rate": 15,
+      "destroy_rate": 15
+    },
+    {
+      "level": 11,
+      "cost": 40000,
+      "success_rate": 48,
+      "fail_rate": 20,
+      "down_rate": 17,
+      "destroy_rate": 15
+    },
+    {
+      "level": 12,
+      "cost": 80000,
+      "success_rate": 46,
+      "fail_rate": 20,
+      "down_rate": 19,
+      "destroy_rate": 15
+    },
+    {
+      "level": 13,
+      "cost": 160000,
+      "success_rate": 44,
+      "fail_rate": 20,
+      "down_rate": 20,
+      "destroy_rate": 16
+    },
+    {
+      "level": 14,
+      "cost": 320000,
+      "success_rate": 42,
+      "fail_rate": 20,
+      "down_rate": 20,
+      "destroy_rate": 18
+    },
+    {
+      "level": 15,
+      "cost": 640000,
+      "success_rate": 40,
+      "fail_rate": 20,
+      "down_rate": 20,
+      "destroy_rate": 20
+    },
+    {
+      "level": 16,
+      "cost": 1280000,
+      "success_rate": 38,
+      "fail_rate": 20,
+      "down_rate": 21,
+      "destroy_rate": 21
+    },
+    {
+      "level": 17,
+      "cost": 2560000,
+      "success_rate": 36,
+      "fail_rate": 20,
+      "down_rate": 22,
+      "destroy_rate": 22
+    },
+    {
+      "level": 18,
+      "cost": 5000000,
+      "success_rate": 34,
+      "fail_rate": 20,
+      "down_rate": 23,
+      "destroy_rate": 23
+    },
+    {
+      "level": 19,
+      "cost": 10000000,
+      "success_rate": 32,
+      "fail_rate": 20,
+      "down_rate": 24,
+      "destroy_rate": 24
+    },
+    {
+      "level": 20,
+      "cost": 20000000,
+      "success_rate": 30,
+      "fail_rate": 20,
+      "down_rate": 25,
+      "destroy_rate": 25
+    },
+    {
+      "level": 21,
+      "cost": 40000000,
+      "success_rate": 28,
+      "fail_rate": 20,
+      "down_rate": 26,
+      "destroy_rate": 26
+    },
+    {
+      "level": 22,
+      "cost": 80000000,
+      "success_rate": 26,
+      "fail_rate": 20,
+      "down_rate": 27,
+      "destroy_rate": 27
+    },
+    {
+      "level": 23,
+      "cost": 160000000,
+      "success_rate": 24,
+      "fail_rate": 20,
+      "down_rate": 28,
+      "destroy_rate": 28
+    },
+    {
+      "level": 24,
+      "cost": 320000000,
+      "success_rate": 22,
+      "fail_rate": 20,
+      "down_rate": 29,
+      "destroy_rate": 29
+    },
+    {
+      "level": 25,
+      "cost": 640000000,
+      "success_rate": 20,
+      "fail_rate": 20,
+      "down_rate": 30,
+      "destroy_rate": 30
+    },
+    {
+      "level": 26,
+      "cost": 1280000000,
+      "success_rate": 18,
+      "fail_rate": 20,
+      "down_rate": 31,
+      "destroy_rate": 31
+    },
+    {
+      "level": 27,
+      "cost": 2560000000,
+      "success_rate": 16,
+      "fail_rate": 20,
+      "down_rate": 32,
+      "destroy_rate": 32
+    },
+    {
+      "level": 28,
+      "cost": 5000000000,
+      "success_rate": 14,
+      "fail_rate": 20,
+      "down_rate": 33,
+      "destroy_rate": 33
+    },
+    {
+      "level": 29,
+      "cost": 10000000000,
+      "success_rate": 12,
+      "fail_rate": 20,
+      "down_rate": 34,
+      "destroy_rate": 34
+    },
+    {
+      "level": 30,
+      "cost": 20000000000,
+      "success_rate": 10,
+      "fail_rate": 20,
+      "down_rate": 35,
+      "destroy_rate": 35
+    },
+    {
+      "level": 31,
+      "cost": 40000000000,
+      "success_rate": 9,
+      "fail_rate": 20,
+      "down_rate": 35,
+      "destroy_rate": 36
+    },
+    {
+      "level": 32,
+      "cost": 80000000000,
+      "success_rate": 8,
+      "fail_rate": 20,
+      "down_rate": 36,
+      "destroy_rate": 36
+    },
+    {
+      "level": 33,
+      "cost": 160000000000,
+      "success_rate": 7,
+      "fail_rate": 20,
+      "down_rate": 36,
+      "destroy_rate": 37
+    },
+    {
+      "level": 34,
+      "cost": 320000000000,
+      "success_rate": 6,
+      "fail_rate": 20,
+      "down_rate": 37,
+      "destroy_rate": 37
+    },
+    {
+      "level": 35,
+      "cost": 640000000000,
+      "success_rate": 5,
+      "fail_rate": 20,
+      "down_rate": 37,
+      "destroy_rate": 38
+    },
+    {
+      "level": 36,
+      "cost": 1280000000000,
+      "success_rate": 5,
+      "fail_rate": 19,
+      "down_rate": 38,
+      "destroy_rate": 38
+    },
+    {
+      "level": 37,
+      "cost": 2560000000000,
+      "success_rate": 4,
+      "fail_rate": 19,
+      "down_rate": 38,
+      "destroy_rate": 39
+    },
+    {
+      "level": 38,
+      "cost": 5000000000000,
+      "success_rate": 4,
+      "fail_rate": 19,
+      "down_rate": 38,
+      "destroy_rate": 39
+    },
+    {
+      "level": 39,
+      "cost": 10000000000000,
+      "success_rate": 3,
+      "fail_rate": 19,
+      "down_rate": 39,
+      "destroy_rate": 39
+    },
+    {
+      "level": 40,
+      "cost": 20000000000000,
+      "success_rate": 3,
+      "fail_rate": 19,
+      "down_rate": 39,
+      "destroy_rate": 39
+    },
+    {
+      "level": 41,
+      "cost": 40000000000000,
+      "success_rate": 3,
+      "fail_rate": 18,
+      "down_rate": 39,
+      "destroy_rate": 40
+    },
+    {
+      "level": 42,
+      "cost": 80000000000000,
+      "success_rate": 2,
+      "fail_rate": 18,
+      "down_rate": 40,
+      "destroy_rate": 40
+    },
+    {
+      "level": 43,
+      "cost": 160000000000000,
+      "success_rate": 2,
+      "fail_rate": 18,
+      "down_rate": 40,
+      "destroy_rate": 40
+    },
+    {
+      "level": 44,
+      "cost": 320000000000000,
+      "success_rate": 2,
+      "fail_rate": 18,
+      "down_rate": 40,
+      "destroy_rate": 40
+    },
+    {
+      "level": 45,
+      "cost": 640000000000000,
+      "success_rate": 2,
+      "fail_rate": 17,
+      "down_rate": 40,
+      "destroy_rate": 41
+    },
+    {
+      "level": 46,
+      "cost": 1280000000000000,
+      "success_rate": 1,
+      "fail_rate": 17,
+      "down_rate": 41,
+      "destroy_rate": 41
+    },
+    {
+      "level": 47,
+      "cost": 2560000000000000,
+      "success_rate": 1,
+      "fail_rate": 17,
+      "down_rate": 41,
+      "destroy_rate": 41
+    },
+    {
+      "level": 48,
+      "cost": 5000000000000000,
+      "success_rate": 1,
+      "fail_rate": 17,
+      "down_rate": 41,
+      "destroy_rate": 41
+    },
+    {
+      "level": 49,
+      "cost": 10000000000000000,
+      "success_rate": 1,
+      "fail_rate": 16,
+      "down_rate": 41,
+      "destroy_rate": 42
+    }
+  ],
+  "weapon_names": [
+    {
+      "level": 0,
+      "name": "낡은 검"
+    },
+    {
+      "level": 1,
+      "name": "무쇠 검"
+    },
+    {
+      "level": 2,
+      "name": "강철 검"
+    },
+    {
+      "level": 3,
+      "name": "은 검"
+    },
+    {
+      "level": 4,
+      "name": "미스릴 검"
+    },
+    {
+      "level": 5,
+      "name": "마법 검"
+    },
+    {
+      "level": 6,
+      "name": "전설 검"
+    },
+    {
+      "level": 7,
+      "name": "신화 검"
+    },
+    {
+      "level": 8,
+      "name": "초월 검"
+    },
+    {
+      "level": 9,
+      "name": "불멸 검"
+    },
+    {
+      "level": 10,
+      "name": "신검"
+    },
+    {
+      "level": 11,
+      "name": "천상의 검"
+    },
+    {
+      "level": 12,
+      "name": "성스러운 검"
+    },
+    {
+      "level": 13,
+      "name": "영원의 검"
+    },
+    {
+      "level": 14,
+      "name": "용의 검"
+    },
+    {
+      "level": 15,
+      "name": "봉황의 검"
+    },
+    {
+      "level": 16,
+      "name": "태양의 검"
+    },
+    {
+      "level": 17,
+      "name": "달의 검"
+    },
+    {
+      "level": 18,
+      "name": "별의 검"
+    },
+    {
+      "level": 19,
+      "name": "은하의 검"
+    },
+    {
+      "level": 20,
+      "name": "우주의 검"
+    },
+    {
+      "level": 21,
+      "name": "시공의 검"
+    },
+    {
+      "level": 22,
+      "name": "차원의 검"
+    },
+    {
+      "level": 23,
+      "name": "운명의 검"
+    },
+    {
+      "level": 24,
+      "name": "창조의 검"
+    },
+    {
+      "level": 25,
+      "name": "파괴의 검"
+    },
+    {
+      "level": 26,
+      "name": "절대의 검"
+    },
+    {
+      "level": 27,
+      "name": "무한의 검"
+    },
+    {
+      "level": 28,
+      "name": "궁극의 검"
+    },
+    {
+      "level": 29,
+      "name": "진리의 검"
+    },
+    {
+      "level": 30,
+      "name": "천지의 검"
+    },
+    {
+      "level": 31,
+      "name": "혼돈의 검"
+    },
+    {
+      "level": 32,
+      "name": "질서의 검"
+    },
+    {
+      "level": 33,
+      "name": "빛의 검"
+    },
+    {
+      "level": 34,
+      "name": "어둠의 검"
+    },
+    {
+      "level": 35,
+      "name": "생명의 검"
+    },
+    {
+      "level": 36,
+      "name": "죽음의 검"
+    },
+    {
+      "level": 37,
+      "name": "신성의 검"
+    },
+    {
+      "level": 38,
+      "name": "마신의 검"
+    },
+    {
+      "level": 39,
+      "name": "천벌의 검"
+    },
+    {
+      "level": 40,
+      "name": "구원의 검"
+    },
+    {
+      "level": 41,
+      "name": "심판의 검"
+    },
+    {
+      "level": 42,
+      "name": "계시의 검"
+    },
+    {
+      "level": 43,
+      "name": "예언의 검"
+    },
+    {
+      "level": 44,
+      "name": "신탁의 검"
+    },
+    {
+      "level": 45,
+      "name": "천명의 검"
+    },
+    {
+      "level": 46,
+      "name": "영겁의 검"
+    },
+    {
+      "level": 47,
+      "name": "불멸왕의 검"
+    },
+    {
+      "level": 48,
+      "name": "세계수의 검"
+    },
+    {
+      "level": 49,
+      "name": "창세신의 검"
+    }
+  ],
+  "level_first_achievers": {},
+  "sell_price_multiplier": 10,
+  "shop_items": [
+    {
+      "name": "⚔️강화제(성공률 10%상승)",
+      "price": 10000,
+      "effect_type": "enhance_boost",
+      "effect_value": 10
+    },
+    {
+      "name": "⚔️강화제(성공률 40%상승)",
+      "price": 100000,
+      "effect_type": "enhance_boost",
+      "effect_value": 40
+    },
+    {
+      "name": "🛡️파괴방지(1회성)",
+      "price": 10000,
+      "effect_type": "destroy_prevent",
+      "effect_value": 1
+    },
+    {
+      "name": "🔄옵션 재설정",
+      "price": 20000,
+      "effect_type": "reroll_option",
+      "effect_value": 0
+    },
+    {
+      "name": "✨옵션 부여 부적",
+      "price": 200000,
+      "effect_type": "add_option",
+      "effect_value": 0
+    },
+    {
+      "name": "🔐옵션 잠금 부적(1회성)",
+      "price": 20000,
+      "effect_type": "option_lock",
+      "effect_value": 1
+    },
+    {
+      "name": "🛡️하락방지(1회성)",
+      "price": 20000,
+      "effect_type": "down_prevent",
+      "effect_value": 1
+    },
+    {
+      "name": "🎁미스터리 선물 상자",
+      "price": 200000,
+      "effect_type": "mystery_box",
+      "effect_value": 0
+    },
+    {
+      "name": "⛩던전 이용권",
+      "price": 10000,
+      "effect_type": "dungeon_ticket",
+      "effect_value": 1
+    },
+    {
+      "name": "🏁던전 리셋권",
+      "price": 500000,
+      "effect_type": "dungeon_reset",
+      "effect_value": 0
+    }
+  ],
+  "battle_reward_base": 7000,
+  "dungeon_floors": [
+    {
+      "floor": 1,
+      "monster_level": 1,
+      "monster_attack": 17,
+      "gold_reward": 10000,
+      "item_rewards": []
+    },
+    {
+      "floor": 2,
+      "monster_level": 1,
+      "monster_attack": 17,
+      "gold_reward": 20000,
+      "item_rewards": []
+    },
+    {
+      "floor": 3,
+      "monster_level": 1,
+      "monster_attack": 17,
+      "gold_reward": 30000,
+      "item_rewards": []
+    },
+    {
+      "floor": 4,
+      "monster_level": 2,
+      "monster_attack": 35,
+      "gold_reward": 40000,
+      "item_rewards": []
+    },
+    {
+      "floor": 5,
+      "monster_level": 2,
+      "monster_attack": 38,
+      "gold_reward": 50000,
+      "item_rewards": []
+    },
+    {
+      "floor": 6,
+      "monster_level": 2,
+      "monster_attack": 38,
+      "gold_reward": 60000,
+      "item_rewards": []
+    },
+    {
+      "floor": 7,
+      "monster_level": 3,
+      "monster_attack": 56,
+      "gold_reward": 70000,
+      "item_rewards": []
+    },
+    {
+      "floor": 8,
+      "monster_level": 3,
+      "monster_attack": 56,
+      "gold_reward": 80000,
+      "item_rewards": []
+    },
+    {
+      "floor": 9,
+      "monster_level": 3,
+      "monster_attack": 56,
+      "gold_reward": 90000,
+      "item_rewards": []
+    },
+    {
+      "floor": 10,
+      "monster_level": 3,
+      "monster_attack": 59,
+      "gold_reward": 100000,
+      "item_rewards": [
+        {
+          "item_name": "화염의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 60,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 11,
+      "monster_level": 4,
+      "monster_attack": 74,
+      "gold_reward": 110000,
+      "item_rewards": []
+    },
+    {
+      "floor": 12,
+      "monster_level": 4,
+      "monster_attack": 74,
+      "gold_reward": 120000,
+      "item_rewards": []
+    },
+    {
+      "floor": 13,
+      "monster_level": 4,
+      "monster_attack": 77,
+      "gold_reward": 130000,
+      "item_rewards": []
+    },
+    {
+      "floor": 14,
+      "monster_level": 5,
+      "monster_attack": 92,
+      "gold_reward": 140000,
+      "item_rewards": []
+    },
+    {
+      "floor": 15,
+      "monster_level": 5,
+      "monster_attack": 95,
+      "gold_reward": 150000,
+      "item_rewards": []
+    },
+    {
+      "floor": 16,
+      "monster_level": 5,
+      "monster_attack": 95,
+      "gold_reward": 160000,
+      "item_rewards": []
+    },
+    {
+      "floor": 17,
+      "monster_level": 6,
+      "monster_attack": 113,
+      "gold_reward": 170000,
+      "item_rewards": []
+    },
+    {
+      "floor": 18,
+      "monster_level": 6,
+      "monster_attack": 113,
+      "gold_reward": 180000,
+      "item_rewards": []
+    },
+    {
+      "floor": 19,
+      "monster_level": 6,
+      "monster_attack": 113,
+      "gold_reward": 190000,
+      "item_rewards": []
+    },
+    {
+      "floor": 20,
+      "monster_level": 6,
+      "monster_attack": 116,
+      "gold_reward": 200000,
+      "item_rewards": [
+        {
+          "item_name": "얼음의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 30,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 30,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 21,
+      "monster_level": 7,
+      "monster_attack": 134,
+      "gold_reward": 210000,
+      "item_rewards": []
+    },
+    {
+      "floor": 22,
+      "monster_level": 7,
+      "monster_attack": 134,
+      "gold_reward": 220000,
+      "item_rewards": []
+    },
+    {
+      "floor": 23,
+      "monster_level": 7,
+      "monster_attack": 134,
+      "gold_reward": 230000,
+      "item_rewards": []
+    },
+    {
+      "floor": 24,
+      "monster_level": 8,
+      "monster_attack": 152,
+      "gold_reward": 240000,
+      "item_rewards": []
+    },
+    {
+      "floor": 25,
+      "monster_level": 8,
+      "monster_attack": 155,
+      "gold_reward": 250000,
+      "item_rewards": []
+    },
+    {
+      "floor": 26,
+      "monster_level": 8,
+      "monster_attack": 155,
+      "gold_reward": 260000,
+      "item_rewards": []
+    },
+    {
+      "floor": 27,
+      "monster_level": 9,
+      "monster_attack": 173,
+      "gold_reward": 270000,
+      "item_rewards": []
+    },
+    {
+      "floor": 28,
+      "monster_level": 9,
+      "monster_attack": 173,
+      "gold_reward": 280000,
+      "item_rewards": []
+    },
+    {
+      "floor": 29,
+      "monster_level": 9,
+      "monster_attack": 173,
+      "gold_reward": 290000,
+      "item_rewards": []
+    },
+    {
+      "floor": 30,
+      "monster_level": 9,
+      "monster_attack": 176,
+      "gold_reward": 300000,
+      "item_rewards": [
+        {
+          "item_name": "번개의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 20,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 20,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 20,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 31,
+      "monster_level": 10,
+      "monster_attack": 194,
+      "gold_reward": 310000,
+      "item_rewards": []
+    },
+    {
+      "floor": 32,
+      "monster_level": 10,
+      "monster_attack": 194,
+      "gold_reward": 320000,
+      "item_rewards": []
+    },
+    {
+      "floor": 33,
+      "monster_level": 10,
+      "monster_attack": 197,
+      "gold_reward": 330000,
+      "item_rewards": []
+    },
+    {
+      "floor": 34,
+      "monster_level": 11,
+      "monster_attack": 215,
+      "gold_reward": 340000,
+      "item_rewards": []
+    },
+    {
+      "floor": 35,
+      "monster_level": 11,
+      "monster_attack": 218,
+      "gold_reward": 350000,
+      "item_rewards": []
+    },
+    {
+      "floor": 36,
+      "monster_level": 11,
+      "monster_attack": 218,
+      "gold_reward": 360000,
+      "item_rewards": []
+    },
+    {
+      "floor": 37,
+      "monster_level": 12,
+      "monster_attack": 236,
+      "gold_reward": 370000,
+      "item_rewards": []
+    },
+    {
+      "floor": 38,
+      "monster_level": 12,
+      "monster_attack": 236,
+      "gold_reward": 380000,
+      "item_rewards": []
+    },
+    {
+      "floor": 39,
+      "monster_level": 12,
+      "monster_attack": 236,
+      "gold_reward": 390000,
+      "item_rewards": []
+    },
+    {
+      "floor": 40,
+      "monster_level": 12,
+      "monster_attack": 239,
+      "gold_reward": 400000,
+      "item_rewards": [
+        {
+          "item_name": "대지의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 15,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 15,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 15,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 15,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 41,
+      "monster_level": 13,
+      "monster_attack": 257,
+      "gold_reward": 410000,
+      "item_rewards": []
+    },
+    {
+      "floor": 42,
+      "monster_level": 13,
+      "monster_attack": 257,
+      "gold_reward": 420000,
+      "item_rewards": []
+    },
+    {
+      "floor": 43,
+      "monster_level": 13,
+      "monster_attack": 260,
+      "gold_reward": 430000,
+      "item_rewards": []
+    },
+    {
+      "floor": 44,
+      "monster_level": 14,
+      "monster_attack": 278,
+      "gold_reward": 440000,
+      "item_rewards": []
+    },
+    {
+      "floor": 45,
+      "monster_level": 14,
+      "monster_attack": 281,
+      "gold_reward": 450000,
+      "item_rewards": []
+    },
+    {
+      "floor": 46,
+      "monster_level": 14,
+      "monster_attack": 281,
+      "gold_reward": 460000,
+      "item_rewards": []
+    },
+    {
+      "floor": 47,
+      "monster_level": 15,
+      "monster_attack": 299,
+      "gold_reward": 470000,
+      "item_rewards": []
+    },
+    {
+      "floor": 48,
+      "monster_level": 15,
+      "monster_attack": 299,
+      "gold_reward": 480000,
+      "item_rewards": []
+    },
+    {
+      "floor": 49,
+      "monster_level": 15,
+      "monster_attack": 299,
+      "gold_reward": 490000,
+      "item_rewards": []
+    },
+    {
+      "floor": 50,
+      "monster_level": 15,
+      "monster_attack": 302,
+      "gold_reward": 500000,
+      "item_rewards": [
+        {
+          "item_name": "바람의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 12,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 12,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 12,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 12,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 12,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 51,
+      "monster_level": 16,
+      "monster_attack": 320,
+      "gold_reward": 510000,
+      "item_rewards": []
+    },
+    {
+      "floor": 52,
+      "monster_level": 16,
+      "monster_attack": 320,
+      "gold_reward": 520000,
+      "item_rewards": []
+    },
+    {
+      "floor": 53,
+      "monster_level": 16,
+      "monster_attack": 323,
+      "gold_reward": 530000,
+      "item_rewards": []
+    },
+    {
+      "floor": 54,
+      "monster_level": 17,
+      "monster_attack": 341,
+      "gold_reward": 540000,
+      "item_rewards": []
+    },
+    {
+      "floor": 55,
+      "monster_level": 17,
+      "monster_attack": 344,
+      "gold_reward": 550000,
+      "item_rewards": []
+    },
+    {
+      "floor": 56,
+      "monster_level": 17,
+      "monster_attack": 344,
+      "gold_reward": 560000,
+      "item_rewards": []
+    },
+    {
+      "floor": 57,
+      "monster_level": 18,
+      "monster_attack": 362,
+      "gold_reward": 570000,
+      "item_rewards": []
+    },
+    {
+      "floor": 58,
+      "monster_level": 18,
+      "monster_attack": 362,
+      "gold_reward": 580000,
+      "item_rewards": []
+    },
+    {
+      "floor": 59,
+      "monster_level": 18,
+      "monster_attack": 362,
+      "gold_reward": 590000,
+      "item_rewards": []
+    },
+    {
+      "floor": 60,
+      "monster_level": 18,
+      "monster_attack": 365,
+      "gold_reward": 600000,
+      "item_rewards": [
+        {
+          "item_name": "빛의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "빛의 유물 재료",
+          "drop_chance": 10,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 61,
+      "monster_level": 19,
+      "monster_attack": 383,
+      "gold_reward": 610000,
+      "item_rewards": []
+    },
+    {
+      "floor": 62,
+      "monster_level": 19,
+      "monster_attack": 383,
+      "gold_reward": 620000,
+      "item_rewards": []
+    },
+    {
+      "floor": 63,
+      "monster_level": 19,
+      "monster_attack": 386,
+      "gold_reward": 630000,
+      "item_rewards": []
+    },
+    {
+      "floor": 64,
+      "monster_level": 20,
+      "monster_attack": 404,
+      "gold_reward": 640000,
+      "item_rewards": []
+    },
+    {
+      "floor": 65,
+      "monster_level": 20,
+      "monster_attack": 407,
+      "gold_reward": 650000,
+      "item_rewards": []
+    },
+    {
+      "floor": 66,
+      "monster_level": 20,
+      "monster_attack": 407,
+      "gold_reward": 660000,
+      "item_rewards": []
+    },
+    {
+      "floor": 67,
+      "monster_level": 21,
+      "monster_attack": 425,
+      "gold_reward": 670000,
+      "item_rewards": []
+    },
+    {
+      "floor": 68,
+      "monster_level": 21,
+      "monster_attack": 425,
+      "gold_reward": 680000,
+      "item_rewards": []
+    },
+    {
+      "floor": 69,
+      "monster_level": 21,
+      "monster_attack": 425,
+      "gold_reward": 690000,
+      "item_rewards": []
+    },
+    {
+      "floor": 70,
+      "monster_level": 21,
+      "monster_attack": 428,
+      "gold_reward": 700000,
+      "item_rewards": [
+        {
+          "item_name": "어둠의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "빛의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "어둠의 유물 재료",
+          "drop_chance": 8.571428571428571,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 71,
+      "monster_level": 22,
+      "monster_attack": 446,
+      "gold_reward": 710000,
+      "item_rewards": []
+    },
+    {
+      "floor": 72,
+      "monster_level": 22,
+      "monster_attack": 446,
+      "gold_reward": 720000,
+      "item_rewards": []
+    },
+    {
+      "floor": 73,
+      "monster_level": 22,
+      "monster_attack": 449,
+      "gold_reward": 730000,
+      "item_rewards": []
+    },
+    {
+      "floor": 74,
+      "monster_level": 23,
+      "monster_attack": 467,
+      "gold_reward": 740000,
+      "item_rewards": []
+    },
+    {
+      "floor": 75,
+      "monster_level": 23,
+      "monster_attack": 470,
+      "gold_reward": 750000,
+      "item_rewards": []
+    },
+    {
+      "floor": 76,
+      "monster_level": 23,
+      "monster_attack": 470,
+      "gold_reward": 760000,
+      "item_rewards": []
+    },
+    {
+      "floor": 77,
+      "monster_level": 24,
+      "monster_attack": 488,
+      "gold_reward": 770000,
+      "item_rewards": []
+    },
+    {
+      "floor": 78,
+      "monster_level": 24,
+      "monster_attack": 488,
+      "gold_reward": 780000,
+      "item_rewards": []
+    },
+    {
+      "floor": 79,
+      "monster_level": 24,
+      "monster_attack": 488,
+      "gold_reward": 790000,
+      "item_rewards": []
+    },
+    {
+      "floor": 80,
+      "monster_level": 24,
+      "monster_attack": 491,
+      "gold_reward": 800000,
+      "item_rewards": [
+        {
+          "item_name": "시공의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "빛의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "어둠의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "시공의 유물 재료",
+          "drop_chance": 7.5,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 81,
+      "monster_level": 25,
+      "monster_attack": 509,
+      "gold_reward": 810000,
+      "item_rewards": []
+    },
+    {
+      "floor": 82,
+      "monster_level": 25,
+      "monster_attack": 509,
+      "gold_reward": 820000,
+      "item_rewards": []
+    },
+    {
+      "floor": 83,
+      "monster_level": 25,
+      "monster_attack": 512,
+      "gold_reward": 830000,
+      "item_rewards": []
+    },
+    {
+      "floor": 84,
+      "monster_level": 26,
+      "monster_attack": 530,
+      "gold_reward": 840000,
+      "item_rewards": []
+    },
+    {
+      "floor": 85,
+      "monster_level": 26,
+      "monster_attack": 533,
+      "gold_reward": 850000,
+      "item_rewards": []
+    },
+    {
+      "floor": 86,
+      "monster_level": 26,
+      "monster_attack": 533,
+      "gold_reward": 860000,
+      "item_rewards": []
+    },
+    {
+      "floor": 87,
+      "monster_level": 27,
+      "monster_attack": 551,
+      "gold_reward": 870000,
+      "item_rewards": []
+    },
+    {
+      "floor": 88,
+      "monster_level": 27,
+      "monster_attack": 551,
+      "gold_reward": 880000,
+      "item_rewards": []
+    },
+    {
+      "floor": 89,
+      "monster_level": 27,
+      "monster_attack": 551,
+      "gold_reward": 890000,
+      "item_rewards": []
+    },
+    {
+      "floor": 90,
+      "monster_level": 27,
+      "monster_attack": 554,
+      "gold_reward": 900000,
+      "item_rewards": [
+        {
+          "item_name": "창조의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "빛의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "어둠의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "시공의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "창조의 유물 재료",
+          "drop_chance": 6.666666666666667,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 91,
+      "monster_level": 28,
+      "monster_attack": 572,
+      "gold_reward": 910000,
+      "item_rewards": []
+    },
+    {
+      "floor": 92,
+      "monster_level": 28,
+      "monster_attack": 572,
+      "gold_reward": 920000,
+      "item_rewards": []
+    },
+    {
+      "floor": 93,
+      "monster_level": 28,
+      "monster_attack": 575,
+      "gold_reward": 930000,
+      "item_rewards": []
+    },
+    {
+      "floor": 94,
+      "monster_level": 29,
+      "monster_attack": 593,
+      "gold_reward": 940000,
+      "item_rewards": []
+    },
+    {
+      "floor": 95,
+      "monster_level": 29,
+      "monster_attack": 596,
+      "gold_reward": 950000,
+      "item_rewards": []
+    },
+    {
+      "floor": 96,
+      "monster_level": 29,
+      "monster_attack": 596,
+      "gold_reward": 960000,
+      "item_rewards": []
+    },
+    {
+      "floor": 97,
+      "monster_level": 30,
+      "monster_attack": 614,
+      "gold_reward": 970000,
+      "item_rewards": []
+    },
+    {
+      "floor": 98,
+      "monster_level": 30,
+      "monster_attack": 614,
+      "gold_reward": 980000,
+      "item_rewards": []
+    },
+    {
+      "floor": 99,
+      "monster_level": 30,
+      "monster_attack": 614,
+      "gold_reward": 990000,
+      "item_rewards": []
+    },
+    {
+      "floor": 100,
+      "monster_level": 30,
+      "monster_attack": 617,
+      "gold_reward": 1000000,
+      "item_rewards": [
+        {
+          "item_name": "파괴의 유물",
+          "drop_chance": 40,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "화염의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "얼음의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "번개의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "대지의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "바람의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "빛의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "어둠의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "시공의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "창조의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        },
+        {
+          "item_name": "파괴의 유물 재료",
+          "drop_chance": 6,
+          "gold_amount": 0
+        }
+      ]
+    },
+    {
+      "floor": 101,
+      "monster_level": 31,
+      "monster_attack": 635,
+      "gold_reward": 1010000,
+      "item_rewards": []
+    },
+    {
+      "floor": 102,
+      "monster_level": 31,
+      "monster_attack": 635,
+      "gold_reward": 1020000,
+      "item_rewards": []
+    },
+    {
+      "floor": 103,
+      "monster_level": 31,
+      "monster_attack": 638,
+      "gold_reward": 1030000,
+      "item_rewards": []
+    },
+    {
+      "floor": 104,
+      "monster_level": 32,
+      "monster_attack": 656,
+      "gold_reward": 1040000,
+      "item_rewards": []
+    },
+    {
+      "floor": 105,
+      "monster_level": 32,
+      "monster_attack": 659,
+      "gold_reward": 1050000,
+      "item_rewards": []
+    },
+    {
+      "floor": 106,
+      "monster_level": 32,
+      "monster_attack": 659,
+      "gold_reward": 1060000,
+      "item_rewards": []
+    },
+    {
+      "floor": 107,
+      "monster_level": 33,
+      "monster_attack": 677,
+      "gold_reward": 1070000,
+      "item_rewards": []
+    },
+    {
+      "floor": 108,
+      "monster_level": 33,
+      "monster_attack": 677,
+      "gold_reward": 1080000,
+      "item_rewards": []
+    },
+    {
+      "floor": 109,
+      "monster_level": 33,
+      "monster_attack": 677,
+      "gold_reward": 1090000,
+      "item_rewards": []
+    },
+    {
+      "floor": 110,
+      "monster_level": 33,
+      "monster_attack": 680,
+      "gold_reward": 1100000,
+      "item_rewards": []
+    },
+    {
+      "floor": 111,
+      "monster_level": 34,
+      "monster_attack": 698,
+      "gold_reward": 1110000,
+      "item_rewards": []
+    },
+    {
+      "floor": 112,
+      "monster_level": 34,
+      "monster_attack": 698,
+      "gold_reward": 1120000,
+      "item_rewards": []
+    },
+    {
+      "floor": 113,
+      "monster_level": 34,
+      "monster_attack": 701,
+      "gold_reward": 1130000,
+      "item_rewards": []
+    },
+    {
+      "floor": 114,
+      "monster_level": 35,
+      "monster_attack": 719,
+      "gold_reward": 1140000,
+      "item_rewards": []
+    },
+    {
+      "floor": 115,
+      "monster_level": 35,
+      "monster_attack": 722,
+      "gold_reward": 1150000,
+      "item_rewards": []
+    },
+    {
+      "floor": 116,
+      "monster_level": 35,
+      "monster_attack": 722,
+      "gold_reward": 1160000,
+      "item_rewards": []
+    },
+    {
+      "floor": 117,
+      "monster_level": 36,
+      "monster_attack": 740,
+      "gold_reward": 1170000,
+      "item_rewards": []
+    },
+    {
+      "floor": 118,
+      "monster_level": 36,
+      "monster_attack": 740,
+      "gold_reward": 1180000,
+      "item_rewards": []
+    },
+    {
+      "floor": 119,
+      "monster_level": 36,
+      "monster_attack": 740,
+      "gold_reward": 1190000,
+      "item_rewards": []
+    },
+    {
+      "floor": 120,
+      "monster_level": 36,
+      "monster_attack": 743,
+      "gold_reward": 1200000,
+      "item_rewards": []
+    },
+    {
+      "floor": 121,
+      "monster_level": 37,
+      "monster_attack": 761,
+      "gold_reward": 1210000,
+      "item_rewards": []
+    },
+    {
+      "floor": 122,
+      "monster_level": 37,
+      "monster_attack": 761,
+      "gold_reward": 1220000,
+      "item_rewards": []
+    },
+    {
+      "floor": 123,
+      "monster_level": 37,
+      "monster_attack": 764,
+      "gold_reward": 1230000,
+      "item_rewards": []
+    },
+    {
+      "floor": 124,
+      "monster_level": 38,
+      "monster_attack": 782,
+      "gold_reward": 1240000,
+      "item_rewards": []
+    },
+    {
+      "floor": 125,
+      "monster_level": 38,
+      "monster_attack": 785,
+      "gold_reward": 1250000,
+      "item_rewards": []
+    },
+    {
+      "floor": 126,
+      "monster_level": 38,
+      "monster_attack": 785,
+      "gold_reward": 1260000,
+      "item_rewards": []
+    },
+    {
+      "floor": 127,
+      "monster_level": 39,
+      "monster_attack": 803,
+      "gold_reward": 1270000,
+      "item_rewards": []
+    },
+    {
+      "floor": 128,
+      "monster_level": 39,
+      "monster_attack": 803,
+      "gold_reward": 1280000,
+      "item_rewards": []
+    },
+    {
+      "floor": 129,
+      "monster_level": 39,
+      "monster_attack": 803,
+      "gold_reward": 1290000,
+      "item_rewards": []
+    },
+    {
+      "floor": 130,
+      "monster_level": 39,
+      "monster_attack": 806,
+      "gold_reward": 1300000,
+      "item_rewards": []
+    },
+    {
+      "floor": 131,
+      "monster_level": 40,
+      "monster_attack": 824,
+      "gold_reward": 1310000,
+      "item_rewards": []
+    },
+    {
+      "floor": 132,
+      "monster_level": 40,
+      "monster_attack": 824,
+      "gold_reward": 1320000,
+      "item_rewards": []
+    },
+    {
+      "floor": 133,
+      "monster_level": 40,
+      "monster_attack": 827,
+      "gold_reward": 1330000,
+      "item_rewards": []
+    },
+    {
+      "floor": 134,
+      "monster_level": 41,
+      "monster_attack": 845,
+      "gold_reward": 1340000,
+      "item_rewards": []
+    },
+    {
+      "floor": 135,
+      "monster_level": 41,
+      "monster_attack": 848,
+      "gold_reward": 1350000,
+      "item_rewards": []
+    },
+    {
+      "floor": 136,
+      "monster_level": 41,
+      "monster_attack": 848,
+      "gold_reward": 1360000,
+      "item_rewards": []
+    },
+    {
+      "floor": 137,
+      "monster_level": 42,
+      "monster_attack": 866,
+      "gold_reward": 1370000,
+      "item_rewards": []
+    },
+    {
+      "floor": 138,
+      "monster_level": 42,
+      "monster_attack": 866,
+      "gold_reward": 1380000,
+      "item_rewards": []
+    },
+    {
+      "floor": 139,
+      "monster_level": 42,
+      "monster_attack": 866,
+      "gold_reward": 1390000,
+      "item_rewards": []
+    },
+    {
+      "floor": 140,
+      "monster_level": 42,
+      "monster_attack": 869,
+      "gold_reward": 1400000,
+      "item_rewards": []
+    },
+    {
+      "floor": 141,
+      "monster_level": 43,
+      "monster_attack": 887,
+      "gold_reward": 1410000,
+      "item_rewards": []
+    },
+    {
+      "floor": 142,
+      "monster_level": 43,
+      "monster_attack": 887,
+      "gold_reward": 1420000,
+      "item_rewards": []
+    },
+    {
+      "floor": 143,
+      "monster_level": 43,
+      "monster_attack": 890,
+      "gold_reward": 1430000,
+      "item_rewards": []
+    },
+    {
+      "floor": 144,
+      "monster_level": 44,
+      "monster_attack": 908,
+      "gold_reward": 1440000,
+      "item_rewards": []
+    },
+    {
+      "floor": 145,
+      "monster_level": 44,
+      "monster_attack": 911,
+      "gold_reward": 1450000,
+      "item_rewards": []
+    },
+    {
+      "floor": 146,
+      "monster_level": 44,
+      "monster_attack": 911,
+      "gold_reward": 1460000,
+      "item_rewards": []
+    },
+    {
+      "floor": 147,
+      "monster_level": 45,
+      "monster_attack": 929,
+      "gold_reward": 1470000,
+      "item_rewards": []
+    },
+    {
+      "floor": 148,
+      "monster_level": 45,
+      "monster_attack": 929,
+      "gold_reward": 1480000,
+      "item_rewards": []
+    },
+    {
+      "floor": 149,
+      "monster_level": 45,
+      "monster_attack": 929,
+      "gold_reward": 1490000,
+      "item_rewards": []
+    },
+    {
+      "floor": 150,
+      "monster_level": 45,
+      "monster_attack": 932,
+      "gold_reward": 1500000,
+      "item_rewards": []
+    },
+    {
+      "floor": 151,
+      "monster_level": 46,
+      "monster_attack": 950,
+      "gold_reward": 1510000,
+      "item_rewards": []
+    },
+    {
+      "floor": 152,
+      "monster_level": 46,
+      "monster_attack": 950,
+      "gold_reward": 1520000,
+      "item_rewards": []
+    },
+    {
+      "floor": 153,
+      "monster_level": 46,
+      "monster_attack": 953,
+      "gold_reward": 1530000,
+      "item_rewards": []
+    },
+    {
+      "floor": 154,
+      "monster_level": 47,
+      "monster_attack": 971,
+      "gold_reward": 1540000,
+      "item_rewards": []
+    },
+    {
+      "floor": 155,
+      "monster_level": 47,
+      "monster_attack": 974,
+      "gold_reward": 1550000,
+      "item_rewards": []
+    },
+    {
+      "floor": 156,
+      "monster_level": 47,
+      "monster_attack": 974,
+      "gold_reward": 1560000,
+      "item_rewards": []
+    },
+    {
+      "floor": 157,
+      "monster_level": 48,
+      "monster_attack": 992,
+      "gold_reward": 1570000,
+      "item_rewards": []
+    },
+    {
+      "floor": 158,
+      "monster_level": 48,
+      "monster_attack": 992,
+      "gold_reward": 1580000,
+      "item_rewards": []
+    },
+    {
+      "floor": 159,
+      "monster_level": 48,
+      "monster_attack": 992,
+      "gold_reward": 1590000,
+      "item_rewards": []
+    },
+    {
+      "floor": 160,
+      "monster_level": 48,
+      "monster_attack": 995,
+      "gold_reward": 1600000,
+      "item_rewards": []
+    },
+    {
+      "floor": 161,
+      "monster_level": 49,
+      "monster_attack": 1013,
+      "gold_reward": 1610000,
+      "item_rewards": []
+    },
+    {
+      "floor": 162,
+      "monster_level": 49,
+      "monster_attack": 1013,
+      "gold_reward": 1620000,
+      "item_rewards": []
+    },
+    {
+      "floor": 163,
+      "monster_level": 49,
+      "monster_attack": 1016,
+      "gold_reward": 1630000,
+      "item_rewards": []
+    },
+    {
+      "floor": 164,
+      "monster_level": 50,
+      "monster_attack": 1034,
+      "gold_reward": 1640000,
+      "item_rewards": []
+    },
+    {
+      "floor": 165,
+      "monster_level": 50,
+      "monster_attack": 1037,
+      "gold_reward": 1650000,
+      "item_rewards": []
+    },
+    {
+      "floor": 166,
+      "monster_level": 50,
+      "monster_attack": 1037,
+      "gold_reward": 1660000,
+      "item_rewards": []
+    },
+    {
+      "floor": 167,
+      "monster_level": 51,
+      "monster_attack": 1055,
+      "gold_reward": 1670000,
+      "item_rewards": []
+    },
+    {
+      "floor": 168,
+      "monster_level": 51,
+      "monster_attack": 1055,
+      "gold_reward": 1680000,
+      "item_rewards": []
+    },
+    {
+      "floor": 169,
+      "monster_level": 51,
+      "monster_attack": 1055,
+      "gold_reward": 1690000,
+      "item_rewards": []
+    },
+    {
+      "floor": 170,
+      "monster_level": 51,
+      "monster_attack": 1058,
+      "gold_reward": 1700000,
+      "item_rewards": []
+    },
+    {
+      "floor": 171,
+      "monster_level": 52,
+      "monster_attack": 1076,
+      "gold_reward": 1710000,
+      "item_rewards": []
+    },
+    {
+      "floor": 172,
+      "monster_level": 52,
+      "monster_attack": 1076,
+      "gold_reward": 1720000,
+      "item_rewards": []
+    },
+    {
+      "floor": 173,
+      "monster_level": 52,
+      "monster_attack": 1079,
+      "gold_reward": 1730000,
+      "item_rewards": []
+    },
+    {
+      "floor": 174,
+      "monster_level": 53,
+      "monster_attack": 1097,
+      "gold_reward": 1740000,
+      "item_rewards": []
+    },
+    {
+      "floor": 175,
+      "monster_level": 53,
+      "monster_attack": 1100,
+      "gold_reward": 1750000,
+      "item_rewards": []
+    },
+    {
+      "floor": 176,
+      "monster_level": 53,
+      "monster_attack": 1100,
+      "gold_reward": 1760000,
+      "item_rewards": []
+    },
+    {
+      "floor": 177,
+      "monster_level": 54,
+      "monster_attack": 1118,
+      "gold_reward": 1770000,
+      "item_rewards": []
+    },
+    {
+      "floor": 178,
+      "monster_level": 54,
+      "monster_attack": 1118,
+      "gold_reward": 1780000,
+      "item_rewards": []
+    },
+    {
+      "floor": 179,
+      "monster_level": 54,
+      "monster_attack": 1118,
+      "gold_reward": 1790000,
+      "item_rewards": []
+    },
+    {
+      "floor": 180,
+      "monster_level": 54,
+      "monster_attack": 1121,
+      "gold_reward": 1800000,
+      "item_rewards": []
+    },
+    {
+      "floor": 181,
+      "monster_level": 55,
+      "monster_attack": 1139,
+      "gold_reward": 1810000,
+      "item_rewards": []
+    },
+    {
+      "floor": 182,
+      "monster_level": 55,
+      "monster_attack": 1139,
+      "gold_reward": 1820000,
+      "item_rewards": []
+    },
+    {
+      "floor": 183,
+      "monster_level": 55,
+      "monster_attack": 1142,
+      "gold_reward": 1830000,
+      "item_rewards": []
+    },
+    {
+      "floor": 184,
+      "monster_level": 56,
+      "monster_attack": 1160,
+      "gold_reward": 1840000,
+      "item_rewards": []
+    },
+    {
+      "floor": 185,
+      "monster_level": 56,
+      "monster_attack": 1163,
+      "gold_reward": 1850000,
+      "item_rewards": []
+    },
+    {
+      "floor": 186,
+      "monster_level": 56,
+      "monster_attack": 1163,
+      "gold_reward": 1860000,
+      "item_rewards": []
+    },
+    {
+      "floor": 187,
+      "monster_level": 57,
+      "monster_attack": 1181,
+      "gold_reward": 1870000,
+      "item_rewards": []
+    },
+    {
+      "floor": 188,
+      "monster_level": 57,
+      "monster_attack": 1181,
+      "gold_reward": 1880000,
+      "item_rewards": []
+    },
+    {
+      "floor": 189,
+      "monster_level": 57,
+      "monster_attack": 1181,
+      "gold_reward": 1890000,
+      "item_rewards": []
+    },
+    {
+      "floor": 190,
+      "monster_level": 57,
+      "monster_attack": 1184,
+      "gold_reward": 1900000,
+      "item_rewards": []
+    },
+    {
+      "floor": 191,
+      "monster_level": 58,
+      "monster_attack": 1202,
+      "gold_reward": 1910000,
+      "item_rewards": []
+    },
+    {
+      "floor": 192,
+      "monster_level": 58,
+      "monster_attack": 1202,
+      "gold_reward": 1920000,
+      "item_rewards": []
+    },
+    {
+      "floor": 193,
+      "monster_level": 58,
+      "monster_attack": 1205,
+      "gold_reward": 1930000,
+      "item_rewards": []
+    },
+    {
+      "floor": 194,
+      "monster_level": 59,
+      "monster_attack": 1223,
+      "gold_reward": 1940000,
+      "item_rewards": []
+    },
+    {
+      "floor": 195,
+      "monster_level": 59,
+      "monster_attack": 1226,
+      "gold_reward": 1950000,
+      "item_rewards": []
+    },
+    {
+      "floor": 196,
+      "monster_level": 59,
+      "monster_attack": 1226,
+      "gold_reward": 1960000,
+      "item_rewards": []
+    },
+    {
+      "floor": 197,
+      "monster_level": 60,
+      "monster_attack": 1244,
+      "gold_reward": 1970000,
+      "item_rewards": []
+    },
+    {
+      "floor": 198,
+      "monster_level": 60,
+      "monster_attack": 1244,
+      "gold_reward": 1980000,
+      "item_rewards": []
+    },
+    {
+      "floor": 199,
+      "monster_level": 60,
+      "monster_attack": 1244,
+      "gold_reward": 1990000,
+      "item_rewards": []
+    },
+    {
+      "floor": 200,
+      "monster_level": 60,
+      "monster_attack": 1247,
+      "gold_reward": 2000000,
+      "item_rewards": []
+    }
+  ],
+  "relic_types": [
+    {
+      "name": "항아리",
+      "attack_per_level": 0.1,
+      "exp_per_level": 30
+    },
+    {
+      "name": "망토",
+      "attack_per_level": 0.2,
+      "exp_per_level": 30
+    },
+    {
+      "name": "목걸이",
+      "attack_per_level": 0.15,
+      "exp_per_level": 30
+    },
+    {
+      "name": "반지",
+      "attack_per_level": 0.12,
+      "exp_per_level": 30
+    },
+    {
+      "name": "부적",
+      "attack_per_level": 0.18,
+      "exp_per_level": 30
+    },
+    {
+      "name": "구슬",
+      "attack_per_level": 0.25,
+      "exp_per_level": 30
+    },
+    {
+      "name": "왕관",
+      "attack_per_level": 0.3,
+      "exp_per_level": 30
+    },
+    {
+      "name": "방패",
+      "attack_per_level": 0.08,
+      "exp_per_level": 30
+    },
+    {
+      "name": "장갑",
+      "attack_per_level": 0.13,
+      "exp_per_level": 30
+    },
+    {
+      "name": "신발",
+      "attack_per_level": 0.11,
+      "exp_per_level": 30
+    }
+  ],
+  "mystery_box_items": [
+    {
+      "name": "⚔️강화제(성공률 10%상승)",
+      "chance": 15,
+      "amount": 0
+    },
+    {
+      "name": "⚔️강화제(성공률 40%상승)",
+      "chance": 15,
+      "amount": 0
+    },
+    {
+      "name": "🛡️파괴방지(1회성)",
+      "chance": 15,
+      "amount": 0
+    },
+    {
+      "name": "🔄옵션 재설정",
+      "chance": 10,
+      "amount": 0
+    },
+    {
+      "name": "✨옵션 부여 부적",
+      "chance": 10,
+      "amount": 0
+    },
+    {
+      "name": "🔐옵션 잠금 부적(1회성)",
+      "chance": 19,
+      "amount": 0
+    },
+    {
+      "name": "단비가 버린검",
+      "chance": 0.5,
+      "amount": 0
+    },
+    {
+      "name": "골드",
+      "chance": 15.5,
+      "amount": 0
+    }
+  ],
+  "gift_command_authorized_tags": [],
+  "id": "695cd1baeb15f142bc4a37a1",
+  "created_date": "2026-01-06T09:11:22.224000",
+  "updated_date": "2026-01-14T05:11:19.696000",
+  "created_by_id": "695cb0ce8ab739b809a708e2",
+  "created_by": "102810aa@gmail.com",
+  "is_sample": false
+};
+  if (savedSettings) {
+    localSettings = {
+      enabled: savedSettings.enabled ?? true,
+      initial_gold: savedSettings.initial_gold ?? 100000,
+      daily_money: savedSettings.daily_money ?? 10000,
+      like_reward: savedSettings.like_reward ?? 5000,
+      spoon_to_gold_rate: savedSettings.spoon_to_gold_rate ?? 1,
+      enhance_cooldown: savedSettings.enhance_cooldown ?? 3,
+      battle_cooldown: savedSettings.battle_cooldown ?? 20,
+      dungeon_cooldown: savedSettings.dungeon_cooldown ?? 2,
+      enhance_success_rates: savedSettings.enhance_success_rates || [],
+      weapon_names: savedSettings.weapon_names || [],
+      sell_price_multiplier: savedSettings.sell_price_multiplier ?? 10,
+      shop_items: savedSettings.shop_items || [],
+      battle_reward_base: savedSettings.battle_reward_base ?? 7000,
+      dungeon_floors: savedSettings.dungeon_floors || [],
+      relic_types: savedSettings.relic_types || [],
+      level_first_achievers: savedSettings.level_first_achievers || {},
+      mystery_box_items: savedSettings.mystery_box_items || [],
+      monster_box_items: savedSettings.monster_box_items || []
+    };
+
+    // 유물 타입이 비어있으면 기본값 먼저 설정
+    if (localSettings.relic_types.length === 0) {
+      localSettings.relic_types = defaultRelicTypes();
+    }
+
+    // 설정이 비어있는 경우 기본값으로 채움
+    if (localSettings.enhance_success_rates.length === 0) {
+      localSettings.enhance_success_rates = defaultEnhanceRates();
+    }
+    if (localSettings.weapon_names.length === 0) {
+      localSettings.weapon_names = defaultWeaponNames();
+    }
+    if (localSettings.shop_items.length === 0) {
+      localSettings.shop_items = defaultShopItems();
+    } else {
+      // shop_items가 있어도 필수 아이템이 없으면 자동 추가
+      const hasDownPrevent = localSettings.shop_items.some(item => item.effect_type === 'down_prevent');
+      if (!hasDownPrevent) {
+        localSettings.shop_items.push({name: "하락방지(1회성)", price: 200, effect_type: "down_prevent", effect_value: 1});
+      }
+      const hasAutoBattle = localSettings.shop_items.some(item => item.effect_type === 'auto_battle_ticket');
+      if (!hasAutoBattle) {
+        localSettings.shop_items.push({name: "자동쿠폰", price: 300, price_type: "gold", effect_type: "auto_battle_ticket", effect_value: 10});
+      }
+      
+      // 몬스터 상자가 없으면 자동 추가
+      const hasMonsterBox = localSettings.shop_items.some(item => item.effect_type === 'monster_box');
+      if (!hasMonsterBox) {
+        localSettings.shop_items.push({name: "몬스터 상자", price: 50, price_type: "spoon_points", effect_type: "monster_box", effect_value: 0});
+      }
+      
+      // 펫 상자가 없으면 자동 추가
+      const hasPetBox = localSettings.shop_items.some(item => item.effect_type === 'pet_box');
+      if (!hasPetBox) {
+        localSettings.shop_items.push({name: "펫 상자", price: 100, price_type: "spoon_points", effect_type: "pet_box", effect_value: 0});
+      }
+    }
+    if (localSettings.dungeon_floors.length === 0) {
+      localSettings.dungeon_floors = defaultDungeonFloors(localSettings.relic_types);
+    }
+    if (localSettings.mystery_box_items.length === 0) {
+      localSettings.mystery_box_items = defaultMysteryBoxItems();
+    }
+    if (localSettings.monster_box_items.length === 0) {
+      localSettings.monster_box_items = defaultMonsterBoxItems();
+    }
+
+    return localSettings;
+  }
+
+  // DB 설정이 없으면 기본값 사용
+  const defaultRates = defaultEnhanceRates();
+  const defaultWeaponNames = defaultWeaponNames();
+  const defaultShopItems = defaultShopItems();
+  const defaultRelicTypes = defaultRelicTypes();
+  const defaultDungeonFloors = defaultDungeonFloors(defaultRelicTypes);
+
+  localSettings = {
+    "enabled": true,
+    "initial_gold": 100000,
+    "daily_money": 10000,
+    "like_reward": 5000,
+    "spoon_to_gold_rate": 1,
+    "enhance_cooldown": 3,
+    "battle_cooldown": 20,
+    "dungeon_cooldown": 2,
+    "enhance_success_rates": defaultRates,
+    "weapon_names": defaultWeaponNames,
+    "sell_price_multiplier": 10,
+    "shop_items": defaultShopItems,
+    "battle_reward_base": 10,
+    "dungeon_floors": defaultDungeonFloors,
+    "relic_types": defaultRelicTypes,
+    "level_first_achievers": {},
+    "mystery_box_items": defaultMysteryBoxItems(),
+    "monster_box_items": defaultMonsterBoxItems()
+  };
+  
+  return localSettings;
+}
+
+function defaultEnhanceRates() {
+  const defaultRates = [
+    {level: 0, cost: 10, success_rate: 100, fail_rate: 0, down_rate: 0, destroy_rate: 0},
+    {level: 1, cost: 20, success_rate: 95, fail_rate: 5, down_rate: 0, destroy_rate: 0},
+    {level: 2, cost: 50, success_rate: 90, fail_rate: 10, down_rate: 0, destroy_rate: 0},
+    {level: 3, cost: 100, success_rate: 85, fail_rate: 15, down_rate: 0, destroy_rate: 0},
+    {level: 4, cost: 200, success_rate: 80, fail_rate: 20, down_rate: 0, destroy_rate: 0},
+    {level: 5, cost: 500, success_rate: 75, fail_rate: 20, down_rate: 5, destroy_rate: 0},
+    {level: 6, cost: 1000, success_rate: 70, fail_rate: 20, down_rate: 10, destroy_rate: 0},
+    {level: 7, cost: 2000, success_rate: 65, fail_rate: 20, down_rate: 15, destroy_rate: 0},
+    {level: 8, cost: 5000, success_rate: 60, fail_rate: 20, down_rate: 15, destroy_rate: 5},
+    {level: 9, cost: 10000, success_rate: 55, fail_rate: 20, down_rate: 15, destroy_rate: 10},
+    {level: 10, cost: 20000, success_rate: 50, fail_rate: 20, down_rate: 15, destroy_rate: 15},
+    {level: 11, cost: 40000, success_rate: 48, fail_rate: 20, down_rate: 17, destroy_rate: 15},
+    {level: 12, cost: 80000, success_rate: 46, fail_rate: 20, down_rate: 19, destroy_rate: 15},
+    {level: 13, cost: 160000, success_rate: 44, fail_rate: 20, down_rate: 20, destroy_rate: 16},
+    {level: 14, cost: 320000, success_rate: 42, fail_rate: 20, down_rate: 20, destroy_rate: 18},
+    {level: 15, cost: 640000, success_rate: 40, fail_rate: 20, down_rate: 20, destroy_rate: 20},
+    {level: 16, cost: 1280000, success_rate: 38, fail_rate: 20, down_rate: 21, destroy_rate: 21},
+    {level: 17, cost: 2560000, success_rate: 36, fail_rate: 20, down_rate: 22, destroy_rate: 22},
+    {level: 18, cost: 5000000, success_rate: 34, fail_rate: 20, down_rate: 23, destroy_rate: 23},
+    {level: 19, cost: 10000000, success_rate: 32, fail_rate: 20, down_rate: 24, destroy_rate: 24},
+    {level: 20, cost: 20000000, success_rate: 30, fail_rate: 20, down_rate: 25, destroy_rate: 25},
+    {level: 21, cost: 40000000, success_rate: 28, fail_rate: 20, down_rate: 26, destroy_rate: 26},
+    {level: 22, cost: 80000000, success_rate: 26, fail_rate: 20, down_rate: 27, destroy_rate: 27},
+    {level: 23, cost: 160000000, success_rate: 24, fail_rate: 20, down_rate: 28, destroy_rate: 28},
+    {level: 24, cost: 320000000, success_rate: 22, fail_rate: 20, down_rate: 29, destroy_rate: 29},
+    {level: 25, cost: 640000000, success_rate: 20, fail_rate: 20, down_rate: 30, destroy_rate: 30},
+    {level: 26, cost: 1280000000, success_rate: 18, fail_rate: 20, down_rate: 31, destroy_rate: 31},
+    {level: 27, cost: 2560000000, success_rate: 16, fail_rate: 20, down_rate: 32, destroy_rate: 32},
+    {level: 28, cost: 5000000000, success_rate: 14, fail_rate: 20, down_rate: 33, destroy_rate: 33},
+    {level: 29, cost: 10000000000, success_rate: 12, fail_rate: 20, down_rate: 34, destroy_rate: 34}
+  ];
+
+  // 30~60 레벨 추가 (특수 무기용)
+  for (let i = 30; i <= 60; i++) {
+    defaultRates.push({
+      "level": i,
+      "cost": 10000000000 * Math.pow(2, i - 29),
+      "success_rate": Math.max(5, 12 - (i - 29)),
+      "fail_rate": 20,
+      "down_rate": Math.min(40, 34 + (i - 29)),
+      "destroy_rate": Math.min(40, 34 + (i - 29))
+    });
+  }
+
+  return defaultRates;
+}
+
+function defaultWeaponNames() {
+  const defaultWeaponNames = [
+    {"level": 0, "name": "낡은 검"},
+    {"level": 1, "name": "무쇠 검"},
+    {"level": 2, "name": "강철 검"},
+    {"level": 3, "name": "은 검"},
+    {"level": 4, "name": "미스릴 검"},
+    {"level": 5, "name": "마법 검"},
+    {"level": 6, "name": "전설 검"},
+    {"level": 7, "name": "신화 검"},
+    {"level": 8, "name": "초월 검"},
+    {"level": 9, "name": "불멸 검"},
+    {"level": 10, "name": "신검"},
+    {"level": 11, "name": "천상의 검"},
+    {"level": 12, "name": "성스러운 검"},
+    {"level": 13, "name": "영원의 검"},
+    {"level": 14, "name": "용의 검"},
+    {"level": 15, "name": "봉황의 검"},
+    {"level": 16, "name": "태양의 검"},
+    {"level": 17, "name": "달의 검"},
+    {"level": 18, "name": "별의 검"},
+    {"level": 19, "name": "은하의 검"},
+    {"level": 20, "name": "우주의 검"},
+    {"level": 21, "name": "시공의 검"},
+    {"level": 22, "name": "차원의 검"},
+    {"level": 23, "name": "운명의 검"},
+    {"level": 24, "name": "창조의 검"},
+    {"level": 25, "name": "파괴의 검"},
+    {"level": 26, "name": "절대의 검"},
+    {"level": 27, "name": "무한의 검"},
+    {"level": 28, "name": "궁극의 검"},
+    {"level": 29, "name": "진리의 검"}
+  ];
+  
+  return defaultWeaponNames;
+}
+
+function defaultRelicTypes() {
+  const defaultRelicTypes = [
+    {name: "항아리", attack_per_level: 0.1, exp_per_level: 30},
+    {name: "망토", attack_per_level: 0.2, exp_per_level: 30},
+    {name: "목걸이", attack_per_level: 0.15, exp_per_level: 30},
+    {name: "반지", attack_per_level: 0.12, exp_per_level: 30},
+    {name: "부적", attack_per_level: 0.18, exp_per_level: 30},
+    {name: "구슬", attack_per_level: 0.25, exp_per_level: 30},
+    {name: "왕관", attack_per_level: 0.3, exp_per_level: 30},
+    {name: "방패", attack_per_level: 0.08, exp_per_level: 30},
+    {name: "장갑", attack_per_level: 0.13, exp_per_level: 30},
+    {name: "신발", attack_per_level: 0.11, exp_per_level: 30},
+    {name: "화염", attack_per_level: 0.35, exp_per_level: 30},
+    {name: "번개", attack_per_level: 0.4, exp_per_level: 30},
+    {name: "빛", attack_per_level: 0.45, exp_per_level: 30},
+    {name: "바람", attack_per_level: 0.5, exp_per_level: 30},
+    {name: "얼음", attack_per_level: 0.55, exp_per_level: 30},
+    {name: "대지", attack_per_level: 0.6, exp_per_level: 30},
+    {name: "도플갱어", attack_per_level: 0.5, exp_per_level: 30}
+  ];
+
+  return defaultRelicTypes;
+}
+
+function defaultShopItems() {
+  return [
+    {name: "강화제(성공률 10%상승)", price: 100, price_type: "gold", effect_type: "enhance_boost", effect_value: 10},
+    {name: "파괴방지(1회성)", price: 200, price_type: "gold", effect_type: "destroy_prevent", effect_value: 1},
+    {name: "하락방지(1회성)", price: 200, price_type: "gold", effect_type: "down_prevent", effect_value: 1},
+    {name: "골드 30분동안 추가획득20%", price: 150, price_type: "gold", effect_type: "gold_boost", effect_value: 20},
+    {name: "옵션 재설정", price: 500, price_type: "gold", effect_type: "reroll_option", effect_value: 0},
+    {name: "옵션 부여 부적", price: 300, price_type: "gold", effect_type: "add_option", effect_value: 0},
+    {name: "옵션 잠금 부적(1회성)", price: 700, price_type: "gold", effect_type: "option_lock", effect_value: 1},
+    {name: "미스터리 선물 상자", price: 100, price_type: "gold", effect_type: "mystery_box", effect_value: 0},
+    {name: "던전 이용권", price: 50, price_type: "gold", effect_type: "dungeon_ticket", effect_value: 1},
+    {name: "던전 리셋권", price: 1000, price_type: "gold", effect_type: "dungeon_reset", effect_value: 0},
+    {name: "자동쿠폰", price: 300, price_type: "gold", effect_type: "auto_battle_ticket", effect_value: 10},
+    {name: "몬스터 상자", price: 50, price_type: "spoon_points", effect_type: "monster_box", effect_value: 0},
+    {name: "펫 상자", price: 100, price_type: "spoon_points", effect_type: "pet_box", effect_value: 0}
+  ];
+}
+
+function defaultMysteryBoxItems() {
+  return [
+    {"name": "골드", "chance": 50, "amount": 2000},
+    {"name": "강화제(성공률 10%상승)", "chance": 25, "amount": 1},
+    {"name": "파괴방지(1회성)", "chance": 15, "amount": 1},
+    {"name": "옵션 재설정", "chance": 8, "amount": 1},
+    {"name": "단비가 버린검 +1", "chance": 2, "amount": 1}
+  ];
+}
+
+function defaultMonsterBoxItems() {
+  return [
+    {name: "골드", chance: 20, amount: 5000},
+    {name: "던전 이용권", chance: 10, amount: 1},
+    {name: "강화제(성공률 10%상승)", chance: 5, amount: 1},
+    {name: "자동쿠폰", chance: 3, amount: 1},
+    {name: "공격펫(+5~10)", chance: 8, amount: 0},
+    {name: "공격펫(+11~20)", chance: 7, amount: 0},
+    {name: "공격펫(+21~30)", chance: 6, amount: 0},
+    {name: "공격펫(+31~40)", chance: 5, amount: 0},
+    {name: "공격펫(+41~50)", chance: 4, amount: 0},
+    {name: "공격펫(+51~60)", chance: 3, amount: 0},
+    {name: "공격펫(+61~70)", chance: 2.5, amount: 0},
+    {name: "공격펫(+71~80)", chance: 2, amount: 0},
+    {name: "공격펫(+81~100)", chance: 1.5, amount: 0},
+    {name: "공격펫(+101~150)", chance: 1, amount: 0},
+    {name: "골드펫(+200~500%)", chance: 8, amount: 0},
+    {name: "골드펫(+501~1000%)", chance: 6, amount: 0},
+    {name: "골드펫(+1001~1500%)", chance: 4, amount: 0},
+    {name: "골드펫(+1501~2000%)", chance: 3, amount: 0},
+    {name: "골드펫(+2001~3000%)", chance: 2, amount: 0},
+    {name: "골드펫(+3001~4000%)", chance: 1.5, amount: 0},
+    {name: "골드펫(+4001~5000%)", chance: 1.2, amount: 0},
+    {name: "골드펫(+5001~7000%)", chance: 0.8, amount: 0},
+    {name: "골드펫(+7001~10000%)", chance: 0.5, amount: 0},
+    {name: "골드펫(+10001~20000%)", chance: 0.3, amount: 0}
+  ];
+}
+
+function defaultDungeonFloors(relicTypes) {
+  const floors = [];
+  const allRelicTypes = relicTypes && relicTypes.length > 0 ? relicTypes : defaultRelicTypes();
+  
+  // 기본 유물 10개 (항아리~신발, 인덱스 0~9)
+  const basicRelics = allRelicTypes.slice(0, 10);
+  // 고급 유물 6개 (화염~대지, 인덱스 10~15)
+  const advancedRelics = allRelicTypes.slice(10, 16);
+  
+  for (let i = 1; i <= 200; i++) {
+    const monsterLevel = Math.ceil(i * 0.3);
+    const baseAttack = monsterLevel * 7 + Math.floor(i / 5);
+    const monsterAttack = Math.floor(baseAttack * 2.548);
+    const goldReward = i * 1000;
+    
+    const item_rewards = [];
+    
+    // 10층 단위 유물 드랍
+    if (i % 10 === 0) {
+      if (i <= 100) {
+        // 100층 이하: 기본 유물만 (항아리~신발)
+        const relicIndex = (i / 10) - 1; // 10층=0, 20층=1, ..., 100층=9
+        
+        if (relicIndex >= 0 && relicIndex < basicRelics.length) {
+          const relic = basicRelics[relicIndex];
+          
+          // 해당 등급 유물 10% 확률로 드랍
+          item_rewards.push({
+            item_name: relic.name,
+            drop_chance: 10,
+            gold_amount: 0
+          });
+
+          // 나머지 90%는 이전까지의 모든 기본 유물 재료를 균등 분배
+          const materialCount = relicIndex + 1;
+          const materialChance = 90 / materialCount;
+
+          for (let j = 0; j <= relicIndex; j++) {
+            item_rewards.push({
+              item_name: basicRelics[j].name + ' 재료',
+              drop_chance: materialChance,
+              gold_amount: 0
+            });
+          }
+        }
+      } else if (i >= 110) {
+        // 110층 이상: 고급 유물만 (화염~대지)
+        const relicIndex = ((i - 110) / 10); // 110층=0, 120층=1, ..., 160층=5
+        
+        if (relicIndex >= 0 && relicIndex < advancedRelics.length) {
+          const relic = advancedRelics[relicIndex];
+          
+          // 해당 등급 유물 10% 확률로 드랍
+          item_rewards.push({
+            item_name: relic.name,
+            drop_chance: 10,
+            gold_amount: 0
+          });
+
+          // 나머지 90%는 이전까지의 모든 고급 유물 재료를 균등 분배
+          const materialCount = relicIndex + 1;
+          const materialChance = 90 / materialCount;
+
+          for (let j = 0; j <= relicIndex; j++) {
+            item_rewards.push({
+              item_name: advancedRelics[j].name + ' 재료',
+              drop_chance: materialChance,
+              gold_amount: 0
+            });
+          }
+        }
+      }
+    }
+
+    floors.push({
+      floor: i,
+      monster_level: monsterLevel,
+      monster_attack: monsterAttack,
+      gold_reward: goldReward,
+      item_rewards: item_rewards
+    });
+  }
+  
+  return floors;
+}
+
+function calculateRelicAttack(user) {
+  const relics = user.relics || {};
+  const relicTypes = localSettings.relic_types || [];
+  let totalRelicAttack = 0;
+
+  for (const relicName in relics) {
+    const relicData = relics[relicName];
+    const relicType = relicTypes.find(r => r.name === relicName);
+
+    if (relicType && relicData.level) {
+      totalRelicAttack += relicData.level * relicType.attack_per_level;
+    }
+  }
+
+  return totalRelicAttack;
+}
+
+function calculateRuneAttack(user) {
+  const runes = user.runes || {};
+  let totalRuneAttack = 0;
+
+  for (const runeName in runes) {
+    const runeData = runes[runeName];
+    if (runeData && runeData.attack) {
+      totalRuneAttack += runeData.attack;
+    }
+  }
+
+  return totalRuneAttack;
+}
+
+function calculatePetAttackBonus(user) {
+  if (!user.equipped_pet_id || !user.pets) return 0;
+  
+  const equippedPet = user.pets.find(p => p.id === user.equipped_pet_id);
+  if (equippedPet && equippedPet.type === 'attack') {
+    return equippedPet.attack_bonus || 0;
+  }
+  
+  return 0;
+}
+
+function calculatePetGoldBonus(user) {
+  if (!user.equipped_pet_id || !user.pets) return 0;
+  
+  const equippedPet = user.pets.find(p => p.id === user.equipped_pet_id);
+  if (equippedPet && equippedPet.type === 'gold') {
+    return (equippedPet.gold_bonus_percent || 0) / 100;
+  }
+  
+  return 0;
+}
+
+function getOrCreateUser(tag, nickname) {
+  let user = localUsers.get(tag);
+
+  if (!user) {
+    user = {
+      "tag": tag,
+      "nickname": nickname,
+      "gold": localSettings?.initial_gold || 100000,
+      "spoon_points": 0,
+      "sword_level": 0,
+      "max_sword_level": 0,
+      "attack_power": 0,
+      "weapon_bonus": 0,
+      "weapon_bonus2": 0,
+      "weapon_bonus3": 0,
+      "battle_wins": 0,
+      "battle_losses": 0,
+      "inventory": {},
+      "special_weapon": null,
+      "last_daily_money_date": null,
+      "current_dungeon_floor": 1,
+      "relics": {},
+      "dungeon_tickets": 0,
+      "auto_battle_tickets": 0,
+      "heart_clicks_after_plus_28": 0,
+      "runes": {},
+      "rune_fragments": 0,
+      "last_explore_date": null,
+      "explore_count": 0,
+      "user_plan_level": 0,
+      "pets": [],
+      "equipped_pet_id": null,
+      "pet_fragments": 0
+      };
+      localUsers.set(tag, user);
+  } else {
+    if (user.nickname !== nickname) {
+      user.nickname = nickname;
+    }
+    
+    if (!user.current_dungeon_floor) {
+      user.current_dungeon_floor = 1;
+    }
+    
+    if (!user.relics) {
+      user.relics = {};
+    }
+    
+    if (user.dungeon_tickets === undefined) {
+      user.dungeon_tickets = 0;
+    }
+    
+    if (user.auto_battle_tickets === undefined) {
+      user.auto_battle_tickets = 0;
+    }
+
+    if (user.heart_clicks_after_plus_28 === undefined) {
+      user.heart_clicks_after_plus_28 = 0;
+    }
+    
+    // 룬이 2개 이상이면 1개로 통합 (기본 공격력으로 초기화)
+    if (user.runes && Object.keys(user.runes).length > 1) {
+      const runeKeys = Object.keys(user.runes);
+      const firstRuneName = runeKeys[0];
+      
+      // 룬 1개로 통합, 레벨 1, 기본 공격력(12)로 초기화
+      user.runes = {
+        [firstRuneName]: {
+          level: 1,
+          attack: 12
+        }
+      };
+    }
+  }
+
+  return user;
+}
+
+function handleEnhance(tag, nickname) {
+  if (!localSettings || localSettings.enabled === false) {
+    return '❌ 검키우기 시스템이 비활성화되어 있습니다';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+
+  const enhanceCooldown = (localSettings.enhance_cooldown || 3) * 1000;
+  const lastEnhanceTime = enhanceCooldowns.get(tag) || 0;
+  const elapsed = Date.now() - lastEnhanceTime;
+
+  if (elapsed < enhanceCooldown) {
+    const remainingSeconds = Math.ceil((enhanceCooldown - elapsed) / 1000);
+    return `⏰ 강화 쿨타임 ${remainingSeconds}초 남음`;
+  }
+
+  const currentLevel = user.sword_level;
+  const inventory = user.inventory || {};
+  let updatedInventory = { ...inventory };
+  const specialWeapon = user.special_weapon || null;
+
+  const rates = localSettings.enhance_success_rates || [];
+
+  const maxAllowedLevel = specialWeapon ? (specialWeapon.max_level || 60) : 50;
+
+  if (currentLevel >= maxAllowedLevel) {
+    return `❌ 최대 강화 레벨 +${maxAllowedLevel}에 도달했습니다`;
+  }
+
+  const rateConfig = rates.find(r => r.level === currentLevel);
+
+  if (!rateConfig) {
+    return `❌ +${currentLevel} 강화는 지원하지 않습니다`;
+  }
+
+  const enhanceCost = rateConfig.cost || 10;
+
+  if (user.gold < enhanceCost) {
+    return `💸 골드 부족 (필요: ${enhanceCost.toLocaleString()}골드)`;
+  }
+
+  const shopItems = localSettings.shop_items || [];
+  
+  // 강화석: 창고에 있는 모든 enhance_boost 아이템 중 가장 높은 effect_value 선택
+  const enhanceBoostItems = shopItems.filter(item => item.effect_type === 'enhance_boost');
+  let bestEnhanceBoostItem = null;
+  let bestEnhanceValue = 0;
+  
+  for (const item of enhanceBoostItems) {
+    const itemCount = updatedInventory[item.name] || 0;
+    if (itemCount > 0 && item.effect_value > bestEnhanceValue) {
+      bestEnhanceBoostItem = item;
+      bestEnhanceValue = item.effect_value;
+    }
+  }
+  
+  // 파괴방지, 하락방지, 옵션잠금, 떡국은 이름으로 직접 찾기
+  let destroyPreventItemName = '';
+  let downPreventItemName = '';
+  let optionLockItemName = '';
+  let tteokgukItemName = '';
+  
+  for (const itemName in updatedInventory) {
+    if (updatedInventory[itemName] > 0) {
+      if (itemName.includes('파괴') && itemName.includes('방지')) {
+        destroyPreventItemName = itemName;
+      }
+      if (itemName.includes('하락') && itemName.includes('방지')) {
+        downPreventItemName = itemName;
+      }
+      if (itemName.includes('옵션') && itemName.includes('잠금')) {
+        optionLockItemName = itemName;
+      }
+      if (itemName.includes('떡국')) {
+        tteokgukItemName = itemName;
+      }
+    }
+  }
+
+  let hasEnhanceBoost = bestEnhanceBoostItem !== null;
+  let hasDestroyPrevent = destroyPreventItemName !== '';
+  let hasDownPrevent = downPreventItemName !== '';
+  let hasOptionLock = optionLockItemName !== '';
+  let hasTteokguk = tteokgukItemName !== '';
+  let enhanceBoostItemName = bestEnhanceBoostItem ? bestEnhanceBoostItem.name : '';
+  let enhanceBoostValue = bestEnhanceValue;
+
+  let successRate = rateConfig.success_rate;
+  if (hasEnhanceBoost) {
+    successRate += enhanceBoostValue;
+  }
+
+  const random = Math.random() * 100;
+  let result = '';
+  let newLevel = currentLevel;
+
+  const weaponNames = localSettings.weapon_names || [];
+  const firstAchievers = localSettings.level_first_achievers || {};
+  const getWeaponName = (level) => {
+    if (specialWeapon && specialWeapon.name) {
+      return specialWeapon.name;
+    }
+    // +20 이상이고 최초 달성자가 있으면 "[닉네임]의 검" (닉네임 앞 5자만)
+    if (level >= 20 && firstAchievers[level]) {
+      return firstAchievers[level].substring(0, 5) + '의 검';
+    }
+    const weapon = weaponNames.find(w => w.level === level);
+    return weapon ? weapon.name : '검';
+  };
+
+  if (random < successRate) {
+    // 강화 성공 - 아이템 차감
+    if (hasEnhanceBoost && enhanceBoostItemName) {
+      updatedInventory[enhanceBoostItemName]--;
+      if (updatedInventory[enhanceBoostItemName] === 0) {
+        delete updatedInventory[enhanceBoostItemName];
+      }
+    }
+
+    // 떡국 아이템 체크 - 10% 확률로 +2 강화 (일회용)
+    let levelBonus = 1;
+    let tteokgukUsed = false;
+    let tteokgukSuccess = false;
+    if (hasTteokguk && tteokgukItemName) {
+      tteokgukUsed = true;
+      // 떡국 사용 (소모)
+      updatedInventory[tteokgukItemName]--;
+      if (updatedInventory[tteokgukItemName] === 0) {
+        delete updatedInventory[tteokgukItemName];
+      }
+      
+      // 10% 확률로 +2 강화
+      if (Math.random() < 0.1) {
+        levelBonus = 2;
+        tteokgukSuccess = true;
+      }
+    }
+
+    newLevel = currentLevel + levelBonus;
+    
+    if (newLevel >= 20 && !specialWeapon) {
+      const firstAchievers = localSettings.level_first_achievers || {};
+      if (!firstAchievers[newLevel]) {
+        firstAchievers[newLevel] = nickname;
+        localSettings.level_first_achievers = firstAchievers;
+      }
+    }
+    
+    const weaponName = getWeaponName(newLevel);
+    const attackBonus = specialWeapon ? Math.floor(Math.random() * 24) + 7 : Math.floor(Math.random() * 11) + 5;
+
+    let weaponBonus = user.weapon_bonus || 0;
+    let weaponBonus2 = user.weapon_bonus2 || 0;
+    let weaponBonus3 = user.weapon_bonus3 || 0;
+
+    // 옵션 잠금 부적 체크
+    if (hasOptionLock && optionLockItemName) {
+      // 옵션 잠금 부적 사용 - 기존 옵션 값 유지
+      updatedInventory[optionLockItemName]--;
+      if (updatedInventory[optionLockItemName] === 0) {
+        delete updatedInventory[optionLockItemName];
+      }
+      // weaponBonus 값들은 기존 값 그대로 유지
+    } else {
+      // 옵션 잠금 부적 없으면 기존 옵션 개수 유지하되 수치만 랜덤 재설정
+      weaponBonus = specialWeapon ? Math.floor(Math.random() * 26) + 10 : Math.floor(Math.random() * 31) + 5;
+
+      // weapon_bonus2가 기존에 있었으면 재설정, 없었으면 0 유지
+      if (weaponBonus2 > 0) {
+        weaponBonus2 = specialWeapon ? Math.floor(Math.random() * 31) + 15 : Math.floor(Math.random() * 39) + 7;
+      }
+
+      // weapon_bonus3가 기존에 있었으면 재설정, 없었으면 0 유지
+      if (weaponBonus3 > 0) {
+        weaponBonus3 = specialWeapon ? Math.floor(Math.random() * 55) + 16 : Math.floor(Math.random() * 56) + 10;
+      }
+    }
+
+    user.attack_power = (user.attack_power || 0) + attackBonus;
+    user.weapon_bonus = weaponBonus;
+    user.weapon_bonus2 = weaponBonus2;
+    user.weapon_bonus3 = weaponBonus3;
+
+    const relicAttack = calculateRelicAttack(user);
+    const petAttack = calculatePetAttackBonus(user);
+    const totalAttack = user.attack_power + user.weapon_bonus + (user.weapon_bonus2 || 0) + (user.weapon_bonus3 || 0) + relicAttack + petAttack;
+
+    if (specialWeapon) {
+      result = `〖✨강화 성공✨ +${currentLevel} → +${newLevel}〗\n🆙공격력+${attackBonus}\n🎁추가옵션: [공:${weaponBonus}]\n🎁추가옵션: [공:${weaponBonus2}]\n🔰총 공격력:${totalAttack.toFixed(1)}\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}G\n⚔️획득 검: [+${newLevel} ${weaponName}]`;
+    } else {
+      result = `〖✨강화 성공✨ +${currentLevel} → +${newLevel}〗\n🆙공격력+${attackBonus}\n🎁추가옵션: [공:${weaponBonus}]\n🔰총 공격력:${totalAttack.toFixed(1)}\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}G\n⚔️획득 검: [+${newLevel} ${weaponName}]`;
+    }
+
+    if (tteokgukUsed) {
+      if (tteokgukSuccess) {
+        result += '\n🍜 떡국 발동! +2 강화 성공! (10%)';
+      } else {
+        result += '\n🍜 떡국 사용 (발동 실패)';
+      }
+    }
+    if (hasEnhanceBoost) {
+      result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+    }
+    if (hasOptionLock) {
+      result += '\n🔒 옵션 잠금 부적 사용됨 (추가 옵션 유지)';
+    }
+  } else if (random < successRate + rateConfig.fail_rate) {
+    // 강화 실패 - 아이템 차감
+    if (hasEnhanceBoost && enhanceBoostItemName) {
+      updatedInventory[enhanceBoostItemName]--;
+      if (updatedInventory[enhanceBoostItemName] === 0) {
+        delete updatedInventory[enhanceBoostItemName];
+      }
+    }
+
+    const weaponName = getWeaponName(currentLevel);
+    result = `〖💥강화 실패💥〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${currentLevel} ${weaponName}]`;
+
+    if (hasEnhanceBoost) {
+      result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+    }
+  } else if (random < successRate + rateConfig.fail_rate + rateConfig.down_rate) {
+    // 강화 하락 단계
+    if (hasDownPrevent && downPreventItemName) {
+      // 하락 방지 아이템 사용
+      updatedInventory[downPreventItemName]--;
+      if (updatedInventory[downPreventItemName] === 0) {
+        delete updatedInventory[downPreventItemName];
+      }
+
+      if (hasEnhanceBoost && enhanceBoostItemName) {
+        updatedInventory[enhanceBoostItemName]--;
+        if (updatedInventory[enhanceBoostItemName] === 0) {
+          delete updatedInventory[enhanceBoostItemName];
+        }
+      }
+
+      const weaponName = getWeaponName(currentLevel);
+      const relicAttack = calculateRelicAttack(user);
+      const petAttack = calculatePetAttackBonus(user);
+      const totalAttack = user.attack_power + (user.weapon_bonus || 0) + (user.weapon_bonus2 || 0) + relicAttack + petAttack;
+
+      if (specialWeapon) {
+        result = `〖🛡️하락 방지!〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${currentLevel} ${weaponName}]\n🎁추가옵션: [공:${user.weapon_bonus || 0}]\n🎁추가옵션: [공:${user.weapon_bonus2 || 0}]\n⚡총 공격력: ${totalAttack.toFixed(1)}\n✅ 하락방지 아이템 사용됨!`;
+      } else {
+        result = `〖🛡️하락 방지!〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${currentLevel} ${weaponName}]\n🎁추가옵션: [공:${user.weapon_bonus || 0}]\n⚡총 공격력: ${totalAttack.toFixed(1)}\n✅ 하락방지 아이템 사용됨!`;
+      }
+
+      if (hasEnhanceBoost) {
+        result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+      }
+    } else {
+      // 하락방지 아이템이 없으면 실제 하락
+      if (hasEnhanceBoost && enhanceBoostItemName) {
+        updatedInventory[enhanceBoostItemName]--;
+        if (updatedInventory[enhanceBoostItemName] === 0) {
+          delete updatedInventory[enhanceBoostItemName];
+        }
+      }
+
+      newLevel = Math.max(0, currentLevel - 1);
+      const weaponName = getWeaponName(newLevel);
+      const attackLoss = specialWeapon ? Math.floor(Math.random() * 24) + 7 : Math.floor(Math.random() * 11) + 5;
+      user.attack_power = Math.max(0, (user.attack_power || 0) - attackLoss);
+      
+      // 검이 +0으로 떨어질 때만 옵션 초기화, 그 외에는 옵션 유지
+      if (newLevel === 0) {
+        user.weapon_bonus = 0;
+        user.weapon_bonus2 = 0;
+        user.weapon_bonus3 = 0;
+      }
+      
+      const relicAttack = calculateRelicAttack(user);
+      const petAttack = calculatePetAttackBonus(user);
+      const totalAttack = user.attack_power + user.weapon_bonus + (user.weapon_bonus2 || 0) + (user.weapon_bonus3 || 0) + relicAttack + petAttack;
+
+      if (specialWeapon) {
+        result = `〖💥강화 하락💥〗\n🔻공격력-${attackLoss}\n🎁추가옵션: [공:${user.weapon_bonus}]\n🎁추가옵션: [공:${user.weapon_bonus2 || 0}]\n🔰총 공격력:${totalAttack.toFixed(1)}\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${newLevel} ${weaponName}]`;
+      } else {
+        result = `〖💥강화 하락💥〗\n🔻공격력-${attackLoss}\n🎁추가옵션: [공:${user.weapon_bonus}]\n🔰총 공격력:${totalAttack.toFixed(1)}\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${newLevel} ${weaponName}]`;
+      }
+
+      if (hasEnhanceBoost) {
+        result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+      }
+    }
+  } else {
+    // 파괴 단계
+    if (hasDestroyPrevent && destroyPreventItemName) {
+      // 파괴방지 차감
+      updatedInventory[destroyPreventItemName]--;
+      if (updatedInventory[destroyPreventItemName] === 0) {
+        delete updatedInventory[destroyPreventItemName];
+      }
+
+      if (hasEnhanceBoost && enhanceBoostItemName) {
+        updatedInventory[enhanceBoostItemName]--;
+        if (updatedInventory[enhanceBoostItemName] === 0) {
+          delete updatedInventory[enhanceBoostItemName];
+        }
+      }
+
+      const weaponName = getWeaponName(currentLevel);
+      const relicAttack = calculateRelicAttack(user);
+      const petAttack = calculatePetAttackBonus(user);
+      const totalAttack = user.attack_power + (user.weapon_bonus || 0) + (user.weapon_bonus2 || 0) + relicAttack + petAttack;
+
+      if (specialWeapon) {
+        result = `〖🛡️파괴 방지!〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${currentLevel} ${weaponName}]\n🎁추가옵션: [공:${user.weapon_bonus || 0}]\n🎁추가옵션: [공:${user.weapon_bonus2 || 0}]\n⚡총 공격력: ${totalAttack.toFixed(1)}\n✅ 파괴방지 아이템 사용됨!`;
+      } else {
+        result = `〖🛡️파괴 방지!〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️보유 검: [+${currentLevel} ${weaponName}]\n🎁추가옵션: [공:${user.weapon_bonus || 0}]\n⚡총 공격력: ${totalAttack.toFixed(1)}\n✅ 파괴방지 아이템 사용됨!`;
+      }
+
+      if (hasEnhanceBoost) {
+        result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+      }
+    } else {
+      // 파괴됨 - 강화제만 차감
+      if (hasEnhanceBoost && enhanceBoostItemName) {
+        updatedInventory[enhanceBoostItemName]--;
+        if (updatedInventory[enhanceBoostItemName] === 0) {
+          delete updatedInventory[enhanceBoostItemName];
+        }
+      }
+
+      newLevel = 0;
+      user.attack_power = 0;
+      user.weapon_bonus = 0;
+      user.weapon_bonus2 = 0;
+      user.weapon_bonus3 = 0;
+      user.special_weapon = null;
+      result = `〖💥강화 파괴💥〗\n💸사용 골드: -${enhanceCost}골드\n💰남은 골드: ${(user.gold - enhanceCost).toLocaleString()}골드\n⚔️획득 검: [+0 낡은 검]\n⚡공격력: 0 (초기화)`;
+
+      if (specialWeapon) {
+        result += '\n💔 특수 무기가 파괴되어 일반 무기로 돌아갔습니다';
+      }
+
+      if (hasEnhanceBoost) {
+        result += `\n✅ 강화제 사용됨 (성공률 +${enhanceBoostValue}%)`;
+      }
+    }
+  }
+
+  user.gold -= enhanceCost;
+  user.sword_level = newLevel;
+  user.max_sword_level = Math.max(user.max_sword_level, newLevel);
+  user.inventory = updatedInventory;
+
+  enhanceCooldowns.set(tag, Date.now());
+  
+  // 로컬 저장
+  saveLocalData();
+  
+  return result;
+}
+
+function handleSwordInfo(tag, nickname, targetTag) {
+  const getWeaponName = (level, specialWeapon) => {
+    if (specialWeapon && specialWeapon.name) {
+      // 빛나는 단비검일 경우 특별한 표시
+      if (specialWeapon.name === '빛나는 단비검') {
+        return '✨빛나는 단비검✨';
+      }
+      return specialWeapon.name;
+    }
+    const weaponNames = localSettings?.weapon_names || [];
+    const weapon = weaponNames.find(w => w.level === level);
+    return weapon ? weapon.name : '검';
+  };
+
+  const calculateTotalAttack = (userData) => {
+    const relicAttack = calculateRelicAttack(userData);
+    const runeAttack = calculateRuneAttack(userData);
+    const petAttack = calculatePetAttackBonus(userData);
+    let totalAttack = (userData.attack_power || 0) + (userData.weapon_bonus || 0) + (userData.weapon_bonus2 || 0) + (userData.weapon_bonus3 || 0) + relicAttack + runeAttack + petAttack;
+    // 빛나는 단비검 추가 공격력 +30은 이미 attack_power에 포함되어 있음
+    return totalAttack;
+  };
+
+  if (targetTag && targetTag.length > 0) {
+    const targetUser = localUsers.get(targetTag);
+    
+    if (!targetUser) {
+      return `❌ ${targetTag} 유저를 찾을 수 없습니다`;
+    }
+    
+    const weaponBonus = targetUser.weapon_bonus || 0;
+    const weaponBonus2 = targetUser.weapon_bonus2 || 0;
+    const weaponBonus3 = targetUser.weapon_bonus3 || 0;
+    const relicAttack = calculateRelicAttack(targetUser);
+    const runeAttack = calculateRuneAttack(targetUser);
+    const totalAttack = calculateTotalAttack(targetUser);
+    const weaponName = getWeaponName(targetUser.sword_level, targetUser.special_weapon);
+
+    let msg = `⚔️ [${targetUser.nickname}님 검정보]\n`;
+    msg += `● 전적: ${targetUser.battle_wins || 0}승 ${targetUser.battle_losses || 0}패\n`;
+    msg += `● 보유 골드: ${(targetUser.gold || 0).toLocaleString()}골드\n`;
+    msg += `● 최고 기록: [+${targetUser.max_sword_level || 0}]\n`;
+    msg += `● 보유 검: [+${targetUser.sword_level || 0} ${weaponName}]\n`;
+
+    if (weaponBonus > 0) {
+      msg += `● 추가옵션1: [공:${weaponBonus}]\n`;
+    }
+    if (weaponBonus2 > 0) {
+      msg += `● 추가옵션2: [공:${weaponBonus2}]\n`;
+    }
+    if (weaponBonus3 > 0) {
+      msg += `● 추가옵션3: [공:${weaponBonus3}]\n`;
+    }
+    if (relicAttack > 0) {
+      msg += `● 보유 유물: ${relicAttack.toFixed(1)}\n`;
+    }
+    if (runeAttack > 0) {
+      const runeCount = Object.keys(user.runes || {}).length;
+      msg += `● 보유 룬: ${runeAttack.toFixed(1)} (${runeCount}개)\n`;
+    }
+
+    msg += `● 공격력: [+${totalAttack.toFixed(1)}]`;
+
+    return msg;
+    }
+
+  const user = localUsers.get(tag);
+  
+  if (!user) {
+    return '❌ 검키우기 데이터가 없습니다. !출석 또는 💖 클릭으로 시작하세요';
+  }
+
+  const weaponBonus = user.weapon_bonus || 0;
+  const weaponBonus2 = user.weapon_bonus2 || 0;
+  const weaponBonus3 = user.weapon_bonus3 || 0;
+  const relicAttack = calculateRelicAttack(user);
+  const runeAttack = calculateRuneAttack(user);
+  const totalAttack = calculateTotalAttack(user);
+  const weaponName = getWeaponName(user.sword_level, user.special_weapon);
+
+  let msg = `⚔️ [${nickname}님 검정보]\n`;
+  msg += `● 전적: ${user.battle_wins || 0}승 ${user.battle_losses || 0}패\n`;
+  msg += `● 보유 골드: ${(user.gold || 0).toLocaleString()}골드\n`;
+  msg += `● 최고 기록: [+${user.max_sword_level || 0}]\n`;
+  msg += `● 보유 검: [+${user.sword_level || 0} ${weaponName}]\n`;
+
+  // 모든 옵션 표시 (0이 아닌 경우만)
+  if (weaponBonus > 0) {
+    msg += `● 추가옵션1: [공:${weaponBonus}]\n`;
+  }
+  if (weaponBonus2 > 0) {
+    msg += `● 추가옵션2: [공:${weaponBonus2}]\n`;
+  }
+  if (weaponBonus3 > 0) {
+    msg += `● 추가옵션3: [공:${weaponBonus3}]\n`;
+  }
+  if (relicAttack > 0) {
+    msg += `● 보유 유물: ${relicAttack.toFixed(1)}\n`;
+  }
+  if (runeAttack > 0) {
+    const runeCount = Object.keys(targetUser.runes || {}).length;
+    msg += `● 보유 룬: ${runeAttack.toFixed(1)} (${runeCount}개)\n`;
+  }
+
+  msg += `● 공격력: [+${totalAttack.toFixed(1)}]`;
+
+  return msg;
+}
+
+function handleDungeon(tag, nickname) {
+  if (!localSettings || localSettings.enabled === false) {
+    return '❌ 검키우기 시스템이 비활성화되어 있습니다';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+
+  // 던전 이용권 체크
+  if (!user.dungeon_tickets || user.dungeon_tickets <= 0) {
+    return '❌ 던전 이용권이 부족합니다\n💡 !검상점에서 던전 이용권을 구매하세요';
+  }
+
+  const dungeonCooldown = (localSettings.dungeon_cooldown || 2) * 1000;
+  const lastDungeonTime = dungeonCooldowns.get(tag) || 0;
+  const elapsed = Date.now() - lastDungeonTime;
+
+  if (elapsed < dungeonCooldown) {
+    const remainingSeconds = Math.ceil((dungeonCooldown - elapsed) / 1000);
+    return `⏰ 던전 쿨타임 ${remainingSeconds}초 남음`;
+  }
+
+  // 현재 층수 확인 (로컬 파일에서 로드된 값 사용)
+  const currentFloor = user.current_dungeon_floor || 1;
+  
+  const dungeonFloors = localSettings?.dungeon_floors || [];
+  
+  const floorData = dungeonFloors.find(f => f.floor === currentFloor);
+  
+  if (!floorData) {
+    return `❌ ${currentFloor}층 설정이 없습니다. 설정 페이지에서 던전을 설정하고 !설정새로고침 실행하세요.`;
+  }
+
+  const monsterLevel = floorData.monster_level;
+  const monsterAttack = floorData.monster_attack;
+  const relicAttack = calculateRelicAttack(user);
+  const petAttack = calculatePetAttackBonus(user);
+  const userPower = (user.attack_power || 0) + (user.weapon_bonus || 0) + (user.weapon_bonus2 || 0) + (user.weapon_bonus3 || 0) + relicAttack + petAttack;
+
+  // 던전 이용권 소모
+  user.dungeon_tickets--;
+
+  if (userPower > monsterAttack) {
+    // 승리
+    let goldReward = currentFloor * 1000; // 층수 * 1000 골드
+    
+    // 펫 골드 보너스 적용
+    const petGoldBonus = calculatePetGoldBonus(user);
+    goldReward = Math.floor(goldReward * (1 + petGoldBonus));
+    
+    user.gold += goldReward;
+
+    let rewardMsg = `🏆 던전 ${currentFloor}층 클리어! (이용권 -1)\n💀 몬스터: Lv.${monsterLevel} (공격력 ${monsterAttack})\n💰 골드 획득: ${goldReward.toLocaleString()}골드\n`;
+
+    // 80층 클리어 시 단비가 버린검 -> 빛나는 단비검 변환 (중복 보상 방지)
+    if (currentFloor === 80 && user.special_weapon && user.special_weapon.name === '단비가 버린검') {
+      user.special_weapon.name = '빛나는 단비검';
+      user.attack_power += 30;
+      rewardMsg += `\n✨ 단비가 버린검이 빛나는 단비검으로 진화했습니다! (공격력 +30)\n`;
+    } else if (currentFloor === 80 && user.special_weapon && user.special_weapon.name === '빛나는 단비검') {
+      rewardMsg += `\n⚠️ 이미 빛나는 단비검을 보유 중이라 추가 보상이 없습니다\n`;
+    }
+
+    // 아이템 드랍 체크
+    const itemRewards = floorData.item_rewards || [];
+    const droppedMaterials = [];
+
+    if (itemRewards.length > 0) {
+      const totalChance = itemRewards.reduce((sum, item) => sum + (item.drop_chance || 0), 0);
+      const random = Math.random() * totalChance;
+      
+      let currentSum = 0;
+      let selectedItem = null;
+      
+      for (const itemConfig of itemRewards) {
+        currentSum += itemConfig.drop_chance || 0;
+        if (random <= currentSum) {
+          selectedItem = itemConfig;
+          break;
+        }
+      }
+      
+      if (selectedItem) {
+        const itemName = selectedItem.item_name;
+        const relicTypes = localSettings.relic_types || [];
+        const isRelic = relicTypes.some(r => r.name === itemName);
+        
+        if (isRelic) {
+          // 유물 드랍
+          if (!user.relics) user.relics = {};
+          
+          if (user.relics[itemName]) {
+            // 이미 보유 중인 유물 -> 재료로 변환
+            const materialName = itemName + ' 재료';
+            if (!user.inventory) user.inventory = {};
+            user.inventory[materialName] = (user.inventory[materialName] || 0) + 1;
+            droppedMaterials.push(`${materialName} (보유 유물 -> 재료)`);
+            
+            // 재료 3개 모이면 자동 레벨업
+            if (user.inventory[materialName] >= 3) {
+              user.inventory[materialName] -= 3;
+              if (user.inventory[materialName] === 0) {
+                delete user.inventory[materialName];
+              }
+              
+              user.relics[itemName].level = (user.relics[itemName].level || 1) + 1;
+              user.relics[itemName].exp = 0;
+              rewardMsg += `✨ ${itemName} 레벨업! Lv.${user.relics[itemName].level}\n`;
+            }
+          } else {
+            // 신규 유물 획득
+            user.relics[itemName] = { level: 1, exp: 0 };
+            droppedMaterials.push(`${itemName} (유물 획득!)`);
+          }
+        } else if (itemName.endsWith(' 재료')) {
+          // 유물 재료 획득
+          const materialName = itemName;
+          const relicName = materialName.replace(' 재료', '');
+          
+          // 재료를 창고에 적립
+          if (!user.inventory) user.inventory = {};
+          user.inventory[materialName] = (user.inventory[materialName] || 0) + 1;
+          droppedMaterials.push(materialName);
+          
+          // 재료 3개 모이면 자동으로 유물 레벨업
+          if (user.inventory[materialName] >= 3) {
+            user.inventory[materialName] -= 3;
+            if (user.inventory[materialName] === 0) {
+              delete user.inventory[materialName];
+            }
+            
+            if (!user.relics) user.relics = {};
+            if (!user.relics[relicName]) {
+              // 유물이 없으면 새로 생성 (Lv.1)
+              user.relics[relicName] = { level: 1, exp: 0 };
+              rewardMsg += `✨ ${relicName} 획득! Lv.1\n`;
+            } else {
+              // 유물이 있으면 레벨업
+              user.relics[relicName].level = (user.relics[relicName].level || 1) + 1;
+              user.relics[relicName].exp = 0;
+              rewardMsg += `✨ ${relicName} 레벨업! Lv.${user.relics[relicName].level}\n`;
+            }
+          }
+        }
+      }
+    }
+
+    if (droppedMaterials.length > 0) {
+      rewardMsg += `🎁 재료 획득: ${droppedMaterials.join(', ')}\n`;
+    }
+    
+    // 4% 확률로 자동쿠폰 드랍
+    if (Math.random() < 0.04) {
+      if (!user.inventory) user.inventory = {};
+      const ticketName = '자동쿠폰';
+      user.inventory[ticketName] = (user.inventory[ticketName] || 0) + 1;
+      rewardMsg += `🎟️ 자동쿠폰 획득! (4%)\n`;
+    }
+
+    // 다음 층으로 이동
+    if (currentFloor < 200) {
+      user.current_dungeon_floor = currentFloor + 1;
+      rewardMsg += `⬆️ 다음 층: ${user.current_dungeon_floor}층\n`;
+    } else {
+      user.current_dungeon_floor = 1; // 200층 클리어 시 1층으로 초기화
+      rewardMsg += `🎉 던전 200층 완료! 축하합니다! 던전이 1층으로 초기화됩니다!\n`;
+    }
+    
+    rewardMsg += `🎫 남은 이용권: ${user.dungeon_tickets}`;
+
+    dungeonCooldowns.set(tag, Date.now());
+    
+    // 로컬 저장
+    saveLocalData();
+    
+    return rewardMsg;
+  } else {
+    // 패배 - 현재 층수 유지하고 저장 (이용권은 이미 소모됨)
+    dungeonCooldowns.set(tag, Date.now());
+    
+    // 로컬 저장 (던전 진행 상황 유지)
+    saveLocalData();
+    
+    return `💀 던전 ${currentFloor}층 실패! (이용권 -1)\n💀 몬스터: Lv.${monsterLevel} (공격력 ${monsterAttack})\n⚔️ 내 공격력: ${userPower.toFixed(1)}\n🎫 남은 이용권: ${user.dungeon_tickets}\n더 강해져서 다시 도전하세요!`;
+  }
+}
+
+function handleBattle(tag, nickname, targetTag) {
+  if (!localSettings || localSettings.enabled === false) {
+    return '❌ 검키우기 시스템이 비활성화되어 있습니다';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+
+  const battleCooldown = (localSettings.battle_cooldown || 20) * 1000;
+  const lastBattleTime = battleCooldowns.get(tag) || 0;
+  const elapsed = Date.now() - lastBattleTime;
+
+  if (elapsed < battleCooldown) {
+    const remainingSeconds = Math.ceil((battleCooldown - elapsed) / 1000);
+    return `⏰ 배틀 쿨타임 ${remainingSeconds}초 남음`;
+  }
+
+  let opponent;
+
+  if (!targetTag) {
+    const myLevel = user.sword_level || 0;
+    const allUsers = Array.from(localUsers.values());
+    
+    const availableOpponents = allUsers.filter(u => 
+      u.tag !== tag && 
+      Math.abs((u.sword_level || 0) - myLevel) <= 5
+    );
+    
+    if (availableOpponents.length > 0) {
+      opponent = availableOpponents[Math.floor(Math.random() * availableOpponents.length)];
+    } else {
+      const npcLevel = myLevel + Math.floor(Math.random() * 11) - 5;
+      const npcAttack = Math.max(0, npcLevel * 7 + Math.floor(Math.random() * 21) - 10);
+      
+      opponent = {
+        "tag": 'npc_bot',
+        "nickname": 'NPC',
+        "sword_level": Math.max(0, npcLevel),
+        "attack_power": npcAttack,
+        "weapon_bonus": Math.floor(Math.random() * 10),
+        "weapon_bonus2": 0,
+        "weapon_bonus3": 0
+      };
+    }
+  } else {
+    opponent = localUsers.get(targetTag);
+    if (!opponent) {
+      return `❌ ${targetTag} 유저를 찾을 수 없습니다`;
+    }
+  }
+
+  const relicAttack = calculateRelicAttack(user);
+  const petAttack = calculatePetAttackBonus(user);
+  const userPower = (user.attack_power || 0) + (user.weapon_bonus || 0) + (user.weapon_bonus2 || 0) + (user.weapon_bonus3 || 0) + relicAttack + petAttack;
+  const opponentRelicAttack = calculateRelicAttack(opponent);
+  const opponentPetAttack = calculatePetAttackBonus(opponent);
+  const opponentPower = (opponent.attack_power || 0) + (opponent.weapon_bonus || 0) + (opponent.weapon_bonus2 || 0) + (opponent.weapon_bonus3 || 0) + opponentRelicAttack + opponentPetAttack;
+
+  if (userPower > opponentPower) {
+  let reward = Math.max(1, opponent.sword_level * localSettings.battle_reward_base);
+
+  // 플랜 가입자는 보상 +1000 고정값
+  const isPlanSubscriber = planSubscribers.get(tag) || false;
+  if (isPlanSubscriber) {
+    reward = reward + 1000;
+  }
+
+  // 펫 골드 보너스 적용
+  const petGoldBonus = calculatePetGoldBonus(user);
+  reward = Math.floor(reward * (1 + petGoldBonus));
+
+  user.battle_wins++;
+  user.gold += reward;
+
+  // 상대방이 NPC가 아니면 상대방의 패배 카운트 증가
+  if (opponent.tag !== 'npc_bot') {
+    opponent.battle_losses++;
+  }
+
+  battleCooldowns.set(tag, Date.now());
+
+  // 로컬 저장
+  saveLocalData();
+
+  let msg = `[🏆결과] ${nickname}(${userPower}) vs ${opponent.nickname}(${opponentPower}) 승리!\n`;
+  msg += `💰전리품 ${reward.toLocaleString()}골드를 획득하였습니다`;
+  if (isPlanSubscriber) {
+    msg += `\n🌟플랜 가입자 보너스 +1,000골드!`;
+  }
+  return msg;
+  } else if (userPower < opponentPower) {
+    user.battle_losses++;
+
+    // 상대방이 NPC가 아니면 상대방의 승리 카운트 증가
+    if (opponent.tag !== 'npc_bot') {
+      opponent.battle_wins++;
+    }
+
+    battleCooldowns.set(tag, Date.now());
+
+    // 로컬 저장
+    saveLocalData();
+
+    return `[💀결과] ${nickname}(${userPower}) vs ${opponent.nickname}(${opponentPower}) 패배!\n아쉽게 패배했습니다`;
+  } else {
+    return `[🤝결과] ${nickname}(${userPower}) vs ${opponent.nickname}(${opponentPower}) 무승부!`;
+  }
+}
+
+async function handleRanking(tag, nickname) {
+  // 로컬 방 랭킹
+  const allUsers = Array.from(localUsers.values());
+  const localRanking = [...allUsers].sort((a, b) => b.sword_level - a.sword_level);
+
+  const weaponNames = localSettings?.weapon_names || [];
+  const getWeaponName = (level, userData) => {
+    if (userData?.special_weapon?.name) return userData.special_weapon.name;
+    const weapon = weaponNames.find(w => w.level === level);
+    return weapon ? weapon.name : '검';
+  };
+
+  let msg = '';
+
+  // DB 월드 랭킹 조회
+  try {
+    const response = await apiRequest('getGlobalSwordRanking', 'GET', {});
+    if (response.users && response.users.length > 0) {
+      const globalRanking = response.users.sort((a, b) => b.sword_level - a.sword_level).slice(0, 5);
+      
+      msg += `🏆 검키우기 월드 랭킹 🏆\n`;
+      for (let i = 0; i < globalRanking.length; i++) {
+        const user = globalRanking[i];
+        const weaponName = getWeaponName(user.sword_level, user);
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
+        msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
+        if (i < globalRanking.length - 1) {
+          msg += '\n';
+        }
+      }
+      msg += '\n\n';
+    }
+  } catch (error) {
+    console.log('[월드 랭킹 조회 실패]', error);
+  }
+
+  // 우리방 랭킹
+  if (localRanking.length > 0) {
+    msg += `🏆 우리방 검랭킹 🏆\n`;
+    for (let i = 0; i < Math.min(5, localRanking.length); i++) {
+      const user = localRanking[i];
+      const weaponName = getWeaponName(user.sword_level, user);
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
+      msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
+      if (i < Math.min(4, localRanking.length - 1)) {
+        msg += '\n';
+      }
+    }
+  } else {
+    msg += '❌ 우리방 랭킹 데이터가 없습니다';
+  }
+
+  return msg;
+}
+
+function handleSell(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname);
+
+  const rates = localSettings.enhance_success_rates || [];
+  let totalEnhanceCost = 0;
+  for (let i = 0; i < user.sword_level; i++) {
+    const rateConfig = rates.find(r => r.level === i);
+    totalEnhanceCost += rateConfig ? (rateConfig.cost || 10) : 10;
+  }
+
+  // 강화 비용의 60% 환불
+  const refund = Math.floor(totalEnhanceCost * 0.6);
+
+  user.gold += refund;
+  user.sword_level = 0;
+  user.attack_power = 0;
+  user.weapon_bonus = 0;
+  user.weapon_bonus2 = 0;
+  user.weapon_bonus3 = 0;
+  user.special_weapon = null;
+  
+  // 로컬 저장
+  saveLocalData();
+
+  let msg = `${nickname}님〖검 판매〗\n`;
+  msg += `💶획득 골드: +${refund.toLocaleString()}골드 (강화비용 60%)\n`;
+  msg += `💰현재 보유 골드: ${user.gold.toLocaleString()}골드\n`;
+  msg += `⚔️새로운 검 획득: [+0] 낡은 검`;
+
+  return msg;
+}
+
+function handleInventory(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname);
+
+  const inventory = user.inventory || {};
+  const items = Object.entries(inventory).filter(([_, count]) => count > 0);
+
+  if (items.length === 0) {
+    return '🎒 창고가 비어있습니다';
+  }
+
+  let msg = '🎒 창고\n';
+  items.forEach(([itemName, count], index) => {
+    msg += `${index + 1}. ${itemName} x${count}\n`;
+  });
+
+  return msg;
+}
+
+function handleDailyMoney(tag, nickname) {
+  if (!localSettings || localSettings.enabled === false) {
+    return '❌ 검키우기 시스템이 비활성화되어 있습니다';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+  const today = new Date().toISOString().split('T')[0];
+
+  if (user.last_daily_money_date === today) {
+    return '💸 오늘 이미 출석 보상을 받았습니다';
+  }
+
+  let dailyMoney = localSettings.daily_money || 10000;
+  
+  // 펫 골드 보너스 적용
+  const petGoldBonus = calculatePetGoldBonus(user);
+  dailyMoney = Math.floor(dailyMoney * (1 + petGoldBonus));
+  
+  user.gold += dailyMoney;
+  user.last_daily_money_date = today;
+  
+  // 로컬 저장
+  saveLocalData();
+
+  return `✅ 출석 완료! +${dailyMoney.toLocaleString()}골드\n💰 현재 골드: ${user.gold.toLocaleString()}골드`;
+}
+
+function handleRelics(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname);
+
+  const relics = user.relics || {};
+  const relicTypes = localSettings.relic_types || [];
+
+  if (Object.keys(relics).length === 0) {
+    return '🏺 보유 중인 유물이 없습니다\n던전을 클리어하여 유물을 획득하세요!';
+  }
+
+  let msg = '🏺 보유 유물\n\n';
+
+  let index = 1;
+  for (const relicName in relics) {
+    const relicData = relics[relicName];
+    const relicType = relicTypes.find(r => r.name === relicName);
+
+    const level = relicData.level || 1;
+    const exp = relicData.exp || 0;
+
+    // relicType이 없으면 기본값 사용
+    const attackPerLevel = relicType ? relicType.attack_per_level : 0.1;
+    const expPerLevel = relicType ? relicType.exp_per_level : 30;
+    const attackBonus = level * attackPerLevel;
+
+    // 도플갱어는 재료 시스템 사용
+    if (relicName === '도플갱어') {
+      const inventory = user.inventory || {};
+      const materialName = '도플갱어 재료';
+      const currentMaterials = inventory[materialName] || 0;
+      const materialsNeeded = (level + 1) * 3; // 다음 레벨업에 필요한 재료
+
+      msg += `${index}. ${relicName} Lv.${level} 공격+${attackBonus.toFixed(1)} (${currentMaterials}/${materialsNeeded})\n`;
+    } else {
+      // 일반 유물은 경험치 시스템
+      const expNeeded = level * expPerLevel;
+      msg += `${index}. ${relicName} Lv.${level} 공격+${attackBonus.toFixed(1)} (${exp}/${expNeeded})\n`;
+    }
+    index++;
+  }
+
+  return msg;
+}
+
+function handleRunes(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname);
+
+  const runes = user.runes || {};
+  const runeFragments = user.rune_fragments || 0;
+
+  let msg = '💎 보유 룬\n\n';
+  msg += `📦 룬 조각: ${runeFragments}개\n\n`;
+
+  if (Object.keys(runes).length === 0) {
+    msg += '보유 중인 룬이 없습니다\n!탐험으로 룬 조각을 모아 룬을 제작하세요!';
+  } else {
+    let index = 1;
+    for (const runeName in runes) {
+      const runeData = runes[runeName];
+      const level = runeData.level || 1;
+      const attack = runeData.attack || 0;
+
+      msg += `${index}. ${runeName} Lv.${level} 공격+${attack.toFixed(1)}\n`;
+      index++;
+    }
+  }
+
+  return msg;
+}
+
+function handleExplore(tag, nickname) {
+  if (!localSettings || localSettings.enabled === false) {
+    return '❌ 검키우기 시스템이 비활성화되어 있습니다';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+
+  // 하루 제한 체크 (플랜 사용자 15번, 일반 사용자 10번)
+  const maxExploreCount = (user.user_plan_level > 0) ? 15 : 10;
+  const today = new Date().toISOString().split('T')[0];
+  if (!user.last_explore_date || user.last_explore_date !== today) {
+    user.last_explore_date = today;
+    user.explore_count = 0;
+  }
+
+  if (user.explore_count >= maxExploreCount) {
+    return `❌ 오늘의 탐험 횟수를 모두 사용했습니다 (${user.explore_count}/${maxExploreCount})\n⏰ 자정(00:00)에 초기화됩니다`;
+  }
+
+  const exploreCooldown = 30 * 1000; // 30초 쿨타임
+  const lastExploreTime = enhanceCooldowns.get(tag + '_explore') || 0;
+  const elapsed = Date.now() - lastExploreTime;
+
+  if (elapsed < exploreCooldown) {
+    const remainingSeconds = Math.ceil((exploreCooldown - elapsed) / 1000);
+    return `⏰ 탐험 쿨타임 ${remainingSeconds}초 남음`;
+  }
+
+  // 룬 조각 1~5개 랜덤 획득
+  const fragmentsGained = Math.floor(Math.random() * 5) + 1;
+  user.rune_fragments = (user.rune_fragments || 0) + fragmentsGained;
+  user.explore_count = (user.explore_count || 0) + 1;
+
+  enhanceCooldowns.set(tag + '_explore', Date.now());
+  saveLocalData();
+
+  return `🗺️ 탐험 완료! (${user.explore_count}/${maxExploreCount})\n💎 룬 조각 +${fragmentsGained}개 획득\n📦 보유 조각: ${user.rune_fragments}개\n💡 조각 100개로 룬 제작 가능 (!룬제작)`;
+}
+
+function handleCraftRune(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname);
+
+  // 이미 룬을 보유 중이면 제작 불가
+  if (user.runes && Object.keys(user.runes).length > 0) {
+    return `❌ 이미 룬을 보유하고 있습니다\n💡 !룬강화로 레벨업하세요`;
+  }
+
+  if ((user.rune_fragments || 0) < 100) {
+    return `❌ 룬 조각 부족 (보유: ${user.rune_fragments || 0}개, 필요: 100개)`;
+  }
+
+  // 룬 조각 100개 소모
+  user.rune_fragments -= 100;
+
+  // 10% 확률로 성공
+  const random = Math.random() * 100;
+
+  if (random < 10) {
+    // 성공 - 룬 생성
+    // 70% 확률로 2~20, 30% 확률로 21~40
+    let runeAttack;
+    if (Math.random() < 0.7) {
+      runeAttack = Math.floor(Math.random() * 19) + 2; // 2~20
+    } else {
+      runeAttack = Math.floor(Math.random() * 20) + 21; // 21~40
+    }
+    const runeId = Date.now();
+    const runeName = `룬#${runeId}`;
+
+    if (!user.runes) user.runes = {};
+    user.runes[runeName] = {
+      level: 1,
+      attack: runeAttack
+    };
+
+    saveLocalData();
+
+    return `✨ 룬 제작 성공! (10%)\n💎 ${runeName} 획득 (Lv.1, 공격+${runeAttack})\n📦 남은 조각: ${user.rune_fragments}개\n💡 !룬강화로 레벨업 가능`;
+  } else {
+    // 실패
+    saveLocalData();
+
+    return `💥 룬 제작 실패... (10%)\n📦 남은 조각: ${user.rune_fragments}개`;
+  }
+}
+
+function handleSellRune(tag, nickname, runeName) {
+  if (!runeName) {
+    return '사용법: !룬판매 [룬이름]\n예: !룬판매 룬#1234567890';
+  }
+
+  const user = getOrCreateUser(tag, nickname);
+  const runes = user.runes || {};
+
+  if (!runes[runeName]) {
+    return `❌ ${runeName}을(를) 보유하고 있지 않습니다`;
+  }
+
+  const runeData = runes[runeName];
+  const sellPrice = runeData.attack * 1000; // 공격력 * 1000골드
+
+  user.gold = (user.gold || 0) + sellPrice;
+  delete runes[runeName];
+  user.runes = runes;
+
+  saveLocalData();
+
+  return `✅ ${runeName} 판매 완료!\n💰 획득 골드: +${sellPrice.toLocaleString()}골드\n💰 보유 골드: ${user.gold.toLocaleString()}골드`;
+}
+
+function handleUpgradeRune(tag, nickname, runeName) {
+  const user = getOrCreateUser(tag, nickname);
+  const runes = user.runes || {};
+
+  // 룬이 없으면 에러
+  if (Object.keys(runes).length === 0) {
+    return '❌ 보유 중인 룬이 없습니다\n💡 !룬제작으로 먼저 룬을 만드세요';
+  }
+
+  // 룬 이름이 없으면 보유 중인 룬 자동 선택
+  if (!runeName) {
+    runeName = Object.keys(runes)[0];
+  }
+
+  if (!runes[runeName]) {
+    return `❌ ${runeName}을(를) 보유하고 있지 않습니다`;
+  }
+
+  const runeData = runes[runeName];
+  const currentLevel = runeData.level || 1;
+  
+  // 레벨별 필요 조각 수: 20, 40, 80, 160, 320...
+  const requiredFragments = 20 * Math.pow(2, currentLevel - 1);
+
+  if ((user.rune_fragments || 0) < requiredFragments) {
+    return `❌ 룬 조각 부족 (보유: ${user.rune_fragments || 0}개, 필요: ${requiredFragments}개)\n💡 !탐험으로 조각을 모으세요`;
+  }
+
+  // 룬 조각 소모
+  user.rune_fragments -= requiredFragments;
+
+  // 레벨업 및 공격력 증가
+  const attackBonus = Math.floor(Math.random() * 6) + 5; // 5~10
+  runeData.level++;
+  runeData.attack += attackBonus;
+
+  user.runes = runes;
+  saveLocalData();
+
+  return `✨ ${runeName} 강화 성공!\n🆙 Lv.${currentLevel} → Lv.${runeData.level}\n⚡ 공격력 +${attackBonus} (총 ${runeData.attack})\n💎 룬 조각 ${requiredFragments}개 소모\n📦 남은 조각: ${user.rune_fragments}개`;
+}
+
+function handleSwordHelp() {
+  let msg = '⚔️ 검키우기 명령어\n\n';
+  msg += '• ⚔️ !강화 - 검 강화 (성공/실패/하락/파괴)\n';
+  msg += '• 📊 !프로필 [고유닉] - 검 정보 조회\n';
+  msg += '• 📊 !아이템 - 상점아이템 상세 조회\n';
+  msg += '• 📋 !패치 - 오늘 패치 내용 확인\n';
+  msg += '• ⚔️ !배틀 - 자동 매칭 배틀\n';
+  msg += '• ⚔️ !배틀 [고유닉] - 특정 유저와 배틀\n';
+  msg += '• 🗡️ !던전 - 몬스터 던전 입장 (1~100층)\n';
+  msg += '• 🏺 !유물 - 보유 유물 확인\n';
+  msg += '• 💎 !룬 - 보유 룬 확인\n';
+  msg += '• 🗺️ !탐험 - 룬 조각 획득 (30초 쿨타임)\n';
+  msg += '• ✨ !룬제작 - 조각 100개로 룬 제작 (10%)\n';
+  msg += '• 💰 !룬판매 [룬이름] - 룬 판매하기\n';
+  msg += '• ⬆️ !룬강화 [룬이름] - 룬 레벨업\n';
+  msg += '• 🏆 !검랭킹 - 강화/배틀 랭킹\n';
+  msg += '• 🔍 !방검색 - 검키우기 사용 중인 디제이 목록\n';
+  msg += '• 💰 !판매 - 검 판매하고 골드 획득\n';
+  msg += '• 🎒 !창고 - 보유 아이템 확인\n';
+  msg += '• 🔄 !옵션 - 옵션 재설정 물약 사용\n';
+  msg += '• ✨ !부여 - 옵션 부여 부적 사용\n';
+  msg += '• 🏪 !검상점 - 아이템 상점 보기\n';
+  msg += '• 🛒 !검구매[번호] - 아이템 구매\n';
+  msg += '• 📅 !출석 - 매일 골드 받기\n';
+  msg += '• 💖 무료하트 클릭 - 골드 5000원 적립\n';
+  msg += '• 🐾 !펫 - 보유 펫 목록 확인\n';
+  msg += '• 🐾 !펫착용 [번호] - 펫 장착\n';
+  msg += '• 🐾 !펫해제 - 펫 해제\n';
+  msg += '• 🔨 !펫분해 [번호] - 펫 분해 (재료 획득)\n';
+  msg += '• ⬆️ !펫강화 [번호] - 펫 능력치 강화 (재료 5개)\n';
+  msg += '• 🤖 !자동온 [수량] - 자동 배틀 시작 (지정 수량만)\n';
+  msg += '• 🛑 !자동오프 - 자동 배틀 중지\n';
+  msg += '• 📊 !자동 - 자동 배틀 진행 상황 확인\n';
+  msg += '• 🏪 !거래소 - 자동쿠폰 거래소 (전체 유저)\n';
+  msg += '• 📝 !거래등록 [수량] [가격] - 거래 등록 (개인당 3개)\n';
+  msg += '• 💰 !거래구매 [번호] - 거래소에서 구매\n';
+  msg += '• 👹 !참여 - 도플갱어 보스 레이드 참가\n';
+  msg += '• 👹 !상태 - 보스 상태 및 대미지 랭킹 확인\n\n';
+  msg += '🎮 sum 전용 테스트:\n';
+  msg += '• 🎁 !몬스터 - 몬스터 상자 1개 오픈 (테스트)\n\n';
+  msg += '🎮 디제이 전용:\n';
+  msg += '• 🟢 !검온 - 검키우기 시스템 활성화\n';
+  msg += '• 🔴 !검오프 - 검키우기 시스템 비활성화\n';
+  msg += '• 🔧 !복구 [고유닉] [+레벨] [일/단] [옵션1] [옵션2] [옵션3] - 검 복구\n';
+  msg += '• 💾 !저장 - 현재 데이터를 DB에 저장\n';
+  msg += '• 📥 !로드 - DB에서 데이터 불러오기 (20분 쿨타임)\n';
+  msg += '• 🔄 !ALL - 모든 유저 데이터 DB 저장\n';
+  msg += '• 🔄 !설정새로고침 - 상점/던전 설정 업데이트\n';
+  msg += '• 📋 !질문 [내용] - 복구 요청 등록\n\n';
+  msg += '👥 sum, sum1004 전용:\n';
+  msg += '• 🚫 !차단 [고유닉] [일수] [사유] - 유저 차단 (1~30일)\n\n';
+  msg += '👥 sum 전용:\n';
+  msg += '• 🎁 !주기 [고유닉] [강화] [공격] - 장비 지급\n';
+  msg += '• ⚔️ !단비검 [고유닉] [+강화] [공격] - 단비가 버린검 지급\n';
+  msg += '• 🎁 !보상 [고유닉] [+강화] [옵션개수] [공격] - 옵션개수 지정 장비 지급\n';
+  msg += '• ✨ !옵션 [고유닉] [개수] - 검 옵션 개수 조정\n';
+  msg += '• 🎟️ !쿠폰 [고유닉] [수량] - 자동쿠폰 지급\n';
+  msg += '• 👹 !보스 - 도플갱어 보스 강제 소환\n';
+  msg += '• 🗑️ !유물리셋 - 로컬 모든 유저 고급 유물 제거\n';
+  msg += '• 📥 !로드 [고유닉] - 특정 유저 데이터 로드\n\n';
+  msg += '👥 hs7234, sum1004 전용:\n';
+  msg += '• 💰 !골드 [고유닉] [금액] - 유저 골드 조정 (음수 가능)';
+  return msg;
+}
+
+async function handleSaveData(tag, nickname) {
+  const user = localUsers.get(tag);
+  
+  if (!user) {
+    return '❌ 저장할 데이터가 없습니다. 먼저 !출석으로 시작하세요';
+  }
+
+  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
+    return '❌ DB 저장 불가 (토큰 미설정)';
+  }
+
+  const success = await saveUserToDB(user);
+  
+  if (success) {
+    return `✅ ${nickname}님의 데이터가 DB에 저장되었습니다!\n다른 방에서 !로드 명령어로 불러올 수 있습니다.`;
+  } else {
+    return '❌ DB 저장 실패';
+  }
+}
+
+async function handleLoadData(tag, nickname, targetTag) {
+  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
+    return '❌ DB 로드 불가 (토큰 미설정)';
+  }
+
+  // sum이 아닌 유저는 20분 쿨타임 적용
+  if (tag.toLowerCase() !== 'sum') {
+    const loadCooldown = 1200 * 1000; // 20분
+    const lastLoadTime = loadCooldowns.get(tag) || 0;
+    const elapsed = Date.now() - lastLoadTime;
+
+    if (elapsed < loadCooldown) {
+      const remainingMinutes = Math.ceil((loadCooldown - elapsed) / 60000);
+      return `⏰ 로드 쿨타임 ${remainingMinutes}분 남음`;
+    }
+  }
+
+  // sum이 targetTag를 지정한 경우 해당 유저 로드
+  const loadTag = (tag.toLowerCase() === 'sum' && targetTag) ? targetTag : tag;
+  const dbUser = await loadUserFromDB(loadTag);
+
+  if (!dbUser) {
+    return `❌ DB에 저장된 데이터가 없습니다. 먼저 다른 방에서 !저장을 하세요`;
+  }
+
+  // DB 데이터를 로컬 메모리에 덮어쓰기 (고급 유물 제거 없이)
+  localUsers.set(loadTag, {
+    tag: dbUser.tag,
+    nickname: dbUser.nickname,
+    gold: dbUser.gold || 0,
+    sword_level: dbUser.sword_level || 0,
+    max_sword_level: dbUser.max_sword_level || 0,
+    attack_power: dbUser.attack_power || 0,
+    weapon_bonus: dbUser.weapon_bonus || 0,
+    weapon_bonus2: dbUser.weapon_bonus2 || 0,
+    weapon_bonus3: dbUser.weapon_bonus3 || 0,
+    battle_wins: dbUser.battle_wins || 0,
+    battle_losses: dbUser.battle_losses || 0,
+    inventory: dbUser.inventory || {},
+    special_weapon: dbUser.special_weapon || null,
+    last_daily_money_date: dbUser.last_daily_money_date || null,
+    current_dungeon_floor: dbUser.current_dungeon_floor || 1,
+    relics: dbUser.relics || {},
+    dungeon_tickets: dbUser.dungeon_tickets || 0,
+    runes: dbUser.runes || {},
+    rune_fragments: dbUser.rune_fragments || 0,
+    last_explore_date: dbUser.last_explore_date || null,
+    explore_count: dbUser.explore_count || 0,
+    user_plan_level: dbUser.user_plan_level || 0,
+    spoon_points: dbUser.spoon_points || 0,
+    pets: dbUser.pets || [],
+    equipped_pet_id: dbUser.equipped_pet_id || null,
+    pet_fragments: dbUser.pet_fragments || 0
+    });
+
+  // sum이 아닌 경우만 쿨타임 기록
+  if (tag.toLowerCase() !== 'sum') {
+    loadCooldowns.set(tag, Date.now());
+  }
+
+  const weaponNames = localSettings?.weapon_names || [];
+  const getWeaponName = (level, specialWeapon) => {
+    if (specialWeapon && specialWeapon.name) {
+      return specialWeapon.name;
+    }
+    const weapon = weaponNames.find(w => w.level === level);
+    return weapon ? weapon.name : '검';
+  };
+
+  const weaponName = getWeaponName(dbUser.sword_level, dbUser.special_weapon);
+  const loadedUser = localUsers.get(loadTag);
+  const relicAttack = calculateRelicAttack(loadedUser);
+  const totalAttack = (dbUser.attack_power || 0) + (dbUser.weapon_bonus || 0) + (dbUser.weapon_bonus2 || 0) + (dbUser.weapon_bonus3 || 0) + relicAttack;
+
+  const displayName = (tag.toLowerCase() === 'sum' && targetTag) ? dbUser.nickname : nickname;
+  return `✅ ${displayName}님의 데이터가 DB에서 로드되었습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
+}
+// ── 설정 로드/저장: 관리자(sum) 계정 아래 공용으로 보관 ──
+// 원본은 매 액션마다 로컬 암호화 파일에 저장했는데, Railway는 재배포마다 디스크가 초기화되니
+// 그 대신 우리 서버의 영구 저장소(store, Volume 있으면 거기에 남음)에 저장한다.
+let swordSaveDebounceTimer = null
+function saveLocalData() {
+  if (swordSaveDebounceTimer) clearTimeout(swordSaveDebounceTimer)
+  swordSaveDebounceTimer = setTimeout(() => {
+    try {
+      store.saveSettings(SHARED_TOKEN_DJID, { swordGameUsers: Object.fromEntries(localUsers) })
+    } catch (e) { console.log('[검키우기] 유저 캐시 저장 실패', e.message) }
+  }, 2000)
+}
+let swordUsersLoaded = false
+function loadSwordUsersIfNeeded() {
+  if (swordUsersLoaded) return
+  swordUsersLoaded = true
+  try {
+    const adminSettings = store.getSettings(SHARED_TOKEN_DJID) || {}
+    if (adminSettings.swordGameUsers) {
+      localUsers = new Map(Object.entries(adminSettings.swordGameUsers))
+      console.log('[검키우기] 캐시에서 유저 데이터 복원:', localUsers.size, '명')
+    }
+  } catch (e) { console.log('[검키우기] 유저 캐시 로드 실패', e.message) }
+}
+function ensureSwordSettingsLoaded() {
+  loadSwordUsersIfNeeded()
+  if (localSettings) return
+  const adminSettings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (adminSettings.swordGame) {
+    localSettings = adminSettings.swordGame
+  } else {
+    initializeSettings() // 이 함수가 내부적으로 localSettings에 기본값을 채워준다 (원본 그대로)
+    persistSwordSettings()
+  }
+}
+function persistSwordSettings() {
+  store.saveSettings(SHARED_TOKEN_DJID, { swordGame: localSettings })
+}
+
+// ── 채팅 명령어 디스패처 (1차 이식 범위) ──
+// 좋아요(하트) 훅 — 원본의 exports.live_like 로직을 그대로 이식.
+// 골드 보상 + "+27일 때 하트 20번 클릭 시 자동 강화 이벤트" 특수 효과 포함.
+function handleSwordHeartHook(djId, settings, tag, nickname) {
+  if (!isModuleOn(settings, 'swordgame', djId)) return
+  if (!tag) return
+  ensureSwordSettingsLoaded()
+  if (!localSettings || localSettings.enabled === false) return
+  const user = getOrCreateUser(tag, nickname)
+  user.gold += localSettings?.like_reward || 5000
+
+  if (user.sword_level === 27) {
+    user.heart_clicks_after_plus_28 = (user.heart_clicks_after_plus_28 || 0) + 1
+    if (user.heart_clicks_after_plus_28 >= 20) {
+      const enhanceResult = handleEnhance(tag, nickname)
+      user.heart_clicks_after_plus_28 = 0
+      setTimeout(() => sendChatToRoom(djId, `🎉 +28 특별 이벤트 발동! 하트 20번 클릭 달성!\n${enhanceResult}`), 500)
+    }
+  }
+  saveLocalData()
+}
+
+async function handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'swordgame', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const textLower = msg.toLowerCase()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+
+  // 검온/검오프 — DJ 전용
+  if (msg === '!검온' || msg === '!검오프') {
+    if (!isDj) { sendChatSplit(djId, '❌ 이 명령어는 디제이만 사용할 수 있습니다', 150, 300); return }
+    ensureSwordSettingsLoaded()
+    const enable = msg === '!검온'
+    localSettings.enabled = enable
+    persistSwordSettings()
+    sendChatSplit(djId, enable ? '✅ 검키우기 활성화' : '❌ 검키우기 비활성화', 150, 300)
+    return
+  }
+
+  const PHASE1_CMDS = ['!강화', '!던전', '!유물', '!룬', '!탐험', '!룬제작', '!룬판매', '!룬강화',
+    '!검랭킹', '!프로필', '!배틀', '!판매', '!창고', '!출석', '!도움말', '!저장', '!로드', '!검버전']
+  const isSwordCommand = PHASE1_CMDS.some(c => textLower === c || textLower.startsWith(c))
+  if (!isSwordCommand) return
+
+  ensureSwordSettingsLoaded()
+  if (localSettings && localSettings.enabled === false) {
+    sendChatSplit(djId, '❌ 시스템 비활성화', 150, 300)
+    return
+  }
+
+  const tag = actTag ? String(actTag).trim().toLowerCase() : null
+  if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+
+  // 차단 유저 체크 (원본 로직 그대로, Base44 API 사용)
+  try {
+    const isBanned = await checkBannedUser(tag)
+    if (isBanned) { sendChatSplit(djId, '❌ 차단된 등록자입니다', 150, 300); return }
+  } catch (e) { /* 차단 체크 실패해도 게임은 계속 진행 */ }
+
+  let result = null
+  try {
+    const parts = msg.split(/\s+/)
+    if (textLower === '!강화') {
+      result = handleEnhance(tag, author)
+    } else if (textLower === '!던전') {
+      result = handleDungeon(tag, author)
+    } else if (textLower === '!유물') {
+      result = handleRelics(tag, author)
+    } else if (textLower === '!룬') {
+      result = handleRunes(tag, author)
+    } else if (textLower === '!탐험') {
+      result = handleExplore(tag, author)
+    } else if (textLower === '!룬제작') {
+      result = handleCraftRune(tag, author)
+    } else if (textLower.startsWith('!룬판매')) {
+      const runeName = parts.slice(1).join(' ')
+      result = handleSellRune(tag, author, runeName)
+    } else if (textLower.startsWith('!룬강화')) {
+      const runeName = parts.slice(1).join(' ') || ''
+      result = handleUpgradeRune(tag, author, runeName)
+    } else if (textLower === '!검랭킹') {
+      result = await handleRanking(tag, author)
+    } else if (textLower.startsWith('!프로필')) {
+      const targetTag = (parts[1] || '').trim()
+      result = handleSwordInfo(tag, author, targetTag)
+    } else if (textLower.startsWith('!배틀')) {
+      const targetTag = parts[1] || ''
+      result = handleBattle(tag, author, targetTag)
+    } else if (textLower === '!판매') {
+      result = handleSell(tag, author)
+    } else if (textLower === '!창고') {
+      result = handleInventory(tag, author)
+    } else if (textLower === '!출석') {
+      result = handleDailyMoney(tag, author)
+    } else if (textLower === '!도움말') {
+      result = handleSwordHelp()
+    } else if (textLower === '!저장') {
+      result = await handleSaveData(tag, author)
+    } else if (textLower.startsWith('!로드')) {
+      const targetTag = (parts[1] || '').trim()
+      result = await handleLoadData(tag, author, targetTag)
+    } else if (msg === '!검버전') {
+      const userCount = localUsers.size
+      result = '검키우기 봇: 이식판(1차) ⚔️\n접속 유저: ' + userCount + '명\n강화 쿨타임: ' + (localSettings?.enhance_cooldown || 3) + '초\n배틀 쿨타임: ' + (localSettings?.battle_cooldown || 20) + '초'
+    }
+  } catch (e) {
+    console.log(`[검키우기:${djId}] 처리 중 오류`, e.message)
+    result = '❌ 처리 중 오류가 발생했어요'
+  }
+
+  if (result) {
+    sendChatSplit(djId, result, 150, 300)
+  }
+}
+
 
 // ══════════════════════════════════════════════════════
 // 🤝 팔로우 자동승인 — 시청자가 "!팔로우신청"을 치면 고유 인증번호를 발급하고,
@@ -4851,6 +9392,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
           handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -4904,6 +9446,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
         if (!isLurker) handleStockHeartHook(djId, settings, likeTag, author)
+        if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
@@ -6569,6 +11112,41 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
 
 // ── 🔨 경매 시스템 API ──
 // ── 🎁 랜덤박스 API ──
+// ── ⚔️ 검키우기 설정 API (관리자 sum 계정 아래 공용 설정) ──
+app.get('/swordgame/settings', auth.requireAuth, (req, res) => {
+  ensureSwordSettingsLoaded()
+  res.json({ success: true, settings: localSettings, userCount: localUsers.size })
+})
+app.post('/swordgame/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'swordgame', req.djId)) return res.json({ success: false, error: '검키우기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  ensureSwordSettingsLoaded()
+  const b = req.body || {}
+  const numKeys = ['initial_gold', 'daily_money', 'like_reward', 'spoon_to_gold_rate', 'enhance_cooldown', 'battle_cooldown', 'dungeon_cooldown', 'sell_price_multiplier', 'battle_reward_base']
+  if (b.enabled != null) localSettings.enabled = !!b.enabled
+  numKeys.forEach(k => { if (b[k] != null) localSettings[k] = Number(b[k]) || 0 })
+  if (Array.isArray(b.enhance_success_rates)) {
+    localSettings.enhance_success_rates = b.enhance_success_rates.map(r => ({
+      level: Number(r.level) || 0, cost: Number(r.cost) || 0,
+      success_rate: Number(r.success_rate) || 0, fail_rate: Number(r.fail_rate) || 0,
+      down_rate: Number(r.down_rate) || 0, destroy_rate: Number(r.destroy_rate) || 0,
+    }))
+  }
+  if (Array.isArray(b.weapon_names)) {
+    localSettings.weapon_names = b.weapon_names.map(w => ({ level: Number(w.level) || 0, name: String(w.name || '').slice(0, 30) }))
+  }
+  persistSwordSettings()
+  res.json({ success: true, settings: localSettings })
+})
+app.post('/swordgame/reset-defaults', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'swordgame', req.djId)) return res.json({ success: false, error: '검키우기 메뉴가 꺼져있어요.' })
+  localSettings = null
+  initializeSettings()
+  persistSwordSettings()
+  res.json({ success: true, settings: localSettings })
+})
+
 app.get('/randombox/list', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const rb = getRandomBoxSettings(req.djId, settings)

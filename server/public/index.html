@@ -578,6 +578,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="swordgame"><span class="ic">⚔️</span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -2468,6 +2469,72 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div id="rbListWrap"><p class="hint">불러오는 중...</p></div>
       </div>
 
+      <!-- ⚔️ 검키우기 -->
+      <div class="panel" data-panel="swordgame">
+        <div class="card">
+          <div class="card-title"><span>⚔️ 검키우기</span></div>
+          <p class="hint">강화·던전·배틀·랭킹을 즐기는 검 키우기 RPG예요. 유저 데이터는 기존 Base44 DB를 그대로 사용해요(!저장/!로드로 동기화). 이 설정은 관리자 계정 아래 공용으로 저장되어, 이 모듈을 켠 모든 방송이 같은 설정을 공유해요.</p>
+          <p class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px">⚠️ <b>1차 이식 범위</b>: 강화·던전·배틀·랭킹·프로필·판매·창고·유물·룬·탐험·출석·저장/로드·검온오프. 상점/구매·펫·몬스터박스·방보스·자동배틀·거래소·관리자 지급 명령어는 다음 업데이트에서 추가돼요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="swEnabled" checked> 검키우기 활성화</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>시작 골드</label><input type="number" id="swInitialGold" value="100000"></div>
+            <div><label>출석 보상 골드</label><input type="number" id="swDailyMoney" value="10000"></div>
+            <div><label>좋아요 보상 골드</label><input type="number" id="swLikeReward" value="5000"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>강화 쿨타임 (초)</label><input type="number" id="swEnhanceCooldown" value="3"></div>
+            <div><label>배틀 쿨타임 (초)</label><input type="number" id="swBattleCooldown" value="20"></div>
+            <div><label>던전 쿨타임 (초)</label><input type="number" id="swDungeonCooldown" value="2"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>판매가 배율</label><input type="number" id="swSellMultiplier" value="10"><div class="hint" style="margin-top:4px">!판매 시 강화레벨×이 값만큼 골드 획득</div></div>
+            <div><label>배틀 기본 보상</label><input type="number" id="swBattleRewardBase" value="10"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveSwordSettings()">저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📈 강화 확률표 <span class="hint" id="swRatesCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">레벨(+N)별 비용/성공률/실패율/하락률/파괴율이에요. 한 레벨의 성공+실패+하락+파괴 합이 100이 되게 맞춰주세요.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="swRatesTable" style="min-width:620px">
+            <thead><tr><th>레벨</th><th>비용(골드)</th><th>성공%</th><th>실패%</th><th>하락%</th><th>파괴%</th></tr></thead>
+            <tbody id="swRatesBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="swAddRateRow()">+ 레벨 추가</button>
+          <button class="btn-connect" style="width:100%;margin-top:8px" onclick="saveSwordSettings()">저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🗡️ 무기 이름 <span class="hint" id="swWeaponsCount" style="margin:0 0 0 4px"></span></div>
+          <p class="hint">강화 레벨별로 표시되는 검 이름이에요.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="swWeaponsTable" style="min-width:320px">
+            <thead><tr><th>레벨</th><th>이름</th></tr></thead>
+            <tbody id="swWeaponsBody"></tbody>
+          </table></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="swAddWeaponRow()">+ 레벨 추가</button>
+          <button class="btn-connect" style="width:100%;margin-top:8px" onclick="saveSwordSettings()">저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⌨️ 채팅 명령어 안내</div>
+          <p class="hint">
+          !강화 · !프로필 [고유닉] · !던전 · !배틀 [고유닉] · !검랭킹 · !판매 · !창고<br>
+          !유물 · !룬 · !탐험 · !룬제작 · !룬판매 [룬이름] · !룬강화 [룬이름]<br>
+          !출석 · !도움말 · !저장 · !로드 [고유닉](sum 전용) · !검온 · !검오프(디제이 전용)
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚠️ 기본값 복원</div>
+          <p class="hint">설정을 원본(이식 시점 기준) 기본값으로 되돌려요. 유저 데이터(골드/검 등)는 건드리지 않아요.</p>
+          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetSwordDefaults()">기본값으로 복원</button>
+        </div>
+      </div>
+
       <div class="panel" data-panel="autofollow">
         <div class="card">
           <div class="card-title">🖱️ 팔로잉 신청</div>
@@ -3135,6 +3202,7 @@ const PANEL_META={
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   auction:['🔨 경매','후원(스티커)으로 누적 입찰하는 경매 시스템입니다. 블라인드 옵션 4종을 지원해요'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
+  swordgame:['⚔️ 검키우기','강화·던전·배틀 등을 즐기는 검 키우기 RPG 게임입니다 (1차 이식: 핵심 루프)'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -3236,7 +3304,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3248,7 +3316,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4109,6 +4177,7 @@ async function loadDjSettings(){
       if(document.getElementById('stkStocksBody')) loadStockSettings();
       if(document.getElementById('acActiveList')) loadAuctionList();
       if(document.getElementById('rbListWrap')) loadRandomBoxList();
+      if(document.getElementById('swEnabled')) loadSwordSettings();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -8351,6 +8420,108 @@ async function deleteRandomBox(i){
     showToast('삭제했어요');
     rbList=d.list;
     renderRandomBoxList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── ⚔️ 검키우기 ── */
+let swSettings={};
+
+async function loadSwordSettings(){
+  try{
+    const res=await fetch(SERVER+'/swordgame/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    swSettings=d.settings||{};
+    document.getElementById('swEnabled').checked=swSettings.enabled!==false;
+    document.getElementById('swInitialGold').value=swSettings.initial_gold??100000;
+    document.getElementById('swDailyMoney').value=swSettings.daily_money??10000;
+    document.getElementById('swLikeReward').value=swSettings.like_reward??5000;
+    document.getElementById('swEnhanceCooldown').value=swSettings.enhance_cooldown??3;
+    document.getElementById('swBattleCooldown').value=swSettings.battle_cooldown??20;
+    document.getElementById('swDungeonCooldown').value=swSettings.dungeon_cooldown??2;
+    document.getElementById('swSellMultiplier').value=swSettings.sell_price_multiplier??10;
+    document.getElementById('swBattleRewardBase').value=swSettings.battle_reward_base??10;
+    renderSwRatesTable();
+    renderSwWeaponsTable();
+  }catch(e){}
+}
+
+function renderSwRatesTable(){
+  const body=document.getElementById('swRatesBody');
+  const rates=swSettings.enhance_success_rates||[];
+  document.getElementById('swRatesCount').textContent='('+rates.length+')';
+  if(!rates.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="6">등록된 레벨이 없어요.</td></tr>'; return; }
+  body.innerHTML=rates.map((r,i)=>`
+    <tr>
+      <td><input type="number" value="${r.level}" style="width:60px" oninput="swSettings.enhance_success_rates[${i}].level=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.cost}" oninput="swSettings.enhance_success_rates[${i}].cost=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.success_rate}" style="width:70px" oninput="swSettings.enhance_success_rates[${i}].success_rate=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.fail_rate}" style="width:70px" oninput="swSettings.enhance_success_rates[${i}].fail_rate=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.down_rate}" style="width:70px" oninput="swSettings.enhance_success_rates[${i}].down_rate=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.destroy_rate}" style="width:70px" oninput="swSettings.enhance_success_rates[${i}].destroy_rate=Number(this.value)||0"></td>
+    </tr>`).join('');
+}
+function swAddRateRow(){
+  if(!swSettings.enhance_success_rates) swSettings.enhance_success_rates=[];
+  const rates=swSettings.enhance_success_rates;
+  const nextLevel=rates.length?rates[rates.length-1].level+1:0;
+  rates.push({level:nextLevel,cost:1000,success_rate:50,fail_rate:20,down_rate:15,destroy_rate:15});
+  renderSwRatesTable();
+}
+
+function renderSwWeaponsTable(){
+  const body=document.getElementById('swWeaponsBody');
+  const weapons=swSettings.weapon_names||[];
+  document.getElementById('swWeaponsCount').textContent='('+weapons.length+')';
+  if(!weapons.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="2">등록된 무기 이름이 없어요.</td></tr>'; return; }
+  body.innerHTML=weapons.map((w,i)=>`
+    <tr>
+      <td><input type="number" value="${w.level}" style="width:60px" oninput="swSettings.weapon_names[${i}].level=Number(this.value)||0"></td>
+      <td><input type="text" value="${escapeAttr(w.name)}" oninput="swSettings.weapon_names[${i}].name=this.value"></td>
+    </tr>`).join('');
+}
+function swAddWeaponRow(){
+  if(!swSettings.weapon_names) swSettings.weapon_names=[];
+  const weapons=swSettings.weapon_names;
+  const nextLevel=weapons.length?weapons[weapons.length-1].level+1:0;
+  weapons.push({level:nextLevel,name:'새 검'});
+  renderSwWeaponsTable();
+}
+
+async function saveSwordSettings(){
+  const body={
+    enabled:document.getElementById('swEnabled').checked,
+    initial_gold:Number(document.getElementById('swInitialGold').value)||0,
+    daily_money:Number(document.getElementById('swDailyMoney').value)||0,
+    like_reward:Number(document.getElementById('swLikeReward').value)||0,
+    enhance_cooldown:Number(document.getElementById('swEnhanceCooldown').value)||0,
+    battle_cooldown:Number(document.getElementById('swBattleCooldown').value)||0,
+    dungeon_cooldown:Number(document.getElementById('swDungeonCooldown').value)||0,
+    sell_price_multiplier:Number(document.getElementById('swSellMultiplier').value)||0,
+    battle_reward_base:Number(document.getElementById('swBattleRewardBase').value)||0,
+    enhance_success_rates:swSettings.enhance_success_rates||[],
+    weapon_names:swSettings.weapon_names||[],
+  };
+  try{
+    const res=await fetch(SERVER+'/swordgame/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'저장 실패');
+    showToast('저장 완료 ✓');
+    swSettings=d.settings;
+    renderSwRatesTable();
+    renderSwWeaponsTable();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resetSwordDefaults(){
+  if(!confirm('검키우기 설정을 기본값으로 복원할까요? (유저 데이터는 안 건드려요)'))return;
+  try{
+    const res=await fetch(SERVER+'/swordgame/reset-defaults',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'복원 실패');
+    showToast('기본값으로 복원했어요 ✓');
+    swSettings=d.settings;
+    loadSwordSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
 
