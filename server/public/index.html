@@ -575,6 +575,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="fishtournament"><span class="ic">🐟</span><span class="lbl">팝블리네 낚시대회</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -2026,7 +2027,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">⚙️ 기본 설정</div>
           <p class="hint">게임 전반 동작을 설정합니다.</p>
           <label class="fish-toggle-bar"><input type="checkbox" id="fishEnabled" checked> 게임 활성화</label>
-          <div style="margin-top:14px"><label>🔒 사용비번</label><input type="text" id="fishUsePassword" value="" placeholder="사용비번을 입력하세요"><div class="hint" style="margin-top:4px">정확한 사용비번을 입력하고 저장해야 낚시 게임 채팅 명령어가 동작합니다.</div></div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
             <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"><div class="hint" style="margin-top:4px">낚시 재사용 대기 시간</div></div>
             <div><label>일일 보너스 금액 (원)</label><input type="number" id="fishDailyMoney" value="10000"><div class="hint" style="margin-top:4px">!돈줘 명령어로 받는 금액</div></div>
@@ -2182,6 +2182,111 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">⚠️ 전체 초기화</div>
           <p class="hint">모든 시청자의 잔액/레벨/도감/아이템 데이터를 전부 삭제해요. 되돌릴 수 없어요.</p>
           <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetFishingData()">🗑️ 낚시 게임 데이터 전체 초기화</button>
+        </div>
+      </div>
+
+      <!-- 🐟 팝블리네 낚시대회 (낚시 게임과 완전히 별개의 독립 모듈) -->
+      <div class="panel" data-panel="fishtournament">
+        <div class="card">
+          <div class="card-title"><span>🐟 팝블리네 낚시대회</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFtSettings()">💾 저장</button></div>
+          <p class="hint">미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹. 🔒 사용비번을 정확히 입력·저장해야 채팅 명령어가 동작합니다.</p>
+        </div>
+
+        <div class="tab-bar" id="ftTabBar">
+          <button class="tab-btn active" data-t="basic" onclick="switchFtTab('basic')">⚙️ 기본</button>
+          <button class="tab-btn" data-t="commands" onclick="switchFtTab('commands')">🔤 명령어</button>
+          <button class="tab-btn" data-t="bait" onclick="switchFtTab('bait')">🪱 미끼목록</button>
+          <button class="tab-btn" data-t="roulette" onclick="switchFtTab('roulette')">🎡 룰렛</button>
+          <button class="tab-btn" data-t="keep" onclick="switchFtTab('keep')">📦 어항 이름</button>
+          <button class="tab-btn" data-t="rank" onclick="switchFtTab('rank')">🏆 랭킹</button>
+          <button class="tab-btn" data-t="users" onclick="switchFtTab('users')">👥 유저 관리</button>
+        </div>
+
+        <div class="card" data-ftsec="basic">
+          <div class="card-title">⚙️ 기본 설정</div>
+          <label class="fish-toggle-bar"><input type="checkbox" id="ftEnabled" checked> 게임 활성화</label>
+          <div style="margin-top:14px"><label>🔒 사용비번</label><input type="text" id="ftUsePassword" value="" placeholder="사용비번을 입력하세요"><div class="hint" style="margin-top:4px">정확한 사용비번을 입력하고 저장해야 이 모듈의 채팅 명령어가 동작합니다.</div></div>
+          <div style="margin-top:14px"><label>🏪 상점 제목</label><input type="text" id="ftShopTitle" value="🎣 미끼상점 🎣"></div>
+          <label class="fish-toggle-bar" style="margin-top:14px"><input type="checkbox" id="ftAdminOnly" checked> 미끼지급/룰렛기록을 DJ·매니저만 사용 가능</label>
+          <label class="fish-toggle-bar" style="margin-top:10px"><input type="checkbox" id="ftStaffFree"> DJ 본인은 미끼 없이도 낚시 명령어 체험 가능 (매니저는 제외)</label>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="commands" style="display:none">
+          <div class="card-title">🔤 명령어 이름</div>
+          <p class="hint">모든 명령어의 이름을 자유롭게 바꿀 수 있습니다. !는 붙이지 않고 입력하세요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>🚩 시작(등록) 명령어</label><input type="text" id="ftStartCommand" value="낚시시작"></div>
+            <div><label>🏪 상점 명령어</label><input type="text" id="ftShopCommand" value="미끼상점"></div>
+            <div><label>🎒 내 미끼 보유 명령어</label><input type="text" id="ftVoucherCommand" value="미끼보유"></div>
+            <div><label>🐟 내가 잡은 물고기 보기 명령어</label><input type="text" id="ftMyCatchCommand" value="내물고기"></div>
+            <div><label>🎁 미끼지급 명령어 (관리자)</label><input type="text" id="ftGiveCommand" value="미끼지급"></div>
+            <div><label>👥 등록 유저 목록 명령어 (관리자)</label><input type="text" id="ftListCommand" value="유저목록"></div>
+            <div><label>🗑️ 유저 초기화 명령어 (관리자)</label><input type="text" id="ftResetCommand" value="유저초기화"></div>
+            <div><label>📜 룰렛기록 명령어 (관리자)</label><input type="text" id="ftLogCommand" value="룰렛기록"></div>
+            <div><label>❓ 도움말 명령어</label><input type="text" id="ftHelpCommand" value="낚시도움말2"></div>
+          </div>
+          <div class="hint" style="margin-top:10px">미끼 사용(낚시) 명령어는 "🪱 미끼목록" 탭, 어항 조회 명령어는 "📦 어항 이름" 탭, 랭킹 명령어는 "🏆 랭킹" 탭에서 각각 설정합니다.</div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="bait" style="display:none">
+          <div class="card-title">🪱 미끼 목록</div>
+          <p class="hint">한 줄에 하나씩: 미끼이름,사용명령어(!제외),상점가격표시,룰렛번호(1~10). 예) 새우,새우,10스푼,2</p>
+          <textarea id="ftBaitList" rows="8" style="width:100%;font-family:monospace;font-size:12.5px"></textarea>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="roulette" style="display:none">
+          <div class="card-title">🎡 룰렛 (1~10번)</div>
+          <p class="hint">한 줄에 하나씩: 내용,점수,확률,기록될어항번호(1~10, 생략시 1). 예) 붕어,10,50,1</p>
+          <div class="tab-bar" id="ftRouletteTabBar"></div>
+          <textarea id="ftRouletteBox" rows="8" style="width:100%;font-family:monospace;font-size:12.5px"></textarea>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="keep" style="display:none">
+          <div class="card-title">📦 어항 이름 (1~10번)</div>
+          <p class="hint">!없이 입력 — 조회 명령어이자 화면에 표시되는 이름으로 함께 사용됩니다</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr" id="ftKeepNamesBox"></div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="rank" style="display:none">
+          <div class="card-title">🏆 랭킹 설정</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>🏆 랭킹 명령어</label><input type="text" id="ftRankCommand" value="낚시왕"></div>
+            <div><label>🏆 랭킹 제목</label><input type="text" id="ftRankTitle" value="팝블리네 낚시랭킹"></div>
+            <div><label>🏆 랭킹 표시 인원</label><input type="number" id="ftRankTopN" value="5" min="1" max="20"></div>
+          </div>
+          <div class="fish-tab-footer">
+            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+          </div>
+        </div>
+
+        <div class="card" data-ftsec="users" style="display:none">
+          <div class="card-title">👥 등록 유저 / 랭킹 <button class="btn-gray" style="float:right;padding:4px 10px;font-size:11px" onclick="loadFtUsers()">🔄 새로고침</button></div>
+          <p class="hint">낚시대회에 등록된 유저와 보유 미끼, 어항 누적 점수를 확인합니다.</p>
+          <div style="overflow-x:auto"><table class="user-table" id="ftUsersTable" style="min-width:500px">
+            <thead><tr><th>닉네임</th><th>고유닉</th><th>보유 미끼</th><th>누적 점수</th><th></th></tr></thead>
+            <tbody id="ftUsersBody"></tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚠️ 전체 초기화</div>
+          <p class="hint">모든 시청자의 등록·미끼·어항 데이터를 전부 삭제해요. 되돌릴 수 없어요.</p>
+          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetFtData()">🗑️ 팝블리네 낚시대회 데이터 전체 초기화</button>
         </div>
       </div>
 
@@ -3200,6 +3305,7 @@ const PANEL_META={
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
+  fishtournament:['🐟 팝블리네 낚시대회','미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹을 즐기는 별도의 낚시 이벤트 게임입니다 (사용비번 필요)'],
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   auction:['🔨 경매','후원(스티커)으로 누적 입찰하는 경매 시스템입니다. 블라인드 옵션 4종을 지원해요'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
@@ -3305,7 +3411,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','fishtournament','stock','auction','randombox','swordgame'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3317,7 +3423,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','fishtournament']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4175,6 +4281,7 @@ async function loadDjSettings(){
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
       if(document.getElementById('fishListBody')) loadFishingSettings();
+      if(document.getElementById('ftBaitList')) loadFtSettings();
       if(document.getElementById('stkStocksBody')) loadStockSettings();
       if(document.getElementById('acActiveList')) loadAuctionList();
       if(document.getElementById('rbListWrap')) loadRandomBoxList();
@@ -7693,7 +7800,6 @@ async function loadFishingSettings(){
     if(!d.success)return;
     const c=d.config;
     document.getElementById('fishEnabled').checked=c.enabled!==false;
-    document.getElementById('fishUsePassword').value=c.usePassword||'';
     document.getElementById('fishCooldown').value=c.fishingCooldown??120;
     document.getElementById('fishDailyMoney').value=c.dailyMoney??10000;
     document.getElementById('fishSlotMinBet').value=c.slotMinBet??1000;
@@ -7726,7 +7832,6 @@ async function loadFishingSettings(){
 async function saveFishingSettings(){
   const body={
     enabled:document.getElementById('fishEnabled').checked,
-    usePassword:document.getElementById('fishUsePassword').value,
     fishingCooldown:Number(document.getElementById('fishCooldown').value)||120,
     dailyMoney:Number(document.getElementById('fishDailyMoney').value)||10000,
     slotMinBet:Number(document.getElementById('fishSlotMinBet').value)||1000,
@@ -7780,6 +7885,154 @@ async function resetFishingData(){
     const res=await fetch(SERVER+'/fishing/reset',{method:'POST',headers:authHeaders()});
     const d=await res.json();
     if(d.success){ showToast('초기화했어요'); loadFishingLeaderboard(); }
+    else showToast(d.error||'초기화 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🐟 팝블리네 낚시대회 (낚시 게임과 별개의 독립 모듈) ── */
+const FT_ROULETTE_SLOTS=10, FT_KEEP_SLOTS=10;
+let ftRouletteRows={}; // { idx: text }
+let ftCurRoulette=1;
+for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteRows[i]='';
+
+function switchFtTab(t){
+  document.querySelectorAll('#ftTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('[data-ftsec]').forEach(el=>el.style.display=el.dataset.ftsec===t?'block':'none');
+  if(t==='users')loadFtUsers();
+}
+
+function ftCaptureRouletteBox(){
+  ftRouletteRows[ftCurRoulette]=document.getElementById('ftRouletteBox').value;
+}
+function ftBuildRouletteTabs(){
+  const bar=document.getElementById('ftRouletteTabBar');
+  bar.innerHTML='';
+  for(let i=1;i<=FT_ROULETTE_SLOTS;i++){
+    const btn=document.createElement('button');
+    btn.className='tab-btn'+(i===ftCurRoulette?' active':'');
+    btn.textContent=i+'번';
+    btn.onclick=()=>ftSwitchRoulette(i);
+    bar.appendChild(btn);
+  }
+}
+function ftSwitchRoulette(i){
+  ftCaptureRouletteBox();
+  ftCurRoulette=i;
+  document.getElementById('ftRouletteBox').value=ftRouletteRows[i]||'';
+  ftBuildRouletteTabs();
+}
+
+function ftBuildKeepNamesBox(cfg){
+  const box=document.getElementById('ftKeepNamesBox');
+  box.innerHTML='';
+  for(let i=1;i<=FT_KEEP_SLOTS;i++){
+    const wrap=document.createElement('div');
+    wrap.innerHTML=`<label>📦 어항 ${i}번 이름/명령어</label><input type="text" id="ftKeep${i}Name" value="${escapeHtml(cfg['keep'+i+'Name']||('어항'+i))}">`;
+    box.appendChild(wrap);
+  }
+}
+
+async function loadFtSettings(){
+  try{
+    const res=await fetch(SERVER+'/fishtournament/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const c=d.config;
+    document.getElementById('ftEnabled').checked=c.enabled!==false;
+    document.getElementById('ftUsePassword').value=c.usePassword||'';
+    document.getElementById('ftShopTitle').value=c.shopTitle||'🎣 미끼상점 🎣';
+    document.getElementById('ftAdminOnly').checked=c.giveAdminOnly!==false;
+    document.getElementById('ftStaffFree').checked=c.staffFreeSpin===true;
+    document.getElementById('ftStartCommand').value=c.startCommand||'낚시시작';
+    document.getElementById('ftShopCommand').value=c.shopCommand||'미끼상점';
+    document.getElementById('ftVoucherCommand').value=c.voucherCommand||'미끼보유';
+    document.getElementById('ftMyCatchCommand').value=c.myCatchCommand||'내물고기';
+    document.getElementById('ftGiveCommand').value=c.giveCommand||'미끼지급';
+    document.getElementById('ftListCommand').value=c.listCommand||'유저목록';
+    document.getElementById('ftResetCommand').value=c.resetCommand||'유저초기화';
+    document.getElementById('ftLogCommand').value=c.logCommand||'룰렛기록';
+    document.getElementById('ftHelpCommand').value=c.helpCommand||'낚시도움말2';
+    document.getElementById('ftBaitList').value=c.baitList||'';
+    document.getElementById('ftRankCommand').value=c.rankCommand||'낚시왕';
+    document.getElementById('ftRankTitle').value=c.rankTitle||'팝블리네 낚시랭킹';
+    document.getElementById('ftRankTopN').value=c.rankTopN||5;
+    for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteRows[i]=c['roulette'+i]||'';
+    ftCurRoulette=1;
+    ftBuildRouletteTabs();
+    document.getElementById('ftRouletteBox').value=ftRouletteRows[1]||'';
+    ftBuildKeepNamesBox(c);
+  }catch(e){}
+}
+
+async function saveFtSettings(){
+  ftCaptureRouletteBox();
+  const keepNames={};
+  for(let i=1;i<=FT_KEEP_SLOTS;i++){ const el=document.getElementById('ftKeep'+i+'Name'); if(el) keepNames['keep'+i+'Name']=el.value; }
+  const body={
+    enabled:document.getElementById('ftEnabled').checked,
+    usePassword:document.getElementById('ftUsePassword').value,
+    shopTitle:document.getElementById('ftShopTitle').value,
+    giveAdminOnly:document.getElementById('ftAdminOnly').checked,
+    staffFreeSpin:document.getElementById('ftStaffFree').checked,
+    startCommand:document.getElementById('ftStartCommand').value,
+    shopCommand:document.getElementById('ftShopCommand').value,
+    voucherCommand:document.getElementById('ftVoucherCommand').value,
+    myCatchCommand:document.getElementById('ftMyCatchCommand').value,
+    giveCommand:document.getElementById('ftGiveCommand').value,
+    listCommand:document.getElementById('ftListCommand').value,
+    resetCommand:document.getElementById('ftResetCommand').value,
+    logCommand:document.getElementById('ftLogCommand').value,
+    helpCommand:document.getElementById('ftHelpCommand').value,
+    baitList:document.getElementById('ftBaitList').value,
+    rankCommand:document.getElementById('ftRankCommand').value,
+    rankTitle:document.getElementById('ftRankTitle').value,
+    rankTopN:Number(document.getElementById('ftRankTopN').value)||5,
+    ...keepNames,
+  };
+  for(let i=1;i<=FT_ROULETTE_SLOTS;i++) body['roulette'+i]=ftRouletteRows[i]||'';
+  try{
+    const res=await fetch(SERVER+'/fishtournament/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('설정 저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadFtUsers(){
+  const body=document.getElementById('ftUsersBody');
+  if(!body)return;
+  body.innerHTML='<tr><td colspan="5" class="hint">불러오는 중...</td></tr>';
+  try{
+    const res=await fetch(SERVER+'/fishtournament/leaderboard',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.users.length){ body.innerHTML='<tr><td colspan="5" class="hint">등록된 유저가 없습니다.</td></tr>'; return; }
+    body.innerHTML=d.users.map(u=>`<tr>
+      <td>${escapeHtml(u.nickname||u.tag)}</td>
+      <td>@${escapeHtml(u.tag)}</td>
+      <td>${u.vouchers||0}개</td>
+      <td>${u.total||0}점</td>
+      <td><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="ftResetUserOne('${u.tag}')">초기화</button></td>
+    </tr>`).join('');
+  }catch(e){ body.innerHTML='<tr><td colspan="5" class="hint">오류: '+e.message+'</td></tr>'; }
+}
+
+async function ftResetUserOne(tag){
+  if(!confirm(`@${tag} 님의 미끼/어항 데이터를 초기화할까요?`))return;
+  try{
+    const res=await fetch(SERVER+'/fishtournament/reset',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
+    const d=await res.json();
+    if(d.success){ showToast('초기화했어요'); loadFtUsers(); }
+    else showToast(d.error||'초기화 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resetFtData(){
+  if(!confirm('정말로 팝블리네 낚시대회의 모든 시청자 데이터를 초기화할까요? 되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 진짜로 전부 삭제하시겠어요?'))return;
+  try{
+    const res=await fetch(SERVER+'/fishtournament/reset',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})});
+    const d=await res.json();
+    if(d.success){ showToast('초기화했어요'); loadFtUsers(); }
     else showToast(d.error||'초기화 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
