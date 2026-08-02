@@ -2124,12 +2124,15 @@ const FISHING_DEFAULT_FISH_LIST = '붕어,800,1200,30,5,common\n잉어,1500,2500
 const FISHING_DEFAULT_SHOP = '미끼,500\n특수미끼,2000\n낚싯대,10000\n고급낚싯대,50000'
 const FISHING_DEFAULT_ITEMSHOP = '물고기확률업,5000,fish_chance,30,30,0,money\n수익증가,8000,fishing_income,50,30,0,money\n주사위확률,3000,dice_chance,30,0,5,money\n주사위두배,10000,dice_double,0,0,3,money\n홀짝확률,2000,oddeven_chance,40,0,5,money'
 const FISHING_DEFAULT_COLLECTIONS = '강물고기:붕어,잉어,메기,농어\n바다물고기:참치,상어,고래'
+// 🔒 이 게임은 설정에 정확한 사용비번을 저장해야만 채팅 명령어가 동작한다.
+const FISHING_MODULE_PASSWORD = 'pop324'
 
 function getFishingSettings(djId, settings) {
   if (!settings.fishing) {
     settings.fishing = {
       config: {
         enabled: true,
+        usePassword: '',
         fishingCooldown: 120,
         dailyMoney: 10000,
         slotMinBet: 1000,
@@ -2757,6 +2760,17 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
 
   const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
   if (!FISH_CMDS.includes(cmd)) return
+
+  // 🔒 사용비번 확인 — 설정에 정확한 사용비번이 저장되어 있지 않으면 어떤 명령어도 동작하지 않는다.
+  const fishing = getFishingSettings(djId, settings)
+  if (String(fishing.config.usePassword || '') !== FISHING_MODULE_PASSWORD) {
+    if (cmd === '!낚시도움말' || cmd === '!낚시명령어') {
+      if (_fishIsDj(djId, room, settings, authorId, author)) {
+        fishReply(djId, '🔒 낚시 게임을 사용하려면 사용비번을 먼저 입력해야 합니다. ⚙️ 설정 > 낚시 게임 > 기본 화면에서 사용비번을 입력하고 저장해주세요.')
+      }
+    }
+    return
+  }
 
   const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
@@ -11341,7 +11355,7 @@ app.post('/fishing/settings', auth.requireAuth, (req, res) => {
   const fishing = getFishingSettings(req.djId, settings)
   const body = req.body || {}
   const numKeys = ['fishingCooldown', 'dailyMoney', 'slotMinBet', 'diceWinExp', 'diceLoseExp', 'creditTier1Points', 'creditTier1Loan', 'creditTier2Points', 'creditTier2Loan', 'creditTier3Points', 'creditTier3Loan', 'theftBaseRate', 'theftLevelBonus', 'theftMaxRate']
-  const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags']
+  const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags', 'usePassword']
   if (body.enabled != null) fishing.config.enabled = !!body.enabled
   numKeys.forEach(k => { if (body[k] != null) fishing.config[k] = Number(body[k]) || 0 })
   textKeys.forEach(k => { if (body[k] != null) fishing.config[k] = String(body[k]).slice(0, 20000) })

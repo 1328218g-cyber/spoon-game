@@ -2026,6 +2026,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">⚙️ 기본 설정</div>
           <p class="hint">게임 전반 동작을 설정합니다.</p>
           <label class="fish-toggle-bar"><input type="checkbox" id="fishEnabled" checked> 게임 활성화</label>
+          <div style="margin-top:14px"><label>🔒 사용비번</label><input type="text" id="fishUsePassword" value="" placeholder="사용비번을 입력하세요"><div class="hint" style="margin-top:4px">정확한 사용비번을 입력하고 저장해야 낚시 게임 채팅 명령어가 동작합니다.</div></div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
             <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"><div class="hint" style="margin-top:4px">낚시 재사용 대기 시간</div></div>
             <div><label>일일 보너스 금액 (원)</label><input type="number" id="fishDailyMoney" value="10000"><div class="hint" style="margin-top:4px">!돈줘 명령어로 받는 금액</div></div>
@@ -7692,6 +7693,7 @@ async function loadFishingSettings(){
     if(!d.success)return;
     const c=d.config;
     document.getElementById('fishEnabled').checked=c.enabled!==false;
+    document.getElementById('fishUsePassword').value=c.usePassword||'';
     document.getElementById('fishCooldown').value=c.fishingCooldown??120;
     document.getElementById('fishDailyMoney').value=c.dailyMoney??10000;
     document.getElementById('fishSlotMinBet').value=c.slotMinBet??1000;
@@ -7724,6 +7726,7 @@ async function loadFishingSettings(){
 async function saveFishingSettings(){
   const body={
     enabled:document.getElementById('fishEnabled').checked,
+    usePassword:document.getElementById('fishUsePassword').value,
     fishingCooldown:Number(document.getElementById('fishCooldown').value)||120,
     dailyMoney:Number(document.getElementById('fishDailyMoney').value)||10000,
     slotMinBet:Number(document.getElementById('fishSlotMinBet').value)||1000,
