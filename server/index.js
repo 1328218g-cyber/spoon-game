@@ -2807,7 +2807,6 @@ function getFishTournamentSettings(djId, settings) {
     settings.fishtournament = {
       config: {
         enabled: true,
-        usePassword: '',
         shopTitle: '🎣 미끼상점 🎣',
         startCommand: '낚시시작',
         shopCommand: '미끼상점',
@@ -2817,12 +2816,13 @@ function getFishTournamentSettings(djId, settings) {
         listCommand: '유저목록',
         resetCommand: '유저초기화',
         logCommand: '룰렛기록',
-        helpCommand: '낚시도움말2',
-        baitList:
-          '갯지렁이,갯지렁이,무료하트10,1\n' +
-          '새우,새우,10스푼,2\n' +
-          '마시기1,마시기1,50스푼,3\n' +
-          '마시기2,마시기2,100스푼,4',
+        helpCommand: '낚시도움말',
+        baits: [
+          { name: '갯지렁이', cmd: '갯지렁이', priceLabel: '무료하트10', rouletteIdx: 1 },
+          { name: '새우', cmd: '새우', priceLabel: '10스푼', rouletteIdx: 2 },
+          { name: '마시기1', cmd: '마시기1', priceLabel: '50스푼', rouletteIdx: 3 },
+          { name: '마시기2', cmd: '마시기2', priceLabel: '100스푼', rouletteIdx: 4 },
+        ],
         rankCommand: '낚시왕',
         rankTitle: '팝블리네 낚시랭킹',
         rankTopN: 5,
@@ -2832,7 +2832,7 @@ function getFishTournamentSettings(djId, settings) {
       users: {}, // { tag: { tag, nickname, vouchers:{}, tanks:{}, registeredAt } }
       logs: {},  // { [rouletteIdx]: [{tag,nickname,content,score,keepIdx,at}, ...] }
     }
-    for (let i = 1; i <= FT_ROULETTE_SLOTS; i++) settings.fishtournament.config['roulette' + i] = ''
+    for (let i = 1; i <= FT_ROULETTE_SLOTS; i++) settings.fishtournament.config['roulette' + i] = []
     for (let i = 1; i <= FT_KEEP_SLOTS; i++) settings.fishtournament.config['keep' + i + 'Name'] = '어항' + i
     store.saveSettings(djId, { fishtournament: settings.fishtournament })
   }
@@ -2842,8 +2842,9 @@ function getFishTournamentSettings(djId, settings) {
   return settings.fishtournament
 }
 
+// 🔓 사용비번 게이트는 관리자 설정 화면에서 제거되어, 이제 모듈 활성화(enabled) 여부만으로 동작한다.
 function ftIsUnlocked(ft) {
-  return String((ft.config && ft.config.usePassword) || '') === FISHTOURNAMENT_MODULE_PASSWORD
+  return true
 }
 
 function saveFishTournament(djId, ft) {
@@ -2875,7 +2876,16 @@ function _ftParseRouletteTable(text) {
     return { content: p[0], score, chance, keepIdx }
   }).filter(Boolean)
 }
-function _ftGetBaitList(cfg) { return _ftParseBaitList(cfg.baitList) }
+// baits는 새 버전부터 배열(cfg.baits)로 저장된다. 과거 텍스트(cfg.baitList) 데이터가 남아있으면 그걸로 폴백한다.
+function _ftGetBaitList(cfg) {
+  if (Array.isArray(cfg.baits)) {
+    return cfg.baits.map(b => {
+      const idx = Math.min(FT_ROULETTE_SLOTS, Math.max(1, parseInt(b.rouletteIdx, 10) || 1))
+      return { name: String(b.name || '').trim(), cmd: String(b.cmd || '').trim(), priceLabel: String(b.priceLabel || ''), rouletteIdx: idx }
+    }).filter(b => b.name && b.cmd)
+  }
+  return _ftParseBaitList(cfg.baitList)
+}
 function _ftFindBaitByCmd(baits, cmdRaw) {
   const c = String(cmdRaw || '').toLowerCase()
   return baits.find(b => b.cmd.toLowerCase() === c) || null
@@ -2884,7 +2894,17 @@ function _ftFindBaitByName(baits, nameRaw) {
   const n = String(nameRaw || '').trim()
   return baits.find(b => b.name === n) || baits.find(b => b.name.toLowerCase() === n.toLowerCase()) || null
 }
-function _ftGetRouletteTable(cfg, idx) { return _ftParseRouletteTable(cfg['roulette' + idx]) }
+// 룰렛 항목도 새 버전부터 배열로 저장된다. 과거 텍스트 데이터가 남아있으면 그걸로 폴백한다.
+function _ftGetRouletteTable(cfg, idx) {
+  const val = cfg['roulette' + idx]
+  if (Array.isArray(val)) {
+    return val.map(r => {
+      const keepIdx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1))
+      return { content: String(r.content || '').trim(), score: parseInt(r.score, 10) || 0, chance: parseFloat(r.chance) || 0, keepIdx }
+    }).filter(r => r.content && r.chance > 0)
+  }
+  return _ftParseRouletteTable(val)
+}
 function _ftSpinRoulette(table) {
   if (!table.length) return null
   const total = table.reduce((s, f) => s + f.chance, 0)
@@ -3179,7 +3199,7 @@ async function handleFishTournamentCommand(djId, room, settings, author, authorI
   const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
 
   // 🔒 사용비번 확인 — 설정에 정확한 사용비번이 저장되어 있지 않으면 어떤 명령어도 동작하지 않는다.
-  const helpCmd = ft.config.helpCommand || '낚시도움말2'
+  const helpCmd = ft.config.helpCommand || '낚시도움말'
   if (!ftIsUnlocked(ft)) {
     if (('!' + helpCmd).toLowerCase() === cmdLower && (isDj || isManager)) {
       ftReply(djId, '🔒 [팝블리네 낚시대회] 아직 사용비번이 입력되지 않았습니다. ⚙️ 설정 > 팝블리네 낚시대회 > 기본 화면에서 사용비번을 입력하고 저장해주세요.')
@@ -3199,7 +3219,7 @@ async function handleFishTournamentCommand(djId, room, settings, author, authorI
     { cfgKey: 'resetCommand', def: '유저초기화', fn: () => ftCmdResetUser(djId, ft, isDj, isManager, parts) },
     { cfgKey: 'listCommand', def: '유저목록', fn: () => ftCmdUserList(djId, ft, isDj, isManager) },
     { cfgKey: 'logCommand', def: '룰렛기록', fn: () => ftCmdRouletteLog(djId, ft, isDj, isManager, parts) },
-    { cfgKey: 'helpCommand', def: '낚시도움말2', fn: () => ftCmdHelp(djId, ft) },
+    { cfgKey: 'helpCommand', def: '낚시도움말', fn: () => ftCmdHelp(djId, ft) },
   ]
   for (const c of namedCmds) {
     const name = ft.config[c.cfgKey] || c.def
@@ -11808,14 +11828,32 @@ app.post('/fishtournament/settings', auth.requireAuth, (req, res) => {
   if (!isModuleOn(settings, 'fishtournament', req.djId)) return res.json({ success: false, error: '팝블리네 낚시대회 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ft = getFishTournamentSettings(req.djId, settings)
   const body = req.body || {}
-  const textKeys = ['usePassword', 'shopTitle', 'startCommand', 'shopCommand', 'voucherCommand', 'myCatchCommand', 'giveCommand', 'listCommand', 'resetCommand', 'logCommand', 'helpCommand', 'baitList', 'rankCommand', 'rankTitle']
-  for (let i = 1; i <= FT_ROULETTE_SLOTS; i++) textKeys.push('roulette' + i)
+  const textKeys = ['shopTitle', 'startCommand', 'shopCommand', 'voucherCommand', 'myCatchCommand', 'giveCommand', 'listCommand', 'resetCommand', 'logCommand', 'helpCommand', 'rankCommand', 'rankTitle']
   for (let i = 1; i <= FT_KEEP_SLOTS; i++) textKeys.push('keep' + i + 'Name')
   if (body.enabled != null) ft.config.enabled = !!body.enabled
   if (body.giveAdminOnly != null) ft.config.giveAdminOnly = !!body.giveAdminOnly
   if (body.staffFreeSpin != null) ft.config.staffFreeSpin = !!body.staffFreeSpin
   if (body.rankTopN != null) ft.config.rankTopN = Number(body.rankTopN) || 5
   textKeys.forEach(k => { if (body[k] != null) ft.config[k] = String(body[k]).slice(0, 20000) })
+  if (Array.isArray(body.baits)) {
+    ft.config.baits = body.baits.slice(0, 200).map(b => ({
+      name: String(b.name || '').slice(0, 60),
+      cmd: String(b.cmd || '').slice(0, 60),
+      priceLabel: String(b.priceLabel || '').slice(0, 60),
+      rouletteIdx: Math.min(FT_ROULETTE_SLOTS, Math.max(1, parseInt(b.rouletteIdx, 10) || 1)),
+    })).filter(b => b.name && b.cmd)
+  }
+  for (let i = 1; i <= FT_ROULETTE_SLOTS; i++) {
+    const key = 'roulette' + i
+    if (Array.isArray(body[key])) {
+      ft.config[key] = body[key].slice(0, 200).map(r => ({
+        content: String(r.content || '').slice(0, 60),
+        score: parseInt(r.score, 10) || 0,
+        chance: parseFloat(r.chance) || 0,
+        keepIdx: Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1)),
+      })).filter(r => r.content)
+    }
+  }
   saveFishTournament(req.djId, ft)
   res.json({ success: true })
 })
@@ -11829,10 +11867,23 @@ app.get('/fishtournament/leaderboard', auth.requireAuth, (req, res) => {
   })).sort((a, b) => b.total - a.total).slice(0, 20)
   res.json({ success: true, users: list })
 })
+// 닉네임/고유닉으로 검색 가능한 등록 유저 목록. 유저 관리/유저 어항 탭에서 사용.
 app.get('/fishtournament/users', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
-  res.json({ success: true, users: Object.values(ft.users) })
+  const q = String(req.query.q || '').trim().toLowerCase()
+  let list = Object.values(ft.users)
+  if (q) list = list.filter(u => String(u.nickname || '').toLowerCase().includes(q) || String(u.tag || '').toLowerCase().includes(q))
+  list = list.map(u => ({
+    tag: u.tag,
+    nickname: u.nickname,
+    vouchers: u.vouchers || {},
+    voucherTotal: Object.values(u.vouchers || {}).reduce((s, n) => s + (n || 0), 0),
+    tanks: u.tanks || {},
+    total: Object.values(u.tanks || {}).reduce((s, t) => s + (t.total || 0), 0),
+    registeredAt: u.registeredAt,
+  })).sort((a, b) => String(a.nickname || '').localeCompare(String(b.nickname || '')))
+  res.json({ success: true, users: list, count: list.length })
 })
 app.post('/fishtournament/give', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -11860,6 +11911,41 @@ app.post('/fishtournament/reset', auth.requireAuth, (req, res) => {
   }
   saveFishTournament(req.djId, ft)
   res.json({ success: true })
+})
+// 👤 유저 어항: DJ가 특정 유저의 어항 기록을 수동으로 추가/삭제 (룰렛 결과 보정용)
+app.post('/fishtournament/tank/add', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag, nickname, keepIdx, content, score, qty } = req.body || {}
+  const name = String(content || '').trim()
+  if (!tag || !name) return res.json({ success: false, error: '대상과 물고기 이름이 필요합니다.' })
+  const idx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(keepIdx, 10) || 1))
+  const cnt = Math.max(1, parseInt(qty, 10) || 1)
+  const sc = parseInt(score, 10) || 0
+  const user = getFtUser(ft, String(tag).replace(/^@/, ''), nickname)
+  const tank = _ftEnsureTank(user, idx)
+  if (!tank.items[name]) tank.items[name] = { score: sc, qty: 0 }
+  tank.items[name].score = sc
+  tank.items[name].qty += cnt
+  tank.total = Object.values(tank.items).reduce((s, it) => s + (it.score || 0) * (it.qty || 0), 0)
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true, tank })
+})
+app.post('/fishtournament/tank/remove', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag, keepIdx, content, qty } = req.body || {}
+  const name = String(content || '').trim()
+  const idx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(keepIdx, 10) || 1))
+  const user = ft.users[String(tag || '').replace(/^@/, '')]
+  const tank = user && user.tanks[String(idx)]
+  if (!tank || !tank.items[name]) return res.json({ success: false, error: '해당 항목을 찾을 수 없습니다.' })
+  const removeCnt = qty == null ? tank.items[name].qty : Math.max(1, parseInt(qty, 10) || 1)
+  tank.items[name].qty -= removeCnt
+  if (tank.items[name].qty <= 0) delete tank.items[name]
+  tank.total = Object.values(tank.items).reduce((s, it) => s + (it.score || 0) * (it.qty || 0), 0)
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true, tank })
 })
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {

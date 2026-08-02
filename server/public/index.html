@@ -316,6 +316,46 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 #fishListTable td,#fishEventTable td,#fishShopTable td,#fishItemTable td,#fishColTable td{padding:6px}
 .fish-empty-row td{color:var(--muted);text-align:center;padding:18px 10px;font-size:12.5px}
 
+/* ── 🐟 팝블리네 낚시대회: 사이드바형 서브 네비게이션 ── */
+.ft-shell{display:flex;align-items:flex-start;gap:18px}
+.ft-side{width:180px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px;position:sticky;top:0}
+.ft-side-head{display:flex;align-items:center;gap:8px;padding:10px 10px 12px;font-size:13.5px;font-weight:700;color:var(--text);border-bottom:1px solid var(--border);margin-bottom:6px}
+.ft-side-item{display:flex;align-items:center;gap:9px;padding:10px 10px;border-radius:9px;cursor:pointer;color:var(--muted);font-size:13px;font-weight:600;margin-bottom:2px;user-select:none;transition:background .12s,color .12s}
+.ft-side-item:hover{background:var(--surface2);color:var(--text)}
+.ft-side-item.active{background:var(--surface2);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.ft-side-item .ic{width:16px;text-align:center;flex-shrink:0;font-size:13px}
+.ft-content{flex:1;min-width:0}
+@media (max-width:760px){
+  .ft-shell{flex-direction:column}
+  .ft-side{width:100%;position:static;display:flex;overflow-x:auto;gap:2px;padding:6px}
+  .ft-side-head{display:none}
+  .ft-side-item{white-space:nowrap;margin-bottom:0}
+}
+.ft-field-hint{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+.ft-row-toggle{display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;color:var(--text);width:100%;box-sizing:border-box;margin-top:14px}
+.ft-row-toggle .switch{flex-shrink:0}
+.ft-keep-item{display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.ft-keep-num{width:24px;height:24px;border-radius:50%;background:var(--success);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex-shrink:0}
+.ft-keep-item input{margin:0}
+.ft-num-tab-bar{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.ft-num-tab{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:20px;font-size:13px;font-weight:700;cursor:pointer}
+.ft-num-tab.active{background:var(--success);color:#fff;border-color:transparent}
+.ft-search-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.ft-search-row input{flex:1;min-width:200px;margin:0}
+.ft-search-row button{white-space:nowrap}
+.ft-info-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--muted);line-height:1.6;margin-top:14px}
+.ft-user-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px}
+.ft-user-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer}
+.ft-user-name{font-weight:700;font-size:13.5px}
+.ft-user-tag{font-size:11.5px;color:var(--muted);margin-left:6px}
+.ft-user-meta{font-size:12px;color:var(--muted)}
+.ft-user-give{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center}
+.ft-user-give.open{display:flex}
+.ft-user-give select,.ft-user-give input{width:auto;min-width:110px;margin:0;padding:8px 10px;font-size:12.5px}
+.ft-tank-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
+.ft-tank-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--border)}
+.ft-tank-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+
 /* ── 유저 관리 ── */
 .user-table{width:100%;min-width:960px;border-collapse:collapse;font-size:13px}
 .user-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border)}
@@ -2187,106 +2227,128 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 🐟 팝블리네 낚시대회 (낚시 게임과 완전히 별개의 독립 모듈) -->
       <div class="panel" data-panel="fishtournament">
-        <div class="card">
-          <div class="card-title"><span>🐟 팝블리네 낚시대회</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFtSettings()">💾 저장</button></div>
-          <p class="hint">미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹. 🔒 사용비번을 정확히 입력·저장해야 채팅 명령어가 동작합니다.</p>
-        </div>
-
-        <div class="tab-bar" id="ftTabBar">
-          <button class="tab-btn active" data-t="basic" onclick="switchFtTab('basic')">⚙️ 기본</button>
-          <button class="tab-btn" data-t="commands" onclick="switchFtTab('commands')">🔤 명령어</button>
-          <button class="tab-btn" data-t="bait" onclick="switchFtTab('bait')">🪱 미끼목록</button>
-          <button class="tab-btn" data-t="roulette" onclick="switchFtTab('roulette')">🎡 룰렛</button>
-          <button class="tab-btn" data-t="keep" onclick="switchFtTab('keep')">📦 어항 이름</button>
-          <button class="tab-btn" data-t="rank" onclick="switchFtTab('rank')">🏆 랭킹</button>
-          <button class="tab-btn" data-t="users" onclick="switchFtTab('users')">👥 유저 관리</button>
-        </div>
-
-        <div class="card" data-ftsec="basic">
-          <div class="card-title">⚙️ 기본 설정</div>
-          <label class="fish-toggle-bar"><input type="checkbox" id="ftEnabled" checked> 게임 활성화</label>
-          <div style="margin-top:14px"><label>🔒 사용비번</label><input type="text" id="ftUsePassword" value="" placeholder="사용비번을 입력하세요"><div class="hint" style="margin-top:4px">정확한 사용비번을 입력하고 저장해야 이 모듈의 채팅 명령어가 동작합니다.</div></div>
-          <div style="margin-top:14px"><label>🏪 상점 제목</label><input type="text" id="ftShopTitle" value="🎣 미끼상점 🎣"></div>
-          <label class="fish-toggle-bar" style="margin-top:14px"><input type="checkbox" id="ftAdminOnly" checked> 미끼지급/룰렛기록을 DJ·매니저만 사용 가능</label>
-          <label class="fish-toggle-bar" style="margin-top:10px"><input type="checkbox" id="ftStaffFree"> DJ 본인은 미끼 없이도 낚시 명령어 체험 가능 (매니저는 제외)</label>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+        <div class="ft-shell">
+          <div class="ft-side" id="ftSideNav">
+            <div class="ft-side-head"><span>🚩</span><span>낚시대회 설정</span></div>
+            <div class="ft-side-item active" data-t="basic" onclick="switchFtTab('basic')"><span class="ic">⚙️</span><span>기본</span></div>
+            <div class="ft-side-item" data-t="commands" onclick="switchFtTab('commands')"><span class="ic">⌨️</span><span>명령어</span></div>
+            <div class="ft-side-item" data-t="bait" onclick="switchFtTab('bait')"><span class="ic">🪱</span><span>미끼목록</span></div>
+            <div class="ft-side-item" data-t="roulette" onclick="switchFtTab('roulette')"><span class="ic">🎡</span><span>룰렛</span></div>
+            <div class="ft-side-item" data-t="keep" onclick="switchFtTab('keep')"><span class="ic">📦</span><span>어항 이름</span></div>
+            <div class="ft-side-item" data-t="rank" onclick="switchFtTab('rank')"><span class="ic">🏆</span><span>랭킹</span></div>
+            <div class="ft-side-item" data-t="users" onclick="switchFtTab('users')"><span class="ic">👤</span><span>유저 관리</span></div>
+            <div class="ft-side-item" data-t="usertanks" onclick="switchFtTab('usertanks')"><span class="ic">🐠</span><span>유저 어항</span></div>
           </div>
-        </div>
 
-        <div class="card" data-ftsec="commands" style="display:none">
-          <div class="card-title">🔤 명령어 이름</div>
-          <p class="hint">모든 명령어의 이름을 자유롭게 바꿀 수 있습니다. !는 붙이지 않고 입력하세요.</p>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>🚩 시작(등록) 명령어</label><input type="text" id="ftStartCommand" value="낚시시작"></div>
-            <div><label>🏪 상점 명령어</label><input type="text" id="ftShopCommand" value="미끼상점"></div>
-            <div><label>🎒 내 미끼 보유 명령어</label><input type="text" id="ftVoucherCommand" value="미끼보유"></div>
-            <div><label>🐟 내가 잡은 물고기 보기 명령어</label><input type="text" id="ftMyCatchCommand" value="내물고기"></div>
-            <div><label>🎁 미끼지급 명령어 (관리자)</label><input type="text" id="ftGiveCommand" value="미끼지급"></div>
-            <div><label>👥 등록 유저 목록 명령어 (관리자)</label><input type="text" id="ftListCommand" value="유저목록"></div>
-            <div><label>🗑️ 유저 초기화 명령어 (관리자)</label><input type="text" id="ftResetCommand" value="유저초기화"></div>
-            <div><label>📜 룰렛기록 명령어 (관리자)</label><input type="text" id="ftLogCommand" value="룰렛기록"></div>
-            <div><label>❓ 도움말 명령어</label><input type="text" id="ftHelpCommand" value="낚시도움말2"></div>
-          </div>
-          <div class="hint" style="margin-top:10px">미끼 사용(낚시) 명령어는 "🪱 미끼목록" 탭, 어항 조회 명령어는 "📦 어항 이름" 탭, 랭킹 명령어는 "🏆 랭킹" 탭에서 각각 설정합니다.</div>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
-          </div>
-        </div>
+          <div class="ft-content">
+            <div class="card" data-ftsec="basic">
+              <div class="card-title"><span>기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveFtSettings()">💾 저장</button></div>
+              <p class="hint">게임 전반 동작과 상점 문구를 설정합니다.</p>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="ftEnabled" checked><span class="slider"></span></label><span>게임 활성화</span></div>
+              <div style="margin-top:16px"><label>🏪 상점 제목</label><input type="text" id="ftShopTitle" value="🎣 미끼상점 🎣"></div>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="ftAdminOnly" checked><span class="slider"></span></label><span>미끼지급 / 룰렛기록을 DJ·매니저만 사용 가능</span></div>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="ftStaffFree"><span class="slider"></span></label><span>DJ 본인은 미끼 없이도 낚시 명령어 체험 가능 (기본 꺼짐, 매니저는 제외)</span></div>
+              <div class="ft-field-hint">켜면 DJ 본인만 미끼 0개여도 낚시 명령어가 소모 없이 동작합니다 (테스트용). 매니저는 이 설정과 무관하게 항상 미끼가 있어야 낚시할 수 있습니다.</div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card" data-ftsec="bait" style="display:none">
-          <div class="card-title">🪱 미끼 목록</div>
-          <p class="hint">한 줄에 하나씩: 미끼이름,사용명령어(!제외),상점가격표시,룰렛번호(1~10). 예) 새우,새우,10스푼,2</p>
-          <textarea id="ftBaitList" rows="8" style="width:100%;font-family:monospace;font-size:12.5px"></textarea>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
-          </div>
-        </div>
+            <div class="card" data-ftsec="commands" style="display:none">
+              <div class="card-title">명령어 이름</div>
+              <p class="hint">모든 명령어의 이름을 자유롭게 바꿀 수 있습니다. !는 붙이지 않고 입력하세요.</p>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr">
+                <div><label>🚩 시작(등록) 명령어</label><input type="text" id="ftStartCommand" value="낚시시작"><div class="ft-field-hint">시청자가 이 명령어로 낚시대회 참가자로 등록됩니다</div></div>
+                <div><label>🏪 상점 명령어</label><input type="text" id="ftShopCommand" value="미끼상점"><div class="ft-field-hint">미끼 목록/가격을 보여주는 명령어</div></div>
+                <div><label>🎒 내 미끼 보유 명령어</label><input type="text" id="ftVoucherCommand" value="미끼보유"><div class="ft-field-hint">내가 가진 미끼 개수를 보여주는 명령어</div></div>
+                <div><label>🐟 내가 잡은 물고기 보기 명령어</label><input type="text" id="ftMyCatchCommand" value="내물고기"><div class="ft-field-hint">모든 어항에 걸쳐 내가 잡은 물고기를 합산해서 보여주는 명령어</div></div>
+                <div><label>🎁 미끼지급 명령어 (관리자)</label><input type="text" id="ftGiveCommand" value="미끼지급"><div class="ft-field-hint">DJ/매니저가 시청자에게 미끼를 지급하는 명령어</div></div>
+                <div><label>👥 등록 유저 목록 명령어 (관리자)</label><input type="text" id="ftListCommand" value="유저목록"><div class="ft-field-hint">등록된 유저와 보유 미끼 현황을 채팅으로 보여주는 명령어</div></div>
+                <div><label>📜 룰렛기록 명령어 (관리자)</label><input type="text" id="ftLogCommand" value="룰렛기록"><div class="ft-field-hint">룰렛별 최근 당첨 기록을 보는 명령어</div></div>
+                <div><label>❓ 도움말 명령어</label><input type="text" id="ftHelpCommand" value="낚시도움말"><div class="ft-field-hint">전체 명령어 목록을 안내하는 명령어</div></div>
+              </div>
+              <div class="hint" style="margin-top:10px">미끼 사용(낚시) 명령어는 "🪱 미끼목록" 탭에서, 어항 조회 명령어는 "📦 어항 이름" 탭에서, 랭킹 명령어는 "🏆 랭킹" 탭에서 각각 설정합니다.</div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card" data-ftsec="roulette" style="display:none">
-          <div class="card-title">🎡 룰렛 (1~10번)</div>
-          <p class="hint">한 줄에 하나씩: 내용,점수,확률,기록될어항번호(1~10, 생략시 1). 예) 붕어,10,50,1</p>
-          <div class="tab-bar" id="ftRouletteTabBar"></div>
-          <textarea id="ftRouletteBox" rows="8" style="width:100%;font-family:monospace;font-size:12.5px"></textarea>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
-          </div>
-        </div>
+            <div class="card" data-ftsec="bait" style="display:none">
+              <div class="card-title"><span>미끼 목록 <span class="hint" id="ftBaitCount" style="margin:0 0 0 4px"></span></span></div>
+              <p class="hint">미끼를 지급받은 시청자는 "!사용명령어"를 입력해 해당 룰렛을 돌립니다.</p>
+              <div style="overflow-x:auto"><table class="user-table" id="ftBaitTable" style="min-width:560px">
+                <thead><tr><th>미끼 이름</th><th>사용 명령어 (!제외)</th><th>상점 가격표시</th><th>연결 룰렛 번호</th><th></th></tr></thead>
+                <tbody id="ftBaitBody"></tbody>
+              </table></div>
+              <button class="btn-gray" style="width:100%;margin-top:10px" onclick="ftAddBaitRow()">+ 미끼 추가</button>
+              <div class="hint" style="margin-top:10px">예) 이름:새우 / 명령어:새우 → 시청자가 "!새우" 입력 시 낚시 시도. 상점 가격표시는 정보 표시용 텍스트일 뿐이며 실제 지급은 "!미끼지급" 명령어로 DJ가 직접 처리합니다.</div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card" data-ftsec="keep" style="display:none">
-          <div class="card-title">📦 어항 이름 (1~10번)</div>
-          <p class="hint">!없이 입력 — 조회 명령어이자 화면에 표시되는 이름으로 함께 사용됩니다</p>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr" id="ftKeepNamesBox"></div>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
-          </div>
-        </div>
+            <div class="card" data-ftsec="roulette" style="display:none">
+              <div class="card-title">미끼별 룰렛</div>
+              <p class="hint">선택한 룰렛 번호에 물고기/상품을 등록합니다. 위 미끼목록에서 지정한 룰렛번호와 연결됩니다.</p>
+              <div class="ft-num-tab-bar" id="ftRouletteTabBar"></div>
+              <div style="overflow-x:auto"><table class="user-table" id="ftRouletteTable" style="min-width:560px">
+                <thead><tr><th>내용</th><th>점수</th><th>확률(상대값)</th><th>기록될 어항</th><th></th></tr></thead>
+                <tbody id="ftRouletteBody"></tbody>
+              </table></div>
+              <button class="btn-gray" style="width:100%;margin-top:10px" onclick="ftAddRouletteRow()">+ 항목 추가</button>
+              <div class="hint" style="margin-top:10px">확률은 상대값이라 합계가 100이 아니어도 됩니다 (예: 50/30/20 이든 5/3/2는 비율이 같으면 같은 결과입니다). 점수 0은 "꽝" 등 빈 결과를 만들 때 사용하세요. 각 항목마다 결과가 기록될 어항을 다르게 지정할 수 있습니다 (예: 흔한 상품은 1번 어항, 고급 상품은 4번 어항).</div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card" data-ftsec="rank" style="display:none">
-          <div class="card-title">🏆 랭킹 설정</div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>🏆 랭킹 명령어</label><input type="text" id="ftRankCommand" value="낚시왕"></div>
-            <div><label>🏆 랭킹 제목</label><input type="text" id="ftRankTitle" value="팝블리네 낚시랭킹"></div>
-            <div><label>🏆 랭킹 표시 인원</label><input type="number" id="ftRankTopN" value="5" min="1" max="20"></div>
-          </div>
-          <div class="fish-tab-footer">
-            <button class="btn-connect" onclick="saveFtSettings()">저장</button>
-          </div>
-        </div>
+            <div class="card" data-ftsec="keep" style="display:none">
+              <div class="card-title">어항(킵) 이름 · 명령어</div>
+              <p class="hint">10개의 독립된 어항입니다. 이름을 바꾸면 조회 명령어도 함께 바뀝니다 (!없이 입력). 룰렛 항목마다 결과가 기록될 어항을 지정할 수 있습니다 (🎡 룰렛 탭 참고).</p>
+              <div id="ftKeepNamesBox" style="margin-top:14px"></div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card" data-ftsec="users" style="display:none">
-          <div class="card-title">👥 등록 유저 / 랭킹 <button class="btn-gray" style="float:right;padding:4px 10px;font-size:11px" onclick="loadFtUsers()">🔄 새로고침</button></div>
-          <p class="hint">낚시대회에 등록된 유저와 보유 미끼, 어항 누적 점수를 확인합니다.</p>
-          <div style="overflow-x:auto"><table class="user-table" id="ftUsersTable" style="min-width:500px">
-            <thead><tr><th>닉네임</th><th>고유닉</th><th>보유 미끼</th><th>누적 점수</th><th></th></tr></thead>
-            <tbody id="ftUsersBody"></tbody>
-          </table></div>
-        </div>
+            <div class="card" data-ftsec="rank" style="display:none">
+              <div class="card-title">낚시왕 랭킹</div>
+              <p class="hint">기본적으로 모든 어항의 점수를 합산한 랭킹입니다. "!낚시왕 [번호]"처럼 번호를 붙이면 그 어항만의 랭킹도 볼 수 있습니다.</p>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr">
+                <div><label>🏆 랭킹 명령어 (1제외)</label><input type="text" id="ftRankCommand" value="낚시왕"></div>
+                <div><label>🏆 랭킹 표시 제목</label><input type="text" id="ftRankTitle" value="팝블리네 낚시랭킹"></div>
+              </div>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr">
+                <div><label>🏆 표시 인원</label><input type="number" id="ftRankTopN" value="5" min="1" max="20"></div>
+              </div>
+              <div class="fish-tab-footer">
+                <button class="btn-connect" onclick="saveFtSettings()">저장</button>
+              </div>
+            </div>
 
-        <div class="card">
-          <div class="card-title">⚠️ 전체 초기화</div>
-          <p class="hint">모든 시청자의 등록·미끼·어항 데이터를 전부 삭제해요. 되돌릴 수 없어요.</p>
-          <button class="btn-shield-reset" style="width:100%;margin-top:8px" onclick="resetFtData()">🗑️ 팝블리네 낚시대회 데이터 전체 초기화</button>
+            <div class="card" data-ftsec="users" style="display:none">
+              <div class="card-title">유저 관리</div>
+              <p class="hint">"!낚시시작"으로 등록된 유저 목록입니다. 유저를 클릭하면 미끼를 바로 지급할 수 있습니다.</p>
+              <div class="ft-search-row">
+                <input type="text" id="ftUserSearch" placeholder="닉네임 또는 고유닉 검색" oninput="loadFtUsersManage()">
+                <button class="btn-gray" onclick="loadFtUsersManage()">🔄 새로고침</button>
+                <button class="btn-shield-reset" onclick="resetFtData()">⚠️ 전체 초기화</button>
+              </div>
+              <div class="ft-info-box">이 기능은 최신 버전의 봇 앱에서만 동작합니다. main.js / preload.js / bot.html 이 업데이트되지 않은 경우 유저 목록이 표시되지 않을 수 있어요.</div>
+              <div id="ftUsersManageList"></div>
+            </div>
+
+            <div class="card" data-ftsec="usertanks" style="display:none">
+              <div class="card-title">유저 어항</div>
+              <p class="hint">각 유저가 낚아서 어항에 기록된 물고기를 직접 추가하거나 삭제할 수 있습니다. (룰렛 결과를 수동으로 보정할 때 사용)</p>
+              <div class="ft-search-row">
+                <input type="text" id="ftTankSearch" placeholder="닉네임 또는 고유닉 검색" oninput="loadFtUserTanks()">
+                <button class="btn-gray" onclick="loadFtUserTanks()">🔄 새로고침</button>
+              </div>
+              <div class="ft-info-box">이 기능은 최신 버전의 봇 앱에서만 동작합니다. main.js / preload.js / bot.html 이 업데이트되지 않은 경우 유저 목록이 표시되지 않을 수 있어요.</div>
+              <div id="ftUserTanksList"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -4281,7 +4343,7 @@ async function loadDjSettings(){
       if(document.getElementById('dnWebhookUrl')) loadDiscordNotifyData();
       if(document.getElementById('afAdminWrap')) loadAutoFollowData();
       if(document.getElementById('fishListBody')) loadFishingSettings();
-      if(document.getElementById('ftBaitList')) loadFtSettings();
+      if(document.getElementById('ftBaitBody')) loadFtSettings();
       if(document.getElementById('stkStocksBody')) loadStockSettings();
       if(document.getElementById('acActiveList')) loadAuctionList();
       if(document.getElementById('rbListWrap')) loadRandomBoxList();
@@ -7891,43 +7953,101 @@ async function resetFishingData(){
 
 /* ── 🐟 팝블리네 낚시대회 (낚시 게임과 별개의 독립 모듈) ── */
 const FT_ROULETTE_SLOTS=10, FT_KEEP_SLOTS=10;
-let ftRouletteRows={}; // { idx: text }
+let ftBaits=[];               // [{name,cmd,priceLabel,rouletteIdx}]
+let ftRouletteTables={};      // { idx: [{content,score,chance,keepIdx}] }
 let ftCurRoulette=1;
-for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteRows[i]='';
+let ftKeepNamesCache={};
+for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteTables[i]=[];
 
 function switchFtTab(t){
-  document.querySelectorAll('#ftTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('#ftSideNav .ft-side-item').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
   document.querySelectorAll('[data-ftsec]').forEach(el=>el.style.display=el.dataset.ftsec===t?'block':'none');
-  if(t==='users')loadFtUsers();
+  if(t==='users')loadFtUsersManage();
+  if(t==='usertanks')loadFtUserTanks();
 }
 
-function ftCaptureRouletteBox(){
-  ftRouletteRows[ftCurRoulette]=document.getElementById('ftRouletteBox').value;
+/* ── 미끼 목록 (표) ── */
+function ftRenderBaitTable(){
+  const body=document.getElementById('ftBaitBody');
+  const countEl=document.getElementById('ftBaitCount');
+  if(countEl)countEl.textContent=ftBaits.length+'개';
+  if(!ftBaits.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="5">등록된 미끼가 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
+  body.innerHTML=ftBaits.map((b,i)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(b.name)}" oninput="ftBaits[${i}].name=this.value"></td>
+      <td><input type="text" value="${escapeAttr(b.cmd)}" oninput="ftBaits[${i}].cmd=this.value"></td>
+      <td><input type="text" value="${escapeAttr(b.priceLabel||'')}" oninput="ftBaits[${i}].priceLabel=this.value"></td>
+      <td><select onchange="ftBaits[${i}].rouletteIdx=Number(this.value)">${ftNumOptions(b.rouletteIdx)}</select></td>
+      <td><button class="icon-btn danger" onclick="ftRemoveBaitRow(${i})">✕</button></td>
+    </tr>`).join('');
 }
+function ftNumOptions(sel){
+  let out='';
+  for(let i=1;i<=FT_ROULETTE_SLOTS;i++) out+=`<option value="${i}" ${Number(sel)===i?'selected':''}>${i}번</option>`;
+  return out;
+}
+function ftAddBaitRow(){
+  ftBaits.push({name:'',cmd:'',priceLabel:'',rouletteIdx:1});
+  ftRenderBaitTable();
+}
+function ftRemoveBaitRow(i){
+  ftBaits.splice(i,1);
+  ftRenderBaitTable();
+}
+
+/* ── 미끼별 룰렛 (표, 1~10번 탭) ── */
 function ftBuildRouletteTabs(){
   const bar=document.getElementById('ftRouletteTabBar');
   bar.innerHTML='';
   for(let i=1;i<=FT_ROULETTE_SLOTS;i++){
     const btn=document.createElement('button');
-    btn.className='tab-btn'+(i===ftCurRoulette?' active':'');
+    btn.className='ft-num-tab'+(i===ftCurRoulette?' active':'');
     btn.textContent=i+'번';
     btn.onclick=()=>ftSwitchRoulette(i);
     bar.appendChild(btn);
   }
 }
 function ftSwitchRoulette(i){
-  ftCaptureRouletteBox();
   ftCurRoulette=i;
-  document.getElementById('ftRouletteBox').value=ftRouletteRows[i]||'';
   ftBuildRouletteTabs();
+  ftRenderRouletteTable();
+}
+function ftKeepOptions(sel){
+  let out='';
+  for(let i=1;i<=FT_KEEP_SLOTS;i++) out+=`<option value="${i}" ${Number(sel)===i?'selected':''}>${escapeHtml(ftKeepNamesCache['keep'+i+'Name']||('어항'+i))}</option>`;
+  return out;
+}
+function ftRenderRouletteTable(){
+  const rows=ftRouletteTables[ftCurRoulette]||[];
+  const body=document.getElementById('ftRouletteBody');
+  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="5">등록된 항목이 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
+  body.innerHTML=rows.map((r,i)=>`
+    <tr>
+      <td><input type="text" placeholder="예: 붕어" value="${escapeAttr(r.content)}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].content=this.value"></td>
+      <td><input type="number" value="${r.score}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].score=Number(this.value)||0"></td>
+      <td><input type="number" value="${r.chance}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].chance=Number(this.value)||0"></td>
+      <td><select onchange="ftRouletteTables[${ftCurRoulette}][${i}].keepIdx=Number(this.value)">${ftKeepOptions(r.keepIdx)}</select></td>
+      <td><button class="icon-btn danger" onclick="ftRemoveRouletteRow(${i})">✕</button></td>
+    </tr>`).join('');
+}
+function ftAddRouletteRow(){
+  if(!ftRouletteTables[ftCurRoulette])ftRouletteTables[ftCurRoulette]=[];
+  ftRouletteTables[ftCurRoulette].push({content:'',score:10,chance:50,keepIdx:1});
+  ftRenderRouletteTable();
+}
+function ftRemoveRouletteRow(i){
+  ftRouletteTables[ftCurRoulette].splice(i,1);
+  ftRenderRouletteTable();
 }
 
+/* ── 어항 이름 목록 ── */
 function ftBuildKeepNamesBox(cfg){
   const box=document.getElementById('ftKeepNamesBox');
   box.innerHTML='';
   for(let i=1;i<=FT_KEEP_SLOTS;i++){
     const wrap=document.createElement('div');
-    wrap.innerHTML=`<label>📦 어항 ${i}번 이름/명령어</label><input type="text" id="ftKeep${i}Name" value="${escapeHtml(cfg['keep'+i+'Name']||('어항'+i))}">`;
+    wrap.className='ft-keep-item';
+    wrap.innerHTML=`<span class="ft-keep-num">${i}</span><input type="text" id="ftKeep${i}Name" value="${escapeHtml(cfg['keep'+i+'Name']||('어항'+i))}" oninput="ftKeepNamesCache['keep${i}Name']=this.value">`;
     box.appendChild(wrap);
   }
 }
@@ -7939,7 +8059,6 @@ async function loadFtSettings(){
     if(!d.success)return;
     const c=d.config;
     document.getElementById('ftEnabled').checked=c.enabled!==false;
-    document.getElementById('ftUsePassword').value=c.usePassword||'';
     document.getElementById('ftShopTitle').value=c.shopTitle||'🎣 미끼상점 🎣';
     document.getElementById('ftAdminOnly').checked=c.giveAdminOnly!==false;
     document.getElementById('ftStaffFree').checked=c.staffFreeSpin===true;
@@ -7949,28 +8068,34 @@ async function loadFtSettings(){
     document.getElementById('ftMyCatchCommand').value=c.myCatchCommand||'내물고기';
     document.getElementById('ftGiveCommand').value=c.giveCommand||'미끼지급';
     document.getElementById('ftListCommand').value=c.listCommand||'유저목록';
-    document.getElementById('ftResetCommand').value=c.resetCommand||'유저초기화';
     document.getElementById('ftLogCommand').value=c.logCommand||'룰렛기록';
-    document.getElementById('ftHelpCommand').value=c.helpCommand||'낚시도움말2';
-    document.getElementById('ftBaitList').value=c.baitList||'';
+    document.getElementById('ftHelpCommand').value=c.helpCommand||'낚시도움말';
     document.getElementById('ftRankCommand').value=c.rankCommand||'낚시왕';
     document.getElementById('ftRankTitle').value=c.rankTitle||'팝블리네 낚시랭킹';
     document.getElementById('ftRankTopN').value=c.rankTopN||5;
-    for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteRows[i]=c['roulette'+i]||'';
+
+    ftKeepNamesCache={};
+    for(let i=1;i<=FT_KEEP_SLOTS;i++) ftKeepNamesCache['keep'+i+'Name']=c['keep'+i+'Name']||('어항'+i);
+    ftBuildKeepNamesBox(c);
+
+    ftBaits=(Array.isArray(c.baits)&&c.baits.length)?c.baits.map(b=>({...b})):[];
+    ftRenderBaitTable();
+
+    for(let i=1;i<=FT_ROULETTE_SLOTS;i++){
+      const v=c['roulette'+i];
+      ftRouletteTables[i]=Array.isArray(v)?v.map(r=>({...r})):[];
+    }
     ftCurRoulette=1;
     ftBuildRouletteTabs();
-    document.getElementById('ftRouletteBox').value=ftRouletteRows[1]||'';
-    ftBuildKeepNamesBox(c);
+    ftRenderRouletteTable();
   }catch(e){}
 }
 
 async function saveFtSettings(){
-  ftCaptureRouletteBox();
   const keepNames={};
   for(let i=1;i<=FT_KEEP_SLOTS;i++){ const el=document.getElementById('ftKeep'+i+'Name'); if(el) keepNames['keep'+i+'Name']=el.value; }
   const body={
     enabled:document.getElementById('ftEnabled').checked,
-    usePassword:document.getElementById('ftUsePassword').value,
     shopTitle:document.getElementById('ftShopTitle').value,
     giveAdminOnly:document.getElementById('ftAdminOnly').checked,
     staffFreeSpin:document.getElementById('ftStaffFree').checked,
@@ -7980,60 +8105,165 @@ async function saveFtSettings(){
     myCatchCommand:document.getElementById('ftMyCatchCommand').value,
     giveCommand:document.getElementById('ftGiveCommand').value,
     listCommand:document.getElementById('ftListCommand').value,
-    resetCommand:document.getElementById('ftResetCommand').value,
     logCommand:document.getElementById('ftLogCommand').value,
     helpCommand:document.getElementById('ftHelpCommand').value,
-    baitList:document.getElementById('ftBaitList').value,
     rankCommand:document.getElementById('ftRankCommand').value,
     rankTitle:document.getElementById('ftRankTitle').value,
     rankTopN:Number(document.getElementById('ftRankTopN').value)||5,
+    baits:ftBaits.filter(b=>b.name&&b.cmd),
     ...keepNames,
   };
-  for(let i=1;i<=FT_ROULETTE_SLOTS;i++) body['roulette'+i]=ftRouletteRows[i]||'';
+  for(let i=1;i<=FT_ROULETTE_SLOTS;i++) body['roulette'+i]=(ftRouletteTables[i]||[]).filter(r=>r.content&&r.chance>0);
   try{
     const res=await fetch(SERVER+'/fishtournament/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
-    if(d.success)showToast('설정 저장 완료 ✓');
+    if(d.success){showToast('설정 저장 완료 ✓');loadFtSettings();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
-async function loadFtUsers(){
-  const body=document.getElementById('ftUsersBody');
-  if(!body)return;
-  body.innerHTML='<tr><td colspan="5" class="hint">불러오는 중...</td></tr>';
-  try{
-    const res=await fetch(SERVER+'/fishtournament/leaderboard',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success||!d.users.length){ body.innerHTML='<tr><td colspan="5" class="hint">등록된 유저가 없습니다.</td></tr>'; return; }
-    body.innerHTML=d.users.map(u=>`<tr>
-      <td>${escapeHtml(u.nickname||u.tag)}</td>
-      <td>@${escapeHtml(u.tag)}</td>
-      <td>${u.vouchers||0}개</td>
-      <td>${u.total||0}점</td>
-      <td><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="ftResetUserOne('${u.tag}')">초기화</button></td>
-    </tr>`).join('');
-  }catch(e){ body.innerHTML='<tr><td colspan="5" class="hint">오류: '+e.message+'</td></tr>'; }
+/* ── 유저 관리 (검색 + 클릭해서 미끼 지급) ── */
+let ftUsersSearchTimer=null;
+async function loadFtUsersManage(){
+  const wrap=document.getElementById('ftUsersManageList');
+  if(!wrap)return;
+  clearTimeout(ftUsersSearchTimer);
+  ftUsersSearchTimer=setTimeout(async ()=>{
+    const q=document.getElementById('ftUserSearch').value.trim();
+    wrap.innerHTML='<p class="hint">불러오는 중...</p>';
+    try{
+      const res=await fetch(SERVER+'/fishtournament/users?q='+encodeURIComponent(q),{headers:authHeaders()});
+      if(!res.ok){ wrap.innerHTML=`<p class="hint">불러오기 실패 (HTTP ${res.status}) — 서버가 최신 버전인지 확인해주세요</p>`; return; }
+      const d=await res.json();
+      if(!d.success){ wrap.innerHTML=`<p class="hint">${escapeHtml(d.error||'불러오기 실패')}</p>`; return; }
+      if(!d.users.length){ wrap.innerHTML='<p class="hint">등록된 유저가 없어요.</p>'; return; }
+      const baitOptions=ftBaits.map(b=>`<option value="${escapeAttr(b.name)}">${escapeHtml(b.name)}</option>`).join('');
+      wrap.innerHTML=d.users.map(u=>`
+        <div class="ft-user-card">
+          <div class="ft-user-card-top" onclick="ftToggleUserGive('${escapeAttr(u.tag)}')">
+            <div><span class="ft-user-name">${escapeHtml(u.nickname||u.tag)}</span><span class="ft-user-tag">@${escapeHtml(u.tag)}</span></div>
+            <div class="ft-user-meta">보유 미끼 ${u.voucherTotal||0}개 · 누적 점수 ${u.total||0}점</div>
+          </div>
+          <div class="ft-user-give" id="ftGive_${escapeAttr(u.tag)}">
+            <select id="ftGiveBait_${escapeAttr(u.tag)}">${baitOptions||'<option value="">등록된 미끼 없음</option>'}</select>
+            <input type="number" id="ftGiveQty_${escapeAttr(u.tag)}" placeholder="개수" value="1" min="1" style="width:70px">
+            <button class="btn-connect" style="padding:7px 12px;font-size:12px" onclick="event.stopPropagation();ftGiveBaitTo('${escapeAttr(u.tag)}','${escapeAttr(u.nickname||u.tag)}')">🎁 지급</button>
+            <button class="btn-gray" style="padding:7px 12px;font-size:12px" onclick="event.stopPropagation();ftResetUserOne('${escapeAttr(u.tag)}')">초기화</button>
+          </div>
+        </div>`).join('');
+    }catch(e){ wrap.innerHTML=`<p class="hint">오류: ${escapeHtml(e.message)}</p>`; }
+  },250);
 }
-
+function ftToggleUserGive(tag){
+  const el=document.getElementById('ftGive_'+tag);
+  if(el)el.classList.toggle('open');
+}
+async function ftGiveBaitTo(tag,nickname){
+  const baitSel=document.getElementById('ftGiveBait_'+tag);
+  const qtyEl=document.getElementById('ftGiveQty_'+tag);
+  const baitName=baitSel?baitSel.value:'';
+  const count=Number(qtyEl?qtyEl.value:1)||1;
+  if(!baitName)return showToast('등록된 미끼가 없어요. 먼저 미끼목록 탭에서 추가해주세요.');
+  try{
+    const res=await fetch(SERVER+'/fishtournament/give',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,nickname,baitName,count})});
+    const d=await res.json();
+    if(d.success){ showToast('지급 완료 ✓'); loadFtUsersManage(); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
 async function ftResetUserOne(tag){
   if(!confirm(`@${tag} 님의 미끼/어항 데이터를 초기화할까요?`))return;
   try{
     const res=await fetch(SERVER+'/fishtournament/reset',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     const d=await res.json();
-    if(d.success){ showToast('초기화했어요'); loadFtUsers(); }
+    if(d.success){ showToast('초기화했어요'); loadFtUsersManage(); }
     else showToast(d.error||'초기화 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
-
 async function resetFtData(){
   if(!confirm('정말로 팝블리네 낚시대회의 모든 시청자 데이터를 초기화할까요? 되돌릴 수 없어요.'))return;
   if(!confirm('한 번 더 확인할게요 — 진짜로 전부 삭제하시겠어요?'))return;
   try{
     const res=await fetch(SERVER+'/fishtournament/reset',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})});
     const d=await res.json();
-    if(d.success){ showToast('초기화했어요'); loadFtUsers(); }
+    if(d.success){ showToast('초기화했어요'); loadFtUsersManage(); loadFtUserTanks(); }
     else showToast(d.error||'초기화 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 유저 어항 (검색 + 직접 물고기 추가/삭제) ── */
+let ftTanksSearchTimer=null;
+async function loadFtUserTanks(){
+  const wrap=document.getElementById('ftUserTanksList');
+  if(!wrap)return;
+  clearTimeout(ftTanksSearchTimer);
+  ftTanksSearchTimer=setTimeout(async ()=>{
+    const q=document.getElementById('ftTankSearch').value.trim();
+    wrap.innerHTML='<p class="hint">불러오는 중...</p>';
+    try{
+      const res=await fetch(SERVER+'/fishtournament/users?q='+encodeURIComponent(q),{headers:authHeaders()});
+      if(!res.ok){ wrap.innerHTML=`<p class="hint">불러오기 실패 (HTTP ${res.status}) — 서버가 최신 버전인지 확인해주세요</p>`; return; }
+      const d=await res.json();
+      if(!d.success){ wrap.innerHTML=`<p class="hint">${escapeHtml(d.error||'불러오기 실패')}</p>`; return; }
+      if(!d.users.length){ wrap.innerHTML='<p class="hint">등록된 유저가 없어요.</p>'; return; }
+      wrap.innerHTML=d.users.map(u=>{
+        const items=[];
+        Object.keys(u.tanks||{}).forEach(k=>{
+          const tank=u.tanks[k];
+          Object.keys(tank.items||{}).forEach(name=>{
+            items.push({keepIdx:Number(k),content:name,score:tank.items[name].score,qty:tank.items[name].qty});
+          });
+        });
+        const rows=items.length?items.map(it=>`
+          <tr>
+            <td>${escapeHtml(ftKeepNamesCache['keep'+it.keepIdx+'Name']||('어항'+it.keepIdx))}</td>
+            <td>${escapeHtml(it.content)}</td>
+            <td>${it.score}점</td>
+            <td>${it.qty}개</td>
+            <td><button class="icon-btn danger" onclick="ftTankRemoveItem('${escapeAttr(u.tag)}','${escapeAttr(u.nickname||u.tag)}',${it.keepIdx},'${escapeAttr(it.content)}')">✕</button></td>
+          </tr>`).join(''):'<tr class="fish-empty-row"><td colspan="5">기록된 물고기가 없어요.</td></tr>';
+        return `
+        <div class="ft-user-card">
+          <div class="ft-user-card-top">
+            <div><span class="ft-user-name">${escapeHtml(u.nickname||u.tag)}</span><span class="ft-user-tag">@${escapeHtml(u.tag)}</span></div>
+            <div class="ft-user-meta">누적 점수 ${u.total||0}점</div>
+          </div>
+          <div style="overflow-x:auto"><table class="ft-tank-table">
+            <thead><tr><th>어항</th><th>내용</th><th>점수</th><th>개수</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>
+          <div class="ft-user-give open" style="margin-top:10px">
+            <select id="ftTankKeep_${escapeAttr(u.tag)}">${ftKeepOptions(1)}</select>
+            <input type="text" id="ftTankContent_${escapeAttr(u.tag)}" placeholder="물고기/상품 이름" style="min-width:140px">
+            <input type="number" id="ftTankScore_${escapeAttr(u.tag)}" placeholder="점수" value="10" style="width:80px">
+            <input type="number" id="ftTankQty_${escapeAttr(u.tag)}" placeholder="개수" value="1" min="1" style="width:70px">
+            <button class="btn-connect" style="padding:7px 12px;font-size:12px" onclick="ftTankAddItem('${escapeAttr(u.tag)}','${escapeAttr(u.nickname||u.tag)}')">+ 추가</button>
+          </div>
+        </div>`;
+      }).join('');
+    }catch(e){ wrap.innerHTML=`<p class="hint">오류: ${escapeHtml(e.message)}</p>`; }
+  },250);
+}
+async function ftTankAddItem(tag,nickname){
+  const keepIdx=Number(document.getElementById('ftTankKeep_'+tag).value)||1;
+  const content=document.getElementById('ftTankContent_'+tag).value.trim();
+  const score=Number(document.getElementById('ftTankScore_'+tag).value)||0;
+  const qty=Number(document.getElementById('ftTankQty_'+tag).value)||1;
+  if(!content)return showToast('물고기/상품 이름을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/fishtournament/tank/add',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,nickname,keepIdx,content,score,qty})});
+    const d=await res.json();
+    if(d.success){ showToast('추가했어요 ✓'); loadFtUserTanks(); }
+    else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function ftTankRemoveItem(tag,nickname,keepIdx,content){
+  if(!confirm(`"${content}" 항목을 삭제할까요?`))return;
+  try{
+    const res=await fetch(SERVER+'/fishtournament/tank/remove',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,keepIdx,content})});
+    const d=await res.json();
+    if(d.success){ showToast('삭제했어요'); loadFtUserTanks(); }
+    else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
