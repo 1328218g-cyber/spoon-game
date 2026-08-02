@@ -577,6 +577,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -734,8 +735,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel active" data-panel="session">
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
-          <p class="hint" id="sessionOwnNote" style="margin-bottom:10px"></p>
-          <p class="hint" style="margin-bottom:10px">기본적으로는 관리자 계정의 공유 세션을 사용해요. <b>본인 계정으로 직접 방송하고 싶으면</b> 아래에 본인 스푼 쿠키를 업로드하세요 — 그 순간부터 이 계정은 본인 세션을 우선 사용해요.</p>
           <label>세션 쿠키 (session_cookies.json 내용 붙여넣기)</label>
           <textarea id="sessionCookies" class="mono" placeholder='{"cookies":[...],"localStorage":{...}}'></textarea>
           <label>관리자 키 (Railway에 ADMIN_KEY를 설정한 경우에만 입력)</label>
@@ -2452,6 +2451,23 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎁 랜덤박스 -->
+      <div class="panel" data-panel="randombox">
+        <div class="card">
+          <div class="card-title"><span>🎁 랜덤박스</span></div>
+          <p class="hint">시청자가 지정한 스티커를 선물하거나 지정 스푼을 쏘면, 등록해둔 내용물 중 하나를 랜덤으로 뽑아서 채팅에 결과를 알려줘요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">+ 새 랜덤박스 만들기</div>
+          <label style="margin-top:0">박스 이름</label>
+          <input type="text" id="rbNewName" placeholder="예: 미스터리 박스">
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="createRandomBox()">+ 랜덤박스 추가</button>
+        </div>
+
+        <div id="rbListWrap"><p class="hint">불러오는 중...</p></div>
+      </div>
+
       <div class="panel" data-panel="autofollow">
         <div class="card">
           <div class="card-title">🖱️ 팔로잉 신청</div>
@@ -3118,6 +3134,7 @@ const PANEL_META={
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   auction:['🔨 경매','후원(스티커)으로 누적 입찰하는 경매 시스템입니다. 블라인드 옵션 4종을 지원해요'],
+  randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
 
@@ -3219,7 +3236,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox'];
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3231,7 +3248,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3888,6 +3905,7 @@ function renderEntryList(){
         <span class="chip" onclick="insertEntryVar(${m.id},'{nickname}')">{nickname}</span>
         ${entryTab!=='leave'?`<span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>`:''}
         <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
+        ${entryTab==='gift'?`<span class="chip" onclick="insertEntryVar(${m.id},'{amount}')">{amount}</span>`:''}
         <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
       </div>
       <div class="sound-row">
@@ -4090,6 +4108,7 @@ async function loadDjSettings(){
       if(document.getElementById('fishListBody')) loadFishingSettings();
       if(document.getElementById('stkStocksBody')) loadStockSettings();
       if(document.getElementById('acActiveList')) loadAuctionList();
+      if(document.getElementById('rbListWrap')) loadRandomBoxList();
       if(document.getElementById('chatMvpGiftName')) loadChatTodayMvp();
       renderEntryList();
     }
@@ -4106,7 +4125,7 @@ async function uploadSession(){
   if(!payload.cookies || !payload.cookies.length) return showToast('쿠키 데이터를 찾을 수 없습니다');
   try{
     const adminKey=document.getElementById('adminKey').value.trim();
-    const headers={'Content-Type':'application/json',...authHeaders()};
+    const headers={'Content-Type':'application/json'};
     if(adminKey) headers['x-admin-key']=adminKey;
     const res=await fetch(SERVER+'/session/upload',{method:'POST',headers,body:JSON.stringify(payload)});
     const d=await res.json();
@@ -4120,21 +4139,12 @@ async function uploadSession(){
 
 async function checkSessionStatus(){
   try{
-    const res=await fetch(SERVER+'/session/status',{headers:authHeaders()});
+    const res=await fetch(SERVER+'/session/status');
     const d=await res.json();
     const pill=document.getElementById('sessionPill');
-    if(d.hasToken){
-      pill.textContent=d.usingOwnSession?'연결됨 (개인 세션)':'연결됨 (공유 세션)';
-      pill.className='session-pill ok';
-    }
+    if(d.hasToken){pill.textContent='연결됨';pill.className='session-pill ok';}
     else if(d.hasSession){pill.textContent='토큰 발급 중';pill.className='session-pill';}
     else{pill.textContent='미연결';pill.className='session-pill bad';}
-    const noteEl=document.getElementById('sessionOwnNote');
-    if(noteEl){
-      if(d.hasOwnSession) noteEl.textContent='✅ 본인 계정으로 업로드한 개인 세션을 사용 중이에요.';
-      else if(d.hasSharedSession) noteEl.textContent='ℹ️ 아직 개인 세션이 없어서, 기본값인 관리자 공유 세션을 사용 중이에요. 본인 계정으로 방송하고 싶으면 위에 본인 쿠키를 업로드해주세요.';
-      else noteEl.textContent='';
-    }
   }catch{}
 }
 
@@ -8199,6 +8209,148 @@ async function deleteAuction(id){
     const d=await res.json();
     if(d.success){showToast('삭제했어요');loadAuctionList();}
     else showToast(d.error||'실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎁 랜덤박스 ── */
+let rbList=[];
+
+async function loadRandomBoxList(){
+  try{
+    const res=await fetch(SERVER+'/randombox/list',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    rbList=d.list||[];
+    renderRandomBoxList();
+  }catch(e){}
+}
+
+function renderRandomBoxList(){
+  const wrap=document.getElementById('rbListWrap');
+  if(!wrap)return;
+  if(!rbList.length){ wrap.innerHTML='<div class="card"><p class="hint">등록된 랜덤박스가 없어요. 위에서 새로 만들어주세요.</p></div>'; return; }
+  wrap.innerHTML=rbList.map((box,i)=>`
+    <div class="card">
+      <div class="card-title"><span>🎁 ${escapeHtml(box.name)}</span><button class="icon-btn danger" onclick="deleteRandomBox(${i})" title="삭제">🗑</button></div>
+      <label style="margin-top:0">박스 이름</label>
+      <input type="text" id="rbName_${i}" value="${escapeAttr(box.name)}">
+      <label>트리거 방식</label>
+      <select id="rbMode_${i}" onchange="renderRbTriggerFields(${i})">
+        <option value="exact" ${box.triggerMode==='exact'?'selected':''}>스푼 정확히 (콤보 없이 딱 1번)</option>
+        <option value="combo" ${box.triggerMode==='combo'?'selected':''}>스푼 정확히 (콤보만큼 반복)</option>
+        <option value="distribute" ${box.triggerMode==='distribute'?'selected':''}>스푼 배분 (기준금액당 1회)</option>
+        <option value="sticker" ${box.triggerMode==='sticker'?'selected':''}>지정 스티커</option>
+      </select>
+      <div id="rbTriggerFields_${i}"></div>
+      <label>결과 메시지</label>
+      <input type="text" id="rbTemplate_${i}" value="${escapeAttr(box.resultTemplate||'')}" placeholder="🎁 [{박스명}] {닉네임}님의 결과 👉 {결과}">
+      <div class="hint" style="margin-top:4px">변수: {박스명}, {닉네임}, {결과}</div>
+
+      <div class="card-title" style="margin-top:18px">내용물 <span class="hint" style="margin:0 0 0 4px">(${(box.items||[]).length})</span></div>
+      <div style="overflow-x:auto"><table class="user-table" id="rbItemsTable_${i}" style="min-width:360px">
+        <thead><tr><th>이름</th><th>비율</th><th></th></tr></thead>
+        <tbody id="rbItemsBody_${i}"></tbody>
+      </table></div>
+      <button class="btn-gray" style="width:100%;margin-top:8px" onclick="rbAddItem(${i})">+ 내용물 추가</button>
+      <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveRandomBox(${i})">저장</button>
+    </div>`).join('');
+  rbList.forEach((box,i)=>{ renderRbTriggerFields(i); renderRbItems(i); });
+}
+
+function renderRbTriggerFields(i){
+  const box=rbList[i];
+  const mode=document.getElementById('rbMode_'+i).value;
+  const wrap=document.getElementById('rbTriggerFields_'+i);
+  if(mode==='sticker'){
+    wrap.innerHTML=`
+      <label>대상 스티커 이름</label>
+      <input type="text" id="rbSticker_${i}" value="${escapeAttr(box.triggerSticker||'')}" placeholder="스티커 이름 입력">
+      <label>지급 방식</label>
+      <select id="rbStickerPayout_${i}">
+        <option value="combo" ${box.triggerStickerPayout==='combo'?'selected':''}>콤보만큼 반복</option>
+        <option value="exact" ${box.triggerStickerPayout==='exact'?'selected':''}>정확히 1개일 때만</option>
+        <option value="distribute" ${box.triggerStickerPayout==='distribute'?'selected':''}>기준 개수당 1회</option>
+      </select>
+      <div class="btn-row" style="grid-template-columns:1fr">
+        <div><label>기준 개수 (배분 방식일 때만 사용)</label><input type="number" id="rbStickerCount_${i}" value="${box.triggerStickerCount||1}" min="1"></div>
+      </div>`;
+  }else{
+    wrap.innerHTML=`<label>기준 스푼</label><input type="number" id="rbAmount_${i}" value="${box.triggerAmount||10}" min="1">`;
+  }
+}
+
+function renderRbItems(i){
+  const box=rbList[i];
+  const body=document.getElementById('rbItemsBody_'+i);
+  if(!box.items||!box.items.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="3">등록된 내용물이 없어요.</td></tr>'; return; }
+  body.innerHTML=box.items.map((it,j)=>`
+    <tr>
+      <td><input type="text" value="${escapeAttr(it.name)}" oninput="rbList[${i}].items[${j}].name=this.value"></td>
+      <td><input type="number" value="${it.percent}" step="0.1" style="width:80px" oninput="rbList[${i}].items[${j}].percent=Number(this.value)||1"></td>
+      <td><button class="icon-btn danger" onclick="rbRemoveItem(${i},${j})">✕</button></td>
+    </tr>`).join('');
+}
+
+function rbAddItem(i){
+  if(!rbList[i].items) rbList[i].items=[];
+  rbList[i].items.push({name:'',percent:1});
+  renderRbItems(i);
+}
+function rbRemoveItem(i,j){
+  rbList[i].items.splice(j,1);
+  renderRbItems(i);
+}
+
+async function createRandomBox(){
+  const name=document.getElementById('rbNewName').value.trim();
+  if(!name)return showToast('박스 이름을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/randombox/create',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({name})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'생성 실패');
+    showToast('랜덤박스를 만들었어요 ✓');
+    document.getElementById('rbNewName').value='';
+    rbList=d.list;
+    renderRandomBoxList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function saveRandomBox(i){
+  const box=rbList[i];
+  const mode=document.getElementById('rbMode_'+i).value;
+  const body={
+    name:document.getElementById('rbName_'+i).value.trim()||box.name,
+    triggerMode:mode,
+    resultTemplate:document.getElementById('rbTemplate_'+i).value.trim(),
+    items:box.items||[],
+  };
+  if(mode==='sticker'){
+    body.triggerSticker=document.getElementById('rbSticker_'+i).value.trim();
+    body.triggerStickerPayout=document.getElementById('rbStickerPayout_'+i).value;
+    body.triggerStickerCount=Number(document.getElementById('rbStickerCount_'+i).value)||1;
+    if(!body.triggerSticker)return showToast('대상 스티커 이름을 입력해주세요');
+  }else{
+    body.triggerAmount=Number(document.getElementById('rbAmount_'+i).value)||10;
+  }
+  try{
+    const res=await fetch(SERVER+'/randombox/'+i+'/update',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'저장 실패');
+    showToast('저장 완료 ✓');
+    rbList=d.list;
+    renderRandomBoxList();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function deleteRandomBox(i){
+  if(!confirm(rbList[i].name+' 랜덤박스를 삭제할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/randombox/'+i+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'삭제 실패');
+    showToast('삭제했어요');
+    rbList=d.list;
+    renderRandomBoxList();
   }catch(e){showToast('오류: '+e.message);}
 }
 

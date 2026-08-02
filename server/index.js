@@ -21,20 +21,6 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
 const SHARED_TOKEN_DJID = 'sum'
 
-// 기본은 관리자(sum) 공유 세션을 쓰지만, 해당 디제이 본인이 "세션 연결"에서 자기 쿠키를
-// 직접 업로드해뒀으면 그걸 우선 사용한다. 개인 세션이 없거나 만료됐으면 공유 세션으로 자동 대체된다.
-function getEffectiveTokenOwner(djId) {
-  if (djId && djId !== SHARED_TOKEN_DJID) {
-    try {
-      if (tokenManager.hasCookies(djId) && tokenManager.getAccessToken(djId)) return djId
-    } catch (e) { /* 개인 세션 없음 → 아래에서 공유 세션으로 대체 */ }
-  }
-  return SHARED_TOKEN_DJID
-}
-function getEffectiveToken(djId) {
-  return tokenManager.getAccessToken(getEffectiveTokenOwner(djId))
-}
-
 // 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
 // 절대 프론트엔드(index.html) 코드에 직접 넣지 않는다 — 브라우저 소스보기로 그대로 노출되기 때문.
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
@@ -243,7 +229,7 @@ async function fetchLiveInfo(liveId, accessToken) {
 
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   if (!room.streamName || !accessToken) return
   try {
     const headers = {
@@ -277,7 +263,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox'] // 새로 추가하는 모듈은 여기에 키를 등록한다
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -320,7 +306,7 @@ async function handleShieldCommand(djId, room, settings, author, authorId, liveI
   // 2) 못 찾았으면, 그 자리에서 시청자 명단(더 안정적인 API)을 다시 조회해서 이 사람의 실제 태그를 확인한다.
   if (!isPermUser && perms.length && liveId) {
     try {
-      const accessToken = getEffectiveToken(djId)
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
       const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
       const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
       if (me && me.tag) {
@@ -521,7 +507,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
     let tag = actTag
-    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
     if (!tag) console.log(`[${djId}][단축키] '${cmd.trigger}' {tag} 조회 실패 → 닉네임(${author})으로 대체 출력`)
     // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
     response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
@@ -1193,7 +1179,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 
   let members = []
   try {
-    const accessToken = getEffectiveToken(djId)
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     members = await fetchLiveMembers(liveId, accessToken, 5)
   } catch (e) { console.log(`[자동복권:${djId}] 시청자 명단 조회 오류`, e.message) }
 
@@ -1452,7 +1438,7 @@ async function handleRaffleCommand(djId, room, settings, author, authorId, liveI
   const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
   if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/매니저만 사용할 수 있습니다.'), 400); return }
 
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const members = await fetchLiveMembers(liveId, accessToken, 5)
   if (!members.length) { setTimeout(() => sendChatToRoom(djId, '🎁 지금 방송에 접속 중인 시청자가 없어요.'), 400); return }
   const winner = members[Math.floor(Math.random() * members.length)]
@@ -1911,7 +1897,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     const act = getActivitySettings(djId, settings)
     const key = findActUserKey(act, author)
     const lotto = key ? (act.users[key].lotto || 0) : 0
-    const accessToken = getEffectiveToken(djId)
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -2772,7 +2758,7 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
   if (!FISH_CMDS.includes(cmd)) return
 
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (tag) rememberTagNickname(room, tag, author)
 
@@ -2888,6 +2874,17 @@ function stkGetUser(stock, tag, nickname) {
   if (!u.items) u.items = {}
   if (nickname) u.nickname = nickname
   return u
+}
+// 고유닉 조회가 실패했을 때(좋아요처럼 빈번한 이벤트는 특히 자주 실패함), 새 계정을 만들지는 않되
+// 이미 !시작한 기존 유저를 닉네임으로 찾아서 적립을 계속 이어갈 수 있게 하는 안전장치.
+function stkFindStartedUserByNickname(stock, nickname) {
+  const norm = String(nickname || '').trim().toLowerCase()
+  if (!norm) return null
+  for (const key in stock.users) {
+    const u = stock.users[key]
+    if (u.started && String(u.nickname || '').trim().toLowerCase() === norm) return u
+  }
+  return null
 }
 function stkFmt(n) { return Math.round(Number(n) || 0).toLocaleString() + '원' }
 function stkParseMoney(str) {
@@ -3168,33 +3165,31 @@ function startStockTimers(djId, liveId) {
 
 // ── 채팅 적립 훅 (좋아요/채팅/스푼) — 전부 고유닉(tag) 기준으로만 적립한다 ──
 function handleStockChatHook(djId, settings, tag, nickname) {
-  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const key = String(tag).trim().toLowerCase()
-  const u = stock.users[key]
+  const key = tag ? String(tag).trim().toLowerCase() : null
+  const u = (key && stock.users[key]) || stkFindStartedUserByNickname(stock, nickname)
   if (!u || !u.started) return
   if (nickname) u.nickname = nickname
-  stock.chatAccrual[key] = (stock.chatAccrual[key] || 0) + (Number(stock.config.chatMoney) || 5)
+  const uKey = key || Object.keys(stock.users).find(k => stock.users[k] === u)
+  stock.chatAccrual[uKey] = (stock.chatAccrual[uKey] || 0) + (Number(stock.config.chatMoney) || 5)
   saveStock(djId, stock)
 }
 function handleStockHeartHook(djId, settings, tag, nickname) {
-  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const u = stkGetUser(stock, tag, nickname)
+  const u = (tag && stkGetUser(stock, tag, nickname)) || stkFindStartedUserByNickname(stock, nickname)
   if (!u || !u.started) return
   stkAddIncome(djId, stock, u, Number(stock.config.likeMoney) || 50)
   saveStock(djId, stock)
 }
 function handleStockDonationHook(djId, settings, tag, nickname, spoonCount) {
-  if (!tag) return
   if (!isModuleOn(settings, 'stock', djId)) return
   const stock = getStockSettings(djId, settings)
   if (stock.config.enabled === false) return
-  const u = stkGetUser(stock, tag, nickname)
+  const u = (tag && stkGetUser(stock, tag, nickname)) || stkFindStartedUserByNickname(stock, nickname)
   if (!u || !u.started) return
   stkAddIncome(djId, stock, u, Math.max(0, spoonCount) * (Number(stock.config.spoonMoney) || 100))
   saveStock(djId, stock)
@@ -3699,10 +3694,12 @@ function auctionFmt(n) { return Math.round(Number(n) || 0).toLocaleString() }
 // 선물(후원) 수신 시 — 해당 유저에게 "곧 경매 명령어를 칠 수 있는" 후원 효력을 등록/누적한다.
 function handleAuctionDonationHook(djId, settings, author, tag, spoonTotal) {
   if (!isModuleOn(settings, 'auction', djId)) return
-  if (!tag || spoonTotal <= 0) return
+  if (spoonTotal <= 0) return
   const a = getAuctionSettings(djId, settings)
   if (a.config.enabled === false) return
-  const key = String(tag).toLowerCase()
+  // 고유닉 조회가 실패해도(가끔 있음) 후원 효력이 조용히 사라지지 않도록, 닉네임으로 대체해서 키를 만든다.
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) return
   const expiryMs = Math.max(5, Number(a.config.donationExpirySeconds) || 60) * 1000
   const existing = a.pending[key]
   if (existing && existing.expiresAt > Date.now()) {
@@ -3728,8 +3725,8 @@ function auctionListMsg(djId, a) {
 }
 
 function auctionMyBids(djId, a, tag, author) {
-  if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
-  const key = tag.toLowerCase()
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
   const mine = a.list.filter(x => x.bids && x.bids[key])
   if (!mine.length) { sendChatSplit(djId, `📋 ${author}님은 참여중인 경매가 없어요.`, 150, 300); return }
   const lines = mine.map(x => {
@@ -3751,8 +3748,8 @@ function auctionMyBids(djId, a, tag, author) {
 function auctionPlaceBid(djId, a, id, tag, author) {
   const auc = a.list.find(x => x.id === id)
   if (!auc || auc.status !== 'active') { sendChatSplit(djId, '❌ 진행중인 경매가 아니에요.', 150, 300); return }
-  if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
-  const key = tag.toLowerCase()
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
   const pend = a.pending[key]
   if (!pend || pend.expiresAt < Date.now() || pend.amount <= 0) {
     sendChatSplit(djId, `❌ ${author}님, 유효한 후원 내역이 없어요. 먼저 후원(스티커) 후 ${a.config.cmd} [번호]를 입력해주세요.`, 150, 300)
@@ -4286,7 +4283,50 @@ function checkStickerTrigger(triggerSticker, sticker, comboCount, payout, thresh
   return combo
 }
 
-// 룰렛 명령어 처리: "!룰렛1", "!룰렛1 3" (수량)
+// ══════════════════════════════════════════════════════
+// 🎁 랜덤박스 — 디제이가 지정한 스티커 또는 지정 스푼을 받으면, 등록해둔 내용물 중 하나를
+// 랜덤으로 뽑아서 결과를 채팅에 알려준다. 룰렛과 트리거 매칭 방식(스티커/금액)은 동일하게 재사용한다.
+
+function getRandomBoxSettings(djId, settings) {
+  if (!settings.randomBox) {
+    settings.randomBox = { list: [] }
+    store.saveSettings(djId, { randomBox: settings.randomBox })
+  }
+  if (!Array.isArray(settings.randomBox.list)) settings.randomBox.list = []
+  return settings.randomBox
+}
+
+async function handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker = '') {
+  if (!isModuleOn(settings, 'randombox', djId)) return
+  const rb = getRandomBoxSettings(djId, settings)
+  if (!rb.list.length) return
+  const applicable = rb.list
+    .map((box, i) => {
+      const count = box.triggerMode === 'sticker'
+        ? checkStickerTrigger(box.triggerSticker, sticker, comboCount, box.triggerStickerPayout, box.triggerStickerCount)
+        : calcAutoGrantCount(box.triggerMode, box.triggerAmount, amount, comboCount)
+      return { box, idx: i, count }
+    })
+    .filter(x => x.count > 0 && x.box.items && x.box.items.length > 0)
+  if (!applicable.length) return
+
+  for (const { box, count } of applicable) {
+    const results = []
+    for (let i = 0; i < count; i++) {
+      const won = percentPick(box.items)
+      if (won) results.push(won.name)
+    }
+    if (!results.length) continue
+    const template = box.resultTemplate || '🎁 [{박스명}] {닉네임}님의 결과 👉 {결과}'
+    const resultText = results.length > 1
+      ? Object.entries(results.reduce((m, n) => { m[n] = (m[n] || 0) + 1; return m }, {})).map(([n, c]) => c > 1 ? `${n}(${c})` : n).join(', ')
+      : results[0]
+    const text = template.replace(/{박스명}/g, box.name).replace(/{닉네임}/g, author).replace(/{결과}/g, resultText)
+    setTimeout(() => sendChatToRoom(djId, text), 400)
+  }
+}
+
+
 // !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
 // !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
 async function handleKeepCommands(djId, room, settings, author, authorId, liveId, text) {
@@ -4300,7 +4340,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const accessToken = getEffectiveToken(djId)
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -4352,7 +4392,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
-    const accessToken = getEffectiveToken(djId)
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -4446,7 +4486,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -4506,7 +4546,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 
   // ⚠️ 스푼 태그(고유닉) 조회 API가 가끔 결과가 오락가락했었는데, getCachedUserTag가 응답 id
   // 검증 + 캐싱까지 해줘서 이제 신뢰할 수 있다. 닉네임이 바뀌어도 항상 같은 사람으로 인식되도록 태그를 우선 사용한다.
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -4599,7 +4639,7 @@ function startLeavePolling(djId, liveId) {
     if (room._leavePollInFlight) return
     room._leavePollInFlight = true
     try {
-      const accessToken = getEffectiveToken(djId)
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
       const users = await fetchLiveMembers(liveId, accessToken)
       if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
 
@@ -4695,7 +4735,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
-  const accessToken = getEffectiveToken(djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
@@ -4782,7 +4822,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
           //  '고유닉'으로 등록해둔 권한자 목록과 못 맞는 문제가 생김)
-          const actTag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, actTag, author)
 
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
@@ -4825,12 +4865,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          let tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           if (!tag) {
             // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
             // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
             await new Promise(r => setTimeout(r, 1200))
-            tag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
@@ -4859,7 +4899,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
-        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
@@ -4892,7 +4932,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (AD_ITEM_IDS.includes(itemId)) likeType = 'ad'
           else if (PLAN_ITEM_IDS.includes(itemId)) likeType = 'plan'
           if (total > 0) {
-            const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+            const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
             rememberTagNickname(room, likeTag, author)
             if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
           }
@@ -4906,7 +4946,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const extraAmount = Math.max(0, Number(eventPayload.extraAmount) || 0)
         const total = baseAmount + extraAmount
         if (total > 0) {
-          const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+          const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, likeTag, author)
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
         }
@@ -4924,7 +4964,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
-          const donationTag = await getCachedUserTag(room, liveId, authorId, getEffectiveToken(djId))
+          handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
@@ -4936,7 +4977,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
             if (gm && gm.text && gm.text.trim()) {
               const totalCount = amount * Math.max(1, comboCount)
-              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount)
+              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount).replace(/{amount}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
             if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
@@ -5455,7 +5496,7 @@ app.get('/live/members', auth.requireAuth, async (req, res) => {
     return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
   }
   try {
-    const accessToken = getEffectiveToken(djId)
+    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
     members.forEach(u => {
       if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag)
@@ -5804,7 +5845,7 @@ app.post('/raffle/run-now', auth.requireAuth, async (req, res) => {
   if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const room = getRoom(req.djId)
   if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
-  const accessToken = getEffectiveToken(req.djId)
+  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
   if (!members.length) return res.json({ success: false, error: '지금 방송에 접속 중인 시청자가 없어요' })
   const cfg = getRaffleSettings(req.djId, settings)
@@ -6189,7 +6230,7 @@ app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
   const room = getRoom(djId)
   if (room.isConnected && room.autoJoinedFor) {
     try {
-      const accessToken = getEffectiveToken(djId)
+      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
       live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
       // 실시간 접속자 API가 프로필 사진을 안 줄 수 있어서, 이미 채팅/좋아요/선물에서
       // 실제로 확인된 프로필 사진(캐시)이 있으면 그걸 우선 사용한다 — 훨씬 더 잘 맞음.
@@ -6527,6 +6568,60 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
 })
 
 // ── 🔨 경매 시스템 API ──
+// ── 🎁 랜덤박스 API ──
+app.get('/randombox/list', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/create', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'randombox', req.djId)) return res.json({ success: false, error: '랜덤박스 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const b = req.body || {}
+  const name = String(b.name || '').trim() || `랜덤박스${rb.list.length + 1}`
+  const box = {
+    name,
+    triggerMode: ['exact', 'combo', 'distribute', 'sticker'].includes(b.triggerMode) ? b.triggerMode : 'exact',
+    triggerAmount: Math.max(1, Number(b.triggerAmount) || 10),
+    triggerSticker: String(b.triggerSticker || '').trim(),
+    triggerStickerPayout: ['exact', 'combo', 'distribute'].includes(b.triggerStickerPayout) ? b.triggerStickerPayout : 'combo',
+    triggerStickerCount: Math.max(1, Number(b.triggerStickerCount) || 1),
+    resultTemplate: String(b.resultTemplate || '').trim() || '🎁 [{박스명}] {닉네임}님의 결과 👉 {결과}',
+    items: [],
+  }
+  rb.list.push(box)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/:idx/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const idx = parseInt(req.params.idx, 10)
+  const box = rb.list[idx]
+  if (!box) return res.json({ success: false, error: '없는 랜덤박스예요.' })
+  const b = req.body || {}
+  if (b.name != null) box.name = String(b.name).trim() || box.name
+  if (b.triggerMode != null && ['exact', 'combo', 'distribute', 'sticker'].includes(b.triggerMode)) box.triggerMode = b.triggerMode
+  if (b.triggerAmount != null) box.triggerAmount = Math.max(1, Number(b.triggerAmount) || 10)
+  if (b.triggerSticker != null) box.triggerSticker = String(b.triggerSticker).trim()
+  if (b.triggerStickerPayout != null && ['exact', 'combo', 'distribute'].includes(b.triggerStickerPayout)) box.triggerStickerPayout = b.triggerStickerPayout
+  if (b.triggerStickerCount != null) box.triggerStickerCount = Math.max(1, Number(b.triggerStickerCount) || 1)
+  if (b.resultTemplate != null) box.resultTemplate = String(b.resultTemplate).trim() || box.resultTemplate
+  if (Array.isArray(b.items)) box.items = b.items.filter(it => it && it.name).map(it => ({ name: String(it.name).slice(0, 60), percent: Math.max(0.01, Number(it.percent) || 1) })).slice(0, 100)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/:idx/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const idx = parseInt(req.params.idx, 10)
+  if (!rb.list[idx]) return res.json({ success: false, error: '없는 랜덤박스예요.' })
+  rb.list.splice(idx, 1)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+
 app.get('/auction/list', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const a = getAuctionSettings(req.djId, settings)
@@ -6778,12 +6873,11 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 계정마다 실행되며,
-// 본인 세션이 연결돼있으면 그걸 쓰고 없으면 관리자 공유 세션으로 자동 대체된다.
+// 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
 async function checkAdminAutoJoin() {
   for (const djId of store.listDjIds()) {
     if (!canAutoJoin(djId)) continue
-    if (!getEffectiveToken(djId)) continue // 본인 세션도 관리자 공유 세션도 없으면 건너뜀
+    if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) continue // 관리자 계정에 아직 발급된 토큰이 없으면 건너뜀
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
@@ -6821,7 +6915,7 @@ async function checkAdminAutoJoin() {
         if (status && status.is_live && status.current_live_id) {
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(getEffectiveTokenOwner(djId), liveId)
+          const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -6879,7 +6973,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
-  if (!getEffectiveToken(djId)) {
+  if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
     return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
 
@@ -6894,7 +6988,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     }
 
     const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(getEffectiveTokenOwner(djId), liveId)
+    const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -6927,13 +7021,11 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
 app.get('/status', auth.requireAuth, (req, res) => {
   const room = getRoom(req.djId)
   const settings = store.getSettings(req.djId)
-  const owner = getEffectiveTokenOwner(req.djId)
   res.json({
     isConnected: room.isConnected,
     autoJoinTag: settings?.autoJoinTag || '',
-    hasSession: tokenManager.hasCookies(owner),
-    hasToken: !!getEffectiveToken(req.djId),
-    usingOwnSession: owner === req.djId,
+    hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
+    hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID),
   })
 })
 
@@ -6969,34 +7061,26 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에 연결된다.
-// 관리자(sum)가 올리면 모두가 기본으로 쓰는 "공유 세션"이 되고, 일반 DJ가 올리면
-// 그 사람 전용 "개인 세션"이 되어 이후 그 계정의 모든 활동이 자기 세션을 우선 사용한다.
+// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에만 연결된다. (djId별 멀티 계정 구조)
+// ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
 app.post('/session/upload', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'session', req.djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'session', req.djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies(req.djId, { cookies, localStorage, sessionStorage })
+  tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
   // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
   // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  tokenManager.ensureAutoRefresh(req.djId, 180)
-  console.log(`[세션:${req.djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
-  const isShared = req.djId === SHARED_TOKEN_DJID
-  res.json({ success: true, msg: isShared ? '쿠키 업로드 완료(공유 세션). accessToken 발급을 시도합니다.' : '쿠키 업로드 완료(개인 세션). 이제 이 계정은 본인 세션을 우선 사용해요.' })
+  tokenManager.ensureAutoRefresh(SHARED_TOKEN_DJID, 180)
+  console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
 
-app.get('/session/status', auth.requireAuth, (req, res) => {
-  const owner = getEffectiveTokenOwner(req.djId)
-  res.json({
-    hasSession: tokenManager.hasCookies(owner),
-    hasToken: !!tokenManager.getAccessToken(owner),
-    usingOwnSession: owner === req.djId,
-    hasOwnSession: req.djId !== SHARED_TOKEN_DJID && tokenManager.hasCookies(req.djId),
-    hasSharedSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
-  })
+app.get('/session/status', (req, res) => {
+  res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
 })
 
 app.get('/events', (req, res) => {
