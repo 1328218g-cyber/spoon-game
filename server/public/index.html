@@ -1456,6 +1456,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
 
       <div class="panel" data-panel="roulettelog">
+        <div class="card">
+          <div class="card-title"><span>⌨️ 명령어 커스텀</span></div>
+          <p class="hint" style="margin-top:0">킵목록/기타목록/이벤트목록을 조회하는 명령어 이름을 자유롭게 바꿀 수 있어요. ! 없이 입력하세요.<br>바꾸면 <b>확인N</b>(타인 조회) · <b>사용</b>(사용/차감) · <b>추가</b>(킵만, DJ 전용) 같은 관련 명령어도 자동으로 같이 바뀌어요. (예: 킵 → 킵확인, 킵사용, 킵추가)</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+            <div><label>킵목록 명령어</label><input type="text" id="rlCmdKeep" placeholder="킵"></div>
+            <div><label>기타목록 명령어</label><input type="text" id="rlCmdMisc" placeholder="내카드"></div>
+            <div><label>이벤트목록 명령어</label><input type="text" id="rlCmdEvent" placeholder="이벤트"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveRlCommands()">💾 명령어 저장</button>
+        </div>
         <div class="card split-card">
           <div class="split-side">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -3597,6 +3607,7 @@ function selectPanel(name){
   if(name==='requestmodules')renderRequestModulesPanel();
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
+  if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -6019,6 +6030,24 @@ function saveRouletteTemplates(){
   saveRouletteGlobal();
 
   showToast('문구 저장 완료 ✓');
+}
+
+/* ── 킵/기타/이벤트 목록 명령어 커스텀 ── */
+function renderRlCommandInputs(){
+  const keepEl=document.getElementById('rlCmdKeep');
+  if(!keepEl)return; // 패널이 아직 렌더 안 됐으면 스킵
+  keepEl.value=(rouletteData.cmdKeep||'!킵').replace(/^!/,'');
+  document.getElementById('rlCmdMisc').value=(rouletteData.cmdMisc||'!내카드').replace(/^!/,'');
+  document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
+}
+function saveRlCommands(){
+  const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
+  rouletteData.cmdKeep=norm(document.getElementById('rlCmdKeep').value,'!킵');
+  rouletteData.cmdMisc=norm(document.getElementById('rlCmdMisc').value,'!내카드');
+  rouletteData.cmdEvent=norm(document.getElementById('rlCmdEvent').value,'!이벤트');
+  renderRlCommandInputs();
+  saveRouletteGlobal();
+  showToast('명령어 저장 완료 ✓');
 }
 
 async function saveRouletteGlobal(){

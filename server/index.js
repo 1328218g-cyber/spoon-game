@@ -10117,7 +10117,7 @@ function getHistoryRec(settings, tag) {
 // 이후로도 닉네임이 바뀌면 기록 안의 nickname 필드가 자동으로 최신 값으로 갱신된다.
 function getHistoryRecByIdentity(settings, tag, nickname) {
   if (!settings.rouletteHistory) settings.rouletteHistory = {}
-  const cleanTag = tag ? String(tag).trim() : ''
+  const cleanTag = tag ? String(tag).trim().toLowerCase() : '' // 대소문자 달라도 같은 사람으로 합쳐지게 소문자로 통일
   const key = cleanTag || nickname
   if (!key) return getHistoryRec(settings, 'unknown')
 
@@ -10132,8 +10132,19 @@ function getHistoryRecByIdentity(settings, tag, nickname) {
   return rec
 }
 
+// 킵/기타/이벤트 목록 조회·사용 명령어 이름 — DJ가 룰렛 기록 화면 상단에서 자유롭게 바꿀 수 있다.
+// 확인N/사용/추가는 이 기본 명령어에 고정 접미사를 붙여서 자동으로 만들어진다 (예: 기본이 !킵이면 !킵확인, !킵사용, !킵추가).
+function getRouletteCmdConfig(settings) {
+  const r = settings.roulette || {}
+  return {
+    keep: r.cmdKeep || '!킵',
+    misc: r.cmdMisc || '!내카드',
+    event: r.cmdEvent || '!이벤트',
+  }
+}
+
 // !킵, !이벤트, !내카드 [페이지] / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] 응답 문구 생성
-function formatKeepMessage(displayName, section, entries, page) {
+function formatKeepMessage(displayName, section, entries, page, cmdBase) {
   const label = SECTION_LABEL[section]
   if (!entries.length) return `📋 ${displayName}님의 ${label} 기록이 없습니다.`
   const pageSize = 10
@@ -10146,7 +10157,6 @@ function formatKeepMessage(displayName, section, entries, page) {
     msg += `${startIdx + i + 1}. ${name}${count > 1 ? ` (${count}개)` : ''}\n`
   })
   if (totalPages > 1) {
-    const cmdBase = section === '이벤트목록' ? '!이벤트' : (section === '기타목록' ? '!내카드' : '!킵')
     const next = cur < totalPages ? cur + 1 : 1
     msg += `\n💡 ${cmdBase} ${next} 로 다른 페이지 확인 가능`
   }
@@ -10243,8 +10253,9 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   const parts = msg.split(/\s+/)
   const first = parts[0]
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const cmdCfg = getRouletteCmdConfig(settings)
 
-  const sectionByCmd = { '!킵': '킵목록', '!이벤트': '이벤트목록', '!내카드': '기타목록' }
+  const sectionByCmd = { [cmdCfg.keep]: '킵목록', [cmdCfg.event]: '이벤트목록', [cmdCfg.misc]: '기타목록' }
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
@@ -10253,17 +10264,18 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(author, section, entries, page), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first), 150, 600)
     return
   }
 
-  const checkMatch = first.match(/^(!킵확인|!이벤트확인|!내카드확인)(\d*)$/)
-  if (checkMatch) {
-    const section = { '!킵확인': '킵목록', '!이벤트확인': '이벤트목록', '!내카드확인': '기타목록' }[checkMatch[1]]
-    const page = parseInt(checkMatch[2]) || 1
+  const checkCmdMap = { [cmdCfg.keep + '확인']: ['킵목록', cmdCfg.keep + '확인'], [cmdCfg.event + '확인']: ['이벤트목록', cmdCfg.event + '확인'], [cmdCfg.misc + '확인']: ['기타목록', cmdCfg.misc + '확인'] }
+  const checkBaseMatch = Object.keys(checkCmdMap).find(base => first === base || first.startsWith(base) && /^\d*$/.test(first.slice(base.length)))
+  if (checkBaseMatch) {
+    const [section, cmdLabel] = checkCmdMap[checkBaseMatch]
+    const page = parseInt(first.slice(checkBaseMatch.length)) || 1
     const targetInput = (parts[1] || '').replace('@', '').trim()
     if (!targetInput) {
-      setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${checkMatch[1]} [고유닉]\n예) ${checkMatch[1]} sum`), 400)
+      setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${cmdLabel} [고유닉]\n예) ${cmdLabel} sum`), 400)
       return
     }
     // 지금 방에 있으면 정확한 태그+닉네임으로 확정, 없으면 입력값을 그대로 태그로 간주해서 조회
@@ -10272,13 +10284,13 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const displayName = found ? (found.nickname || found.tag) : targetInput
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel), 150, 600)
     return
   }
 
-  if (first === '!킵추가') {
-    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '⛔ !킵추가 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
-    if (parts.length < 3) { setTimeout(() => sendChatToRoom(djId, '📋 사용법: !킵추가 [고유닉] [내용]\n예) !킵추가 sum 리방하기'), 400); return }
+  if (first === cmdCfg.keep + '추가') {
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, `⛔ ${cmdCfg.keep}추가 명령어는 DJ만 사용할 수 있습니다.`), 400); return }
+    if (parts.length < 3) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${cmdCfg.keep}추가 [고유닉] [내용]\n예) ${cmdCfg.keep}추가 sum 리방하기`), 400); return }
     const targetInput = parts[1].replace('@', '').trim()
     const content = parts.slice(2).join(' ').trim()
     if (!targetInput || !content) return
@@ -10294,12 +10306,12 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     return
   }
 
-  const useMatch = first.match(/^(!킵사용|!이벤트사용|!내카드사용)$/)
-  if (useMatch) {
-    const section = { '!킵사용': '킵목록', '!이벤트사용': '이벤트목록', '!내카드사용': '기타목록' }[useMatch[1]]
+  const useCmdMap = { [cmdCfg.keep + '사용']: '킵목록', [cmdCfg.event + '사용']: '이벤트목록', [cmdCfg.misc + '사용']: '기타목록' }
+  if (useCmdMap[first]) {
+    const section = useCmdMap[first]
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
-    if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${useMatch[1]} [번호] [수량]\n(예: ${useMatch[1]} 1 1)`), 400); return }
+    if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${first} [번호] [수량]\n(예: ${first} 1 1)`), 400); return }
     const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
@@ -12549,17 +12561,18 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       items.push({ cmd: `!룰렛메뉴${idx}`, desc: `[${name}] 항목 목록 확인` })
       items.push({ cmd: `!룰렛지급${idx}`, desc: `[${name}] 권 지급 (관리자, 예: !룰렛지급${idx} 고유닉 1)` })
     })
+    const rcmd = getRouletteCmdConfig(settings)
     items.push(
-      { cmd: '!킵', desc: '내 킵목록 조회 (뒤에 페이지 번호 가능)' },
-      { cmd: '!킵확인N', desc: '[고유닉] 다른 사람 킵목록 조회 (예: !킵확인1 고유닉)' },
-      { cmd: '!킵추가', desc: '[고유닉] [내용] 킵 추가 (관리자)' },
-      { cmd: '!킵사용', desc: '[번호] [수량] 킵 사용 (관리자)' },
-      { cmd: '!이벤트', desc: '내 이벤트목록 조회' },
-      { cmd: '!이벤트확인N', desc: '[고유닉] 다른 사람 이벤트목록 조회' },
-      { cmd: '!이벤트사용', desc: '[번호] [수량] 이벤트 항목 사용 (관리자)' },
-      { cmd: '!내카드', desc: '내 기타목록 조회' },
-      { cmd: '!내카드확인N', desc: '[고유닉] 다른 사람 기타목록 조회' },
-      { cmd: '!내카드사용', desc: '[번호] [수량] 기타 항목 사용 (관리자)' },
+      { cmd: rcmd.keep, desc: '내 킵목록 조회 (뒤에 페이지 번호 가능)' },
+      { cmd: rcmd.keep + '확인N', desc: `[고유닉] 다른 사람 킵목록 조회 (예: ${rcmd.keep}확인1 고유닉)` },
+      { cmd: rcmd.keep + '추가', desc: '[고유닉] [내용] 킵 추가 (관리자)' },
+      { cmd: rcmd.keep + '사용', desc: '[번호] [수량] 킵 사용 (관리자)' },
+      { cmd: rcmd.event, desc: '내 이벤트목록 조회' },
+      { cmd: rcmd.event + '확인N', desc: '[고유닉] 다른 사람 이벤트목록 조회' },
+      { cmd: rcmd.event + '사용', desc: '[번호] [수량] 이벤트 항목 사용 (관리자)' },
+      { cmd: rcmd.misc, desc: '내 기타목록 조회' },
+      { cmd: rcmd.misc + '확인N', desc: '[고유닉] 다른 사람 기타목록 조회' },
+      { cmd: rcmd.misc + '사용', desc: '[번호] [수량] 기타 항목 사용 (관리자)' },
     )
     groups.push({ key: 'roulette', icon: '🎡', label: '룰렛', items })
   }
@@ -13068,7 +13081,7 @@ app.post('/fishtournament/tank/remove', auth.requireAuth, requireRequestModuleAc
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  const tag = req.params.tag
+  const tag = String(req.params.tag || '').trim().toLowerCase()
   const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
   res.json({ success: true, tag, record: rec, roulette: settings.roulette })
 })
@@ -13076,14 +13089,16 @@ app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
 // 시청자를 기록 목록에 수동으로 추가(빈 기록 생성)
 app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  getHistoryRec(settings, req.params.tag)
+  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
+  getHistoryRec(settings, cleanTag)
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   res.json({ success: true })
 })
 
 app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  if (settings.rouletteHistory) delete settings.rouletteHistory[req.params.tag]
+  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
+  if (settings.rouletteHistory) delete settings.rouletteHistory[cleanTag]
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
   res.json({ success: true })
 })
