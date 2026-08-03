@@ -3388,7 +3388,7 @@ const PANEL_META={
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
-  fishtournament:['🐟 팝블리네 낚시대회','미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹을 즐기는 별도의 낚시 이벤트 게임입니다 (사용비번 필요)'],
+  fishtournament:['🐟 팝블리네 낚시대회','미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹을 즐기는 별도의 낚시 이벤트 게임입니다'],
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   auction:['🔨 경매','후원(스티커)으로 누적 입찰하는 경매 시스템입니다. 블라인드 옵션 4종을 지원해요'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
@@ -3506,7 +3506,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','fishtournament']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — fishtournament는 예전 사용비번 게이트가 제거되면서 기본ON으로 변경
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);

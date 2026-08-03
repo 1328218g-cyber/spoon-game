@@ -263,7 +263,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'fishtournament'] // 새로 추가하는 모듈은 여기에 키를 등록한다
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 별도 사용비번 게이트가 있었어서 기본ON으로 뺌 — 그 게이트는 이후 제거됨)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2795,12 +2795,12 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
 // 🎣 팝블리네 낚시대회 — 낚시 게임과는 완전히 별개인 신규 모듈.
 // DJ가 미끼목록과 미끼별 룰렛(1~10)을 채워두면, 관리자가 시청자에게 미끼(룰렛권)를
 // 지급하고 시청자는 미끼 사용 명령어로 룰렛을 돌려 어항(킵, 1~10)에 결과를 기록한다.
-// 🔒 설정에 정확한 사용비번(FISHTOURNAMENT_MODULE_PASSWORD)을 저장해야만 동작한다.
+// (예전엔 사용비번을 입력해야 동작했지만, 그 게이트는 관리자 설정 화면과 함께 완전히 제거됐고
+//  이제 사이드바 모듈 ON/OFF만으로 동작한다. 기본값도 다른 신규모듈과 달리 기본 ON으로 켜둠.)
 // ══════════════════════════════════════════════════════
 
 const FT_KEEP_SLOTS = 10
 const FT_ROULETTE_SLOTS = 10
-const FISHTOURNAMENT_MODULE_PASSWORD = 'pop324'
 
 function getFishTournamentSettings(djId, settings) {
   if (!settings.fishtournament) {
@@ -2840,11 +2840,6 @@ function getFishTournamentSettings(djId, settings) {
   if (!settings.fishtournament.users) settings.fishtournament.users = {}
   if (!settings.fishtournament.logs) settings.fishtournament.logs = {}
   return settings.fishtournament
-}
-
-// 🔓 사용비번 게이트는 관리자 설정 화면에서 제거되어, 이제 모듈 활성화(enabled) 여부만으로 동작한다.
-function ftIsUnlocked(ft) {
-  return true
 }
 
 function saveFishTournament(djId, ft) {
@@ -3197,15 +3192,6 @@ async function handleFishTournamentCommand(djId, room, settings, author, authorI
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
   const chatAct = getActivitySettings(djId, settings)
   const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
-
-  // 🔒 사용비번 확인 — 설정에 정확한 사용비번이 저장되어 있지 않으면 어떤 명령어도 동작하지 않는다.
-  const helpCmd = ft.config.helpCommand || '낚시도움말'
-  if (!ftIsUnlocked(ft)) {
-    if (('!' + helpCmd).toLowerCase() === cmdLower && (isDj || isManager)) {
-      ftReply(djId, '🔒 [팝블리네 낚시대회] 아직 사용비번이 입력되지 않았습니다. ⚙️ 설정 > 팝블리네 낚시대회 > 기본 화면에서 사용비번을 입력하고 저장해주세요.')
-    }
-    return
-  }
 
   const tag = actTag || await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
   if (tag) rememberTagNickname(room, tag, author)
