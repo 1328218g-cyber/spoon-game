@@ -4123,12 +4123,16 @@ async function handleStockCommand(djId, room, settings, author, authorId, liveId
 // 같은 사람이 같은 경매에 여러 번 입찰하면 총액이 누적된다 (경매마다 별도 누적).
 // 공개 방식(visibility) 4종에 따라 닉네임/누적금액/순위 공개 여부가 달라진다.
 
+// 🔨 경매 시스템 — "!경매 참여"로 먼저 참가 등록한 사람만, 그 이후 보내는 선물(후원)이
+// 자동으로 이 경매에 반영된다(더 이상 후원 후 번호를 따로 입력할 필요 없음).
+// 여러 명이 보낸 스푼 총액 대비 내 누적 비율 = 당첨 확률이고, 경매 종료 시 그 확률로 추첨해서
+// 한 명을 당첨자로 뽑는 방식(래플)이다. 한 방송에서는 경매를 한 번에 하나만 진행할 수 있다 —
+// 진행중인 경매가 끝나야(종료/취소) 다음 경매를 새로 등록할 수 있다.
+
 function auctionDefaultConfig() {
   return {
     enabled: true,
     announceOnBid: true,
-    announceOnRankChange: true,
-    donationExpirySeconds: 60,
     cmd: '!경매',
     cmdMyBid: '!내입찰',
     cmdEnd: '!경매종료',
@@ -4145,121 +4149,111 @@ function auctionVisOf(auc) { return AUCTION_VIS[auc.visibility] || AUCTION_VIS.p
 
 function getAuctionSettings(djId, settings) {
   if (!settings.auction) {
-    settings.auction = { config: auctionDefaultConfig(), list: [], nextId: 1, pending: {} }
+    settings.auction = { config: auctionDefaultConfig(), list: [], nextId: 1 }
     store.saveSettings(djId, { auction: settings.auction })
   }
   const a = settings.auction
   if (!a.config) a.config = auctionDefaultConfig()
   if (!Array.isArray(a.list)) a.list = []
   if (!a.nextId) a.nextId = (a.list.reduce((m, x) => Math.max(m, x.id || 0), 0) || 0) + 1
-  if (!a.pending) a.pending = {}
   return a
 }
 function saveAuction(djId, a) { store.saveSettings(djId, { auction: a }) }
+function auctionActive(a) { return a.list.find(x => x.status === 'active') || null }
 function auctionRanking(auc) {
   return Object.entries(auc.bids || {}).map(([tag, b]) => ({ tag, ...b })).sort((x, y) => y.total - x.total)
 }
 function auctionFmt(n) { return Math.round(Number(n) || 0).toLocaleString() }
+function auctionTotalSpoons(auc) { return Object.values(auc.bids || {}).reduce((s, b) => s + (b.total || 0), 0) }
+// 참여자별 누적 금액 비율(=당첨 확률)에 따라 가중치 랜덤으로 한 명을 뽑는다 (래플).
+function auctionPickWeightedWinner(auc) {
+  const entries = Object.entries(auc.bids || {}).filter(([, b]) => b.total > 0)
+  if (!entries.length) return null
+  const total = entries.reduce((s, [, b]) => s + b.total, 0)
+  let r = Math.random() * total
+  for (const [tag, b] of entries) {
+    r -= b.total
+    if (r <= 0) return { tag, nickname: b.nickname, total: b.total }
+  }
+  const [tag, b] = entries[entries.length - 1]
+  return { tag, nickname: b.nickname, total: b.total }
+}
 
-// 선물(후원) 수신 시 — 해당 유저에게 "곧 경매 명령어를 칠 수 있는" 후원 효력을 등록/누적한다.
+// "!경매 참여"로 등록한 사람만 대상 — 선물(후원) 수신 시 진행중인 경매가 있으면 자동으로 누적 반영한다.
 function handleAuctionDonationHook(djId, settings, author, tag, spoonTotal) {
   if (!isModuleOn(settings, 'auction', djId)) return
   if (spoonTotal <= 0) return
   const a = getAuctionSettings(djId, settings)
   if (a.config.enabled === false) return
-  // 고유닉 조회가 실패해도(가끔 있음) 후원 효력이 조용히 사라지지 않도록, 닉네임으로 대체해서 키를 만든다.
+  const auc = auctionActive(a)
+  if (!auc) return // 진행중인 경매가 없으면 무시
   const key = String(tag || author || '').trim().toLowerCase()
   if (!key) return
-  const expiryMs = Math.max(5, Number(a.config.donationExpirySeconds) || 60) * 1000
-  const existing = a.pending[key]
-  if (existing && existing.expiresAt > Date.now()) {
-    existing.amount += spoonTotal
-    existing.expiresAt = Date.now() + expiryMs
-    existing.nickname = author
-  } else {
-    a.pending[key] = { amount: spoonTotal, expiresAt: Date.now() + expiryMs, nickname: author }
-  }
-  saveAuction(djId, a)
-}
-
-function auctionListMsg(djId, a) {
-  const active = a.list.filter(x => x.status === 'active')
-  if (!active.length) { sendChatSplit(djId, '🔨 진행중인 경매가 없어요.', 150, 300); return }
-  const lines = active.map(x => {
-    const remain = Math.max(0, x.endAt - Date.now())
-    const mins = Math.floor(remain / 60000), secs = Math.floor((remain % 60000) / 1000)
-    const count = Object.keys(x.bids || {}).length
-    return `[${x.id}번] ${x.itemName} · ⏰${mins}분${secs}초 남음 · 👥${count}명 참여`
-  })
-  sendChatSplit(djId, `🔨 진행중인 경매\n${lines.join('\n')}\n→ 후원 후 !경매 [번호] 로 입찰하세요`, 150, 300)
-}
-
-function auctionMyBids(djId, a, tag, author) {
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
-  const mine = a.list.filter(x => x.bids && x.bids[key])
-  if (!mine.length) { sendChatSplit(djId, `📋 ${author}님은 참여중인 경매가 없어요.`, 150, 300); return }
-  const lines = mine.map(x => {
-    const vis = auctionVisOf(x)
-    const ranking = auctionRanking(x)
-    const rank = ranking.findIndex(r => r.tag === key) + 1
-    const my = x.bids[key]
-    const showDetail = x.status !== 'active' // 종료/취소된 경매는 블라인드 상관없이 본인껀 다 보여줌
-    let line = `[${x.id}번] ${x.itemName}`
-    if (vis.amount || showDetail) line += ` - 누적 ${auctionFmt(my.total)}스푼`
-    if (vis.rank || showDetail) line += ` (${rank}위)`
-    if (x.status === 'ended') line += (x.winner && x.winner.tag === key) ? ' 🏆낙찰!' : ' (종료)'
-    if (x.status === 'cancelled') line += ' (취소됨)'
-    return line
-  })
-  sendChatSplit(djId, `📋 ${author}님의 입찰 현황\n${lines.join('\n')}`, 150, 300)
-}
-
-function auctionPlaceBid(djId, a, id, tag, author) {
-  const auc = a.list.find(x => x.id === id)
-  if (!auc || auc.status !== 'active') { sendChatSplit(djId, '❌ 진행중인 경매가 아니에요.', 150, 300); return }
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
-  const pend = a.pending[key]
-  if (!pend || pend.expiresAt < Date.now() || pend.amount <= 0) {
-    sendChatSplit(djId, `❌ ${author}님, 유효한 후원 내역이 없어요. 먼저 후원(스티커) 후 ${a.config.cmd} [번호]를 입력해주세요.`, 150, 300)
-    return
-  }
-  const amount = pend.amount
-  delete a.pending[key]
+  if (!auc.joined || !auc.joined[key]) return // "!경매 참여"로 먼저 참가 등록한 사람만 자동 반영됨
 
   if (!auc.bids) auc.bids = {}
   const bid = auc.bids[key] || { nickname: author, total: 0 }
-  bid.total += amount
+  bid.total += spoonTotal
   bid.nickname = author
   bid.lastBidAt = Date.now()
   auc.bids[key] = bid
   saveAuction(djId, a)
 
   const vis = auctionVisOf(auc)
-  const ranking = auctionRanking(auc)
-  const myRank = ranking.findIndex(r => r.tag === key) + 1
+  const totalAll = auctionTotalSpoons(auc)
+  const pct = totalAll > 0 ? Math.round((bid.total / totalAll) * 1000) / 10 : 0
 
   if (a.config.announceOnBid) {
-    let msg = `💰 [${auc.id}번:${auc.itemName}] `
-    msg += vis.nickname ? `${author}님 ` : `누군가 `
-    msg += `+${auctionFmt(amount)}스푼 입찰!`
+    let msg = `💰 [${auc.itemName}] `
+    msg += vis.nickname ? `${author}님 ` : `참여자님 `
+    msg += `${auctionFmt(spoonTotal)}스푼!`
+    if (vis.amount) msg += ` 현재 확률 ${pct}%`
     if (vis.amount) msg += ` (누적 ${auctionFmt(bid.total)}스푼)`
-    if (vis.rank) msg += ` [현재 ${myRank}위]`
     sendChatSplit(djId, msg, 150, 300)
   }
+}
 
-  const newLeader = ranking[0]
-  if (newLeader && auc.leaderTag !== newLeader.tag) {
-    auc.leaderTag = newLeader.tag
-    saveAuction(djId, a)
-    if (a.config.announceOnRankChange) {
-      let msg = `🏆 [${auc.id}번:${auc.itemName}] 1위 변경!`
-      if (vis.nickname) msg += ` ${newLeader.nickname}님`
-      if (vis.amount) msg += ` (${auctionFmt(newLeader.total)}스푼)`
-      setTimeout(() => sendChatToRoom(djId, msg), 600)
-    }
+function auctionJoin(djId, a, tag, author) {
+  const auc = auctionActive(a)
+  if (!auc) { sendChatSplit(djId, '❌ 지금 진행중인 경매가 없어요.', 150, 300); return }
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  if (!auc.joined) auc.joined = {}
+  if (auc.joined[key]) {
+    sendChatSplit(djId, `✅ ${author}님은 이미 [${auc.itemName}] 경매에 참여중이에요. 선물을 보내면 자동으로 확률에 반영돼요!`, 150, 300)
+    return
   }
+  auc.joined[key] = { nickname: author, joinedAt: Date.now() }
+  saveAuction(djId, a)
+  sendChatSplit(djId, `🙋 ${author}님 [${auc.itemName}] 경매 참여 완료!\n이제 선물을 보내면 자동으로 누적되고 확률에 반영돼요`, 150, 300)
+}
+
+function auctionListMsg(djId, a) {
+  const auc = auctionActive(a)
+  if (!auc) { sendChatSplit(djId, '🔨 진행중인 경매가 없어요.', 150, 300); return }
+  const joinedCount = Object.keys(auc.joined || {}).length
+  const totalAll = auctionTotalSpoons(auc)
+  sendChatSplit(djId, `🔨 [${auc.itemName}] 경매 진행중\n🙋 참여 ${joinedCount}명 · 💰 누적 ${auctionFmt(totalAll)}스푼\n→ ${a.config.cmd} 참여 로 참여하고, 선물을 보내면 자동으로 확률에 반영돼요`, 150, 300)
+}
+
+function auctionMyBids(djId, a, tag, author) {
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  const mine = a.list.filter(x => (x.joined && x.joined[key]) || (x.bids && x.bids[key]))
+  if (!mine.length) { sendChatSplit(djId, `📋 ${author}님은 참여중인 경매가 없어요.`, 150, 300); return }
+  const lines = mine.map(x => {
+    const vis = auctionVisOf(x)
+    const total = auctionTotalSpoons(x)
+    const my = (x.bids && x.bids[key]) || { total: 0 }
+    const pct = total > 0 ? Math.round((my.total / total) * 1000) / 10 : 0
+    const showDetail = x.status !== 'active' // 종료/취소된 경매는 블라인드 상관없이 본인껀 다 보여줌
+    let line = `[${x.itemName}]`
+    if (vis.amount || showDetail) line += ` - 누적 ${auctionFmt(my.total)}스푼 (확률 ${pct}%)`
+    if (x.status === 'ended') line += (x.winner && x.winner.tag === key) ? ' 🏆당첨!' : ' (종료)'
+    if (x.status === 'cancelled') line += ' (취소됨)'
+    return line
+  })
+  sendChatSplit(djId, `📋 ${author}님의 경매 참여 현황\n${lines.join('\n')}`, 150, 300)
 }
 
 function auctionEnd(djId, a, id, status) {
@@ -4267,15 +4261,17 @@ function auctionEnd(djId, a, id, status) {
   if (!auc || auc.status !== 'active') return
   auc.status = status
   if (status === 'ended') {
-    const ranking = auctionRanking(auc)
-    if (ranking.length) {
-      auc.winner = { tag: ranking[0].tag, nickname: ranking[0].nickname, total: ranking[0].total }
-      sendChatSplit(djId, `🎉 [${auc.id}번:${auc.itemName}] 경매 종료! 낙찰자: ${auc.winner.nickname}님 (${auctionFmt(auc.winner.total)}스푼)`, 150, 300)
+    const winner = auctionPickWeightedWinner(auc)
+    if (winner) {
+      const totalAll = auctionTotalSpoons(auc)
+      const pct = totalAll > 0 ? Math.round((winner.total / totalAll) * 1000) / 10 : 0
+      auc.winner = winner
+      sendChatSplit(djId, `🎉 [${auc.itemName}] 경매 종료! 추첨 당첨자: ${winner.nickname}님 🎊\n(당첨 확률 ${pct}% · 누적 ${auctionFmt(winner.total)}스푼)`, 150, 300)
     } else {
-      sendChatSplit(djId, `🔨 [${auc.id}번:${auc.itemName}] 경매가 참여자 없이 종료됐어요.`, 150, 300)
+      sendChatSplit(djId, `🔨 [${auc.itemName}] 경매가 참여자 없이 종료됐어요.`, 150, 300)
     }
   } else {
-    sendChatSplit(djId, `🚫 [${auc.id}번:${auc.itemName}] 경매가 취소됐어요.`, 150, 300)
+    sendChatSplit(djId, `🚫 [${auc.itemName}] 경매가 취소됐어요.`, 150, 300)
   }
   saveAuction(djId, a)
 }
@@ -4289,21 +4285,17 @@ async function handleAuctionCommand(djId, room, settings, author, authorId, live
   if (cfg.enabled === false) return
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
 
-  let m
-  if (cfg.cmdEnd && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmdEnd)}\\s*(\\d+)$`)))) {
-    if (isDj) auctionEnd(djId, a, parseInt(m[1], 10), 'ended')
+  if (cfg.cmdEnd && msg === cfg.cmdEnd) {
+    if (isDj) { const auc = auctionActive(a); if (auc) auctionEnd(djId, a, auc.id, 'ended') }
     return
   }
-  if (cfg.cmdCancel && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmdCancel)}\\s*(\\d+)$`)))) {
-    if (isDj) auctionEnd(djId, a, parseInt(m[1], 10), 'cancelled')
+  if (cfg.cmdCancel && msg === cfg.cmdCancel) {
+    if (isDj) { const auc = auctionActive(a); if (auc) auctionEnd(djId, a, auc.id, 'cancelled') }
     return
   }
   if (cfg.cmdMyBid && msg === cfg.cmdMyBid) { auctionMyBids(djId, a, actTag, author); return }
-
-  if (cfg.cmd && (m = msg.match(new RegExp(`^${escapeRegExp(cfg.cmd)}\\s*(\\d+)?$`)))) {
-    if (m[1]) auctionPlaceBid(djId, a, parseInt(m[1], 10), actTag, author)
-    else auctionListMsg(djId, a)
-  }
+  if (cfg.cmd && msg === `${cfg.cmd} 참여`) { auctionJoin(djId, a, actTag, author); return }
+  if (cfg.cmd && msg === cfg.cmd) { auctionListMsg(djId, a); return }
 }
 
 // 방송에 봇이 접속해있는 동안, 종료 시간이 지난 진행중 경매를 자동으로 종료 처리한다.
@@ -4314,13 +4306,13 @@ setInterval(() => {
     const settings = store.getSettings(djId) || {}
     if (!isModuleOn(settings, 'auction', djId)) continue
     const a = getAuctionSettings(djId, settings)
-    a.list.forEach(auc => {
-      if (auc.status === 'active' && auc.endAt && Date.now() >= auc.endAt) {
-        auctionEnd(djId, a, auc.id, 'ended')
-      }
-    })
+    const auc = auctionActive(a)
+    if (auc && auc.endAt && Date.now() >= auc.endAt) {
+      auctionEnd(djId, a, auc.id, 'ended')
+    }
   }
 }, 20000)
+
 
 // ══════════════════════════════════════════════════════
 // ⚔️ 검키우기 — 기존 "Sopia" 봇용으로 만들어져 있던 게임을 이 서버(Express) 구조로 이식.
@@ -12206,11 +12198,11 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const acfg = settings.auction.config
     groups.push({
       key: 'auction', icon: '🔨', label: '경매', items: [
-        { cmd: acfg.cmd, desc: '진행중인 경매 목록 조회' },
-        { cmd: acfg.cmd + ' [번호]', desc: '해당 경매에 입찰 (후원 후 입력)' },
-        { cmd: acfg.cmdMyBid, desc: '내 입찰 현황 조회' },
-        { cmd: acfg.cmdEnd + ' [번호]', desc: '경매 즉시 종료 (관리자)' },
-        { cmd: acfg.cmdCancel + ' [번호]', desc: '경매 취소 (관리자)' },
+        { cmd: acfg.cmd, desc: '진행중인 경매 현황 조회' },
+        { cmd: acfg.cmd + ' 참여', desc: '경매 참여 등록 (참여 후 보내는 선물이 자동 반영됨)' },
+        { cmd: acfg.cmdMyBid, desc: '내 참여 현황/당첨 확률 조회' },
+        { cmd: acfg.cmdEnd, desc: '진행중인 경매 즉시 종료 및 추첨 (관리자)' },
+        { cmd: acfg.cmdCancel, desc: '진행중인 경매 취소 (관리자)' },
       ].filter(x => x.cmd)
     })
   }
@@ -12347,6 +12339,7 @@ app.post('/auction/create', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const a = getAuctionSettings(req.djId, settings)
+  if (auctionActive(a)) return res.json({ success: false, error: '이미 진행중인 경매가 있어요. 먼저 종료하거나 취소한 뒤에 새 경매를 등록해주세요.' })
   const b = req.body || {}
   const itemName = String(b.itemName || '').trim()
   const endAt = Number(b.endAt)
@@ -12355,9 +12348,7 @@ app.post('/auction/create', auth.requireAuth, (req, res) => {
   const visibility = ['public', 'price_blind', 'info_blind', 'full_blind'].includes(b.visibility) ? b.visibility : 'public'
   const auc = {
     id: a.nextId++, itemName, status: 'active', visibility,
-    minBidSpoons: Math.max(0, Number(b.minBidSpoons) || 0),
-    minRaiseSpoons: Math.max(0, Number(b.minRaiseSpoons) || 0),
-    endAt, createdAt: Date.now(), bids: {}, leaderTag: null, winner: null,
+    endAt, createdAt: Date.now(), joined: {}, bids: {}, winner: null,
   }
   a.list.push(auc)
   saveAuction(req.djId, a)
@@ -12399,9 +12390,8 @@ app.post('/auction/settings', auth.requireAuth, (req, res) => {
   if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const a = getAuctionSettings(req.djId, settings)
   const b = req.body || {}
+  if (b.enabled != null) a.config.enabled = !!b.enabled
   if (b.announceOnBid != null) a.config.announceOnBid = !!b.announceOnBid
-  if (b.announceOnRankChange != null) a.config.announceOnRankChange = !!b.announceOnRankChange
-  if (b.donationExpirySeconds != null) a.config.donationExpirySeconds = Math.max(5, Number(b.donationExpirySeconds) || 60)
   const cmdKeys = ['cmd', 'cmdMyBid', 'cmdEnd', 'cmdCancel']
   cmdKeys.forEach(k => { if (b[k] != null) { let v = String(b[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) a.config[k] = v.slice(0, 30) } })
   saveAuction(req.djId, a)
