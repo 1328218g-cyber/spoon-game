@@ -1,6 +1,9 @@
 const WebSocket = require('ws')
 const express = require('express')
 const cors = require('cors')
+const fs = require('fs')
+const path = require('path')
+const crypto = require('crypto')
 const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
@@ -11,6 +14,14 @@ app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜�
 app.use(cors({ origin: '*' }))
 app.use(express.json({ limit: '20mb' })) // 로컬 에디봇 설정 마이그레이션 업로드(/account/migrate-local)를 위해 여유있게 설정
 app.use(require('express').static(__dirname + '/public'))
+
+// 🎵 입장/좋아요/지정인사 등에 첨부하는 음원 파일 — 예전엔 base64로 인코딩해서 djs.json 안에
+// 직접 저장했는데, 이게 파일 하나당 최대 1MB까지 그대로 djs.json에 쌓이면서 (그리고 store.js
+// 캐시 때문에 메모리에도 통째로 올라가면서) 결국 서버가 메모리 초과(OOM)로 죽는 사고가 났다.
+// 그래서 지금은 실제 파일로 Volume(store.DATA_DIR)에 저장하고, 설정에는 URL 경로만 남긴다.
+const SOUNDS_DIR = path.join(store.DATA_DIR, 'sounds')
+if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true })
+app.use('/sounds', require('express').static(SOUNDS_DIR, { maxAge: '30d' }))
 
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
@@ -10544,7 +10555,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
     setTimeout(() => sendChatToRoom(djId, text), 500)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
-  if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
+  if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
 function startLeavePolling(djId, liveId) {
@@ -10804,7 +10815,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (greeting) {
             const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
             setTimeout(() => sendChatToRoom(djId, text), 500)
-            if (greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
+            if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {
@@ -10814,7 +10825,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           }
           if (isModuleOn(settings, 'entrysettings', djId)) {
             const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
-            if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
+            if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
           }
         }
 
@@ -10838,7 +10849,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
           const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
-          if (em && em.soundData) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
+          if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
 
@@ -10908,7 +10919,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount).replace(/{amount}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
-            if (gm && gm.soundData) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
+            if (gm && (gm.soundUrl || gm.soundData)) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
           }
 
           if (isModuleOn(settings, 'tts', djId)) {
@@ -11109,6 +11120,79 @@ app.get('/stickers', async (req, res) => {
 
 // ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
+// 🎵 입장인사/지정인사 등에 첨부하는 음원 파일 업로드. base64 data URL을 받아서 Volume에 실제
+// 파일로 저장하고, 설정에는 이 URL 경로만 저장하게 한다 (djs.json이 커지는 걸 막기 위함).
+app.post('/sounds/upload', auth.requireAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  if (!m[1].startsWith('audio/')) return res.json({ success: false, error: '오디오 파일만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 1024 * 1024) return res.json({ success: false, error: '1MB 이하 파일만 업로드할 수 있어요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1] : 'mp3'
+  const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(SOUNDS_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/sounds/${name}`, filename: String(filename || name) })
+})
+// 더 이상 안 쓰는 음원 파일 삭제(첨부 제거/교체 시 호출). 본인이 올린 파일만 지울 수 있다.
+app.post('/sounds/delete', auth.requireAuth, (req, res) => {
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/sounds/')) return res.json({ success: true })
+  const name = path.basename(url)
+  if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true }) // 남의 파일은 조용히 무시
+  try { fs.unlinkSync(path.join(SOUNDS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// 🎵 예전에 djs.json 안에 base64로 직접 저장돼있던 음원들을 실제 파일로 옮기는 1회성 마이그레이션.
+// (이게 쌓여서 메모리 초과로 서버가 죽었던 사고의 근본 원인이었음 — 서버 시작할 때 한 번만 실행됨)
+function migrateSoundDataToFiles() {
+  let migratedCount = 0
+  let bytesFreed = 0
+  for (const djId of store.listDjIds()) {
+    const settings = store.getSettings(djId) || {}
+    let changed = false
+
+    const migrateItem = (item) => {
+      if (!item || !item.soundData || item.soundUrl) return
+      const m = String(item.soundData).match(/^data:([^;]+);base64,(.+)$/)
+      if (!m) { delete item.soundData; changed = true; return }
+      try {
+        const buffer = Buffer.from(m[2], 'base64')
+        const extMatch = String(item.sound || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+        const ext = extMatch ? extMatch[1] : 'mp3'
+        const name = `${djId}_migrated_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+        fs.writeFileSync(path.join(SOUNDS_DIR, name), buffer)
+        bytesFreed += buffer.length
+        item.soundUrl = `/sounds/${name}`
+        delete item.soundData
+        migratedCount++
+        changed = true
+      } catch (e) {
+        console.log(`[음원 마이그레이션] ${djId} 파일 저장 실패:`, e.message)
+      }
+    }
+
+    if (settings.entryData) {
+      ['entry', 'leave', 'like', 'gift', 'repeat'].forEach(cat => {
+        (settings.entryData[cat] || []).forEach(migrateItem)
+      })
+    }
+    if (Array.isArray(settings.greetings)) settings.greetings.forEach(migrateItem)
+
+    if (changed) store.saveSettings(djId, { entryData: settings.entryData, greetings: settings.greetings })
+  }
+  if (migratedCount > 0) {
+    console.log(`[음원 마이그레이션] 완료 — ${migratedCount}개 파일을 djs.json 밖으로 옮겼어요 (총 ${(bytesFreed / 1024 / 1024).toFixed(2)}MB 절약)`)
+  }
+}
+
 app.post('/auth/signup', (req, res) => {
   const { djId, password, djTag, email, deviceId } = req.body || {}
   const signupIp = req.ip
@@ -13405,6 +13489,10 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
+
+  // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
+  try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
+
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   const loadedDjIds = tokenManager.initFromDisk()
   if (loadedDjIds.length) {

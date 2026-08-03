@@ -506,5 +506,6 @@ module.exports = {
   addDuplicateCheckAllowedIp,
   removeDuplicateCheckAllowedIp,
   validEmail,
+  DATA_DIR,
   verifyRecoveryEmail,
 };

@@ -4552,23 +4552,32 @@ function chooseEntrySound(id){
   entrySoundTargetId=id;
   document.getElementById('entrySoundFileInput').click();
 }
-function handleEntrySoundFile(input){
+async function handleEntrySoundFile(input){
   const file=input.files&&input.files[0];
   if(!file||entrySoundTargetId==null)return;
   if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
   if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const targetId=entrySoundTargetId;
   const reader=new FileReader();
-  reader.onload=()=>{
-    updateEntryMsg(entrySoundTargetId,'sound',file.name);
-    updateEntryMsg(entrySoundTargetId,'soundData',reader.result);
-    renderEntryList();
-    showToast('음원을 첨부했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
+  reader.onload=async()=>{
+    showToast('음원 업로드 중...');
+    try{
+      const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){showToast(d.error||'업로드 실패');return;}
+      updateEntryMsg(targetId,'sound',file.name);
+      updateEntryMsg(targetId,'soundUrl',d.url);
+      updateEntryMsg(targetId,'soundData',''); // 예전 base64 흔적이 있었다면 정리
+      renderEntryList();
+      showToast('음원을 첨부했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
+    }catch(e){showToast('업로드 오류: '+e.message);}
   };
   reader.readAsDataURL(file);
   input.value='';
 }
 function removeEntrySound(id){
   updateEntryMsg(id,'sound','');
+  updateEntryMsg(id,'soundUrl','');
   updateEntryMsg(id,'soundData','');
   renderEntryList();
 }
@@ -5131,7 +5140,7 @@ let greetData=[];
 let greetIdSeq=1;
 let greetEditingId=null;
 let greetFormSound='';
-let greetFormSoundData='';
+let greetFormSoundUrl='';
 
 function renderGreetList(){
   const wrap=document.getElementById('greetListWrap');
@@ -5161,7 +5170,7 @@ function showGreetForm(id){
   document.getElementById('greetTag').value=g?g.tag:'';
   document.getElementById('greetMessage').value=g?g.message:'';
   greetFormSound=g?(g.sound||''):'';
-  greetFormSoundData=g?(g.soundData||''):'';
+  greetFormSoundUrl=g?(g.soundUrl||''):'';
   renderGreetSoundUI();
   document.getElementById('greetFormCard').style.display='block';
 }
@@ -5184,39 +5193,47 @@ function renderGreetSoundUI(){
 function chooseGreetSound(){
   document.getElementById('greetSoundFileInput').click();
 }
-function handleGreetSoundFile(input){
+async function handleGreetSoundFile(input){
   const file=input.files&&input.files[0];
   if(!file)return;
   if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
   if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
   const reader=new FileReader();
-  reader.onload=()=>{
-    greetFormSound=file.name;
-    greetFormSoundData=reader.result;
-    renderGreetSoundUI();
-    showToast('음원을 첨부했어요 (저장을 눌러야 최종 반영돼요)');
+  reader.onload=async()=>{
+    showToast('음원 업로드 중...');
+    try{
+      const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){showToast(d.error||'업로드 실패');return;}
+      greetFormSound=file.name;
+      greetFormSoundUrl=d.url;
+      renderGreetSoundUI();
+      showToast('음원을 첨부했어요 (저장을 눌러야 최종 반영돼요)');
+    }catch(e){showToast('업로드 오류: '+e.message);}
   };
   reader.readAsDataURL(file);
   input.value='';
 }
 function removeGreetSound(){
   greetFormSound='';
-  greetFormSoundData='';
+  greetFormSoundUrl='';
   renderGreetSoundUI();
 }
 function playGreetSoundPreview(){
-  if(!greetFormSoundData)return;
+  if(!greetFormSoundUrl)return;
   try{
-    const audio=new Audio(greetFormSoundData);
+    const audio=new Audio(SERVER+greetFormSoundUrl);
     audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
   }catch(e){}
 }
 // 실제 입장 시 서버가 SSE로 알려주면(entrysound와 동일한 방식), 로컬에 저장해둔 greetData에서 음원을 찾아 재생한다.
 function playGreetSoundById(id){
   const g=(greetData||[]).find(x=>String(x.id)===String(id));
-  if(!g||!g.soundData)return;
+  if(!g)return;
+  const src=g.soundUrl?(SERVER+g.soundUrl):g.soundData;
+  if(!src)return;
   try{
-    const audio=new Audio(g.soundData);
+    const audio=new Audio(src);
     audio.play().catch(()=>{});
   }catch(e){}
 }
@@ -5238,9 +5255,9 @@ function saveGreetForm(){
 
   if(greetEditingId){
     const g=greetData.find(x=>x.id===greetEditingId);
-    Object.assign(g,{tag,message,sound:greetFormSound,soundData:greetFormSoundData});
+    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:''});
   } else {
-    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundData:greetFormSoundData});
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:''});
   }
   hideGreetForm();
   renderGreetList();
@@ -9850,9 +9867,11 @@ async function resetSwordDefaults(){
 function playEntrySoundById(category,id){
   const list=(entryData && entryData[category])||[];
   const item=list.find(m=>String(m.id)===String(id));
-  if(!item||!item.soundData)return;
+  if(!item)return;
+  const src=item.soundUrl?(SERVER+item.soundUrl):item.soundData;
+  if(!src)return;
   try{
-    const audio=new Audio(item.soundData);
+    const audio=new Audio(src);
     audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
   }catch(e){}
 }
