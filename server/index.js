@@ -4331,9 +4331,9 @@ setInterval(() => {
 // 관리자(sum) 계정 아래 공용으로 저장해서, 이 모듈을 켠 모든 방송이 같은 설정을 공유한다
 // (플레이어 데이터가 Base44에 태그 기준으로 전역 저장되는 것과 같은 맥락).
 //
-// ⚠️ 1차 이식 범위: 강화·던전·배틀·랭킹·검정보(프로필)·판매·창고·유물·룬·탐험·룬제작/판매/강화·
-// 출석·저장/로드·검온오프·도움말. 상점/구매, 펫, 몬스터박스, 방보스, 자동배틀, 거래소,
-// 관리자 지급/차단/복구 명령어는 다음 차수에서 이어서 추가한다.
+// ⚠️ 이식 범위: 강화·던전·배틀·랭킹·검정보(프로필)·판매·창고·유물·룬·탐험·룬제작/판매/강화·
+// 출석·저장/로드·검온오프·도움말 (1차) + 상점/구매·펫·몬스터박스·방보스·자동배틀·거래소·
+// 관리자 지급(!쿠폰/!보상) (2차, handleSwordHelp 함수 위쪽 "2차 이식" 섹션 참고) 까지 이식 완료.
 
 const APP_URL = 'https://copy-09a708e1.base44.app'
 let API_TOKEN = process.env.SWORD_API_TOKEN || '102810aa'
@@ -4346,6 +4346,15 @@ let dungeonCooldowns = new Map()
 let loadCooldowns = new Map()
 let bannedUsersCache = new Set()
 let lastBannedCheck = 0
+
+// 2차 이식(상점/펫/몬스터박스/자동배틀/거래소/방보스/관리자 지급) 전용 상태 — 전부 인메모리, 프로세스 재시작 시 초기화됨
+let autoBattleUsers = new Map()      // tag -> true (자동배틀 진행 중 표시)
+let autoBattleIntervals = new Map()  // tag -> setInterval id
+let autoBattleTimeouts = new Map()   // tag -> setTimeout id (종료 예약)
+let autoBattleStats = new Map()      // tag -> { battles, wins, losses, goldEarned }
+let marketListings = []              // 거래소(자동쿠폰 전용): [{ id, sellerTag, sellerNick, qty, price, createdAt }]
+let currentBoss = null               // 방보스: { name, hp, maxHp, contributions:{tag:damage}, spawnedAt } | null
+let bossCooldowns = new Map()        // tag -> 마지막 !참여 시각 (연타 방지)
 
 async function checkBannedUser(tag) {
   // 5분마다 캐시 갱신
@@ -4397,6 +4406,7 @@ async function saveUserToDB(user) {
       userData: {
         nickname: user.nickname,
         gold: user.gold,
+        spoon_points: user.spoon_points,
         sword_level: user.sword_level,
         max_sword_level: user.max_sword_level,
         attack_power: user.attack_power,
@@ -4411,11 +4421,15 @@ async function saveUserToDB(user) {
         current_dungeon_floor: user.current_dungeon_floor,
         relics: user.relics,
         dungeon_tickets: user.dungeon_tickets,
+        auto_battle_tickets: user.auto_battle_tickets,
         runes: user.runes,
         rune_fragments: user.rune_fragments,
         last_explore_date: user.last_explore_date,
         explore_count: user.explore_count,
-        user_plan_level: user.user_plan_level
+        user_plan_level: user.user_plan_level,
+        pets: user.pets,
+        equipped_pet_id: user.equipped_pet_id,
+        pet_fragments: user.pet_fragments
       }
     };
     await apiRequest('saveGlobalSwordUser', 'POST', {}, payload);
@@ -8546,6 +8560,488 @@ function handleUpgradeRune(tag, nickname, runeName) {
   return `✨ ${runeName} 강화 성공!\n🆙 Lv.${currentLevel} → Lv.${runeData.level}\n⚡ 공격력 +${attackBonus} (총 ${runeData.attack})\n💎 룬 조각 ${requiredFragments}개 소모\n📦 남은 조각: ${user.rune_fragments}개`;
 }
 
+// ══════════════════════════════════════════════════════
+// ⚔️ 검키우기 2차 이식 — 상점/구매, 몬스터박스, 펫, 자동배틀, 거래소, 방보스, 관리자 지급.
+// 1차 이식 때 이미 만들어둔 shop_items/mystery_box_items/monster_box_items 설정과
+// pets/equipped_pet_id/pet_fragments/spoon_points 유저 필드, calculatePetAttackBonus/
+// calculatePetGoldBonus(이미 배틀·던전 보상 계산에 반영돼있음)를 그대로 활용한다.
+// ══════════════════════════════════════════════════════
+
+// ── 🏪 상점 / 구매 ──
+function handleShop() {
+  const items = (localSettings && localSettings.shop_items) || []
+  if (!items.length) return '🏪 상점이 비어있어요'
+  let msg = '🏪 검상점\n'
+  items.forEach((it, i) => {
+    const cur = it.price_type === 'spoon_points' ? 'P' : 'G'
+    msg += `${i + 1}. ${it.name} - ${(it.price || 0).toLocaleString()}${cur}\n`
+  })
+  msg += '\n!검구매[번호] [수량(선택)]'
+  return msg
+}
+
+// 몬스터 상자 개봉: monster_box_items의 "공격펫(+min~max)" / "골드펫(+min~max%)" 이름에서
+// 범위를 파싱해 랜덤 값으로 실제 펫을 만들어준다. "골드" 항목은 즉시 골드 지급, 나머지는 인벤토리 적립.
+function _swParsePetRange(name) {
+  const m = String(name || '').match(/\(\+?(\d+)~(\d+)%?\)/)
+  if (!m) return null
+  return { min: parseInt(m[1], 10), max: parseInt(m[2], 10) }
+}
+function _swRollTable(table) {
+  const total = table.reduce((s, r) => s + (Number(r.chance) || 0), 0)
+  if (total <= 0) return table[table.length - 1]
+  let roll = Math.random() * total
+  for (const row of table) {
+    roll -= (Number(row.chance) || 0)
+    if (roll <= 0) return row
+  }
+  return table[table.length - 1]
+}
+function openMonsterBoxes(user, qty) {
+  const table = (localSettings && localSettings.monster_box_items) || []
+  if (!table.length) return '❌ 몬스터 상자 아이템이 설정되지 않았어요'
+  if (!user.pets) user.pets = []
+  if (!user.inventory) user.inventory = {}
+  const counts = {}
+  for (let i = 0; i < qty; i++) {
+    const picked = _swRollTable(table)
+    counts[picked.name] = (counts[picked.name] || 0) + 1
+    if (picked.name === '골드') {
+      user.gold += picked.amount || 0
+    } else if (picked.name.startsWith('공격펫') || picked.name.startsWith('골드펫')) {
+      const isAttack = picked.name.startsWith('공격펫')
+      const range = _swParsePetRange(picked.name)
+      const val = range ? (range.min + Math.floor(Math.random() * (range.max - range.min + 1))) : (isAttack ? 5 : 100)
+      user.pets.push({
+        id: 'pet_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: isAttack ? `공격펫(+${val})` : `골드펫(+${val}%)`,
+        type: isAttack ? 'attack' : 'gold',
+        attack_bonus: isAttack ? val : 0,
+        gold_bonus_percent: isAttack ? 0 : val
+      })
+    } else {
+      user.inventory[picked.name] = (user.inventory[picked.name] || 0) + (picked.amount || 1)
+    }
+  }
+  return Object.entries(counts).map(([n, c]) => `📦 ${n} x${c}`).join('\n')
+}
+
+function handlePurchase(tag, nickname, idxRaw, qtyRaw) {
+  const idx = parseInt(idxRaw, 10)
+  if (!idx || idx < 1) return '사용법: !검구매[번호] [수량]\n예: !검구매1 또는 !검구매1 3'
+  const numQty = Math.max(1, parseInt(qtyRaw, 10) || 1)
+  const items = (localSettings && localSettings.shop_items) || []
+  const it = items[idx - 1]
+  if (!it) return '❌ 없는 아이템 번호예요'
+
+  const user = getOrCreateUser(tag, nickname)
+  const total = (it.price || 0) * numQty
+  const pt = it.price_type || 'gold'
+  if (pt === 'spoon_points') {
+    if ((user.spoon_points || 0) < total) return `💸 스푼 포인트 부족 (필요: ${total}P, 보유: ${user.spoon_points || 0}P)`
+  } else {
+    if (user.gold < total) return `💸 골드 부족 (필요: ${total.toLocaleString()}골드)`
+  }
+  const pay = () => { if (pt === 'spoon_points') user.spoon_points -= total; else user.gold -= total }
+
+  if (it.effect_type === 'dungeon_ticket') {
+    pay(); user.dungeon_tickets = (user.dungeon_tickets || 0) + numQty * (it.effect_value || 1)
+    saveLocalData()
+    return `✅ 던전 이용권 x${numQty} 구매!\n🎫 보유: ${user.dungeon_tickets}개`
+  }
+  if (it.effect_type === 'dungeon_reset') {
+    pay(); user.current_dungeon_floor = 1
+    saveLocalData()
+    return '✅ 던전 리셋! 1층으로 초기화됐어요'
+  }
+  if (it.effect_type === 'auto_battle_ticket') {
+    pay()
+    if (!user.inventory) user.inventory = {}
+    user.inventory['자동쿠폰'] = (user.inventory['자동쿠폰'] || 0) + numQty
+    saveLocalData()
+    return `✅ 자동쿠폰 x${numQty} 구매!\n🎟️ 보유: ${user.inventory['자동쿠폰']}개 (1개 = ${it.effect_value || 10}분)`
+  }
+  if (it.effect_type === 'mystery_box') {
+    const mbi = (localSettings && localSettings.mystery_box_items) || []
+    if (!mbi.length) return '❌ 미스터리 상자가 설정되지 않았어요'
+    pay()
+    if (!user.inventory) user.inventory = {}
+    const counts = {}
+    for (let i = 0; i < numQty; i++) {
+      const picked = _swRollTable(mbi)
+      counts[picked.name] = (counts[picked.name] || 0) + 1
+      if (picked.name === '골드') user.gold += picked.amount || 2000
+      else user.inventory[picked.name] = (user.inventory[picked.name] || 0) + 1
+    }
+    saveLocalData()
+    return `🎁 미스터리 상자 x${numQty} 오픈!\n\n` + Object.entries(counts).map(([n, c]) => `📦 ${n} x${c}`).join('\n') + `\n\n💰 잔액: ${user.gold.toLocaleString()}골드`
+  }
+  if (it.effect_type === 'monster_box') {
+    pay()
+    const openMsg = openMonsterBoxes(user, numQty)
+    saveLocalData()
+    return `🎁 몬스터 상자 x${numQty} 오픈!\n\n${openMsg}\n\n💰 잔액: ${user.gold.toLocaleString()}골드 / 💎 스푼: ${user.spoon_points || 0}P`
+  }
+  if (it.effect_type === 'pet_box') {
+    pay()
+    if (!user.pets) user.pets = []
+    const names = []
+    for (let i = 0; i < numQty; i++) {
+      const isAttack = Math.random() < 0.5
+      const val = isAttack ? (5 + Math.floor(Math.random() * 146)) : (200 + Math.floor(Math.random() * 19801))
+      const pet = {
+        id: 'pet_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: isAttack ? `공격펫(+${val})` : `골드펫(+${val}%)`,
+        type: isAttack ? 'attack' : 'gold',
+        attack_bonus: isAttack ? val : 0,
+        gold_bonus_percent: isAttack ? 0 : val
+      }
+      user.pets.push(pet)
+      names.push(pet.name)
+    }
+    saveLocalData()
+    return `🐾 펫 상자 x${numQty} 오픈!\n\n${names.map(n => '🐾 ' + n).join('\n')}\n\n총 보유 펫: ${user.pets.length}마리\n!펫 으로 확인하고 !펫착용[번호]로 장착하세요`
+  }
+  // 강화제/파괴방지/하락방지/옵션류 등 나머지는 이름 그대로 인벤토리에 적립
+  // (handleEnhance가 이미 아이템 이름으로 알아서 인식하도록 짜여있음)
+  pay()
+  if (!user.inventory) user.inventory = {}
+  user.inventory[it.name] = (user.inventory[it.name] || 0) + numQty
+  saveLocalData()
+  return `✅ ${it.name} x${numQty} 구매 완료!\n${pt === 'spoon_points' ? '💎 잔여 스푼: ' + (user.spoon_points || 0) + 'P' : '💰 잔여 골드: ' + user.gold.toLocaleString() + '골드'}`
+}
+
+// ── 🐾 펫 ──
+function handleMyPets(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname)
+  const pets = user.pets || []
+  if (!pets.length) return '🐾 보유한 펫이 없어요\n💡 !검상점에서 펫 상자를 구매해보세요 (스푼 포인트 필요)'
+  let msg = `🐾 보유 펫 (${pets.length}마리) · 💎 펫 재료: ${user.pet_fragments || 0}개\n\n`
+  pets.forEach((p, i) => {
+    const eq = p.id === user.equipped_pet_id ? ' [착용중]' : ''
+    msg += p.type === 'attack' ? `${i + 1}. ${p.name} 공격력+${p.attack_bonus}${eq}\n` : `${i + 1}. ${p.name} 골드+${p.gold_bonus_percent}%${eq}\n`
+  })
+  msg += '\n!펫착용[번호] · !펫해제 · !펫분해[번호] · !펫강화[번호]'
+  return msg
+}
+function handleEquipPet(tag, nickname, idxRaw) {
+  const idx = parseInt(idxRaw, 10)
+  if (!idx || idx < 1) return '사용법: !펫착용[번호]'
+  const user = getOrCreateUser(tag, nickname)
+  const pet = (user.pets || [])[idx - 1]
+  if (!pet) return '❌ 없는 펫 번호예요'
+  user.equipped_pet_id = pet.id
+  saveLocalData()
+  const bonus = pet.type === 'attack' ? `공격력+${pet.attack_bonus}` : `골드+${pet.gold_bonus_percent}%`
+  return `✅ ${pet.name} 착용 완료! (${bonus})`
+}
+function handleUnequipPet(tag, nickname) {
+  const user = getOrCreateUser(tag, nickname)
+  if (!user.equipped_pet_id) return '❌ 착용 중인 펫이 없어요'
+  user.equipped_pet_id = null
+  saveLocalData()
+  return '✅ 펫 해제 완료!'
+}
+function handleDisassemblePet(tag, nickname, idxRaw) {
+  const idx = parseInt(idxRaw, 10)
+  if (!idx || idx < 1) return '사용법: !펫분해[번호]'
+  const user = getOrCreateUser(tag, nickname)
+  const pets = user.pets || []
+  const pet = pets[idx - 1]
+  if (!pet) return '❌ 없는 펫 번호예요'
+  if (pet.id === user.equipped_pet_id) return '❌ 착용 중인 펫은 분해할 수 없어요. 먼저 !펫해제 해주세요'
+  pets.splice(idx - 1, 1)
+  user.pets = pets
+  const gained = 5
+  user.pet_fragments = (user.pet_fragments || 0) + gained
+  saveLocalData()
+  return `✅ ${pet.name} 분해 완료!\n💎 펫 재료 +${gained}개 (보유: ${user.pet_fragments}개)`
+}
+const SWORD_PET_ENHANCE_COST = 10
+function handleEnhancePet(tag, nickname, idxRaw) {
+  const idx = parseInt(idxRaw, 10)
+  if (!idx || idx < 1) return '사용법: !펫강화[번호]'
+  const user = getOrCreateUser(tag, nickname)
+  const pet = (user.pets || [])[idx - 1]
+  if (!pet) return '❌ 없는 펫 번호예요'
+  if ((user.pet_fragments || 0) < SWORD_PET_ENHANCE_COST) return `💎 펫 재료 부족 (필요: ${SWORD_PET_ENHANCE_COST}개, 보유: ${user.pet_fragments || 0}개)\n💡 다른 펫을 !펫분해 해서 재료를 모아보세요`
+  user.pet_fragments -= SWORD_PET_ENHANCE_COST
+  if (pet.type === 'attack') {
+    pet.attack_bonus += Math.max(1, Math.round(pet.attack_bonus * 0.1))
+    pet.name = `공격펫(+${pet.attack_bonus})`
+  } else {
+    pet.gold_bonus_percent += Math.max(10, Math.round(pet.gold_bonus_percent * 0.1))
+    pet.name = `골드펫(+${pet.gold_bonus_percent}%)`
+  }
+  saveLocalData()
+  const bonus = pet.type === 'attack' ? `공격력+${pet.attack_bonus}` : `골드+${pet.gold_bonus_percent}%`
+  return `✅ 펫 강화 완료! ${pet.name}\n💎 남은 재료: ${user.pet_fragments}개 · 효과: ${bonus}`
+}
+
+// ── 🤖 자동배틀 — 자동쿠폰 1개 = 10분, 10초마다 자동으로 !배틀 실행 ──
+function handleAutoOn(djId, tag, nickname, qtyRaw) {
+  if (autoBattleUsers.has(tag)) return '⚠️ 이미 자동배틀이 진행 중이에요'
+  const user = getOrCreateUser(tag, nickname)
+  const inv = user.inventory || {}
+  const ticketCount = inv['자동쿠폰'] || 0
+  if (ticketCount <= 0) return '❌ 자동쿠폰이 없어요\n💡 던전에서 획득하거나 !검상점에서 구매해보세요'
+
+  let used = ticketCount
+  const sq = parseInt(qtyRaw, 10)
+  if (sq > 0 && sq <= ticketCount) used = sq
+  const perTicketMin = 10
+  const totalMs = used * perTicketMin * 60 * 1000
+
+  inv['자동쿠폰'] -= used
+  if (inv['자동쿠폰'] <= 0) delete inv['자동쿠폰']
+  user.inventory = inv
+
+  autoBattleUsers.set(tag, true)
+  autoBattleStats.set(tag, { battles: 0, wins: 0, losses: 0, goldEarned: 0 })
+
+  const intervalId = setInterval(() => {
+    if (!autoBattleUsers.has(tag)) { clearInterval(intervalId); return }
+    const stats = autoBattleStats.get(tag)
+    if (!stats) return
+    const before = (localUsers.get(tag) || {}).gold || 0
+    let battleResult = null
+    try { battleResult = handleBattle(tag, nickname, '') } catch (e) { battleResult = null }
+    if (battleResult && !battleResult.includes('쿨타임')) {
+      stats.battles++
+      const after = (localUsers.get(tag) || {}).gold || 0
+      const diff = after - before
+      if (battleResult.includes('승리')) { stats.wins++; stats.goldEarned += Math.max(0, diff) }
+      else if (battleResult.includes('패배')) stats.losses++
+    }
+  }, 10000)
+  autoBattleIntervals.set(tag, intervalId)
+
+  const timeoutId = setTimeout(() => {
+    const iid = autoBattleIntervals.get(tag)
+    if (iid) clearInterval(iid)
+    autoBattleIntervals.delete(tag)
+    const stats = autoBattleStats.get(tag) || {}
+    autoBattleUsers.delete(tag)
+    autoBattleStats.delete(tag)
+    autoBattleTimeouts.delete(tag)
+    saveLocalData()
+    sendChatSplit(djId, `⏰ [${nickname}] 자동배틀 시간 종료!\n📊 총 ${stats.battles || 0}회 대결 (${stats.wins || 0}승 ${stats.losses || 0}패)\n💰 획득 골드: ${(stats.goldEarned || 0).toLocaleString()}골드`, 150, 300)
+  }, totalMs)
+  autoBattleTimeouts.set(tag, timeoutId)
+
+  saveLocalData()
+  return `✅ 자동배틀 시작!\n🎟️ 쿠폰 ${used}개 사용 (${used * perTicketMin}분간 진행, 10초마다 자동 대결)\n!자동오프 로 중간에 멈출 수 있어요`
+}
+function handleAutoOff(tag) {
+  if (!autoBattleUsers.has(tag)) return '❌ 진행 중인 자동배틀이 없어요'
+  const iid = autoBattleIntervals.get(tag); if (iid) clearInterval(iid)
+  const tid = autoBattleTimeouts.get(tag); if (tid) clearTimeout(tid)
+  const stats = autoBattleStats.get(tag) || {}
+  autoBattleUsers.delete(tag); autoBattleIntervals.delete(tag); autoBattleTimeouts.delete(tag); autoBattleStats.delete(tag)
+  return `🛑 자동배틀 중지!\n📊 총 ${stats.battles || 0}회 대결 (${stats.wins || 0}승 ${stats.losses || 0}패)\n💰 획득 골드: ${(stats.goldEarned || 0).toLocaleString()}골드`
+}
+function handleAutoStatus(tag) {
+  if (!autoBattleUsers.has(tag)) return '❌ 진행 중인 자동배틀이 없어요\n💡 !자동온 으로 시작할 수 있어요'
+  const stats = autoBattleStats.get(tag) || {}
+  return `🤖 자동배틀 진행 중\n📊 ${stats.battles || 0}회 대결 (${stats.wins || 0}승 ${stats.losses || 0}패)\n💰 획득 골드: ${(stats.goldEarned || 0).toLocaleString()}골드`
+}
+
+// ── 💱 거래소 — 자동쿠폰만 거래 가능, 개인당 최대 3개 등록 ──
+function handleMarketList() {
+  if (!marketListings.length) return '💱 거래소가 비어있어요\n!거래등록[수량] [가격] 으로 자동쿠폰을 등록해보세요 (개인당 최대 3개)'
+  let msg = '💱 검키우기 거래소 (자동쿠폰 전용)\n\n'
+  marketListings.forEach((l, i) => {
+    msg += `${i + 1}. 자동쿠폰 x${l.qty} — ${l.price.toLocaleString()}골드 (판매자: ${l.sellerNick})\n`
+  })
+  msg += '\n!거래구매[번호]'
+  return msg
+}
+function handleMarketRegister(tag, nickname, qtyRaw, priceRaw) {
+  const qty = parseInt(qtyRaw, 10)
+  const price = parseInt(priceRaw, 10)
+  if (!qty || qty < 1 || !price || price <= 0) return '사용법: !거래등록[수량] [가격]\n예: !거래등록 2 1000'
+  const existingQty = marketListings.filter(l => l.sellerTag === tag).reduce((s, l) => s + l.qty, 0)
+  if (existingQty + qty > 3) return `❌ 개인당 자동쿠폰 최대 3개까지 등록할 수 있어요 (현재 등록: ${existingQty}개)`
+  const user = getOrCreateUser(tag, nickname)
+  const inv = user.inventory || {}
+  const have = inv['자동쿠폰'] || 0
+  if (have < qty) return `❌ 자동쿠폰이 부족해요 (보유: ${have}개)`
+  inv['자동쿠폰'] = have - qty
+  if (inv['자동쿠폰'] <= 0) delete inv['자동쿠폰']
+  user.inventory = inv
+  marketListings.push({ id: 'mkt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), sellerTag: tag, sellerNick: nickname, qty, price, createdAt: Date.now() })
+  saveLocalData()
+  return `✅ 자동쿠폰 x${qty}를 ${price.toLocaleString()}골드에 거래소에 등록했어요`
+}
+function handleMarketBuy(tag, nickname, idxRaw) {
+  const idx = parseInt(idxRaw, 10)
+  if (!idx || idx < 1) return '사용법: !거래구매[번호]'
+  const listing = marketListings[idx - 1]
+  if (!listing) return '❌ 없는 거래 번호예요'
+  if (listing.sellerTag === tag) return '❌ 본인이 등록한 거래는 구매할 수 없어요'
+  const buyer = getOrCreateUser(tag, nickname)
+  if (buyer.gold < listing.price) return `💸 골드 부족 (필요: ${listing.price.toLocaleString()}골드)`
+  buyer.gold -= listing.price
+  if (!buyer.inventory) buyer.inventory = {}
+  buyer.inventory['자동쿠폰'] = (buyer.inventory['자동쿠폰'] || 0) + listing.qty
+  const seller = localUsers.get(listing.sellerTag)
+  if (seller) seller.gold += listing.price
+  marketListings.splice(idx - 1, 1)
+  saveLocalData()
+  return `✅ 자동쿠폰 x${listing.qty} 구매 완료! (-${listing.price.toLocaleString()}골드)`
+}
+
+// ── 👹 방보스 (도플갱어) — sum 전용 소환, 전체 공용 레이드 ──
+const SWORD_BOSS_JOIN_COOLDOWN_MS = 3000
+function handleBossSpawn(tag) {
+  if (String(tag).toLowerCase() !== 'sum') return '❌ 관리자만 사용할 수 있는 명령어예요'
+  if (currentBoss && currentBoss.hp > 0) return `⚠️ 이미 [${currentBoss.name}]이(가) 등장해있어요 (남은 HP: ${currentBoss.hp.toLocaleString()})`
+  const cfg = (localSettings && localSettings.boss_config) || {}
+  const maxHp = cfg.hp || 5000000
+  currentBoss = { name: cfg.name || '도플갱어', hp: maxHp, maxHp, contributions: {}, spawnedAt: Date.now() }
+  saveLocalData()
+  return `👹 [${currentBoss.name}]이(가) 나타났습니다!\n❤️ HP: ${maxHp.toLocaleString()}\n!참여 로 공격하세요!`
+}
+function handleBossJoin(djId, tag, nickname) {
+  if (!currentBoss || currentBoss.hp <= 0) return '❌ 지금 나타난 보스가 없어요'
+  const last = bossCooldowns.get(tag) || 0
+  if (Date.now() - last < SWORD_BOSS_JOIN_COOLDOWN_MS) return null // 너무 잦은 연타는 조용히 무시
+  bossCooldowns.set(tag, Date.now())
+
+  const user = getOrCreateUser(tag, nickname)
+  const petAttack = calculatePetAttackBonus(user)
+  const dmg = Math.max(1, Math.floor((user.attack_power || 1) + petAttack))
+  currentBoss.hp = Math.max(0, currentBoss.hp - dmg)
+  currentBoss.contributions[tag] = (currentBoss.contributions[tag] || 0) + dmg
+
+  if (currentBoss.hp <= 0) {
+    const cfg = (localSettings && localSettings.boss_config) || {}
+    const rewardPool = cfg.gold_reward || 50000000
+    const bossName = currentBoss.name
+    const contribs = Object.entries(currentBoss.contributions).sort((a, b) => b[1] - a[1])
+    const totalDmg = contribs.reduce((s, [, d]) => s + d, 0) || 1
+    let msg = `🎉 [${bossName}] 처치! 기여도만큼 골드를 나눠 드렸어요.\n\n`
+    contribs.forEach(([t, d], i) => {
+      const share = Math.round(rewardPool * (d / totalDmg))
+      const u = localUsers.get(t)
+      if (u) u.gold += share
+      if (i < 5) msg += `${i + 1}위 ${u ? u.nickname : t} — 피해 ${d.toLocaleString()} → +${share.toLocaleString()}골드\n`
+    })
+    currentBoss = null
+    saveLocalData()
+    return msg.trim()
+  }
+
+  saveLocalData()
+  return `⚔️ [${currentBoss.name}]에게 ${dmg.toLocaleString()} 피해!\n❤️ 남은 HP: ${currentBoss.hp.toLocaleString()} / ${currentBoss.maxHp.toLocaleString()}`
+}
+function handleBossStatus() {
+  // ⚠️ "!상태"는 낚시(fishing) 모듈도 자체적으로 쓰는 명령어라, 보스가 없을 때는
+  // 조용히 무시해서(응답 없음) 두 모듈을 같이 켜둔 방송에서 메시지가 중복되지 않게 한다.
+  if (!currentBoss || currentBoss.hp <= 0) return null
+  const pct = Math.round((currentBoss.hp / currentBoss.maxHp) * 100)
+  const participants = Object.keys(currentBoss.contributions).length
+  return `👹 [${currentBoss.name}]\n❤️ HP: ${currentBoss.hp.toLocaleString()} / ${currentBoss.maxHp.toLocaleString()} (${pct}%)\n👥 참여자: ${participants}명`
+}
+
+// ── 🛠️ 관리자 지급 명령어 (sum 전용) ──
+function handleGrantReward(tag, targetTagRaw, amountRaw) {
+  if (String(tag).toLowerCase() !== 'sum') return '❌ 관리자만 사용할 수 있는 명령어예요'
+  const amount = parseInt(amountRaw, 10)
+  if (!targetTagRaw || !amount) return '사용법: !보상 [고유닉] [골드]'
+  const cleanTag = String(targetTagRaw).replace('@', '').toLowerCase()
+  const user = localUsers.get(cleanTag)
+  if (!user) return `❌ [${cleanTag}] 유저 데이터를 찾을 수 없어요 (한 번이라도 게임을 해야 지급 가능해요)`
+  user.gold += amount
+  saveLocalData()
+  return `✅ [${user.nickname}]님에게 ${amount.toLocaleString()}골드 지급 완료! (현재: ${user.gold.toLocaleString()}골드)`
+}
+function handleGrantCoupon(tag, targetTagRaw, qtyRaw) {
+  // ⚠️ "!쿠폰"은 쿠폰확인 모듈 기본 명령어와 겹칠 수 있어서, 관리자가 아니면 조용히 무시한다(응답 없음).
+  if (String(tag).toLowerCase() !== 'sum') return null
+  const qty = Math.max(1, parseInt(qtyRaw, 10) || 1)
+  if (!targetTagRaw) return '사용법: !쿠폰 [고유닉] [수량]'
+  const cleanTag = String(targetTagRaw).replace('@', '').toLowerCase()
+  const user = localUsers.get(cleanTag)
+  if (!user) return `❌ [${cleanTag}] 유저 데이터를 찾을 수 없어요`
+  if (!user.inventory) user.inventory = {}
+  user.inventory['자동쿠폰'] = (user.inventory['자동쿠폰'] || 0) + qty
+  saveLocalData()
+  return `✅ [${user.nickname}]님에게 자동쿠폰 x${qty} 지급 완료! (보유: ${user.inventory['자동쿠폰']}개)`
+}
+// sum 전용 테스트 — 몬스터 상자 1개 즉시 오픈
+function handleMonsterBoxTest(tag, nickname) {
+  if (String(tag).toLowerCase() !== 'sum') return '❌ sum 전용 테스트 명령어예요'
+  const user = getOrCreateUser(tag, nickname)
+  const msg = openMonsterBoxes(user, 1)
+  saveLocalData()
+  return `🎁 몬스터 상자 테스트!\n\n${msg}\n\n💰 ${user.gold.toLocaleString()}골드`
+}
+
+// ── 🛠️ 추가 관리자 명령어 (sum 전용 / sum·sum1004 전용 / hs7234·sum1004 전용) ──
+
+// !ALL — 지금 메모리에 있는 모든 유저 데이터를 한 번에 Base44에 저장한다 (서버 재시작 전 백업용)
+async function handleSaveAllUsers(tag) {
+  if (String(tag).toLowerCase() !== 'sum') return null
+  const users = Array.from(localUsers.values())
+  let saved = 0
+  for (const u of users) {
+    try { if (await saveUserToDB(u)) saved++ } catch (e) { /* 개별 실패는 무시하고 계속 진행 */ }
+  }
+  return `✅ 전체 유저 데이터 저장 완료! (${saved}/${users.length}명)`
+}
+
+// !유물리셋 — 고급 유물(화염/번개/빛/바람/얼음/대지/도플갱어)을 로컬 캐시에 있는 모든 유저에게서 제거
+const SWORD_ADVANCED_RELIC_NAMES = ['화염', '번개', '빛', '바람', '얼음', '대지', '도플갱어']
+function handleRemoveAdvancedRelics(tag) {
+  if (String(tag).toLowerCase() !== 'sum') return null
+  let affected = 0
+  for (const u of localUsers.values()) {
+    if (!u.relics) continue
+    let touched = false
+    for (const name of SWORD_ADVANCED_RELIC_NAMES) {
+      if (u.relics[name]) { delete u.relics[name]; touched = true }
+    }
+    if (touched) affected++
+  }
+  saveLocalData()
+  return `✅ 고급 유물 제거 완료! (영향받은 유저: ${affected}명)`
+}
+
+// !차단 [고유닉] [일수] [사유] — 로컬 차단 목록(Base44 원격 차단 목록과 별개, 이 서버 안에서만 적용됨)
+function isLocallyBanned(tag) {
+  const bans = (localSettings && localSettings.local_bans) || {}
+  const entry = bans[tag]
+  if (!entry) return false
+  if (entry.until && Date.now() > entry.until) { delete bans[tag]; return false }
+  return true
+}
+function handleLocalBan(tag, targetTagRaw, daysRaw, reasonParts) {
+  if (!['sum', 'sum1004'].includes(String(tag).toLowerCase())) return null
+  const days = Math.min(30, Math.max(1, parseInt(daysRaw, 10) || 1))
+  if (!targetTagRaw) return '사용법: !차단 [고유닉] [일수(1~30)] [사유]'
+  const cleanTag = String(targetTagRaw).replace('@', '').toLowerCase()
+  if (!localSettings.local_bans) localSettings.local_bans = {}
+  const until = Date.now() + days * 24 * 60 * 60 * 1000
+  const reason = (reasonParts || []).join(' ') || '사유 미기재'
+  localSettings.local_bans[cleanTag] = { until, reason, bannedBy: tag, bannedAt: Date.now() }
+  persistSwordSettings()
+  return `🚫 [${cleanTag}] ${days}일 차단 완료 (사유: ${reason})`
+}
+
+// !골드 [고유닉] [금액] — 골드 직접 조정 (음수 가능, hs7234·sum1004 전용)
+function handleAdjustGold(tag, targetTagRaw, amountRaw) {
+  if (!['hs7234', 'sum1004'].includes(String(tag).toLowerCase())) return null
+  const amount = parseInt(amountRaw, 10)
+  if (!targetTagRaw || !Number.isFinite(amount)) return '사용법: !골드 [고유닉] [금액] (음수 가능)'
+  const cleanTag = String(targetTagRaw).replace('@', '').toLowerCase()
+  const user = localUsers.get(cleanTag)
+  if (!user) return `❌ [${cleanTag}] 유저 데이터를 찾을 수 없어요`
+  user.gold = Math.max(0, user.gold + amount)
+  saveLocalData()
+  return `✅ [${user.nickname}] 골드 ${amount >= 0 ? '+' : ''}${amount.toLocaleString()} 조정 완료! (현재: ${user.gold.toLocaleString()}골드)`
+}
+
 function handleSwordHelp() {
   let msg = '⚔️ 검키우기 명령어\n\n';
   msg += '• ⚔️ !강화 - 검 강화 (성공/실패/하락/파괴)\n';
@@ -8716,7 +9212,11 @@ function saveLocalData() {
   if (swordSaveDebounceTimer) clearTimeout(swordSaveDebounceTimer)
   swordSaveDebounceTimer = setTimeout(() => {
     try {
-      store.saveSettings(SHARED_TOKEN_DJID, { swordGameUsers: Object.fromEntries(localUsers) })
+      store.saveSettings(SHARED_TOKEN_DJID, {
+        swordGameUsers: Object.fromEntries(localUsers),
+        swordGameMarket: marketListings,
+        swordGameBoss: currentBoss
+      })
     } catch (e) { console.log('[검키우기] 유저 캐시 저장 실패', e.message) }
   }, 2000)
 }
@@ -8730,6 +9230,8 @@ function loadSwordUsersIfNeeded() {
       localUsers = new Map(Object.entries(adminSettings.swordGameUsers))
       console.log('[검키우기] 캐시에서 유저 데이터 복원:', localUsers.size, '명')
     }
+    if (Array.isArray(adminSettings.swordGameMarket)) marketListings = adminSettings.swordGameMarket
+    if (adminSettings.swordGameBoss && adminSettings.swordGameBoss.hp > 0) currentBoss = adminSettings.swordGameBoss
   } catch (e) { console.log('[검키우기] 유저 캐시 로드 실패', e.message) }
 }
 function ensureSwordSettingsLoaded() {
@@ -8788,7 +9290,9 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
   }
 
   const PHASE1_CMDS = ['!강화', '!던전', '!유물', '!룬', '!탐험', '!룬제작', '!룬판매', '!룬강화',
-    '!검랭킹', '!프로필', '!배틀', '!판매', '!창고', '!출석', '!도움말', '!저장', '!로드', '!검버전']
+    '!검랭킹', '!프로필', '!배틀', '!판매', '!창고', '!출석', '!도움말', '!저장', '!로드', '!검버전',
+    '!검상점', '!검구매', '!펫', '!자동온', '!자동오프', '!자동', '!거래소', '!거래등록', '!거래구매',
+    '!참여', '!상태', '!보스', '!몬스터', '!쿠폰', '!보상', '!ALL', '!차단', '!골드']
   const isSwordCommand = PHASE1_CMDS.some(c => textLower === c || textLower.startsWith(c))
   if (!isSwordCommand) return
 
@@ -8801,11 +9305,12 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
   const tag = actTag ? String(actTag).trim().toLowerCase() : null
   if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
 
-  // 차단 유저 체크 (원본 로직 그대로, Base44 API 사용)
+  // 차단 유저 체크 (원본 로직 그대로, Base44 API 사용 + 이 서버 안에서만 적용되는 로컬 차단)
   try {
     const isBanned = await checkBannedUser(tag)
     if (isBanned) { sendChatSplit(djId, '❌ 차단된 등록자입니다', 150, 300); return }
   } catch (e) { /* 차단 체크 실패해도 게임은 계속 진행 */ }
+  if (isLocallyBanned(tag)) { sendChatSplit(djId, '❌ 차단된 등록자입니다', 150, 300); return }
 
   let result = null
   try {
@@ -8852,6 +9357,60 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
     } else if (msg === '!검버전') {
       const userCount = localUsers.size
       result = '검키우기 봇: 이식판(1차) ⚔️\n접속 유저: ' + userCount + '명\n강화 쿨타임: ' + (localSettings?.enhance_cooldown || 3) + '초\n배틀 쿨타임: ' + (localSettings?.battle_cooldown || 20) + '초'
+    } else if (textLower.startsWith('!검상점')) {
+      result = handleShop()
+    } else if (textLower.startsWith('!검구매')) {
+      const attached = textLower.match(/^!검구매(\d+)/)
+      const idx = attached ? attached[1] : parts[1]
+      const qty = attached ? parts[1] : parts[2]
+      result = handlePurchase(tag, author, idx, qty)
+    } else if (textLower.startsWith('!펫착용')) {
+      const attached = textLower.match(/^!펫착용(\d+)/)
+      result = handleEquipPet(tag, author, attached ? attached[1] : parts[1])
+    } else if (textLower === '!펫해제') {
+      result = handleUnequipPet(tag, author)
+    } else if (textLower.startsWith('!펫분해')) {
+      const attached = textLower.match(/^!펫분해(\d+)/)
+      result = handleDisassemblePet(tag, author, attached ? attached[1] : parts[1])
+    } else if (textLower.startsWith('!펫강화')) {
+      const attached = textLower.match(/^!펫강화(\d+)/)
+      result = handleEnhancePet(tag, author, attached ? attached[1] : parts[1])
+    } else if (textLower === '!펫') {
+      result = handleMyPets(tag, author)
+    } else if (textLower.startsWith('!자동온')) {
+      const attached = textLower.match(/^!자동온(\d+)/)
+      result = handleAutoOn(djId, tag, author, attached ? attached[1] : parts[1])
+    } else if (textLower === '!자동오프') {
+      result = handleAutoOff(tag)
+    } else if (textLower === '!자동') {
+      result = handleAutoStatus(tag)
+    } else if (textLower === '!거래소') {
+      result = handleMarketList()
+    } else if (textLower.startsWith('!거래등록')) {
+      result = handleMarketRegister(tag, author, parts[1], parts[2])
+    } else if (textLower.startsWith('!거래구매')) {
+      const attached = textLower.match(/^!거래구매(\d+)/)
+      result = handleMarketBuy(tag, author, attached ? attached[1] : parts[1])
+    } else if (textLower === '!참여') {
+      result = handleBossJoin(djId, tag, author)
+    } else if (textLower === '!상태') {
+      result = handleBossStatus()
+    } else if (textLower === '!보스') {
+      result = handleBossSpawn(tag)
+    } else if (textLower === '!몬스터') {
+      result = handleMonsterBoxTest(tag, author)
+    } else if (textLower.startsWith('!쿠폰')) {
+      result = handleGrantCoupon(tag, parts[1], parts[2])
+    } else if (textLower.startsWith('!보상')) {
+      result = handleGrantReward(tag, parts[1], parts[2])
+    } else if (msg === '!ALL') {
+      result = await handleSaveAllUsers(tag)
+    } else if (textLower.startsWith('!유물리셋')) {
+      result = handleRemoveAdvancedRelics(tag)
+    } else if (textLower.startsWith('!차단')) {
+      result = handleLocalBan(tag, parts[1], parts[2], parts.slice(3))
+    } else if (textLower.startsWith('!골드')) {
+      result = handleAdjustGold(tag, parts[1], parts[2])
     }
   } catch (e) {
     console.log(`[검키우기:${djId}] 처리 중 오류`, e.message)
