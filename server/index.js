@@ -9894,6 +9894,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (greeting) {
             const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
             setTimeout(() => sendChatToRoom(djId, text), 500)
+            if (greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {

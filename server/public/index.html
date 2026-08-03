@@ -1129,6 +1129,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="chip-row">
             <span class="chip" onclick="insertGreetVar('{유저}')">{유저}</span>
           </div>
+          <div class="sound-row">
+            <button class="btn-gray" onclick="chooseGreetSound()">🎵 음원 선택</button>
+            <span class="hint" id="greetSoundLabel">첨부된 음원 없음 (선택 사항)</span>
+            <span id="greetSoundActions"></span>
+          </div>
+          <input type="file" id="greetSoundFileInput" accept="audio/*" style="display:none" onchange="handleGreetSoundFile(this)">
           <div class="btn-row">
             <button class="btn-gray" onclick="hideGreetForm()">취소</button>
             <button class="btn-connect" onclick="saveGreetForm()">💾 저장</button>
@@ -4937,6 +4943,8 @@ async function saveCmdGlobal(){
 let greetData=[];
 let greetIdSeq=1;
 let greetEditingId=null;
+let greetFormSound='';
+let greetFormSoundData='';
 
 function renderGreetList(){
   const wrap=document.getElementById('greetListWrap');
@@ -4948,7 +4956,7 @@ function renderGreetList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}</div>
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨':''}</div>
         <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -4965,12 +4973,65 @@ function showGreetForm(id){
   document.getElementById('greetFormTitle').textContent=id?'지정 인사 수정':'지정 인사 추가';
   document.getElementById('greetTag').value=g?g.tag:'';
   document.getElementById('greetMessage').value=g?g.message:'';
+  greetFormSound=g?(g.sound||''):'';
+  greetFormSoundData=g?(g.soundData||''):'';
+  renderGreetSoundUI();
   document.getElementById('greetFormCard').style.display='block';
 }
 
 function hideGreetForm(){
   document.getElementById('greetFormCard').style.display='none';
   greetEditingId=null;
+}
+
+function renderGreetSoundUI(){
+  const label=document.getElementById('greetSoundLabel');
+  const actions=document.getElementById('greetSoundActions');
+  if(!label||!actions)return;
+  label.textContent=greetFormSound?('🎵 '+greetFormSound):'첨부된 음원 없음 (선택 사항)';
+  actions.innerHTML=greetFormSound
+    ?'<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="playGreetSoundPreview()">▶️ 미리듣기</button><button class="icon-btn danger" onclick="removeGreetSound()" title="음원 제거">🗑</button>'
+    :'';
+}
+
+function chooseGreetSound(){
+  document.getElementById('greetSoundFileInput').click();
+}
+function handleGreetSoundFile(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
+  if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=()=>{
+    greetFormSound=file.name;
+    greetFormSoundData=reader.result;
+    renderGreetSoundUI();
+    showToast('음원을 첨부했어요 (저장을 눌러야 최종 반영돼요)');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function removeGreetSound(){
+  greetFormSound='';
+  greetFormSoundData='';
+  renderGreetSoundUI();
+}
+function playGreetSoundPreview(){
+  if(!greetFormSoundData)return;
+  try{
+    const audio=new Audio(greetFormSoundData);
+    audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
+  }catch(e){}
+}
+// 실제 입장 시 서버가 SSE로 알려주면(entrysound와 동일한 방식), 로컬에 저장해둔 greetData에서 음원을 찾아 재생한다.
+function playGreetSoundById(id){
+  const g=(greetData||[]).find(x=>String(x.id)===String(id));
+  if(!g||!g.soundData)return;
+  try{
+    const audio=new Audio(g.soundData);
+    audio.play().catch(()=>{});
+  }catch(e){}
 }
 
 function insertGreetVar(token){
@@ -4990,9 +5051,9 @@ function saveGreetForm(){
 
   if(greetEditingId){
     const g=greetData.find(x=>x.id===greetEditingId);
-    Object.assign(g,{tag,message});
+    Object.assign(g,{tag,message,sound:greetFormSound,soundData:greetFormSoundData});
   } else {
-    greetData.push({id:'gr'+(greetIdSeq++),tag,message});
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundData:greetFormSoundData});
   }
   hideGreetForm();
   renderGreetList();
@@ -9830,6 +9891,7 @@ function startSSE(){
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
+    else if(d.type==='greetsound')playGreetSoundById(d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
     else if(d.type==='ttsrevoke'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); renderTtsActiveList(); }
     else if(d.type==='announce'){
