@@ -579,6 +579,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
+    <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic">🔐</span><span class="lbl">요청 모듈</span></div>
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -616,7 +617,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="fishtournament"><span class="ic">🐟</span><span class="lbl">팝블리네 낚시대회</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -772,6 +772,31 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="tab-btn" data-tab="new" onclick="switchMarketTab('new')">🛒 모듈 마켓</button>
         </div>
         <div class="market-grid" id="moduleMarketGrid"></div>
+      </div>
+
+      <!-- 🔐 요청 모듈 -->
+      <div class="panel" data-panel="requestmodules">
+        <div class="card" id="rmAdminCard" style="display:none">
+          <div class="card-title"><span>🔐 요청 모듈 관리 (관리자 전용)</span></div>
+          <p class="hint" style="margin-bottom:14px">특정 유저에게만 허용된 제한 메뉴를 만들어요. 여기 등록된 유저가 아니면 사이드바에서 아예 안 보이고, 접근하려면 본인 계정 비밀번호를 한 번 더 입력해야 해요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>아이디 (영문, 고유값)</label><input type="text" id="rmNewId" placeholder="예: popbly"></div>
+            <div><label>제목 (아이콘+이름)</label><input type="text" id="rmNewTitle" placeholder="예: 🎣 팝블리"></div>
+            <div><label>연결할 화면 키</label><input type="text" id="rmNewTargetPanel" placeholder="예: fishtournament"></div>
+            <div><label>허용 유저 (djId, 콤마로 구분)</label><input type="text" id="rmNewAllowed" placeholder="예: pop324, another_id"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="addRequestModule()">➕ 요청 모듈 추가</button>
+          <div class="hint" style="margin-top:10px">"연결할 화면 키"는 이미 있는 설정 화면의 data-panel 값을 그대로 적으면 돼요 (예: 팝블리네 낚시대회 화면은 fishtournament). 관리자(sum)는 등록된 모든 요청 모듈에 항상 접근 가능해요.</div>
+        </div>
+        <div class="card" id="rmAdminListCard" style="display:none">
+          <div class="card-title">등록된 요청 모듈</div>
+          <div id="rmAdminList"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔐 내가 접근 가능한 요청 모듈</span></div>
+          <p class="hint" id="rmEmptyHint" style="display:none">아직 접근 권한이 있는 요청 모듈이 없어요.</p>
+          <div class="market-grid" id="rmUserGrid"></div>
+        </div>
       </div>
 
       <!-- 세션 연결 -->
@@ -3356,6 +3381,7 @@ if('serviceWorker' in navigator){
 /* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
 const PANEL_META={
   modulemarket:['🛒 모듈 마켓','필요한 기능만 켜고 나머지는 꺼두세요'],
+  requestmodules:['🔐 요청 모듈','특정 유저에게만 허용된 제한 메뉴입니다'],
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
   botreboot:['🔁 봇 재부팅','문제가 있을 때 내 계정의 봇 연결만 새로 시작합니다'],
@@ -3407,6 +3433,7 @@ function selectPanel(name){
   if(meta){document.getElementById('panelTitle').textContent=meta[0];document.getElementById('panelDesc').textContent=meta[1];}
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
+  if(name==='requestmodules')renderRequestModulesPanel();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -3494,7 +3521,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','fishtournament','stock','auction','randombox','swordgame'];
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3506,7 +3533,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — fishtournament는 예전 사용비번 게이트가 제거되면서 기본ON으로 변경
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -3651,6 +3678,125 @@ function renderModuleMarket(){
       <button class="btn-gray market-card-goto" onclick="selectPanel('${key}')">⚙️ 설정</button>
     </div>`;
   }).join('');
+}
+
+/* ── 🔐 요청 모듈 (특정 유저만 접근 가능한 제한 메뉴) ── */
+let requestModulesList=[]; // 내가(또는 관리자면 전체) 접근 가능한 목록 — {id,title,icon,targetPanel}
+let requestModulesAdminList=null; // 관리자 전용 전체 목록 (allowedDjIds 포함) — 필요할 때만 불러옴
+
+function rmVerifiedKey(id){ return 'rmVerified:'+djId+':'+id; }
+function isRequestModuleVerified(id){ return sessionStorage.getItem(rmVerifiedKey(id))==='1'; }
+function markRequestModuleVerified(id){ sessionStorage.setItem(rmVerifiedKey(id),'1'); }
+
+// 사이드바에 "🔐 요청 모듈" 메뉴 자체를 보여줄지 결정한다 (접근 가능한 항목이 하나도 없으면 관리자가 아닌 이상 숨김).
+async function loadRequestModules(){
+  try{
+    const res=await fetch(SERVER+'/request-modules',{headers:authHeaders()});
+    const d=await res.json();
+    requestModulesList=(d.success&&d.list)?d.list:[];
+  }catch(e){ requestModulesList=[]; }
+  const nav=document.getElementById('requestModulesNav');
+  if(nav) nav.style.display=(djId===ADMIN_DJ_ID||requestModulesList.length)?'':'none';
+}
+
+function renderRequestModulesPanel(){
+  const isAdmin=djId===ADMIN_DJ_ID;
+  document.getElementById('rmAdminCard').style.display=isAdmin?'':'none';
+  document.getElementById('rmAdminListCard').style.display=isAdmin?'':'none';
+  if(isAdmin) loadRequestModulesAdmin();
+
+  const grid=document.getElementById('rmUserGrid');
+  const emptyHint=document.getElementById('rmEmptyHint');
+  if(!requestModulesList.length){
+    grid.innerHTML='';
+    emptyHint.style.display='block';
+    return;
+  }
+  emptyHint.style.display='none';
+  grid.innerHTML=requestModulesList.map(m=>`<div class="market-card">
+    <div class="market-card-top"><div class="market-card-icon">${escapeHtml(m.icon||'🔒')}</div></div>
+    <div class="market-card-title">${escapeHtml(m.title||m.id)}</div>
+    <div class="market-card-desc">비밀번호 확인 후 들어갈 수 있어요</div>
+    <button class="btn-connect market-card-goto" onclick="openRequestModule('${m.id}','${m.targetPanel}')">🔓 입장하기</button>
+  </div>`).join('');
+}
+
+async function openRequestModule(id,targetPanel){
+  if(isRequestModuleVerified(id)){ selectPanel(targetPanel); return; }
+  const password=prompt('본인 계정(봇 가입 시 설정한) 비밀번호를 입력해주세요.\n로그인 상태가 유지되는 동안엔 한 번만 확인하면 돼요.');
+  if(password===null)return; // 취소
+  if(!password){ showToast('비밀번호를 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/request-modules/verify',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,password})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'확인 실패'); return; }
+    markRequestModuleVerified(id);
+    selectPanel(targetPanel);
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* ── 🔐 요청 모듈 관리자 화면 ── */
+async function loadRequestModulesAdmin(){
+  try{
+    const res=await fetch(SERVER+'/admin/request-modules',{headers:authHeaders()});
+    const d=await res.json();
+    requestModulesAdminList=(d.success&&d.list)?d.list:[];
+  }catch(e){ requestModulesAdminList=[]; }
+  renderRequestModulesAdminList();
+}
+
+function renderRequestModulesAdminList(){
+  const box=document.getElementById('rmAdminList');
+  if(!requestModulesAdminList||!requestModulesAdminList.length){
+    box.innerHTML='<p class="hint">아직 등록된 요청 모듈이 없어요.</p>';
+    return;
+  }
+  box.innerHTML=requestModulesAdminList.map(m=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+    <div style="flex:1">
+      <div><b>${escapeHtml(m.icon||'🔒')} ${escapeHtml(m.title||m.id)}</b> <span class="hint">(${escapeHtml(m.id)} → ${escapeHtml(m.targetPanel)})</span></div>
+      <div class="hint" style="margin-top:4px">허용 유저: ${(m.allowedDjIds&&m.allowedDjIds.length)?m.allowedDjIds.map(escapeHtml).join(', '):'(없음 — 관리자만 접근 가능)'}</div>
+    </div>
+    <button class="btn-gray" onclick="deleteRequestModule('${m.id}')">🗑️ 삭제</button>
+  </div>`).join('');
+}
+
+async function saveRequestModulesAdmin(list){
+  try{
+    const res=await fetch(SERVER+'/admin/request-modules',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({list})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return false; }
+    requestModulesAdminList=d.list||list;
+    renderRequestModulesAdminList();
+    loadRequestModules(); // 사이드바/유저 목록도 새로 반영
+    return true;
+  }catch(e){ showToast('오류: '+e.message); return false; }
+}
+
+async function addRequestModule(){
+  const id=document.getElementById('rmNewId').value.trim();
+  const title=document.getElementById('rmNewTitle').value.trim();
+  const targetPanel=document.getElementById('rmNewTargetPanel').value.trim();
+  const allowedRaw=document.getElementById('rmNewAllowed').value.trim();
+  if(!id||!title||!targetPanel){ showToast('아이디/제목/연결할 화면 키를 모두 입력해주세요'); return; }
+  if(!/^[a-zA-Z0-9_-]+$/.test(id)){ showToast('아이디는 영문/숫자/-/_만 사용해주세요'); return; }
+  if((requestModulesAdminList||[]).some(m=>m.id===id)){ showToast('이미 있는 아이디예요'); return; }
+  const allowedDjIds=allowedRaw?allowedRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
+  const list=[...(requestModulesAdminList||[]),{id,title,icon:'🔒',targetPanel,allowedDjIds}];
+  const ok=await saveRequestModulesAdmin(list);
+  if(ok){
+    showToast('요청 모듈이 추가됐어요');
+    document.getElementById('rmNewId').value='';
+    document.getElementById('rmNewTitle').value='';
+    document.getElementById('rmNewTargetPanel').value='';
+    document.getElementById('rmNewAllowed').value='';
+  }
+}
+
+async function deleteRequestModule(id){
+  if(!confirm('"'+id+'" 요청 모듈을 삭제할까요? 이 메뉴에 접근 권한이 있던 유저는 더 이상 못 들어가게 돼요.'))return;
+  const list=(requestModulesAdminList||[]).filter(m=>m.id!==id);
+  const ok=await saveRequestModulesAdmin(list);
+  if(ok)showToast('삭제했어요');
 }
 
 /* ── ⏳ 이용 만료 배너 ── */
@@ -4253,6 +4399,7 @@ async function initApp(){
   checkSessionStatus();
   startSSE();
   loadChatBackground();
+  loadRequestModules();
 }
 
 async function loadDjSettings(){

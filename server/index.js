@@ -263,7 +263,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 별도 사용비번 게이트가 있었어서 기본ON으로 뺌 — 그 게이트는 이후 제거됨)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -273,6 +273,29 @@ function isModuleOn(settings, key, djId) {
   const v = settings && settings.moduleEnabled ? settings.moduleEnabled[key] : undefined
   if (v === undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key)
   return v !== false
+}
+
+// ══════════════════════════════════════════════════════
+// 🔐 요청 모듈 — 특정 유저만 접근 가능한 제한 메뉴.
+// 일반 모듈 마켓(누구나 켜고 끌 수 있음)과 달리, 관리자(sum)가 항목별로 "허용 유저 목록"을
+// 직접 관리한다. 목록에 없는 유저는 사이드바에서 아예 안 보이고, API도 막힌다.
+// 항목은 관리자(sum) 계정의 settings.requestModules 배열에 저장된다:
+//   { id, title, icon, targetPanel, allowedDjIds: [djId, ...] }
+// targetPanel은 이미 존재하는 화면(panel)의 키를 그대로 재사용한다 (예: 'fishtournament').
+// ══════════════════════════════════════════════════════
+function isRequestModuleAllowed(targetPanel, djId) {
+  if (djId === 'sum') return true // 관리자는 모든 요청 모듈에 항상 접근 가능
+  const list = store.getRequestModules()
+  return list.some(m => m.targetPanel === targetPanel && (m.allowedDjIds || []).includes(djId))
+}
+// 라우트에 붙이는 미들웨어 — auth.requireAuth 뒤에 이어서 사용한다.
+function requireRequestModuleAccess(targetPanel) {
+  return (req, res, next) => {
+    if (!isRequestModuleAllowed(targetPanel, req.djId)) {
+      return res.status(403).json({ success: false, error: '이 메뉴에 접근 권한이 없어요' })
+    }
+    next()
+  }
 }
 
 // 실드 명령어 처리: "!실드", "!실드 +5", "!실드 -3" (명령어 자체는 DJ가 커스텀 가능)
@@ -3179,7 +3202,7 @@ async function _ftHandleRank(djId, ft, parts) {
 
 // ── 채팅 이벤트 마스터 디스패처 ──
 async function handleFishTournamentCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
-  if (!isModuleOn(settings, 'fishtournament', djId)) return
+  if (!isRequestModuleAllowed('fishtournament', djId)) return
   const msg = String(text || '').trim()
   if (!msg.startsWith('!')) return
   const parts = msg.split(/\s+/)
@@ -10277,6 +10300,60 @@ app.post('/account/settings-import', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 관리자(sum) 전용 — "요청 모듈"(특정 유저만 접근 가능한 제한 메뉴) 목록을 조회/저장한다.
+app.get('/admin/request-modules', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, list: store.getRequestModules() })
+})
+
+app.post('/admin/request-modules', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const raw = (req.body || {}).list
+  if (!Array.isArray(raw)) return res.json({ success: false, error: '목록 형식이 올바르지 않아요' })
+  const seen = new Set()
+  const clean = []
+  for (const m of raw) {
+    const id = String((m && m.id) || '').trim()
+    const title = String((m && m.title) || '').trim()
+    const targetPanel = String((m && m.targetPanel) || '').trim()
+    if (!id || !title || !targetPanel) continue
+    if (seen.has(id)) continue // 아이디 중복 방지
+    seen.add(id)
+    clean.push({
+      id,
+      title,
+      icon: String((m && m.icon) || '🔒').trim() || '🔒',
+      targetPanel,
+      allowedDjIds: Array.isArray(m && m.allowedDjIds) ? [...new Set(m.allowedDjIds.map(x => String(x).trim()).filter(Boolean))] : [],
+    })
+  }
+  const result = store.saveRequestModules(clean)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: clean })
+})
+
+// 본인 계정 전용 — 내가 접근 가능한 요청 모듈만 골라서 반환한다 (사이드바 렌더링용).
+// 관리자(sum)는 항상 전체 목록을 받는다.
+app.get('/request-modules', auth.requireAuth, (req, res) => {
+  const all = store.getRequestModules()
+  const mine = req.djId === 'sum' ? all : all.filter(m => (m.allowedDjIds || []).includes(req.djId))
+  res.json({ success: true, list: mine.map(m => ({ id: m.id, title: m.title, icon: m.icon, targetPanel: m.targetPanel })) })
+})
+
+// 본인 계정 전용 — 요청 모듈에 처음 들어갈 때, 본인 계정 비밀번호(봇 가입 시 설정한 그 비번)로 한 번 더 확인한다.
+// 접근권한(allowedDjIds)이 있는지도 여기서 같이 검사한다.
+app.post('/request-modules/verify', auth.requireAuth, async (req, res) => {
+  const { id, password } = req.body || {}
+  const all = store.getRequestModules()
+  const entry = all.find(m => m.id === id)
+  if (!entry) return res.json({ success: false, error: '존재하지 않는 요청 모듈이에요' })
+  if (!isRequestModuleAllowed(entry.targetPanel, req.djId)) return res.json({ success: false, error: '이 메뉴에 접근 권한이 없어요' })
+  if (!password) return res.json({ success: false, error: '비밀번호를 입력해주세요' })
+  const ok = await store.verifyPassword(req.djId, password)
+  if (!ok) return res.json({ success: false, error: '비밀번호가 틀렸어요' })
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
 // 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
 // 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
@@ -11828,12 +11905,12 @@ app.post('/fishing/reset', auth.requireAuth, (req, res) => {
 })
 
 // ── 🎣 팝블리네 낚시대회 (fishing 게임과 별개의 독립 모듈) ──
-app.get('/fishtournament/settings', auth.requireAuth, (req, res) => {
+app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   res.json({ success: true, config: ft.config, userCount: Object.keys(ft.users).length })
 })
-app.post('/fishtournament/settings', auth.requireAuth, (req, res) => {
+app.post('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'fishtournament', req.djId)) return res.json({ success: false, error: '팝블리네 낚시대회 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ft = getFishTournamentSettings(req.djId, settings)
@@ -11867,7 +11944,7 @@ app.post('/fishtournament/settings', auth.requireAuth, (req, res) => {
   saveFishTournament(req.djId, ft)
   res.json({ success: true })
 })
-app.get('/fishtournament/leaderboard', auth.requireAuth, (req, res) => {
+app.get('/fishtournament/leaderboard', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const list = Object.values(ft.users).map(u => ({
@@ -11878,7 +11955,7 @@ app.get('/fishtournament/leaderboard', auth.requireAuth, (req, res) => {
   res.json({ success: true, users: list })
 })
 // 닉네임/고유닉으로 검색 가능한 등록 유저 목록. 유저 관리/유저 어항 탭에서 사용.
-app.get('/fishtournament/users', auth.requireAuth, (req, res) => {
+app.get('/fishtournament/users', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const q = String(req.query.q || '').trim().toLowerCase()
@@ -11895,7 +11972,7 @@ app.get('/fishtournament/users', auth.requireAuth, (req, res) => {
   })).sort((a, b) => String(a.nickname || '').localeCompare(String(b.nickname || '')))
   res.json({ success: true, users: list, count: list.length })
 })
-app.post('/fishtournament/give', auth.requireAuth, (req, res) => {
+app.post('/fishtournament/give', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const { tag, nickname, baitName, count } = req.body || {}
@@ -11909,7 +11986,7 @@ app.post('/fishtournament/give', auth.requireAuth, (req, res) => {
   saveFishTournament(req.djId, ft)
   res.json({ success: true, voucherCount: user.vouchers[key] })
 })
-app.post('/fishtournament/reset', auth.requireAuth, (req, res) => {
+app.post('/fishtournament/reset', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const { tag } = req.body || {}
@@ -11923,7 +12000,7 @@ app.post('/fishtournament/reset', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 // 👤 유저 어항: DJ가 특정 유저의 어항 기록을 수동으로 추가/삭제 (룰렛 결과 보정용)
-app.post('/fishtournament/tank/add', auth.requireAuth, (req, res) => {
+app.post('/fishtournament/tank/add', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const { tag, nickname, keepIdx, content, score, qty } = req.body || {}
@@ -11941,7 +12018,7 @@ app.post('/fishtournament/tank/add', auth.requireAuth, (req, res) => {
   saveFishTournament(req.djId, ft)
   res.json({ success: true, tank })
 })
-app.post('/fishtournament/tank/remove', auth.requireAuth, (req, res) => {
+app.post('/fishtournament/tank/remove', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
   const { tag, keepIdx, content, qty } = req.body || {}

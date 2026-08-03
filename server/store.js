@@ -161,6 +161,24 @@ function setDefaultTrialDays(days) {
   return { ok: true };
 }
 
+// ⚡ 요청 모듈(특정 유저만 접근 가능한 제한 메뉴) 레지스트리.
+// 관리자(sum) 계정의 settings.requestModules에 배열로 저장해서 중앙 관리한다.
+// 각 항목: { id, title, icon, targetPanel, allowedDjIds: [djId, ...] }
+function getRequestModules() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.requestModules;
+  return Array.isArray(v) ? v : [];
+}
+
+function saveRequestModules(list) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.requestModules = Array.isArray(list) ? list : [];
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
@@ -399,6 +417,8 @@ module.exports = {
   renameDjId,
   getDefaultTrialDays,
   setDefaultTrialDays,
+  getRequestModules,
+  saveRequestModules,
   validEmail,
   verifyRecoveryEmail,
 };
