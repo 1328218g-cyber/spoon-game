@@ -778,15 +778,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="requestmodules">
         <div class="card" id="rmAdminCard" style="display:none">
           <div class="card-title"><span>🔐 요청 모듈 관리 (관리자 전용)</span></div>
-          <p class="hint" style="margin-bottom:14px">특정 유저에게만 허용된 제한 메뉴를 만들어요. 여기 등록된 유저가 아니면 사이드바에서 아예 안 보이고, 접근하려면 본인 계정 비밀번호를 한 번 더 입력해야 해요.</p>
+          <p class="hint" style="margin-bottom:14px">특정 유저에게만 허용된 제한 메뉴를 만들어요. 여기 등록되지 않은 유저는 사이드바에서 아예 안 보이고, 접근하려면 본인 계정 비밀번호를 한 번 더 입력해야 해요.</p>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>아이디 (영문, 고유값)</label><input type="text" id="rmNewId" placeholder="예: popbly"></div>
-            <div><label>제목 (아이콘+이름)</label><input type="text" id="rmNewTitle" placeholder="예: 🎣 팝블리"></div>
-            <div><label>연결할 화면 키</label><input type="text" id="rmNewTargetPanel" placeholder="예: fishtournament"></div>
-            <div><label>허용 유저 (djId, 콤마로 구분)</label><input type="text" id="rmNewAllowed" placeholder="예: pop324, another_id"></div>
+            <div><label>접근 유저 아이디</label><input type="text" id="rmNewUserId" placeholder="예: pop324"></div>
+            <div><label>모듈 선택</label><select id="rmNewTargetPanel"><option value="">모듈을 선택하세요</option></select></div>
           </div>
-          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="addRequestModule()">➕ 요청 모듈 추가</button>
-          <div class="hint" style="margin-top:10px">"연결할 화면 키"는 이미 있는 설정 화면의 data-panel 값을 그대로 적으면 돼요 (예: 팝블리네 낚시대회 화면은 fishtournament). 관리자(sum)는 등록된 모든 요청 모듈에 항상 접근 가능해요.</div>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="addRequestModule()">➕ 접근 권한 추가</button>
+          <div class="hint" style="margin-top:10px">같은 모듈에 여러 명을 추가할 수 있어요. 관리자(sum)는 등록된 모든 요청 모듈에 항상 접근 가능해요.</div>
         </div>
         <div class="card" id="rmAdminListCard" style="display:none">
           <div class="card-title">등록된 요청 모듈</div>
@@ -3703,7 +3701,7 @@ function renderRequestModulesPanel(){
   const isAdmin=djId===ADMIN_DJ_ID;
   document.getElementById('rmAdminCard').style.display=isAdmin?'':'none';
   document.getElementById('rmAdminListCard').style.display=isAdmin?'':'none';
-  if(isAdmin) loadRequestModulesAdmin();
+  if(isAdmin){ populateRmModuleSelect(); loadRequestModulesAdmin(); }
 
   const grid=document.getElementById('rmUserGrid');
   const emptyHint=document.getElementById('rmEmptyHint');
@@ -3736,6 +3734,22 @@ async function openRequestModule(id,targetPanel){
 }
 
 /* ── 🔐 요청 모듈 관리자 화면 ── */
+// "모듈 선택" 드롭다운은 모듈 마켓에 등록된 모듈(MODULE_KEYS) + 팝블리네 낚시대회(fishtournament, 요청 모듈 전용이라 마켓엔 없음)를 합쳐서 보여준다.
+const REQUEST_MODULE_SELECTABLE_KEYS=[...new Set([...MODULE_KEYS,'fishtournament'])];
+
+function populateRmModuleSelect(){
+  const sel=document.getElementById('rmNewTargetPanel');
+  if(!sel||sel.dataset.filled==='1')return; // 한 번만 채우면 됨
+  sel.dataset.filled='1';
+  REQUEST_MODULE_SELECTABLE_KEYS.forEach(key=>{
+    const meta=PANEL_META[key]||[key,''];
+    const opt=document.createElement('option');
+    opt.value=key;
+    opt.textContent=meta[0];
+    sel.appendChild(opt);
+  });
+}
+
 async function loadRequestModulesAdmin(){
   try{
     const res=await fetch(SERVER+'/admin/request-modules',{headers:authHeaders()});
@@ -3751,13 +3765,16 @@ function renderRequestModulesAdminList(){
     box.innerHTML='<p class="hint">아직 등록된 요청 모듈이 없어요.</p>';
     return;
   }
-  box.innerHTML=requestModulesAdminList.map(m=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-    <div style="flex:1">
-      <div><b>${escapeHtml(m.icon||'🔒')} ${escapeHtml(m.title||m.id)}</b> <span class="hint">(${escapeHtml(m.id)} → ${escapeHtml(m.targetPanel)})</span></div>
-      <div class="hint" style="margin-top:4px">허용 유저: ${(m.allowedDjIds&&m.allowedDjIds.length)?m.allowedDjIds.map(escapeHtml).join(', '):'(없음 — 관리자만 접근 가능)'}</div>
-    </div>
-    <button class="btn-gray" onclick="deleteRequestModule('${m.id}')">🗑️ 삭제</button>
-  </div>`).join('');
+  box.innerHTML=requestModulesAdminList.map(m=>{
+    const chips=(m.allowedDjIds||[]).map(uid=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:3px 6px 3px 10px;font-size:12px;margin:2px 4px 2px 0">${escapeHtml(uid)}<button onclick="removeRequestModuleUser('${m.targetPanel}','${escapeHtml(uid).replace(/'/g,"&#39;")}')" title="이 유저 제거" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:13px;padding:0 2px;line-height:1">✕</button></span>`).join('');
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <b>${escapeHtml(m.icon||'🔒')} ${escapeHtml(m.title||m.id)}</b>
+        <button class="btn-gray" onclick="deleteRequestModule('${m.id}')">🗑️ 모듈 전체 삭제</button>
+      </div>
+      <div style="margin-top:8px">${chips||'<span class="hint">허용된 유저가 없어요</span>'}</div>
+    </div>`;
+  }).join('');
 }
 
 async function saveRequestModulesAdmin(list){
@@ -3772,28 +3789,44 @@ async function saveRequestModulesAdmin(list){
   }catch(e){ showToast('오류: '+e.message); return false; }
 }
 
+// 아이디/제목은 선택한 모듈 키에서 자동으로 만든다 (모듈당 요청모듈 항목 1개, 유저는 그 안에 계속 추가되는 방식).
 async function addRequestModule(){
-  const id=document.getElementById('rmNewId').value.trim();
-  const title=document.getElementById('rmNewTitle').value.trim();
-  const targetPanel=document.getElementById('rmNewTargetPanel').value.trim();
-  const allowedRaw=document.getElementById('rmNewAllowed').value.trim();
-  if(!id||!title||!targetPanel){ showToast('아이디/제목/연결할 화면 키를 모두 입력해주세요'); return; }
-  if(!/^[a-zA-Z0-9_-]+$/.test(id)){ showToast('아이디는 영문/숫자/-/_만 사용해주세요'); return; }
-  if((requestModulesAdminList||[]).some(m=>m.id===id)){ showToast('이미 있는 아이디예요'); return; }
-  const allowedDjIds=allowedRaw?allowedRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
-  const list=[...(requestModulesAdminList||[]),{id,title,icon:'🔒',targetPanel,allowedDjIds}];
+  const userId=document.getElementById('rmNewUserId').value.trim();
+  const targetPanel=document.getElementById('rmNewTargetPanel').value;
+  if(!targetPanel){ showToast('모듈을 선택해주세요'); return; }
+  if(!userId){ showToast('접근 허용할 유저 아이디를 입력해주세요'); return; }
+
+  const meta=PANEL_META[targetPanel]||[targetPanel,''];
+  const spaceIdx=meta[0].indexOf(' ');
+  const icon=spaceIdx>-1?meta[0].slice(0,spaceIdx):'🔒';
+  const title=spaceIdx>-1?meta[0].slice(spaceIdx+1):meta[0];
+
+  const list=(requestModulesAdminList||[]).map(m=>({...m,allowedDjIds:[...(m.allowedDjIds||[])]}));
+  let entry=list.find(m=>m.targetPanel===targetPanel);
+  if(entry){
+    if(entry.allowedDjIds.includes(userId)){ showToast('이미 등록된 유저예요'); return; }
+    entry.allowedDjIds.push(userId);
+  }else{
+    list.push({id:targetPanel,title,icon,targetPanel,allowedDjIds:[userId]});
+  }
   const ok=await saveRequestModulesAdmin(list);
   if(ok){
-    showToast('요청 모듈이 추가됐어요');
-    document.getElementById('rmNewId').value='';
-    document.getElementById('rmNewTitle').value='';
-    document.getElementById('rmNewTargetPanel').value='';
-    document.getElementById('rmNewAllowed').value='';
+    showToast('접근 권한이 추가됐어요');
+    document.getElementById('rmNewUserId').value='';
   }
 }
 
+async function removeRequestModuleUser(targetPanel,userId){
+  const list=(requestModulesAdminList||[]).map(m=>{
+    if(m.targetPanel!==targetPanel)return m;
+    return {...m,allowedDjIds:(m.allowedDjIds||[]).filter(x=>x!==userId)};
+  });
+  const ok=await saveRequestModulesAdmin(list);
+  if(ok)showToast('제거했어요');
+}
+
 async function deleteRequestModule(id){
-  if(!confirm('"'+id+'" 요청 모듈을 삭제할까요? 이 메뉴에 접근 권한이 있던 유저는 더 이상 못 들어가게 돼요.'))return;
+  if(!confirm('이 모듈의 요청 모듈 설정을 통째로 삭제할까요? 등록된 모든 유저가 더 이상 못 들어가게 돼요.'))return;
   const list=(requestModulesAdminList||[]).filter(m=>m.id!==id);
   const ok=await saveRequestModulesAdmin(list);
   if(ok)showToast('삭제했어요');
