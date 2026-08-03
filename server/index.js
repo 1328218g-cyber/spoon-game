@@ -263,7 +263,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1385,6 +1385,17 @@ function handleReminderCommand(djId, room, settings, author, text) {
 // ══════════════════════════════════════════════════════
 // 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
 // 등록된 디데이 목록과 남은/지난 일수를 보여준다. 매년 반복되는 날짜로 계산한다.
+
+// 📝 나만의 메모장 — DJ 본인이 필요할 때마다 자유롭게 새 메모를 만들어서 내용을 적어두는 개인 메모장.
+// (시청자별로 남기는 "usernotes"와는 완전히 별개 — 이건 그냥 DJ 혼자 쓰는 자유 메모)
+function getMyNotesSettings(djId, settings) {
+  if (!settings.myNotes) {
+    settings.myNotes = { items: [] }
+    store.saveSettings(djId, { myNotes: settings.myNotes })
+  }
+  if (!settings.myNotes.items) settings.myNotes.items = []
+  return settings.myNotes
+}
 
 function getDdaySettings(djId, settings) {
   if (!settings.dday) {
@@ -10863,6 +10874,44 @@ app.post('/reaction/settings', auth.requireAuth, (req, res) => {
   if (registerMsg != null) cfg.registerMsg = registerMsg
   if (alertMsg != null) cfg.alertMsg = alertMsg
   store.saveSettings(req.djId, { reminderTimer: cfg })
+  res.json({ success: true })
+})
+
+// 📝 나만의 메모장
+app.get('/mynotes/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  res.json({ success: true, items: cfg.items })
+})
+app.post('/mynotes/add', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mynotes', req.djId)) return res.json({ success: false, error: '나만의 메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const title = String((req.body || {}).title || '').trim() || '제목 없음'
+  const content = String((req.body || {}).content || '')
+  const note = { id: 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), title, content, updatedAt: Date.now() }
+  cfg.items.unshift(note) // 최근에 만든 메모가 위로 오게
+  store.saveSettings(req.djId, { myNotes: cfg })
+  res.json({ success: true, note })
+})
+app.post('/mynotes/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const { id, title, content } = req.body || {}
+  const note = cfg.items.find(n => n.id === id)
+  if (!note) return res.json({ success: false, error: '메모를 찾을 수 없어요' })
+  if (title != null) note.title = String(title).trim() || '제목 없음'
+  if (content != null) note.content = String(content)
+  note.updatedAt = Date.now()
+  store.saveSettings(req.djId, { myNotes: cfg })
+  res.json({ success: true, note })
+})
+app.post('/mynotes/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(n => n.id !== id)
+  store.saveSettings(req.djId, { myNotes: cfg })
   res.json({ success: true })
 })
 

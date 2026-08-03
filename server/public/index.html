@@ -327,9 +327,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .ft-content{flex:1;min-width:0}
 @media (max-width:760px){
   .ft-shell{flex-direction:column}
-  .ft-side{width:100%;position:static;display:flex;overflow-x:auto;gap:2px;padding:6px}
+  .ft-side{width:100%;position:static;display:flex;overflow-x:auto;gap:8px;padding:6px}
   .ft-side-head{display:none}
-  .ft-side-item{white-space:nowrap;margin-bottom:0}
+  .ft-side-item{white-space:nowrap;margin-bottom:0;flex-shrink:0}
 }
 .ft-field-hint{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5}
 .ft-row-toggle{display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;color:var(--text);width:100%;box-sizing:border-box;margin-top:14px}
@@ -627,6 +627,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="wheelroulette"><span class="ic">🎡</span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="mynotes"><span class="ic">🗒️</span><span class="lbl">나만의 메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -2058,6 +2059,25 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🗒️ 나만의 메모장 -->
+      <div class="panel" data-panel="mynotes">
+        <div class="card">
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span>🗒️ 나만의 메모장</span>
+            <button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="createMyNote()">➕ 새 메모 추가</button>
+          </div>
+          <p class="hint">필요할 때마다 새 메모를 만들어서 자유롭게 내용을 적어두세요. 방송 준비 체크리스트, 자주 쓰는 문구, 이벤트 아이디어 등 뭐든 좋아요. (시청자 메모인 "메모장"과는 별개예요)</p>
+        </div>
+        <div class="card split-card">
+          <div class="split-side">
+            <div id="myNotesListWrap"><p class="hint">🔄 불러오는 중...</p></div>
+          </div>
+          <div class="split-main" id="myNoteDetailWrap">
+            <p class="hint">왼쪽에서 메모를 선택하거나, 위에서 "새 메모 추가"를 눌러주세요.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 🔔 디스코드 방송 알림 -->
       <div class="panel" data-panel="discordnotify">
         <div class="card">
@@ -3422,6 +3442,7 @@ const PANEL_META={
   wheelroulette:['🎡 돌림판 룰렛','5개 페이지의 회전판을 직접 돌려서 경품을 추첨합니다'],
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
+  mynotes:['🗒️ 나만의 메모장','필요할 때마다 새 메모를 만들어서 자유롭게 내용을 적어두는 개인 메모장입니다'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
   fishtournament:['🐟 팝블리네 낚시대회','미끼별 룰렛 낚시 + 어항(킵) 10칸 + 낚시왕 랭킹을 즐기는 별도의 낚시 이벤트 게임입니다'],
@@ -3444,6 +3465,7 @@ function selectPanel(name){
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
   if(name==='requestmodules')renderRequestModulesPanel();
+  if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -3531,7 +3553,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3543,7 +3565,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -7701,6 +7723,107 @@ async function deleteNotesUser(key){
     document.getElementById('notesDetailWrap').innerHTML='<p class="hint">왼쪽에서 메모를 남길 유저를 선택해주세요.</p>';
     renderNotesUserList();
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🗒️ 나만의 메모장 (DJ 본인 자유 메모 — usernotes와 별개) ── */
+let myNotesList=[];
+let myNotesSelectedId=null;
+let myNoteSaveTimer=null;
+
+async function loadMyNotes(){
+  const wrap=document.getElementById('myNotesListWrap');
+  if(wrap)wrap.innerHTML='<p class="hint">🔄 불러오는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/mynotes/settings',{headers:authHeaders()});
+    const d=await res.json();
+    myNotesList=(d.success&&d.items)?d.items:[];
+  }catch(e){ myNotesList=[]; }
+  renderMyNotesList();
+}
+
+function renderMyNotesList(){
+  const wrap=document.getElementById('myNotesListWrap');
+  if(!wrap)return;
+  if(!myNotesList.length){ wrap.innerHTML='<p class="hint">아직 메모가 없어요. 위에서 "새 메모 추가"를 눌러 시작해보세요.</p>'; return; }
+  wrap.innerHTML=myNotesList.map(n=>{
+    const active=n.id===myNotesSelectedId;
+    const preview=(n.content||'').replace(/\n/g,' ').trim();
+    return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="selectMyNote('${n.id}')">
+      <span class="ic">🗒️</span>
+      <span class="lbl" style="line-height:1.3">${escapeHtml(n.title||'제목 없음')}<br><span style="font-size:11px;color:var(--muted)">${escapeHtml(preview.slice(0,26))||'(내용 없음)'}${preview.length>26?'…':''}</span></span>
+    </div>`;
+  }).join('');
+}
+
+function selectMyNote(id){
+  myNotesSelectedId=id;
+  renderMyNotesList();
+  renderMyNoteDetail();
+}
+
+function renderMyNoteDetail(){
+  const wrap=document.getElementById('myNoteDetailWrap');
+  if(!wrap)return;
+  const note=myNotesList.find(n=>n.id===myNotesSelectedId);
+  if(!note){ wrap.innerHTML='<p class="hint">왼쪽에서 메모를 선택하거나, 위에서 "새 메모 추가"를 눌러주세요.</p>'; return; }
+  wrap.innerHTML=`
+    <input type="text" id="myNoteTitleInput" value="${escapeAttr(note.title||'')}" placeholder="제목" style="font-weight:700;font-size:15px" oninput="scheduleMyNoteSave('${note.id}')">
+    <textarea id="myNoteContentInput" placeholder="내용을 자유롭게 적어주세요" style="height:280px;margin-top:10px" oninput="scheduleMyNoteSave('${note.id}')">${escapeHtml(note.content||'')}</textarea>
+    <div class="hint" id="myNoteSaveHint" style="margin-top:6px">입력하면 자동 저장돼요</div>
+    <button class="btn-shield-reset" style="width:100%;margin-top:10px" onclick="deleteMyNote('${note.id}')">🗑️ 이 메모 삭제</button>
+  `;
+}
+
+function scheduleMyNoteSave(id){
+  const hint=document.getElementById('myNoteSaveHint');
+  if(hint)hint.textContent='저장 대기...';
+  if(myNoteSaveTimer)clearTimeout(myNoteSaveTimer);
+  myNoteSaveTimer=setTimeout(()=>saveMyNoteNow(id),700);
+}
+
+async function saveMyNoteNow(id){
+  const titleEl=document.getElementById('myNoteTitleInput');
+  const contentEl=document.getElementById('myNoteContentInput');
+  const hint=document.getElementById('myNoteSaveHint');
+  if(!titleEl||!contentEl)return;
+  try{
+    const res=await fetch(SERVER+'/mynotes/update',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,title:titleEl.value,content:contentEl.value})});
+    const d=await res.json();
+    if(d.success){
+      const idx=myNotesList.findIndex(n=>n.id===id);
+      if(idx>-1)myNotesList[idx]=d.note;
+      renderMyNotesList(); // 목록의 제목/미리보기도 갱신
+      if(hint)hint.textContent='✅ 저장됨';
+    }else if(hint)hint.textContent='⚠️ 저장 실패';
+  }catch(e){ if(hint)hint.textContent='⚠️ 저장 오류'; }
+  setTimeout(()=>{ if(hint)hint.textContent='입력하면 자동 저장돼요'; },1500);
+}
+
+async function createMyNote(){
+  try{
+    const res=await fetch(SERVER+'/mynotes/add',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title:'새 메모',content:''})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'추가 실패'); return; }
+    myNotesList.unshift(d.note);
+    myNotesSelectedId=d.note.id;
+    renderMyNotesList();
+    renderMyNoteDetail();
+    showToast('새 메모를 만들었어요');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function deleteMyNote(id){
+  if(!confirm('이 메모를 삭제할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/mynotes/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'삭제 실패'); return; }
+    myNotesList=myNotesList.filter(n=>n.id!==id);
+    if(myNotesSelectedId===id)myNotesSelectedId=null;
+    renderMyNotesList();
+    renderMyNoteDetail();
+    showToast('삭제했어요');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 /* ── 🔔 디스코드 방송 알림 ── */
