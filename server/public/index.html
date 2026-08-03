@@ -468,6 +468,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
   /* 인라인 style로 2~4열이 강제된 .btn-row(대시보드 랭킹 카드 등)도 폰 화면에선 무조건 1열로 쌓는다 */
   .btn-row{grid-template-columns:1fr !important}
+
+  /* 상단바: 한 줄에 다 우겨넣지 말고 줄바꿈해서, 제목/버튼 글자가 세로로 눌려 깨지는 걸 막는다 */
+  .topbar{flex-wrap:wrap;row-gap:10px}
+  .topbar-title{flex:1 1 auto;min-width:0}
+  .topbar-title h2{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar .desc{display:none}
+  .status-badge{margin-left:0}
+  .dj-tag{margin-left:0;flex-wrap:wrap;row-gap:6px}
+  .dj-tag button{white-space:nowrap}
 }
 
 /* ── 스티커 선택 모달 (룰렛: 지정 스티커) ── */
@@ -631,7 +640,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   <div class="main">
     <div class="topbar">
       <div class="menu-toggle" onclick="toggleSidebar()">☰</div>
-      <div>
+      <div class="topbar-title">
         <h2 id="panelTitle">🔑 세션 연결</h2>
         <div class="desc" id="panelDesc">PC 없이 로그인 상태를 유지합니다</div>
       </div>
