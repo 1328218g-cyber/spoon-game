@@ -10267,6 +10267,30 @@ app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
   }
 })
 
+// 본인 계정 전용 — 지금 저장된 모든 봇 설정을 JSON으로 그대로 내보낸다. (백업 / 다른 계정으로 옮길 때 사용)
+app.get('/account/settings-export', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, djId: req.djId, exportedAt: new Date().toISOString(), settings })
+})
+
+// 본인 계정 전용 — settings-export로 받은 JSON을 다시 업로드해서 설정을 통째로 복원한다.
+// 로그인한 djId 자신에게만 적용되고, 다른 계정 데이터는 절대 건드리지 않는다.
+// ⚠️ 이용 만료일(expiresAt/expiryStartAt)과 신규가입 기본 이용기간(defaultTrialDays)은
+// 관리자만 관리하는 값이라, 업로드한 파일에 들어있어도 무시하고 반영하지 않는다.
+// (그렇지 않으면 유저가 만료일을 조작한 파일을 만들어 이용기간을 우회할 수 있음)
+app.post('/account/settings-import', auth.requireAuth, (req, res) => {
+  const incoming = (req.body || {}).settings
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.json({ success: false, error: '올바른 설정 파일이 아니에요' })
+  }
+  const patch = { ...incoming }
+  delete patch.expiresAt
+  delete patch.expiryStartAt
+  delete patch.defaultTrialDays
+  store.saveSettings(req.djId, patch)
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
 // 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
 // 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
