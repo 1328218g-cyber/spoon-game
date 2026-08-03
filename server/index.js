@@ -10200,9 +10200,9 @@ function canAutoJoin(djId) {
   return true
 }
 
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   const { djId, password } = req.body || {}
-  const result = store.login(djId, password)
+  const result = await store.login(djId, password)
   if (!result.ok) return res.json({ success: false, error: result.error })
   const token = auth.issueToken(djId)
   res.json({ success: true, token, djId, autoJoinEnabled: canAutoJoin(djId) })
@@ -10213,10 +10213,10 @@ app.get('/auth/me', auth.requireAuth, (req, res) => {
 })
 
 // 본인 계정 전용 — 비밀번호 변경 (현재 비밀번호 확인 필요)
-app.post('/account/change-password', auth.requireAuth, (req, res) => {
+app.post('/account/change-password', auth.requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {}
   if (!currentPassword || !newPassword) return res.json({ success: false, error: '현재 비밀번호와 새 비밀번호를 입력해주세요' })
-  if (!store.verifyPassword(req.djId, currentPassword)) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  if (!(await store.verifyPassword(req.djId, currentPassword))) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
   const result = store.changePassword(req.djId, newPassword)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, msg: '비밀번호가 변경됐어요' })
@@ -10225,12 +10225,12 @@ app.post('/account/change-password', auth.requireAuth, (req, res) => {
 // 본인 계정 전용 — 아이디 변경 (현재 비밀번호 확인 필요, 관리자 계정 sum은 변경 불가)
 // 아이디가 바뀌면 로그인 키 자체가 바뀌는 것이므로, 방 연결 등 인메모리 상태를 정리하고
 // 새 아이디 기준으로 로그인 토큰을 새로 발급해서 내려준다.
-app.post('/account/change-id', auth.requireAuth, (req, res) => {
+app.post('/account/change-id', auth.requireAuth, async (req, res) => {
   const oldId = req.djId
   const { currentPassword } = req.body || {}
   const newId = String((req.body || {}).newDjId || '').trim()
   if (!currentPassword || !newId) return res.json({ success: false, error: '새 아이디와 현재 비밀번호를 입력해주세요' })
-  if (!store.verifyPassword(oldId, currentPassword)) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  if (!(await store.verifyPassword(oldId, currentPassword))) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
   const result = store.renameDjId(oldId, newId)
   if (!result.ok) return res.json({ success: false, error: result.error })
 

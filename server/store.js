@@ -5,6 +5,13 @@
 // Railway에 새로 배포될 때마다 초기화된다. 가입 정보가 계속 유지되게 하려면
 // Railway에 Volume(영구 디스크)을 추가하고, 환경변수 DATA_DIR을
 // 그 볼륨 마운트 경로(예: /data)로 지정해야 한다.
+//
+// ⚡ 성능 메모: 예전엔 이 파일의 모든 함수가 호출될 때마다 djs.json 전체를 동기로
+// 읽고 파싱했다. DJ 수가 늘어나면서 여러 setInterval 루프(반복문구 10초, 경매 20초 등)가
+// 계정 수만큼 이 파일을 반복해서 읽어들이는 상황이 겹쳐 이벤트 루프가 막히고,
+// 그 사이 /auth/login 같은 요청이 몇 분씩 밀리는 문제가 있었다. 그래서 인메모리 캐시를
+// 두고, 쓰기(saveDjs)가 일어날 때만 디스크에 반영하도록 바꿨다.
+// 여러 프로세스가 같은 DATA_DIR을 동시에 쓰는 구조가 아니므로 캐시가 안전하다.
 
 const fs = require('fs');
 const path = require('path');
@@ -17,19 +24,27 @@ function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+let _cache = null; // 최초 로드 이후엔 메모리에서만 읽는다
+
 function loadDjs() {
+  if (_cache) return _cache;
   ensureDir();
-  if (!fs.existsSync(DJ_FILE)) return {};
+  if (!fs.existsSync(DJ_FILE)) {
+    _cache = {};
+    return _cache;
+  }
   try {
-    return JSON.parse(fs.readFileSync(DJ_FILE, 'utf-8'));
+    _cache = JSON.parse(fs.readFileSync(DJ_FILE, 'utf-8'));
   } catch (e) {
     console.log('[store] djs.json 읽기 실패:', e.message);
-    return {};
+    _cache = {};
   }
+  return _cache;
 }
 
 function saveDjs(djs) {
   ensureDir();
+  _cache = djs; // 캐시 갱신
   fs.writeFileSync(DJ_FILE, JSON.stringify(djs, null, 2), 'utf-8');
 }
 
@@ -204,23 +219,25 @@ function signup(djId, password, djTag, email) {
   return { ok: true };
 }
 
-function login(djId, password) {
+// ⚡ 비동기로 변경: bcrypt.compareSync는 이벤트 루프를 그대로 막아버려서,
+// 여러 계정이 동시에 로그인 요청을 보내면(자동 세션 동기화 등) 요청들이 줄줄이 밀리는
+// 문제가 있었다. bcrypt.compare(비동기 버전)로 바꿔서 다른 요청 처리를 막지 않게 한다.
+async function login(djId, password) {
   const djs = loadDjs();
   const rec = djs[djId];
   if (!rec) return { ok: false, error: '존재하지 않는 아이디예요' };
   if (rec.blocked) return { ok: false, error: '차단된 계정이에요. 관리자에게 문의해주세요.' };
-  if (!bcrypt.compareSync(String(password || ''), rec.passwordHash)) {
-    return { ok: false, error: '비밀번호가 틀렸어요' };
-  }
+  const match = await bcrypt.compare(String(password || ''), rec.passwordHash);
+  if (!match) return { ok: false, error: '비밀번호가 틀렸어요' };
   return { ok: true };
 }
 
 // 로그인된 본인이 "내정보"에서 아이디/비밀번호를 바꿀 때, 본인 확인용으로 현재 비밀번호를 검증한다.
-function verifyPassword(djId, password) {
+async function verifyPassword(djId, password) {
   const djs = loadDjs();
   const rec = djs[djId];
   if (!rec) return false;
-  return bcrypt.compareSync(String(password || ''), rec.passwordHash);
+  return bcrypt.compare(String(password || ''), rec.passwordHash);
 }
 
 // 비밀번호 찾기 — 가입할 때 등록해둔 이메일과 지금 입력한 이메일이 일치하는지 확인한다.
