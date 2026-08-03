@@ -646,6 +646,10 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
   const sr = getSongRequestSettings(djId, settings)
   const msg = String(text || '').trim()
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  // !제거/리셋/마감/접수는 DJ뿐 아니라 매니저(지정인사 아님, 애청지수 화면의 "지급 권한 부여" 닉네임 목록)도 사용 가능
+  const chatAct = getActivitySettings(djId, settings)
+  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  const canManage = isDj || isManager
 
   const save = () => store.saveSettings(djId, { songRequest: sr })
   const reqPrefix = sr.cmdRequest + ' '
@@ -700,10 +704,9 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
     return
   }
 
-  // 아래는 전부 DJ 전용 관리 명령어
-  if (!isDj) return
-
+  // !제거/리셋/!마감/!접수 — DJ + 매니저 사용 가능
   if (msg.startsWith(sr.cmdRemove + ' ')) {
+    if (!canManage) return
     const idx = parseInt(msg.slice(sr.cmdRemove.length).trim(), 10)
     if (idx >= 1 && idx <= sr.items.length) {
       const removed = sr.items.splice(idx - 1, 1)[0]
@@ -714,14 +717,18 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
     return
   }
   if (msg === sr.cmdReset) {
+    if (!canManage) return
     sr.items = []
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
     setTimeout(() => sendChatToRoom(djId, '🔄 신청곡 목록이 초기화됐어요'), 400)
     return
   }
-  if (msg === sr.cmdClose) { sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
-  if (msg === sr.cmdOpen) { sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
+  if (msg === sr.cmdClose) { if (!canManage) return; sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
+  if (msg === sr.cmdOpen) { if (!canManage) return; sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
+
+  // 아래는 DJ 전용 설정 명령어 (우선모드/신청자 표시 여부)
+  if (!isDj) return
   if (msg === sr.cmdPriorityOn) { sr.priorityMode = true; save(); return }
   if (msg === sr.cmdPriorityOff) { sr.priorityMode = false; save(); return }
   if (msg === sr.cmdNameOn) { sr.showRequester = true; save(); return }
@@ -12591,10 +12598,10 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const s = settings.songRequest
     groups.push({
       key: 'request', icon: '🎵', label: '신청곡 관리', items: [
-        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (관리자)' },
-        { cmd: s.cmdClose, desc: '접수 마감 (관리자)' }, { cmd: s.cmdOpen, desc: '접수 재개 (관리자)' },
-        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (관리자)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (관리자)' },
-        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (관리자)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (관리자)' },
+        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '[번호] 해당 곡 제거 (DJ/매니저)' }, { cmd: s.cmdReset, desc: '전체 초기화 (DJ/매니저)' },
+        { cmd: s.cmdClose, desc: '접수 마감 (DJ/매니저)' }, { cmd: s.cmdOpen, desc: '접수 재개 (DJ/매니저)' },
+        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (DJ 전용)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (DJ 전용)' },
+        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (DJ 전용)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (DJ 전용)' },
         { cmd: s.cmdRecommend, desc: '멜론 차트 랜덤 추천곡' },
       ].filter(x => x.cmd)
     })
