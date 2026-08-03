@@ -633,6 +633,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="pickboard"><span class="ic">🎯</span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic">⚔️</span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
@@ -1409,6 +1410,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetRoulettePercents()">확률 리셋</button>
               <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="autoDistributePercents()">확률 자동 분배</button>
             </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;margin-top:8px;padding:8px 10px;background:var(--surface2);border-radius:10px;flex-wrap:wrap">
+            <span class="hint" style="margin:0">전체 저장 위치 일괄 적용:</span>
+            <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap;cursor:pointer"><input type="radio" name="rlSaveToAll" data-savetype="keep" style="width:auto" onchange="applyRlSaveToAll('keep')">📋 킵목록 (!킵)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap;cursor:pointer"><input type="radio" name="rlSaveToAll" data-savetype="misc" style="width:auto" onchange="applyRlSaveToAll('misc')">🗂️ 기타목록 (!내카드)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:11.5px;margin:0;white-space:nowrap;cursor:pointer"><input type="radio" name="rlSaveToAll" data-savetype="event" style="width:auto" onchange="applyRlSaveToAll('event')">🎉 이벤트목록 (!이벤트)</label>
+            <span class="hint" style="margin:0">선택하면 아래 모든 항목에 한 번에 적용돼요. 개별 항목은 그대로 따로 바꿀 수도 있어요.</span>
           </div>
           <div id="rouletteItemsWrap"></div>
           <button class="btn-gray" style="width:100%;margin-top:6px" onclick="addRouletteItem()">+ 항목 추가</button>
@@ -2721,6 +2729,104 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div id="rbListWrap"><p class="hint">불러오는 중...</p></div>
       </div>
 
+      <!-- 🎯 뽑기판 -->
+      <div class="panel" data-panel="pickboard">
+        <div class="ft-shell">
+          <div class="ft-side" id="pbSideNav">
+            <div class="ft-side-head"><span>🎯</span><span>뽑기판 설정</span></div>
+            <div class="ft-side-item active" data-t="basic" onclick="switchPbTab('basic')"><span class="ic">⚙️</span><span>기본 설정</span></div>
+            <div class="ft-side-item" data-t="items" onclick="switchPbTab('items')"><span class="ic">🎁</span><span>상품/당첨번호</span></div>
+            <div class="ft-side-item" data-t="quiz" onclick="switchPbTab('quiz')"><span class="ic">🧩</span><span>퀴즈 설정</span></div>
+            <div class="ft-side-item" data-t="preview" onclick="switchPbTab('preview')"><span class="ic">👁️</span><span>배치 미리보기</span></div>
+          </div>
+
+          <div class="ft-content">
+            <div class="card" data-pbsec="basic">
+              <div class="card-title"><span>⚙️ 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePbSettings()">💾 저장</button></div>
+              <p class="hint">상품별 당첨 번호를 직접 지정할 수 있어요. 배치 방식이 <b>고정+자동</b>이면 부족한 수량은 자동 배치되고, <b>고정 번호만</b>이면 입력한 번호만 당첨 처리돼요.</p>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="pbAuthenticated" checked><span class="slider"></span></label><span>뽑기판 허용</span></div>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="pbGameEnabled" checked><span class="slider"></span></label><span>가위바위보 사용</span></div>
+              <div class="ft-row-toggle"><label class="switch"><input type="checkbox" id="pbQuizEnabled" checked><span class="slider"></span></label><span>돌발퀴즈 사용</span></div>
+
+              <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+                <div><label>뽑기판 크기</label><input type="number" id="pbTableSize" value="60" min="1" max="500"></div>
+                <div><label>페이지 출력 크기</label><input type="number" id="pbBoardPageSize" value="60" min="1" max="500"></div>
+                <div><label>상품 배치 방식</label>
+                  <select id="pbPlacementMode">
+                    <option value="mixed">고정 번호 + 부족분 자동 배치</option>
+                    <option value="fixedOnly">고정 번호만 당첨 처리</option>
+                  </select>
+                </div>
+                <div><label>가위바위보 승률 (%)</label><input type="number" id="pbGameWinRate" value="33" min="0" max="100"></div>
+                <div><label>뽑기권 1개 필요 하트</label><input type="number" id="pbHeartNeed" value="50" min="1"></div>
+                <div><label>뽑기권 1개 필요 스푼</label><input type="number" id="pbGiftNeed" value="1000" min="1"></div>
+                <div><label>뽑기권 1개 필요 채팅</label><input type="number" id="pbChatNeed" value="900" min="1"></div>
+                <div><label>뽑기권 1개 필요 퀴즈 점수</label><input type="number" id="pbQuizNeed" value="100" min="1"></div>
+                <div><label>채팅당 지급 점수</label><input type="number" id="pbGiveChat" value="1" min="0"></div>
+                <div><label>하트당 지급 점수</label><input type="number" id="pbGiveHeart" value="1" min="0"></div>
+                <div><label>유료 하트 지급 배율</label><input type="number" id="pbGiveHeartPresent" value="10" min="0"><div class="ft-field-hint">직접 구매한 유료 하트에 적용되는 배율(일반 좋아요와 별개)</div></div>
+                <div><label>스푼 지급 배율</label><input type="number" id="pbGiveGiftRate" value="1" min="0"></div>
+                <div><label>꽝 문구</label><input type="text" id="pbEmptyText" value="꽝"></div>
+                <div><label>당첨 앞 문구</label><input type="text" id="pbWinPrefix" value="🎉"></div>
+                <div><label>꽝 앞 문구</label><input type="text" id="pbLosePrefix" value="👁️👅👁️"></div>
+              </div>
+
+              <div class="hint" style="margin-top:16px">명령어 이름 (! 제외하고 입력)</div>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr">
+                <div><label>뽑기판 보기</label><input type="text" id="pbCmdBoard" value="뽑기판"></div>
+                <div><label>뽑기 (번호/내정보/가위바위보)</label><input type="text" id="pbCmdPick" value="뽑기"></div>
+                <div><label>뽑기권 지급 (관리자)</label><input type="text" id="pbCmdGive" value="뽑기지급"></div>
+                <div><label>뽑기권 회수 (관리자)</label><input type="text" id="pbCmdRemove" value="뽑기제거"></div>
+                <div><label>뽑기권 양도</label><input type="text" id="pbCmdTransfer" value="뽑기양도"></div>
+                <div><label>전체 초기화 (DJ)</label><input type="text" id="pbCmdReset" value="뽑기정보"></div>
+              </div>
+              <div class="fish-tab-footer"><button class="btn-connect" onclick="savePbSettings()">저장</button></div>
+            </div>
+
+            <div class="card" data-pbsec="items" style="display:none">
+              <div class="card-title"><span>🎁 상품 / 당첨 번호 지정</span></div>
+              <p class="hint">당첨 번호는 쉼표로 입력하세요. 예: <b>3, 7, 21</b><br>수량이 3인데 고정 번호를 1개만 입력하면, 배치 방식에 따라 나머지 2개가 자동 배치됩니다.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+                <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="pbAddItem()">+ 상품 추가</button>
+                <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="pbAddSampleItems()">예시 상품 넣기</button>
+                <button class="btn-shield-reset" style="padding:8px 14px;font-size:12.5px" onclick="pbClearItems()">상품 전체 삭제</button>
+              </div>
+              <div id="pbItemList"></div>
+              <div class="fish-tab-footer"><button class="btn-connect" onclick="savePbSettings()">저장</button></div>
+            </div>
+
+            <div class="card" data-pbsec="quiz" style="display:none">
+              <div class="card-title"><span>🧩 돌발퀴즈 설정</span></div>
+              <p class="hint">등록해둔 문제 중 하나가 무작위로 출제돼요. 정답을 먼저 맞춘 시청자에게 퀴즈 점수를 지급합니다.</p>
+              <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
+                <div><label>출제 간격(분)</label><input type="number" id="pbQuizIntervalMin" value="5" min="1"></div>
+                <div><label>정답 대기 시간(초)</label><input type="number" id="pbQuizTimeoutSec" value="6" min="3"></div>
+                <div><label>정답 지급 점수</label><input type="number" id="pbQuizReward" value="50" min="0"></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
+                <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="pbAddQuiz()">+ 퀴즈 추가</button>
+                <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="pbAddSampleQuiz()">예시 퀴즈 넣기</button>
+                <button class="btn-shield-reset" style="padding:8px 14px;font-size:12.5px" onclick="pbClearQuiz()">퀴즈 전체 삭제</button>
+              </div>
+              <div id="pbQuizList"></div>
+              <div class="fish-tab-footer"><button class="btn-connect" onclick="savePbSettings()">저장</button></div>
+            </div>
+
+            <div class="card" data-pbsec="preview" style="display:none">
+              <div class="card-title"><span>👁️ 배치 미리보기</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadPbBoard()">🔄 새로고침</button></div>
+              <p class="hint">지금 서버에 저장돼있는 실제 배치 상태예요. 상품/배치방식을 바꾸고 저장하면 여기도 같이 갱신돼요.</p>
+              <div id="pbPreviewBox" class="preview-box" style="white-space:pre-wrap;line-height:1.7;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;max-height:320px;overflow:auto;font-size:13px">불러오는 중...</div>
+              <div style="display:flex;gap:8px;margin-top:12px">
+                <button class="btn-shield-reset" style="flex:1" onclick="pbResetBoard()">🔄 뽑기판 리셋 (배치+당첨기록 초기화)</button>
+                <button class="btn-shield-reset" style="flex:1" onclick="pbResetUsers()">🗑️ 전체 유저 뽑기 정보 초기화</button>
+              </div>
+              <div class="card-title" style="margin-top:20px">🏆 최근 당첨 기록</div>
+              <div id="pbWinnersWrap"><p class="hint">불러오는 중...</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ⚔️ 검키우기 -->
       <div class="panel" data-panel="swordgame">
         <div class="card">
@@ -3472,6 +3578,7 @@ const PANEL_META={
   stock:['🍞 증권거래소','좋아요·채팅·스푼·출석으로 머니를 모아 주식·은행·도박·아이템을 즐기는 종합 경제 게임입니다'],
   auction:['🔨 경매','!경매 참여로 등록한 시청자의 선물이 자동 누적되고, 누적 비율만큼 확률 추첨하는 래플형 경매입니다'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
+  pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
@@ -3489,6 +3596,7 @@ function selectPanel(name){
   if(name==='modulemarket')renderModuleMarket();
   if(name==='requestmodules')renderRequestModulesPanel();
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
+  if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -3576,7 +3684,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3588,7 +3696,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -5815,9 +5923,19 @@ function updateRoulettePercentSumOnly(){
   el.style.color = Math.abs(sum-100)<0.01 ? 'var(--success)' : 'var(--danger)';
 }
 
+function applyRlSaveToAll(saveTo){
+  rlEditingItems.forEach(it=>{ it.saveTo=saveTo; });
+  renderRouletteItems();
+  showToast('모든 항목의 저장 위치를 일괄 적용했어요');
+}
+
 function renderRouletteItems(){
   const wrap=document.getElementById('rouletteItemsWrap');
   updateRoulettePercentSumOnly();
+  // 모든 항목이 같은 저장위치면 상단 일괄적용 라디오도 그 값으로 맞춰준다 (제각각이면 아무것도 선택 안 함)
+  const allSameSaveTo=rlEditingItems.length && rlEditingItems.every(it=>(it.saveTo||'keep')===(rlEditingItems[0].saveTo||'keep'));
+  const commonSaveTo=allSameSaveTo?(rlEditingItems[0].saveTo||'keep'):null;
+  document.querySelectorAll('input[name="rlSaveToAll"]').forEach(r=>{ r.checked = r.dataset.savetype===commonSaveTo; });
   if(!rlEditingItems.length){
     wrap.innerHTML='<p class="hint">등록된 항목이 없습니다. 아래 버튼으로 추가해주세요.</p>';
     return;
@@ -8409,6 +8527,233 @@ let ftRouletteTables={};      // { idx: [{content,score,chance,keepIdx}] }
 let ftCurRoulette=1;
 let ftKeepNamesCache={};
 for(let i=1;i<=FT_ROULETTE_SLOTS;i++) ftRouletteTables[i]=[];
+
+/* ── 🎯 뽑기판 ── */
+let pbConfig={};
+let pbItems=[];
+let pbQuiz=[];
+
+function switchPbTab(t){
+  document.querySelectorAll('#pbSideNav .ft-side-item').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('[data-pbsec]').forEach(el=>el.style.display=el.dataset.pbsec===t?'block':'none');
+  if(t==='preview'){ loadPbBoard(); loadPbWinners(); }
+}
+
+async function loadPbSettings(){
+  try{
+    const res=await fetch(SERVER+'/pickboard/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    pbConfig=d.config||{};
+    pbItems=d.items||[];
+    pbQuiz=d.quiz||[];
+    document.getElementById('pbAuthenticated').checked=pbConfig.authenticated!==false;
+    document.getElementById('pbGameEnabled').checked=pbConfig.gameEnabled!==false;
+    document.getElementById('pbQuizEnabled').checked=pbConfig.quizEnabled!==false;
+    document.getElementById('pbTableSize').value=pbConfig.tableSize??60;
+    document.getElementById('pbBoardPageSize').value=pbConfig.boardPageSize??60;
+    document.getElementById('pbPlacementMode').value=pbConfig.placementMode||'mixed';
+    document.getElementById('pbGameWinRate').value=pbConfig.gameWinRate??33;
+    document.getElementById('pbHeartNeed').value=pbConfig.heartNeed??50;
+    document.getElementById('pbGiftNeed').value=pbConfig.giftNeed??1000;
+    document.getElementById('pbChatNeed').value=pbConfig.chatNeed??900;
+    document.getElementById('pbQuizNeed').value=pbConfig.quizNeed??100;
+    document.getElementById('pbGiveChat').value=pbConfig.giveChat??1;
+    document.getElementById('pbGiveHeart').value=pbConfig.giveHeart??1;
+    document.getElementById('pbGiveHeartPresent').value=pbConfig.giveHeartPresent??10;
+    document.getElementById('pbGiveGiftRate').value=pbConfig.giveGiftRate??1;
+    document.getElementById('pbEmptyText').value=pbConfig.emptyText||'꽝';
+    document.getElementById('pbWinPrefix').value=pbConfig.winPrefix||'🎉';
+    document.getElementById('pbLosePrefix').value=pbConfig.losePrefix||'👁️👅👁️';
+    document.getElementById('pbQuizIntervalMin').value=pbConfig.quizIntervalMin??5;
+    document.getElementById('pbQuizTimeoutSec').value=pbConfig.quizTimeoutSec??6;
+    document.getElementById('pbQuizReward').value=pbConfig.quizReward??50;
+    document.getElementById('pbCmdBoard').value=(pbConfig.cmdBoard||'!뽑기판').replace(/^!/,'');
+    document.getElementById('pbCmdPick').value=(pbConfig.cmdPick||'!뽑기').replace(/^!/,'');
+    document.getElementById('pbCmdGive').value=(pbConfig.cmdGive||'!뽑기지급').replace(/^!/,'');
+    document.getElementById('pbCmdRemove').value=(pbConfig.cmdRemove||'!뽑기제거').replace(/^!/,'');
+    document.getElementById('pbCmdTransfer').value=(pbConfig.cmdTransfer||'!뽑기양도').replace(/^!/,'');
+    document.getElementById('pbCmdReset').value=(pbConfig.cmdReset||'!뽑기정보').replace(/^!/,'');
+    renderPbItems();
+    renderPbQuiz();
+  }catch(e){}
+}
+
+function pbCollectConfig(){
+  return {
+    authenticated:document.getElementById('pbAuthenticated').checked,
+    gameEnabled:document.getElementById('pbGameEnabled').checked,
+    quizEnabled:document.getElementById('pbQuizEnabled').checked,
+    tableSize:Number(document.getElementById('pbTableSize').value)||60,
+    boardPageSize:Number(document.getElementById('pbBoardPageSize').value)||60,
+    placementMode:document.getElementById('pbPlacementMode').value,
+    gameWinRate:Number(document.getElementById('pbGameWinRate').value)||0,
+    heartNeed:Number(document.getElementById('pbHeartNeed').value)||1,
+    giftNeed:Number(document.getElementById('pbGiftNeed').value)||1,
+    chatNeed:Number(document.getElementById('pbChatNeed').value)||1,
+    quizNeed:Number(document.getElementById('pbQuizNeed').value)||1,
+    giveChat:Number(document.getElementById('pbGiveChat').value)||0,
+    giveHeart:Number(document.getElementById('pbGiveHeart').value)||0,
+    giveHeartPresent:Number(document.getElementById('pbGiveHeartPresent').value)||0,
+    giveGiftRate:Number(document.getElementById('pbGiveGiftRate').value)||0,
+    emptyText:document.getElementById('pbEmptyText').value||'꽝',
+    winPrefix:document.getElementById('pbWinPrefix').value||'',
+    losePrefix:document.getElementById('pbLosePrefix').value||'',
+    quizIntervalMin:Number(document.getElementById('pbQuizIntervalMin').value)||5,
+    quizTimeoutSec:Number(document.getElementById('pbQuizTimeoutSec').value)||6,
+    quizReward:Number(document.getElementById('pbQuizReward').value)||0,
+    cmdBoard:document.getElementById('pbCmdBoard').value,
+    cmdPick:document.getElementById('pbCmdPick').value,
+    cmdGive:document.getElementById('pbCmdGive').value,
+    cmdRemove:document.getElementById('pbCmdRemove').value,
+    cmdTransfer:document.getElementById('pbCmdTransfer').value,
+    cmdReset:document.getElementById('pbCmdReset').value,
+  };
+}
+
+async function savePbSettings(){
+  const body={ ...pbCollectConfig(), items:pbCollectItems(), quiz:pbCollectQuiz() };
+  try{
+    const res=await fetch(SERVER+'/pickboard/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'저장 실패');
+    pbConfig=d.config||pbConfig;
+    pbItems=d.items||pbItems;
+    renderPbItems();
+    showToast('저장 완료 ✓ (뽑기판이 새로 배치됐어요)');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* 상품 목록 */
+function renderPbItems(){
+  const box=document.getElementById('pbItemList');
+  if(!box)return;
+  if(!pbItems.length){ box.innerHTML='<p class="hint">등록된 상품이 없습니다.</p>'; return; }
+  box.innerHTML=pbItems.map((item,i)=>`
+    <div class="card" style="background:var(--surface2);margin-bottom:12px" data-pb-item="${i}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <b>상품 ${i+1}</b>
+        <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="pbRemoveItem(${i})">삭제</button>
+      </div>
+      <label class="check-opt" style="margin-top:0"><input type="checkbox" ${item.enabled!==false?'checked':''} onchange="pbItems[${i}].enabled=this.checked"> 상품 사용</label>
+      <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:8px">
+        <div><label>상품명</label><input type="text" value="${escapeAttr(item.name||'')}" placeholder="예: 치킨" oninput="pbItems[${i}].name=this.value"></div>
+        <div><label>상품 수량</label><input type="number" min="1" value="${Number(item.count||1)}" oninput="pbItems[${i}].count=Math.max(1,Number(this.value)||1)"></div>
+      </div>
+      <label style="margin-top:10px">당첨 번호 지정</label>
+      <input type="text" value="${escapeAttr((item.fixedNumbers||[]).join(', '))}" placeholder="예: 1, 7, 15" oninput="pbItems[${i}].fixedNumbers=this.value.split(',').map(v=>Number(v.trim())).filter(v=>Number.isInteger(v)&&v>0)">
+      <label style="margin-top:10px">상품 설명 / 안내 문구</label>
+      <textarea placeholder="예: 방송 종료 후 지급" style="min-height:70px" oninput="pbItems[${i}].description=this.value">${escapeHtml(item.description||'')}</textarea>
+      <div class="hint" style="margin-top:8px">현재 배치 번호: ${(item.assignedNumbers||[]).join(', ')||'저장 후 확인 가능'}</div>
+    </div>
+  `).join('');
+}
+function pbCollectItems(){ return pbItems.filter(it=>it.name&&it.name.trim()); }
+function pbAddItem(){
+  pbItems.push({id:'item_'+Date.now()+'_'+Math.random().toString(16).slice(2),enabled:true,name:'',description:'',count:1,fixedNumbers:[],assignedNumbers:[]});
+  renderPbItems();
+}
+function pbRemoveItem(i){ pbItems.splice(i,1); renderPbItems(); }
+function pbClearItems(){
+  if(!confirm('상품을 전체 삭제할까요?'))return;
+  pbItems=[]; renderPbItems();
+}
+function pbAddSampleItems(){
+  pbItems=[
+    {id:'s1',enabled:true,name:'치킨',description:'방송 종료 후 지급',count:1,fixedNumbers:[7],assignedNumbers:[]},
+    {id:'s2',enabled:true,name:'아메리카노',description:'당첨 후 DJ에게 고유닉 남기기',count:3,fixedNumbers:[3,15,30],assignedNumbers:[]},
+    {id:'s3',enabled:true,name:'VIP 신청곡',description:'원하는 곡 1곡 우선 신청 가능',count:2,fixedNumbers:[],assignedNumbers:[]},
+  ];
+  renderPbItems();
+}
+
+/* 퀴즈 목록 */
+function renderPbQuiz(){
+  const box=document.getElementById('pbQuizList');
+  if(!box)return;
+  if(!pbQuiz.length){ box.innerHTML='<p class="hint">등록된 퀴즈가 없습니다.</p>'; return; }
+  box.innerHTML=pbQuiz.map((q,i)=>`
+    <div class="card" style="background:var(--surface2);margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <b>퀴즈 ${i+1}</b>
+        <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="pbRemoveQuiz(${i})">삭제</button>
+      </div>
+      <div class="btn-row" style="grid-template-columns:1fr 1fr">
+        <div><label>문제</label><input type="text" value="${escapeAttr(q.question||'')}" oninput="pbQuiz[${i}].question=this.value"></div>
+        <div><label>정답</label><input type="text" value="${escapeAttr(q.answer||'')}" oninput="pbQuiz[${i}].answer=this.value"></div>
+      </div>
+    </div>
+  `).join('');
+}
+function pbCollectQuiz(){ return pbQuiz.filter(q=>q.question&&q.question.trim()&&q.answer&&q.answer.trim()); }
+function pbAddQuiz(){ pbQuiz.push({question:'',answer:''}); renderPbQuiz(); }
+function pbRemoveQuiz(i){ pbQuiz.splice(i,1); renderPbQuiz(); }
+function pbClearQuiz(){
+  if(!confirm('퀴즈를 전체 삭제할까요?'))return;
+  pbQuiz=[]; renderPbQuiz();
+}
+function pbAddSampleQuiz(){
+  pbQuiz=[{question:'1+1은?',answer:'2'},{question:'스푼라디오의 첫 글자는?',answer:'스'}];
+  renderPbQuiz();
+}
+
+/* 배치 미리보기 + 당첨 기록 */
+async function loadPbBoard(){
+  const box=document.getElementById('pbPreviewBox');
+  if(box)box.textContent='불러오는 중...';
+  try{
+    const res=await fetch(SERVER+'/pickboard/board',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const cfg=d.config||{};
+    const used=(d.board||[]).filter(n=>n===null).length;
+    const lines=(d.items||[]).map(it=>`${it.name||'이름 없음'}: ${(it.assignedNumbers||[]).join(', ')||'번호 없음'}`);
+    if(box)box.textContent=
+      `배치 방식: ${cfg.placementMode==='fixedOnly'?'고정 번호만':'고정+자동'}\n`+
+      `뽑기판 크기: ${d.board?d.board.length:0} · 이미 뽑힌 번호: ${used}개\n\n`+
+      (lines.join('\n')||'등록된 상품이 없어요');
+  }catch(e){ if(box)box.textContent='불러오기 실패: '+e.message; }
+}
+async function loadPbWinners(){
+  const wrap=document.getElementById('pbWinnersWrap');
+  if(wrap)wrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/pickboard/winners',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const list=d.winners||[];
+    if(!list.length){ wrap.innerHTML='<p class="hint">아직 당첨 기록이 없어요.</p>'; return; }
+    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
+      <thead><tr><th>시간</th><th>닉네임</th><th>번호</th><th>결과</th><th>설명</th></tr></thead>
+      <tbody>${list.map(w=>`<tr>
+        <td>${new Date(w.time).toLocaleString('ko-KR')}</td>
+        <td>${escapeHtml(w.nickname||'')}</td>
+        <td>${w.number}</td>
+        <td>${escapeHtml(w.itemName||'')}</td>
+        <td>${escapeHtml(w.description||'')}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  }catch(e){ if(wrap)wrap.innerHTML='<p class="hint">불러오기 실패</p>'; }
+}
+async function pbResetBoard(){
+  if(!confirm('뽑기판 배치와 당첨 기록을 초기화할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/pickboard/reset-board',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('뽑기판을 리셋했어요');
+    loadPbBoard(); loadPbWinners();
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function pbResetUsers(){
+  if(!confirm('전체 유저의 뽑기 정보(포인트/뽑기권)를 초기화할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/pickboard/reset-users',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('전체 유저 정보를 초기화했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
 
 function switchFtTab(t){
   document.querySelectorAll('#ftSideNav .ft-side-item').forEach(b=>b.classList.toggle('active',b.dataset.t===t));

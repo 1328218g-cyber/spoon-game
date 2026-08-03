@@ -264,7 +264,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2825,6 +2825,351 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   }
 }
 
+
+// ══════════════════════════════════════════════════════
+// 🎁 뽑기판 — 하트/스푼/채팅/퀴즈로 포인트를 모아 "뽑기권"을 얻고,
+// 뽑기판의 번호를 골라 상품을 뽑는 미니게임. 원래 에디봇 데스크탑(Electron)의
+// 외부 모듈로 만들어졌던 걸 그대로 웹 버전으로 이식했다.
+// ══════════════════════════════════════════════════════
+
+const PB_NUMBER_EMOJIS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣']
+function pbToEmojiNumber(num) {
+  return String(num).padStart(2, '0').split('').map(n => PB_NUMBER_EMOJIS[n] || n).join('')
+}
+
+function pbDefaultConfig() {
+  return {
+    authenticated: true,
+    tableSize: 60,
+    boardPageSize: 60,
+    placementMode: 'mixed', // 'mixed'(고정+자동) | 'fixedOnly'(고정 번호만)
+    heartNeed: 50, giftNeed: 1000, chatNeed: 900, quizNeed: 100,
+    giveHeart: 1, giveGiftRate: 1, giveChat: 1, giveHeartPresent: 10,
+    gameEnabled: true, gameWinRate: 33,
+    quizEnabled: true, quizIntervalMin: 5, quizTimeoutSec: 6, quizReward: 50,
+    emptyText: '꽝', winPrefix: '🎉', losePrefix: '👁️👅👁️',
+    cmdBoard: '!뽑기판', cmdPick: '!뽑기', cmdGive: '!뽑기지급', cmdRemove: '!뽑기제거', cmdTransfer: '!뽑기양도', cmdReset: '!뽑기정보',
+  }
+}
+function pbCreateBoard(size) { return Array.from({ length: size }, (_, i) => i + 1) }
+function pbRand(max, min = 0) { return Math.floor(Math.random() * max) + min }
+
+function pbNormalizeItems(items) {
+  const result = []
+  for (const raw of Array.isArray(items) ? items : []) {
+    const name = String(raw.name || '').trim()
+    if (!name) continue
+    const count = Math.max(1, Number(raw.count || 1))
+    const fixedNumbers = Array.isArray(raw.fixedNumbers)
+      ? raw.fixedNumbers.map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0)
+      : String(raw.fixedNumbers || '').split(',').map(v => Number(String(v).trim())).filter(v => Number.isInteger(v) && v > 0)
+    result.push({
+      id: raw.id || ('item_' + Date.now() + '_' + Math.random().toString(16).slice(2)),
+      name,
+      description: String(raw.description || ''),
+      count,
+      fixedNumbers,
+      enabled: raw.enabled !== false,
+      assignedNumbers: [],
+    })
+  }
+  return result
+}
+function pbNormalizeQuiz(list) {
+  return (Array.isArray(list) ? list : [])
+    .map(q => ({ question: String(q.question || '').trim(), answer: String(q.answer || '').trim() }))
+    .filter(q => q.question && q.answer)
+}
+
+// 고정 번호를 먼저 배치하고, "고정+자동" 모드면 남은 수량을 빈 칸에 랜덤 배치한다.
+function pbRecalcBoard(pb) {
+  const tableSize = Math.max(1, Number(pb.config.tableSize) || 60)
+  pb.board = pbCreateBoard(tableSize)
+  const used = new Set()
+  const available = pbCreateBoard(tableSize)
+  pb.items = pbNormalizeItems(pb.items)
+
+  for (const item of pb.items) {
+    if (!item.enabled) continue
+    const fixed = item.fixedNumbers.filter(n => n >= 1 && n <= tableSize).filter(n => !used.has(n))
+    const limit = Math.min(item.count, fixed.length)
+    for (let i = 0; i < limit; i++) {
+      used.add(fixed[i]); item.assignedNumbers.push(fixed[i])
+      const idx = available.indexOf(fixed[i]); if (idx >= 0) available.splice(idx, 1)
+    }
+  }
+  if (pb.config.placementMode !== 'fixedOnly') {
+    for (const item of pb.items) {
+      if (!item.enabled) continue
+      while (item.assignedNumbers.length < item.count && available.length > 0) {
+        const idx = pbRand(available.length)
+        const number = available.splice(idx, 1)[0]
+        used.add(number); item.assignedNumbers.push(number)
+      }
+    }
+  }
+}
+
+function getPickboardSettings(djId, settings) {
+  if (!settings.pickboard) {
+    const config = pbDefaultConfig()
+    settings.pickboard = { config, items: [], quiz: [], board: pbCreateBoard(config.tableSize), users: {}, winners: [], quizState: { currentQuiz: null, expiresAt: null, nextQuizAt: null } }
+    store.saveSettings(djId, { pickboard: settings.pickboard })
+  }
+  const pb = settings.pickboard
+  pb.config = { ...pbDefaultConfig(), ...(pb.config || {}) }
+  if (!Array.isArray(pb.items)) pb.items = []
+  if (!Array.isArray(pb.quiz)) pb.quiz = []
+  if (!Array.isArray(pb.winners)) pb.winners = []
+  if (!pb.users) pb.users = {}
+  if (!pb.quizState) pb.quizState = { currentQuiz: null, expiresAt: null, nextQuizAt: null }
+  if (!Array.isArray(pb.board) || pb.board.length !== Number(pb.config.tableSize)) pbRecalcBoard(pb)
+  return pb
+}
+function savePickboard(djId, pb) { store.saveSettings(djId, { pickboard: pb }) }
+
+function pbDefaultUser(nickname) { return { nickname: nickname || '', heart: 0, gift: 0, chat: 0, quiz: 0, pick: 0 } }
+function pbGetUser(pb, tag) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  return { ...pbDefaultUser(), ...(pb.users[clean] || {}) }
+}
+function pbSetUser(pb, tag, data) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  if (!clean) return
+  pb.users[clean] = { ...pbDefaultUser(), ...data }
+}
+// 포인트 적립 + 필요치를 채우면 자동으로 뽑기권(pick)으로 전환
+function pbAddPoint(pb, tag, nickname, type, amount) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  if (!clean) return null
+  const user = pbGetUser(pb, clean)
+  user.nickname = nickname || user.nickname
+  user[type] = Math.max(0, Number(user[type] || 0) + (Number(amount) || 0))
+  const needMap = { heart: Number(pb.config.heartNeed), gift: Number(pb.config.giftNeed), chat: Number(pb.config.chatNeed), quiz: Number(pb.config.quizNeed) }
+  if (type !== 'pick' && needMap[type] > 0) {
+    while (user[type] >= needMap[type]) { user[type] -= needMap[type]; user.pick += 1 }
+  }
+  pbSetUser(pb, clean, user)
+  return user
+}
+function pbDelPoint(pb, tag, type, amount) {
+  const user = pbGetUser(pb, tag)
+  user[type] = Math.max(0, Number(user[type] || 0) - (Number(amount) || 0))
+  pbSetUser(pb, tag, user)
+  return user
+}
+
+function pbBuildBoardText(pb, page = 0) {
+  const size = Number(pb.config.boardPageSize) || Number(pb.config.tableSize) || 60
+  const start = page * size
+  const end = Math.min(start + size, pb.board.length)
+  const lines = []
+  for (let i = start; i < end; i += 4) {
+    const row = []
+    for (let j = i; j < i + 4 && j < end; j++) row.push(pb.board[j] === null ? '❌❌' : pbToEmojiNumber(j + 1))
+    lines.push(row.join(' '))
+  }
+  return `🎁 뽑기판 ${page + 1}페이지\n${lines.join('\n')}`
+}
+function pbFindPrizeByNumber(pb, number) {
+  return pb.items.find(item => item.enabled && Array.isArray(item.assignedNumbers) && item.assignedNumbers.includes(number))
+}
+function pbSaveWinner(pb, nickname, item, pickNumber) {
+  pb.winners.unshift({ time: Date.now(), nickname, number: pickNumber, itemName: item?.name || pb.config.emptyText, description: item?.description || '' })
+  if (pb.winners.length > 300) pb.winners.length = 300
+}
+
+async function handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'pickboard', djId)) return
+  const pb = getPickboardSettings(djId, settings)
+  if (pb.config.authenticated === false) return
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const chatAct = getActivitySettings(djId, settings)
+  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  const canManage = isDj || isManager
+
+  // 돌발퀴즈 정답 체크 — 명령어 여부와 상관없이 가장 먼저 확인
+  if (pb.quizState.currentQuiz) {
+    const answer = String(pb.quizState.currentQuiz.answer || '').trim()
+    if (answer && answer === msg) {
+      pb.quizState.currentQuiz = null
+      pb.quizState.nextQuizAt = Date.now() + Math.max(1, Number(pb.config.quizIntervalMin) || 5) * 60000
+      pbAddPoint(pb, tag, author, 'quiz', Number(pb.config.quizReward) || 0)
+      savePickboard(djId, pb)
+      sendChatSplit(djId, `🎯 정답! ${author}님께 퀴즈 점수 ${pb.config.quizReward}점 지급!`, 150, 300)
+      return
+    }
+  }
+
+  if (!msg.startsWith('!')) {
+    if (tag) { pbAddPoint(pb, tag, author, 'chat', Number(pb.config.giveChat) || 0); savePickboard(djId, pb) }
+    return
+  }
+
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  if (cmd === pb.config.cmdBoard) {
+    const sub = parts[1]
+    if (sub === '설정') {
+      if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+      return sendChatSplit(djId, '⚙️ 뽑기판 설정은 웹 대시보드 사이드바 "🎁 뽑기판" 메뉴에서 할 수 있어요.', 150, 300)
+    }
+    if (sub === '리셋') {
+      if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+      pbRecalcBoard(pb); pb.winners = []; savePickboard(djId, pb)
+      return sendChatSplit(djId, '⚠️ 뽑기판과 당첨자 기록이 리셋되었습니다.', 150, 300)
+    }
+    if (sub === '상품') {
+      if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+      const lines = pb.items.map((item, i) => `${i + 1}. ${item.name} / 번호: ${(item.assignedNumbers || []).join(', ') || '없음'}`)
+      return sendChatSplit(djId, `🎁 상품 배치 목록\n${lines.join('\n') || '등록된 상품 없음'}`, 150, 300)
+    }
+    const page = Math.max(0, (Number(sub) || 1) - 1)
+    return sendChatSplit(djId, pbBuildBoardText(pb, page), 150, 300)
+  }
+
+  if (cmd === pb.config.cmdPick) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없습니다.', 150, 300)
+    const sub = parts[1]
+    if (sub === '내정보') {
+      const user = pbGetUser(pb, tag)
+      return sendChatSplit(djId, `❣️ ${author}님 뽑기 정보\n💚 보유 뽑기권: ${user.pick}\n💚 하트 점수: ${user.heart}\n💚 스푼 점수: ${user.gift}\n💚 채팅 점수: ${user.chat}\n💚 퀴즈 점수: ${user.quiz}`, 150, 300)
+    }
+    if (['가위', '바위', '보'].includes(sub)) {
+      if (!pb.config.gameEnabled) return sendChatSplit(djId, '⚠️ 미니게임이 꺼져 있습니다.', 150, 300)
+      const bet = Math.max(1, Number(parts[2]) || 1)
+      const user = pbGetUser(pb, tag)
+      if (user.pick < bet) return sendChatSplit(djId, '⚠️ 보유 뽑기권이 부족합니다.', 150, 300)
+      user.pick -= bet
+      const winRate = Math.max(0, Math.min(100, Number(pb.config.gameWinRate) || 33))
+      const win = pbRand(100) < winRate
+      if (win) { user.pick += bet * 2; pbSetUser(pb, tag, user); savePickboard(djId, pb); return sendChatSplit(djId, `🎉 ${author}님 승리! 뽑기권 ${bet * 2}개 획득!`, 150, 300) }
+      pbSetUser(pb, tag, user); savePickboard(djId, pb)
+      return sendChatSplit(djId, `🏳️ ${author}님 패배! 뽑기권 ${bet}개 소모!`, 150, 300)
+    }
+    const pickNumber = Number(sub)
+    if (!Number.isInteger(pickNumber)) return sendChatSplit(djId, '⚠️ 사용법: !뽑기 번호', 150, 300)
+    if (pickNumber < 1 || pickNumber > pb.board.length) return sendChatSplit(djId, `🚫 ${pickNumber}번은 유효하지 않은 숫자입니다.`, 150, 300)
+    const user = pbGetUser(pb, tag)
+    if (user.pick < 1) return sendChatSplit(djId, `⚠️ ${author}님은 뽑기권이 부족합니다.`, 150, 300)
+    const boardIndex = pickNumber - 1
+    if (pb.board[boardIndex] === null) return sendChatSplit(djId, `🚫 ${pickNumber}번은 이미 사용된 숫자입니다.`, 150, 300)
+    pb.board[boardIndex] = null
+    user.pick -= 1
+    const item = pbFindPrizeByNumber(pb, pickNumber)
+    pbSetUser(pb, tag, user)
+    if (item) {
+      pbSaveWinner(pb, author, item, pickNumber)
+      savePickboard(djId, pb)
+      const desc = item.description ? `\n📝 ${item.description}` : ''
+      return sendChatSplit(djId, `${pb.config.winPrefix} ${author}님 ${pickNumber}번 [${item.name}] 당첨!${desc}`, 150, 300)
+    }
+    pbSaveWinner(pb, author, null, pickNumber)
+    savePickboard(djId, pb)
+    return sendChatSplit(djId, `${author}님이 뽑으신 ${pickNumber}번은 ${pb.config.losePrefix} ${pb.config.emptyText}입니다.`, 150, 300)
+  }
+
+  if (cmd === pb.config.cmdGive) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = parts[1]
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, '사용법: !뽑기지급 고유닉 수량', 150, 300)
+    if (target === '전체') {
+      const members = await fetchLiveMembers(room.autoJoinedFor, tokenManager.getAccessToken(SHARED_TOKEN_DJID), 5)
+      for (const m of members) pbAddPoint(pb, m.tag, m.nickname, 'pick', count)
+      savePickboard(djId, pb)
+      return sendChatSplit(djId, `🔔 현재 시청자 ${members.length}명에게 뽑기권 ${count}개씩 지급했습니다.`, 150, 300)
+    }
+    pbAddPoint(pb, target.replace(/^@/, ''), target, 'pick', count)
+    savePickboard(djId, pb)
+    return sendChatSplit(djId, `🔔 ${target}님에게 뽑기권 ${count}개를 지급했습니다.`, 150, 300)
+  }
+
+  if (cmd === pb.config.cmdRemove) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = parts[1]
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, '사용법: !뽑기제거 고유닉 수량', 150, 300)
+    const user = pbDelPoint(pb, target.replace(/^@/, ''), 'pick', count)
+    savePickboard(djId, pb)
+    return sendChatSplit(djId, `${target}님의 뽑기권을 제거했습니다. 남은 수량: ${user.pick}개`, 150, 300)
+  }
+
+  if (cmd === pb.config.cmdTransfer) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없습니다.', 150, 300)
+    const target = String(parts[1] || '').replace(/^@/, '')
+    const count = Math.max(1, Number(parts[2]) || 0)
+    if (!target || !count) return sendChatSplit(djId, '사용법: !뽑기양도 고유닉 수량', 150, 300)
+    const srcUser = pbGetUser(pb, tag)
+    if (srcUser.pick < count) return sendChatSplit(djId, '⚠️ 양도할 수 있는 뽑기권이 부족합니다.', 150, 300)
+    pbDelPoint(pb, tag, 'pick', count)
+    pbAddPoint(pb, target, target, 'pick', count)
+    savePickboard(djId, pb)
+    return sendChatSplit(djId, `${target}님에게 뽑기권 ${count}개를 양도했습니다.`, 150, 300)
+  }
+
+  if (cmd === pb.config.cmdReset) {
+    if (!isDj) return sendChatSplit(djId, '⚠️ DJ만 사용할 수 있습니다.', 150, 300)
+    pb.users = {}
+    savePickboard(djId, pb)
+    return sendChatSplit(djId, '⚠️ 회원 뽑기 정보가 전체 초기화되었습니다.', 150, 300)
+  }
+
+  // 인식 못한 명령어(다른 모듈 명령어 포함)도 일반 채팅처럼 점수는 적립
+  if (tag) { pbAddPoint(pb, tag, author, 'chat', Number(pb.config.giveChat) || 0); savePickboard(djId, pb) }
+}
+
+function handlePickboardHeartHook(djId, settings, tag, author) {
+  if (!isModuleOn(settings, 'pickboard', djId) || !tag) return
+  const pb = getPickboardSettings(djId, settings)
+  pbAddPoint(pb, tag, author, 'heart', Number(pb.config.giveHeart) || 1)
+  savePickboard(djId, pb)
+}
+function handlePickboardDonationHook(djId, settings, tag, author, amount) {
+  if (!isModuleOn(settings, 'pickboard', djId) || !tag || amount <= 0) return
+  const pb = getPickboardSettings(djId, settings)
+  pbAddPoint(pb, tag, author, 'gift', amount * (Number(pb.config.giveGiftRate) || 1))
+  savePickboard(djId, pb)
+}
+// 유료 하트(직접 구매) — 원본의 onHeart 핸들러에 해당 (일반 좋아요 onLike와는 배율이 다름)
+function handlePickboardPaidHeartHook(djId, settings, tag, author, amount) {
+  if (!isModuleOn(settings, 'pickboard', djId) || !tag || amount <= 0) return
+  const pb = getPickboardSettings(djId, settings)
+  pbAddPoint(pb, tag, author, 'heart', amount * (Number(pb.config.giveHeartPresent) || 10))
+  savePickboard(djId, pb)
+}
+
+// 돌발퀴즈 스케줄러 — 20초마다 모든 접속중인 방송을 확인해서, 때가 되면 퀴즈를 출제하거나 타임아웃 처리한다.
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'pickboard', djId)) continue
+    const pb = getPickboardSettings(djId, settings)
+    if (!pb.config.quizEnabled || !pb.quiz.length) continue
+    const now = Date.now()
+    if (pb.quizState.currentQuiz) {
+      if (now >= (pb.quizState.expiresAt || 0)) {
+        sendChatSplit(djId, `⏰ 정답자가 없습니다. 정답은 [${pb.quizState.currentQuiz.answer}]였습니다.`, 150, 300)
+        pb.quizState.currentQuiz = null
+        pb.quizState.nextQuizAt = now + Math.max(1, Number(pb.config.quizIntervalMin) || 5) * 60000
+        savePickboard(djId, pb)
+      }
+      continue
+    }
+    if (!pb.quizState.nextQuizAt || now >= pb.quizState.nextQuizAt) {
+      const q = pb.quiz[Math.floor(Math.random() * pb.quiz.length)]
+      pb.quizState.currentQuiz = q
+      pb.quizState.expiresAt = now + Math.max(3, Number(pb.config.quizTimeoutSec) || 6) * 1000
+      savePickboard(djId, pb)
+      sendChatSplit(djId, `⚠️ 돌발퀴즈 ⚠️\n${q.question}`, 150, 300)
+    }
+  }
+}, 20000)
 
 // ══════════════════════════════════════════════════════
 // 🎣 팝블리네 낚시대회 — 낚시 게임과는 완전히 별개인 신규 모듈.
@@ -10416,6 +10761,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -10471,6 +10817,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
         if (!isLurker) handleStockHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
+        if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
         if (msgs.length > 0) {
@@ -10516,6 +10863,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
           rememberTagNickname(room, likeTag, author)
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
+          if (!isLurker) handlePickboardPaidHeartHook(djId, settings, likeTag, author, total)
         }
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
@@ -10538,6 +10886,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
+          handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -12226,6 +12575,21 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       ].filter(x => x.cmd)
     })
   }
+  if (on('pickboard') && settings.pickboard && settings.pickboard.config) {
+    const pcfg = settings.pickboard.config
+    groups.push({
+      key: 'pickboard', icon: '🎁', label: '뽑기판', items: [
+        { cmd: pcfg.cmdBoard, desc: '뽑기판 보기 (페이지: !뽑기판 2)' },
+        { cmd: pcfg.cmdPick + ' 번호', desc: '해당 번호 뽑기 (뽑기권 1개 소모)' },
+        { cmd: pcfg.cmdPick + ' 내정보', desc: '내 보유 뽑기권/포인트 조회' },
+        { cmd: pcfg.cmdPick + ' 가위/바위/보 [수량]', desc: '가위바위보로 뽑기권 걸기 (승리 시 2배)' },
+        { cmd: pcfg.cmdTransfer, desc: '다른 유저에게 뽑기권 양도' },
+        { cmd: pcfg.cmdGive, desc: '뽑기권 지급 (관리자)' },
+        { cmd: pcfg.cmdRemove, desc: '뽑기권 회수 (관리자)' },
+        { cmd: pcfg.cmdReset, desc: '전체 유저 뽑기 정보 초기화 (DJ 전용)' },
+      ].filter(x => x.cmd)
+    })
+  }
   if (on('couponcheck') && settings.couponCheck) {
     const cc = settings.couponCheck
     groups.push({
@@ -12510,6 +12874,68 @@ app.post('/fishing/reset', auth.requireAuth, (req, res) => {
 })
 
 // ── 🎣 팝블리네 낚시대회 (fishing 게임과 별개의 독립 모듈) ──
+// 🎁 뽑기판
+app.get('/pickboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, config: pb.config, items: pb.items, quiz: pb.quiz, userCount: Object.keys(pb.users).length })
+})
+app.post('/pickboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  const body = req.body || {}
+
+  const boolKeys = ['authenticated', 'gameEnabled', 'quizEnabled']
+  boolKeys.forEach(k => { if (body[k] != null) pb.config[k] = !!body[k] })
+
+  const numKeys = ['tableSize', 'boardPageSize', 'heartNeed', 'giftNeed', 'chatNeed', 'quizNeed', 'giveHeart', 'giveGiftRate', 'giveChat', 'giveHeartPresent', 'gameWinRate', 'quizIntervalMin', 'quizTimeoutSec', 'quizReward']
+  numKeys.forEach(k => { if (body[k] != null) pb.config[k] = Number(body[k]) || 0 })
+
+  if (body.placementMode === 'mixed' || body.placementMode === 'fixedOnly') pb.config.placementMode = body.placementMode
+
+  const textKeys = ['emptyText', 'winPrefix', 'losePrefix', 'openPopupMessage', 'cmdBoard', 'cmdPick', 'cmdGive', 'cmdRemove', 'cmdTransfer', 'cmdReset']
+  textKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (['cmdBoard', 'cmdPick', 'cmdGive', 'cmdRemove', 'cmdTransfer', 'cmdReset'].includes(k) && v && !v.startsWith('!')) v = '!' + v; if (v) pb.config[k] = v.slice(0, 40) } })
+
+  if (Array.isArray(body.items)) pb.items = body.items
+  if (Array.isArray(body.quiz)) pb.quiz = pbNormalizeQuiz(body.quiz)
+
+  const tableSize = Math.max(1, Math.min(500, Number(pb.config.tableSize) || 60))
+  pb.config.tableSize = tableSize
+  pb.config.boardPageSize = Math.max(1, Math.min(500, Number(pb.config.boardPageSize) || tableSize))
+
+  pbRecalcBoard(pb) // 상품/배치방식/판 크기가 바뀌었을 수 있으니 저장할 때마다 다시 배치
+  savePickboard(req.djId, pb)
+  res.json({ success: true, config: pb.config, items: pb.items })
+})
+app.get('/pickboard/board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, board: pb.board, items: pb.items, config: pb.config })
+})
+app.get('/pickboard/winners', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, winners: pb.winners.slice(0, 100) })
+})
+app.post('/pickboard/reset-board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  pbRecalcBoard(pb)
+  pb.winners = []
+  savePickboard(req.djId, pb)
+  res.json({ success: true })
+})
+app.post('/pickboard/reset-users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  pb.users = {}
+  savePickboard(req.djId, pb)
+  res.json({ success: true })
+})
+
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
