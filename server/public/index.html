@@ -853,9 +853,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
-          <p class="hint" style="margin-top:0">마지막 접속(로그인)이 7일 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.</p>
+          <p class="hint" style="margin-top:0">마지막 접속(로그인)이 4일 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔐 중복 가입 방지</div>
+          <p class="hint" style="margin-top:0">같은 브라우저 기기 또는 같은 IP로 이미 가입한 기록이 있으면 새 가입을 막아요. 피시방·회사·가족 와이파이처럼 여러 명이 같은 IP를 쓰는 곳은 아래에 IP를 등록해두면 그 IP는 중복 체크에서 제외돼요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="dupAllowIpInput" placeholder="예: 123.45.67.89" style="flex:1">
+            <button class="btn-connect" style="padding:9px 16px;white-space:nowrap" onclick="addDupAllowIp()">+ 허용 추가</button>
+          </div>
+          <div id="dupAllowIpList" style="margin-top:10px"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -3022,6 +3031,20 @@ function switchAuthTab(mode){
   document.getElementById('authError').textContent='';
 }
 
+/* ── 🔐 중복 가입 방지용 기기 식별자 ── */
+// 브라우저에 임의의 고유 ID를 하나 심어두고, 가입할 때 서버로 같이 보낸다.
+// (완벽한 기기 식별은 아니지만 — 시크릿모드/데이터삭제로 우회 가능 — 캐주얼한 중복가입은 잡아냄)
+function getOrCreateDeviceId(){
+  try{
+    let id=localStorage.getItem('ediBotDeviceId');
+    if(!id){
+      id=(crypto.randomUUID?crypto.randomUUID():'dev_'+Date.now()+'_'+Math.random().toString(36).slice(2));
+      localStorage.setItem('ediBotDeviceId',id);
+    }
+    return id;
+  }catch(e){ return null; } // localStorage 접근 불가(시크릿모드 일부 브라우저 등)면 그냥 null
+}
+
 async function submitAuth(){
   const id=document.getElementById('authDjId').value.trim();
   const pw=document.getElementById('authPassword').value;
@@ -3038,7 +3061,7 @@ async function submitAuth(){
     const djTag=document.getElementById('authDjTag').value.trim();
     if(!djTag){errEl.textContent='디제이 고유닉을 입력해주세요';return;}
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email,deviceId:getOrCreateDeviceId()})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
       showToast('가입 완료! 로그인해주세요');
@@ -3381,7 +3404,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin) loadUserList();
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); }
   applySidebarOrder();
 
   initApp();
@@ -4698,7 +4721,7 @@ function renderUserListTable(){
       if(u.lastLoginAt){
         const days=Math.floor((Date.now()-u.lastLoginAt)/86400000);
         const dateStr=new Date(u.lastLoginAt).toLocaleDateString('ko-KR');
-        const inactive=days>=7;
+        const inactive=days>=4;
         lastLoginCell=`${dateStr}${inactive?` <span class="status-pill ended">${days}일 전</span>`:` <span class="hint" style="margin:0">${days===0?'오늘':days+'일 전'}</span>`}`;
       }
       const expiryCell = `
@@ -4709,7 +4732,7 @@ function renderUserListTable(){
           ${u.expiresAt?`<button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="clearUserExpiry('${escapeAttr(u.djId)}')">해제</button>`:''}
         </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
-        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}</td>
+        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}</td>
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
@@ -4735,6 +4758,48 @@ function renderUserListTable(){
 
 // 관리자 계정으로 특정 디제이의 설정 화면을 비밀번호 없이 바로 확인/수정하러 들어간다.
 // 원래 관리자 세션은 따로 보관해뒀다가, 화면 상단 배너의 "관리자 계정으로 돌아가기"로 복귀할 수 있다.
+
+/* ── 🔐 중복 가입 방지: IP 허용목록 관리 ── */
+let dupAllowIps=[];
+async function loadDupAllowIps(){
+  try{
+    const res=await fetch(SERVER+'/admin/duplicate-check-allowed-ips',{headers:authHeaders()});
+    const d=await res.json();
+    dupAllowIps=(d.success&&d.list)?d.list:[];
+  }catch(e){ dupAllowIps=[]; }
+  renderDupAllowIpList();
+}
+function renderDupAllowIpList(){
+  const wrap=document.getElementById('dupAllowIpList');
+  if(!wrap)return;
+  if(!dupAllowIps.length){ wrap.innerHTML='<p class="hint">등록된 예외 IP가 없어요.</p>'; return; }
+  wrap.innerHTML=dupAllowIps.map(ip=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 8px 5px 12px;font-size:12.5px;margin:3px 5px 3px 0">${escapeHtml(ip)}<button onclick="removeDupAllowIp('${escapeAttr(ip)}')" title="제거" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:13px;padding:0 2px;line-height:1">✕</button></span>`).join('');
+}
+async function addDupAllowIp(){
+  const input=document.getElementById('dupAllowIpInput');
+  const ip=input.value.trim();
+  if(!ip)return showToast('IP를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/duplicate-check-allowed-ips',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({ip})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'추가 실패');
+    dupAllowIps=d.list||dupAllowIps;
+    renderDupAllowIpList();
+    input.value='';
+    showToast('예외 IP로 등록했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function removeDupAllowIp(ip){
+  try{
+    const res=await fetch(SERVER+'/admin/duplicate-check-allowed-ips/remove',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({ip})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'제거 실패');
+    dupAllowIps=d.list||dupAllowIps;
+    renderDupAllowIpList();
+    showToast('제거했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function sendBroadcastChat(){
   const msg=document.getElementById('broadcastChatInput').value.trim();
   if(!msg)return showToast('보낼 메시지를 입력해주세요');

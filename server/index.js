@@ -7,6 +7,7 @@ const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
 
 const app = express()
+app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
 app.use(cors({ origin: '*' }))
 app.use(express.json({ limit: '20mb' })) // 로컬 에디봇 설정 마이그레이션 업로드(/account/migrate-local)를 위해 여유있게 설정
 app.use(require('express').static(__dirname + '/public'))
@@ -10748,10 +10749,29 @@ app.get('/stickers', async (req, res) => {
 // ══════════════════════════════════════════════════════
 // 계정 (디제이별 가입/로그인)
 app.post('/auth/signup', (req, res) => {
-  const { djId, password, djTag, email } = req.body || {}
-  const result = store.signup(djId, password, djTag, email)
+  const { djId, password, djTag, email, deviceId } = req.body || {}
+  const signupIp = req.ip
+  const result = store.signup(djId, password, djTag, email, signupIp, deviceId)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
+})
+
+// 관리자(sum) 전용 — 중복 가입 체크에서 제외할 IP 목록(피시방/공용 와이파이 등) 관리
+app.get('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
+})
+app.post('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.addDuplicateCheckAllowedIp((req.body || {}).ip)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
+})
+app.post('/admin/duplicate-check-allowed-ips/remove', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.removeDuplicateCheckAllowedIp((req.body || {}).ip)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
 })
 
 // 🔑 비밀번호 찾기 — 가입 시 등록한 이메일이 일치하는지 확인 후, 맞으면 새 비밀번호로 바로 변경한다.
@@ -12951,12 +12971,13 @@ app.listen(PORT, () => {
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
   }
 
-  // 🕐 마지막 접속(lastLoginAt) 기준 7일 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
+  // 🕐 마지막 접속(lastLoginAt) 기준 아래 일수 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
   // 서버 시작 직후 1회 + 이후 24시간마다 반복 (관리자 sum 계정은 제외).
+  const AUTO_JOIN_CLEANUP_INACTIVE_DAYS = 4
   const runAutoJoinCleanup = () => {
     try {
-      const affected = store.cleanupInactiveAutoJoinTags(4)
-      if (affected.length) console.log(`[다중감시 자동정리] 7일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
+      const affected = store.cleanupInactiveAutoJoinTags(AUTO_JOIN_CLEANUP_INACTIVE_DAYS)
+      if (affected.length) console.log(`[다중감시 자동정리] ${AUTO_JOIN_CLEANUP_INACTIVE_DAYS}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
     } catch (e) { console.log('[다중감시 자동정리] 실패', e.message) }
   }
   runAutoJoinCleanup()

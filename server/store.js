@@ -183,7 +183,51 @@ function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
 
-function signup(djId, password, djTag, email) {
+// ⚡ 중복 가입 방지 — 같은 기기(브라우저에 저장된 deviceId) 또는 같은 IP로 이미 가입한 계정이
+// 있으면 신규 가입을 막는다. 완벽하진 않다(시크릿모드+VPN이면 우회 가능)는 걸 감안하고,
+// "귀찮게 만드는" 수준의 억제책으로 사용한다. 관리자가 IP 허용목록에 등록해두면(피시방/가족 와이파이
+// 등 여러 명이 같은 IP를 쓰는 경우) 그 IP는 중복 체크에서 제외된다.
+function getDuplicateCheckAllowedIps() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.duplicateCheckAllowedIps;
+  return Array.isArray(v) ? v : [];
+}
+function addDuplicateCheckAllowedIp(ip) {
+  const clean = String(ip || '').trim();
+  if (!clean) return { ok: false, error: 'IP를 입력해주세요' };
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const list = Array.isArray(djs['sum'].settings.duplicateCheckAllowedIps) ? djs['sum'].settings.duplicateCheckAllowedIps : [];
+  if (!list.includes(clean)) list.push(clean);
+  djs['sum'].settings.duplicateCheckAllowedIps = list;
+  saveDjs(djs);
+  return { ok: true };
+}
+function removeDuplicateCheckAllowedIp(ip) {
+  const djs = loadDjs();
+  if (!djs['sum'] || !djs['sum'].settings) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  const list = Array.isArray(djs['sum'].settings.duplicateCheckAllowedIps) ? djs['sum'].settings.duplicateCheckAllowedIps : [];
+  djs['sum'].settings.duplicateCheckAllowedIps = list.filter(x => x !== ip);
+  saveDjs(djs);
+  return { ok: true };
+}
+
+// 가입 전 미리 체크용 — 겹치는 기존 계정의 djId를 반환한다(없으면 null).
+function findDuplicateSignup(signupIp, deviceId) {
+  const djs = loadDjs();
+  const allowedIps = getDuplicateCheckAllowedIps();
+  const ipOk = signupIp && !allowedIps.includes(signupIp);
+  for (const id of Object.keys(djs)) {
+    if (id === 'sum') continue;
+    const rec = djs[id];
+    if (deviceId && rec.signupDeviceId && rec.signupDeviceId === deviceId) return id;
+    if (ipOk && signupIp && rec.signupIp === signupIp) return id;
+  }
+  return null;
+}
+
+function signup(djId, password, djTag, email, signupIp, deviceId) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
@@ -191,6 +235,9 @@ function signup(djId, password, djTag, email) {
   if (!validEmail(cleanEmail)) return { ok: false, error: '비밀번호 찾기에 사용할 이메일을 올바르게 입력해주세요' };
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
+
+  const dupId = findDuplicateSignup(signupIp, deviceId);
+  if (dupId) return { ok: false, error: '이미 가입 기록이 있는 기기 또는 네트워크예요. 중복 가입은 제한돼요. 오해라면(피시방/공용 와이파이 등) 관리자에게 문의해주세요.' };
 
   // 디제이 고유닉은 필수. 가입 즉시 다중감시(자동입장) 목록에 자동으로 등록해서,
   // 로그인 후 별도 설정 없이도 자동입장이 바로 동작하게 한다.
@@ -232,6 +279,8 @@ function signup(djId, password, djTag, email) {
     blocked: false,
     autoJoinEnabled: true, // 다중감시(자동입장)는 이제 별도 관리자 권한 없이 누구나 기본 사용 가능
     djTag: cleanTag, // 가입 시 등록한 본인 디제이 고유닉
+    signupIp: signupIp || null,       // 중복 가입 감지용
+    signupDeviceId: deviceId || null, // 중복 가입 감지용 (브라우저에 저장된 임의 식별자)
   };
   saveDjs(djs);
   return { ok: true };
@@ -375,6 +424,7 @@ function listDjSummaries() {
     djId: id,
     createdAt: djs[id].createdAt || null,
     lastLoginAt: djs[id].lastLoginAt || null,
+    signupIp: djs[id].signupIp || null,
     autoJoinTag: djs[id].settings?.autoJoinTag || '',
     blocked: !!djs[id].blocked,
     autoJoinEnabled: !!djs[id].autoJoinEnabled,
@@ -389,7 +439,7 @@ function listDjSummaries() {
 // ⚠️ lastLoginAt은 이번에 새로 추가된 필드라 기존 계정엔 값이 없을 수 있다(실제로는 계속 활동 중일 수 있음).
 // 그래서 lastLoginAt이 아예 없는 계정은 건드리지 않고, 로그인 기록이 실제로 쌓인 뒤 7일 이상
 // 지난 경우에만 정리한다 — 배포 직후 멀쩡한 계정이 잘못 정리되는 걸 막기 위함.
-function cleanupInactiveAutoJoinTags(inactiveDays = 4) {
+function cleanupInactiveAutoJoinTags(inactiveDays = 7) {
   const djs = loadDjs();
   const cutoff = Date.now() - inactiveDays * 24 * 60 * 60 * 1000;
   const affected = [];
@@ -451,6 +501,10 @@ module.exports = {
   setDefaultTrialDays,
   getRequestModules,
   saveRequestModules,
+  findDuplicateSignup,
+  getDuplicateCheckAllowedIps,
+  addDuplicateCheckAllowedIp,
+  removeDuplicateCheckAllowedIp,
   validEmail,
   verifyRecoveryEmail,
 };
