@@ -10340,20 +10340,6 @@ app.get('/request-modules', auth.requireAuth, (req, res) => {
   res.json({ success: true, list: mine.map(m => ({ id: m.id, title: m.title, icon: m.icon, targetPanel: m.targetPanel })) })
 })
 
-// 본인 계정 전용 — 요청 모듈에 처음 들어갈 때, 본인 계정 비밀번호(봇 가입 시 설정한 그 비번)로 한 번 더 확인한다.
-// 접근권한(allowedDjIds)이 있는지도 여기서 같이 검사한다.
-app.post('/request-modules/verify', auth.requireAuth, async (req, res) => {
-  const { id, password } = req.body || {}
-  const all = store.getRequestModules()
-  const entry = all.find(m => m.id === id)
-  if (!entry) return res.json({ success: false, error: '존재하지 않는 요청 모듈이에요' })
-  if (!isRequestModuleAllowed(entry.targetPanel, req.djId)) return res.json({ success: false, error: '이 메뉴에 접근 권한이 없어요' })
-  if (!password) return res.json({ success: false, error: '비밀번호를 입력해주세요' })
-  const ok = await store.verifyPassword(req.djId, password)
-  if (!ok) return res.json({ success: false, error: '비밀번호가 틀렸어요' })
-  res.json({ success: true })
-})
-
 // 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
 // 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
 // 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
