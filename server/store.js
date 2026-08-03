@@ -247,6 +247,8 @@ async function login(djId, password) {
   if (rec.blocked) return { ok: false, error: '차단된 계정이에요. 관리자에게 문의해주세요.' };
   const match = await bcrypt.compare(String(password || ''), rec.passwordHash);
   if (!match) return { ok: false, error: '비밀번호가 틀렸어요' };
+  rec.lastLoginAt = Date.now(); // ⏰ 마지막 접속일 기록 (관리자 유저 관리 화면 + 장기 미접속 자동정리에 사용)
+  saveDjs(djs);
   return { ok: true };
 }
 
@@ -372,12 +374,41 @@ function listDjSummaries() {
   return Object.keys(djs).map(id => ({
     djId: id,
     createdAt: djs[id].createdAt || null,
+    lastLoginAt: djs[id].lastLoginAt || null,
     autoJoinTag: djs[id].settings?.autoJoinTag || '',
     blocked: !!djs[id].blocked,
     autoJoinEnabled: !!djs[id].autoJoinEnabled,
     expiresAt: djs[id].settings?.expiresAt || null,
     referrerId: djs[id].referrerId || null,
   }));
+}
+
+// 마지막 접속일 기준 7일 이상 미접속 계정의 다중감시(자동입장) 고유닉 목록을 자동으로 비운다.
+// 관리자(sum)는 대상에서 제외. 매일 한 번(cleanupInactiveAutoJoin 호출부에서) 실행된다.
+// autoJoinWatch도 함께 꺼서, 그 계정이 다시 로그인하기 전까지는 자동입장 감시 대상에서 완전히 빠지게 한다.
+// ⚠️ lastLoginAt은 이번에 새로 추가된 필드라 기존 계정엔 값이 없을 수 있다(실제로는 계속 활동 중일 수 있음).
+// 그래서 lastLoginAt이 아예 없는 계정은 건드리지 않고, 로그인 기록이 실제로 쌓인 뒤 7일 이상
+// 지난 경우에만 정리한다 — 배포 직후 멀쩡한 계정이 잘못 정리되는 걸 막기 위함.
+function cleanupInactiveAutoJoinTags(inactiveDays = 4) {
+  const djs = loadDjs();
+  const cutoff = Date.now() - inactiveDays * 24 * 60 * 60 * 1000;
+  const affected = [];
+  for (const id of Object.keys(djs)) {
+    if (id === 'sum') continue;
+    const rec = djs[id];
+    if (!rec.lastLoginAt) continue; // 로그인 기록이 아직 없으면(=신규 필드라 값 없음) 건드리지 않음
+    if (rec.lastLoginAt >= cutoff) continue; // 최근 7일 안에 접속했으면 건너뜀
+    const s = rec.settings;
+    if (!s) continue;
+    const hadTags = (Array.isArray(s.autoJoinTags) && s.autoJoinTags.length) || !!s.autoJoinTag;
+    if (!hadTags && s.autoJoinWatch !== true) continue; // 이미 비어있으면 손댈 필요 없음
+    s.autoJoinTags = [];
+    s.autoJoinTag = '';
+    s.autoJoinWatch = false;
+    affected.push(id);
+  }
+  if (affected.length) saveDjs(djs);
+  return affected;
 }
 
 function setAutoJoinEnabled(djId, enabled) {
@@ -405,6 +436,7 @@ module.exports = {
   saveSettings,
   listDjIds,
   listDjSummaries,
+  cleanupInactiveAutoJoinTags,
   setBlocked,
   deleteDj,
   resetSettings,

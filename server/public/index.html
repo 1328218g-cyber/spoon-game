@@ -853,6 +853,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <p class="hint" style="margin-top:0">마지막 접속(로그인)이 7일 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
@@ -4692,6 +4693,14 @@ function renderUserListTable(){
   const rows=list.map(u=>{
       const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
       const isSum=u.djId==='sum';
+      // 마지막 접속: 아직 한 번도 새 로그인 기록이 안 쌓였으면 "기록없음"(=예전 계정이라 값이 없을 수 있음, 비활성 아님)
+      let lastLoginCell='<span class="hint" style="margin:0">기록없음</span>';
+      if(u.lastLoginAt){
+        const days=Math.floor((Date.now()-u.lastLoginAt)/86400000);
+        const dateStr=new Date(u.lastLoginAt).toLocaleDateString('ko-KR');
+        const inactive=days>=7;
+        lastLoginCell=`${dateStr}${inactive?` <span class="status-pill ended">${days}일 전</span>`:` <span class="hint" style="margin:0">${days===0?'오늘':days+'일 전'}</span>`}`;
+      }
       const expiryCell = `
         <div style="margin-bottom:4px">${isSum?'<span class="status-pill ongoing">항상 이용가능</span>':expiryStatusPill(u.expiresAt)}</div>
         <input type="datetime-local" id="expireInput-${escapeAttr(u.djId)}" value="${isoToLocalInputValue(u.expiresAt)}" style="padding:6px 8px;font-size:11.5px;width:172px">
@@ -4704,6 +4713,7 @@ function renderUserListTable(){
         <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
+        <td>${lastLoginCell}</td>
         <td>${u.referrerId?escapeHtml(u.referrerId):'<span class="hint" style="margin:0">-</span>'}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
@@ -4717,7 +4727,7 @@ function renderUserListTable(){
       </tr>`;
     }).join('');
     wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 }

@@ -12950,4 +12950,15 @@ app.listen(PORT, () => {
     console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
   }
+
+  // 🕐 마지막 접속(lastLoginAt) 기준 7일 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
+  // 서버 시작 직후 1회 + 이후 24시간마다 반복 (관리자 sum 계정은 제외).
+  const runAutoJoinCleanup = () => {
+    try {
+      const affected = store.cleanupInactiveAutoJoinTags(4)
+      if (affected.length) console.log(`[다중감시 자동정리] 7일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
+    } catch (e) { console.log('[다중감시 자동정리] 실패', e.message) }
+  }
+  runAutoJoinCleanup()
+  setInterval(runAutoJoinCleanup, 24 * 60 * 60 * 1000)
 })
