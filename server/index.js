@@ -11562,6 +11562,9 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
   const hist = settings.rouletteHistory || {}
   const tags = Object.keys(hist)
   const room = getRoom(req.djId)
+  // 스푼 고유닉은 영문/숫자/밑줄/마침표/하이픈만 쓰인다. 이 형식이 아니면(한글, 공백, 이모지 등)
+  // 예전에 태그 조회가 실패해서 닉네임으로 대신 저장된 "레거시" 기록일 가능성이 높다.
+  const isTagFormat = (s) => /^[a-zA-Z0-9._-]{2,30}$/.test(String(s || ''))
   const users = await Promise.all(tags.map(async tag => {
     const nickname = (hist[tag] && hist[tag].nickname) || tag
     let imgUrl = getCachedProfileUrl(room, null, tag)
@@ -11575,9 +11578,10 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
         }
       } catch (e) { /* 조회 실패 시 그냥 이니셜 아바타로 대체 */ }
     }
-    return { tag, nickname, imgUrl }
+    return { tag, nickname, imgUrl, looksLikeNickname: !isTagFormat(tag) }
   }))
-  res.json({ success: true, tags, users })
+  const nicknameKeyedCount = users.filter(u => u.looksLikeNickname).length
+  res.json({ success: true, tags, users, nicknameKeyedCount })
 })
 
 // ⭐ 애청지수 유저 목록 (랭킹순)

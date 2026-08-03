@@ -1472,11 +1472,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">👥 시청자 목록</span>
               <button class="icon-btn" style="font-size:14px" onclick="loadRouletteUsers()">🔄</button>
             </div>
+            <div id="rlNicknameWarn" style="display:none;font-size:11.5px;color:var(--danger);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:6px 8px;margin-bottom:8px"></div>
             <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:8px">
             <div class="chip-input-row" style="margin-bottom:10px">
               <input type="text" id="rlNewTagInput" placeholder="닉네임 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
               <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="trackRouletteUser()">+ 추가</button>
             </div>
+            <button class="btn-shield-reset" style="width:100%;margin-bottom:10px" onclick="deleteAllRouletteHistory()">🗑️ 전체 기록 삭제</button>
             <div id="rlUserListWrap"></div>
           </div>
           <div class="split-main" id="rouletteHistoryWrap">
@@ -9880,7 +9882,19 @@ async function loadRouletteUsers(){
   try{
     const res=await fetch(SERVER+'/roulette/users',{headers:authHeaders()});
     const d=await res.json();
-    if(d.success){ rlUserTags=d.users||(d.tags||[]).map(t=>({tag:t,imgUrl:''})); renderRouletteUserList(); }
+    if(d.success){
+      rlUserTags=d.users||(d.tags||[]).map(t=>({tag:t,imgUrl:''}));
+      const warnEl=document.getElementById('rlNicknameWarn');
+      if(warnEl){
+        if(d.nicknameKeyedCount>0){
+          warnEl.style.display='block';
+          warnEl.textContent=`⚠️ ${d.nicknameKeyedCount}명은 고유닉이 아니라 닉네임으로 저장된 예전 기록으로 보여요 (아래 목록에 ⚠️ 표시). 스푼 태그 조회가 실패했던 시절 기록일 수 있어요.`;
+        } else {
+          warnEl.style.display='none';
+        }
+      }
+      renderRouletteUserList();
+    }
   }catch(e){}
 }
 
@@ -9896,15 +9910,30 @@ function renderRouletteUserList(){
     const t=u.tag;
     const nick=u.nickname||t;
     const active=t===rlSelectedTag;
+    const warnBadge=u.looksLikeNickname?'<span title="닉네임 기반 레거시 기록" style="margin-left:4px">⚠️</span>':'';
     const avatarHtml=u.imgUrl
       ? `<img src="${escapeAttr(u.imgUrl)}" class="ic" style="width:26px;height:26px;border-radius:50%;object-fit:cover" onerror="this.style.visibility='hidden'">`
       : `<span class="ic" style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${escapeHtml((nick||'?')[0])}</span>`;
     return `<div class="nav-item ${active?'active':''}" style="margin:2px 0" onclick="loadRouletteHistory('${escapeAttr(t)}')">
       ${avatarHtml}
-      <span class="lbl" style="line-height:1.3">${escapeHtml(nick)}${nick!==t?`<br><span style="font-size:11px;color:var(--muted)">@${escapeHtml(t)}</span>`:''}</span>
+      <span class="lbl" style="line-height:1.3">${escapeHtml(nick)}${warnBadge}${nick!==t?`<br><span style="font-size:11px;color:var(--muted)">@${escapeHtml(t)}</span>`:''}</span>
       <button class="icon-btn danger" style="flex-shrink:0" onclick="event.stopPropagation();deleteRouletteUser('${escapeAttr(t)}')">✕</button>
     </div>`;
   }).join('');
+}
+
+async function deleteAllRouletteHistory(){
+  if(!confirm('모든 시청자의 룰렛 기록(킵/기타/이벤트 목록 전부)을 삭제할까요?\n되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 정말 전체 삭제할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/roulette/history/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('전체 기록을 삭제했어요');
+    rlSelectedTag='';
+    document.getElementById('rouletteHistoryWrap').innerHTML='<p class="hint">왼쪽에서 시청자를 선택하거나 추가해주세요.</p>';
+    await loadRouletteUsers();
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function trackRouletteUser(){
