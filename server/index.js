@@ -32,6 +32,13 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 // (tokenManager 자체는 계속 djId 기반 멀티 계정을 지원하므로, 나중에 다시 DJ별로 나누고 싶으면
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
 const SHARED_TOKEN_DJID = 'sum'
+// 🔀 각 DJ가 본인 스푼 계정 세션을 직접 업로드했으면 그 계정 토큰을 쓰고,
+// 안 올렸으면(대부분의 경우) 지금까지처럼 관리자(sum)의 공용 계정 토큰을 그대로 쓴다.
+// tokenManager는 이미 djId별로 완전히 독립된 계정을 관리할 수 있게 만들어져 있어서(v2),
+// 이 함수 하나로 "쓰던 사람은 그대로, 원하는 사람만 자기 계정"이 자연스럽게 갈린다.
+function tokenDjIdFor(djId) {
+  return tokenManager.hasCookies(djId) ? djId : SHARED_TOKEN_DJID
+}
 
 // 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
 // 절대 프론트엔드(index.html) 코드에 직접 넣지 않는다 — 브라우저 소스보기로 그대로 노출되기 때문.
@@ -50,7 +57,7 @@ function getRoom(djId) {
 let sseClients = []
 
 // ══════════════════════════════════════════════════════
-// 세션 쿠키 기반 accessToken 자동 갱신 (스푼 계정은 단비님 것 하나만 공용으로 사용)
+// 세션 쿠키 기반 accessToken 자동 갱신 (기본은 관리자 공용 계정, 본인 계정 연결한 DJ는 그 계정으로 개별 갱신)
 tokenManager.setOnTokenUpdate((djId) => {
   broadcast({ type: 'session', djId, status: 'connected' })
 })
@@ -209,10 +216,10 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
 
 // 지금 방송에 실제로 접속 중인 사람인지 태그 또는 닉네임으로 확인한다. (룰렛지급/복권지급/상점 등
 // DJ가 직접 대상을 지정하는 명령어에서, 고유닉을 잘못 입력해도 조용히 지급되던 문제를 막기 위해 사용)
-async function findLiveMemberByNickOrTag(liveId, input) {
+async function findLiveMemberByNickOrTag(djId, liveId, input) {
   const norm = String(input || '').trim().toLowerCase()
   if (!norm) return null
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const members = await fetchLiveMembers(liveId, accessToken, 5)
   return members.find(u => (u.tag && u.tag.toLowerCase() === norm) || (u.nickname && u.nickname.toLowerCase() === norm)) || null
 }
@@ -241,7 +248,7 @@ async function fetchLiveInfo(liveId, accessToken) {
 
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) return
   try {
     const headers = {
@@ -341,7 +348,7 @@ async function handleShieldCommand(djId, room, settings, author, authorId, liveI
   // 2) 못 찾았으면, 그 자리에서 시청자 명단(더 안정적인 API)을 다시 조회해서 이 사람의 실제 태그를 확인한다.
   if (!isPermUser && perms.length && liveId) {
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
       const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
       const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
       if (me && me.tag) {
@@ -542,7 +549,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   response = response.replace(/{nickname}/g, author).replace(/{count}/g, cmd.useCount)
   if (response.includes('{tag}')) {
     let tag = actTag
-    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+    if (!tag) tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
     if (!tag) console.log(`[${djId}][단축키] '${cmd.trigger}' {tag} 조회 실패 → 닉네임(${author})으로 대체 출력`)
     // 태그 조회에 실패해도 빈 값으로 나가지 않도록 닉네임으로 대체
     response = response.replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
@@ -1115,7 +1122,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     // 기록이 없는 유저는 !룰렛지급과 동일하게 자동으로 등록하고 지급하되, 고유닉을 잘못 입력해도
     // 조용히 새 유저가 생기는 걸 막기 위해 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
     if (!existingKey) {
-      const found = await findLiveMemberByNickOrTag(liveId, targetNick)
+      const found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
       if (!found) {
         setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
         return
@@ -1136,7 +1143,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const existingKey = findActUserKey(act, targetNick)
     // 기록이 없는 유저는 자동으로 등록하고 지급하되, 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
     if (!existingKey) {
-      const found = await findLiveMemberByNickOrTag(liveId, targetNick)
+      const found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
       if (!found) {
         setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
         return
@@ -1214,7 +1221,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 
   let members = []
   try {
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
     members = await fetchLiveMembers(liveId, accessToken, 5)
   } catch (e) { console.log(`[자동복권:${djId}] 시청자 명단 조회 오류`, e.message) }
 
@@ -1484,7 +1491,7 @@ async function handleRaffleCommand(djId, room, settings, author, authorId, liveI
   const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
   if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ DJ/매니저만 사용할 수 있습니다.'), 400); return }
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const members = await fetchLiveMembers(liveId, accessToken, 5)
   if (!members.length) { setTimeout(() => sendChatToRoom(djId, '🎁 지금 방송에 접속 중인 시청자가 없어요.'), 400); return }
   const winner = members[Math.floor(Math.random() * members.length)]
@@ -1943,7 +1950,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     const act = getActivitySettings(djId, settings)
     const key = findActUserKey(act, author)
     const lotto = key ? (act.users[key].lotto || 0) : 0
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -1984,7 +1991,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     }
 
     // ⚠️ 오타로 조용히 없는 유저가 만들어지지 않도록, 지금 방에 실제로 있는 사람인지 먼저 확인 (기존 !룰렛지급과 동일한 규칙)
-    const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+    const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
     if (!found) {
       setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요.`), 400)
       return
@@ -2804,7 +2811,7 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
   if (!FISH_CMDS.includes(cmd)) return
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const tag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (tag) rememberTagNickname(room, tag, author)
 
@@ -3089,7 +3096,7 @@ async function handlePickboardCommand(djId, room, settings, author, authorId, li
     const count = Math.max(1, Number(parts[2]) || 1)
     if (!target) return sendChatSplit(djId, '사용법: !뽑기지급 고유닉 수량', 150, 300)
     if (target === '전체') {
-      const members = await fetchLiveMembers(room.autoJoinedFor, tokenManager.getAccessToken(SHARED_TOKEN_DJID), 5)
+      const members = await fetchLiveMembers(room.autoJoinedFor, tokenManager.getAccessToken(tokenDjIdFor(djId)), 5)
       for (const m of members) pbAddPoint(pb, m.tag, m.nickname, 'pick', count)
       savePickboard(djId, pb)
       return sendChatSplit(djId, `🔔 현재 시청자 ${members.length}명에게 뽑기권 ${count}개씩 지급했습니다.`, 150, 300)
@@ -3584,7 +3591,7 @@ async function handleFishTournamentCommand(djId, room, settings, author, authorI
   const chatAct = getActivitySettings(djId, settings)
   const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
 
-  const tag = actTag || await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+  const tag = actTag || await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
   if (tag) rememberTagNickname(room, tag, author)
 
   const namedCmds = [
@@ -10270,7 +10277,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   if (sectionByCmd[first]) {
     const section = sectionByCmd[first]
     const page = parseInt(parts[1]) || 1
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -10290,7 +10297,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
       return
     }
     // 지금 방에 있으면 정확한 태그+닉네임으로 확정, 없으면 입력값을 그대로 태그로 간주해서 조회
-    const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+    const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
     const targetTag = found ? found.tag : targetInput
     const displayName = found ? (found.nickname || found.tag) : targetInput
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
@@ -10305,7 +10312,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const targetInput = parts[1].replace('@', '').trim()
     const content = parts.slice(2).join(' ').trim()
     if (!targetInput || !content) return
-    const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+    const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
     const targetTag = found ? found.tag : targetInput
     const displayName = found ? (found.nickname || found.tag) : targetInput
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
@@ -10323,7 +10330,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const idx = parseInt(parts[1])
     const count = parseInt(parts[2]) || 1
     if (!idx || idx <= 0) { setTimeout(() => sendChatToRoom(djId, `📋 사용법: ${first} [번호] [수량]\n(예: ${first} 1 1)`), 400); return }
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
@@ -10362,7 +10369,7 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   if (!targetInput) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
 
   // ⚠️ 고유닉을 잘못 입력해도 조용히 지급되던 버그 수정: 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
-  const found = await findLiveMemberByNickOrTag(liveId, targetInput)
+  const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
   if (!found) {
     setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요. 고유닉을 다시 확인해주세요.`), 400)
     return
@@ -10417,7 +10424,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   if (!rt || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -10477,7 +10484,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 
   // ⚠️ 스푼 태그(고유닉) 조회 API가 가끔 결과가 오락가락했었는데, getCachedUserTag가 응답 id
   // 검증 + 캐싱까지 해줘서 이제 신뢰할 수 있다. 닉네임이 바뀌어도 항상 같은 사람으로 인식되도록 태그를 우선 사용한다.
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
   const histKey = authorTag || author
@@ -10570,7 +10577,7 @@ function startLeavePolling(djId, liveId) {
     if (room._leavePollInFlight) return
     room._leavePollInFlight = true
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
       const users = await fetchLiveMembers(liveId, accessToken)
       if (!users.length) return // 빈 응답은 API 오류일 가능성이 커서 스냅샷 유지하고 이번 회차는 패스
 
@@ -10666,7 +10673,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
@@ -10753,7 +10760,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 🆔 태그↔닉네임 매핑은 이 사람의 다른 명령어(!실드 등)를 처리하기 전에 먼저 갱신해둔다.
           // (순서가 뒤에 있으면, 방금 막 채팅을 시작한 사람은 권한 체크 시점에 태그 매핑이 없어서
           //  '고유닉'으로 등록해둔 권한자 목록과 못 맞는 문제가 생김)
-          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const actTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, actTag, author)
 
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
@@ -10799,12 +10806,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         registerJoinSnapshot(room, author, null)
 
         if (!isLurker) {
-          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           if (!tag) {
             // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
             // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
             await new Promise(r => setTimeout(r, 1200))
-            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+            tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
@@ -10834,7 +10841,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id) : null
         broadcast({ type: 'like', djId, nick: author })
-        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+        const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
         rememberTagNickname(room, likeTag, author)
         rememberProfileUrl(room, likeTag, author, gen.profileUrl)
         if (!isLurker) handleActHeartHook(djId, settings, author, likeTag, gen.profileUrl)
@@ -10869,7 +10876,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (AD_ITEM_IDS.includes(itemId)) likeType = 'ad'
           else if (PLAN_ITEM_IDS.includes(itemId)) likeType = 'plan'
           if (total > 0) {
-            const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+            const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
             rememberTagNickname(room, likeTag, author)
             if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
           }
@@ -10883,7 +10890,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const extraAmount = Math.max(0, Number(eventPayload.extraAmount) || 0)
         const total = baseAmount + extraAmount
         if (total > 0) {
-          const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, likeTag, author)
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
           if (!isLurker) handlePickboardPaidHeartHook(djId, settings, likeTag, author, total)
@@ -10903,7 +10910,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
-          const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(SHARED_TOKEN_DJID))
+          const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, donationTag, author)
           rememberProfileUrl(room, donationTag, author, gen.profileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
@@ -11603,7 +11610,7 @@ app.get('/live/members', auth.requireAuth, async (req, res) => {
     return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
   }
   try {
-    const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
     const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
     members.forEach(u => {
       if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag)
@@ -11990,7 +11997,7 @@ app.post('/raffle/run-now', auth.requireAuth, async (req, res) => {
   if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const room = getRoom(req.djId)
   if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(req.djId))
   const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
   if (!members.length) return res.json({ success: false, error: '지금 방송에 접속 중인 시청자가 없어요' })
   const cfg = getRaffleSettings(req.djId, settings)
@@ -12375,7 +12382,7 @@ app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
   const room = getRoom(djId)
   if (room.isConnected && room.autoJoinedFor) {
     try {
-      const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
       live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
       // 실시간 접속자 API가 프로필 사진을 안 줄 수 있어서, 이미 채팅/좋아요/선물에서
       // 실제로 확인된 프로필 사진(캐시)이 있으면 그걸 우선 사용한다 — 훨씬 더 잘 맞음.
@@ -13262,11 +13269,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 관리자(sum) 전용 — 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. (다른 디제이는 해당 없음)
+// 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
+// 각자 본인 계정을 연결해뒀으면 그 계정으로, 아니면 관리자(sum) 공용 계정으로 입장한다.
 async function checkAdminAutoJoin() {
   for (const djId of store.listDjIds()) {
     if (!canAutoJoin(djId)) continue
-    if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) continue // 관리자 계정에 아직 발급된 토큰이 없으면 건너뜀
+    if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) continue // 이 계정(본인 것 또는 관리자 공용)에 아직 발급된 토큰이 없으면 건너뜀
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
@@ -13304,7 +13312,7 @@ async function checkAdminAutoJoin() {
         if (status && status.is_live && status.current_live_id) {
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
+          const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -13400,7 +13408,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
-  if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
+  if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) {
     return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
   const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
@@ -13418,7 +13426,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     }
 
     const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(SHARED_TOKEN_DJID, liveId)
+    const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -13454,8 +13462,9 @@ app.get('/status', auth.requireAuth, (req, res) => {
   res.json({
     isConnected: room.isConnected,
     autoJoinTag: settings?.autoJoinTag || '',
-    hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID),
-    hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID),
+    hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
+    hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
+    usingOwnAccount: tokenManager.hasCookies(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
   })
 })
 
@@ -13491,24 +13500,27 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에만 연결된다. (djId별 멀티 계정 구조)
-// ⚠️ 지금은 모든 DJ가 이 계정의 토큰을 공유해서 쓰므로, 세션 업로드도 관리자(sum)만 가능하게 제한한다.
+// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에 연결된다. (djId별 멀티 계정 구조)
+// 본인 계정 세션을 올린 DJ는 그때부터 봇이 그 계정으로 동작하고, 안 올린 DJ는 지금까지처럼
+// 관리자(sum) 공용 계정을 그대로 쓴다 (tokenDjIdFor가 자동으로 갈라줌).
 app.post('/session/upload', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 세션을 연결할 수 있어요' })
-  const adminSettings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(adminSettings, 'session', req.djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies(SHARED_TOKEN_DJID, { cookies, localStorage, sessionStorage })
+  tokenManager.setCookies(djId, { cookies, localStorage, sessionStorage })
   // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
   // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  tokenManager.ensureAutoRefresh(SHARED_TOKEN_DJID, 180)
-  console.log(`[세션:${SHARED_TOKEN_DJID}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  tokenManager.ensureAutoRefresh(djId, 180)
+  console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })
 
+// 인증 없이도 확인 가능한 "관리자 공용 계정" 상태 체크 (로그인 전 랜딩 화면 등에서 사용).
+// 본인 계정을 연결한 DJ의 상태는 /status(인증 필요)에서 tokenDjIdFor로 정확히 보여준다.
 app.get('/session/status', (req, res) => {
   res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
 })
