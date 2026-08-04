@@ -261,6 +261,10 @@ function signup(djId, password, djTag, email, signupIp, deviceId) {
   settings.autoJoinTags = [cleanTag];
   settings.autoJoinWatch = true;
   settings.autoJoinTag = cleanTag;
+  // 🔒 가입 시 등록한 이 고유닉을 "본인 방"으로 바로 잠근다. 남의 방으로 계속 바꿔가며
+  // 봇을 옮겨다니는 걸 막기 위함 — 이후 다른 고유닉으로 바꾸려면 2일이 지나야 한다.
+  settings.autoJoinLockedTags = [cleanTag];
+  settings.autoJoinTagLockedAt = Date.now();
 
   // 입장/좋아요 인사말은 기본으로 하나씩 켜둬서, 별도 설정 없이도 바로 인사멘트가 나가게 한다.
   settings.entryData = {
@@ -469,6 +473,16 @@ function setAutoJoinEnabled(djId, enabled) {
   return true;
 }
 
+// 관리자 전용 — 특정 유저의 "고유닉 2일 변경 잠금"을 즉시 풀어준다 (오탈자 정정, 정당한 사유 등 예외 상황용).
+function resetAutoJoinTagLock(djId) {
+  const djs = loadDjs();
+  if (!djs[djId] || !djs[djId].settings) return { ok: false, error: '유저를 찾을 수 없어요' };
+  djs[djId].settings.autoJoinLockedTags = [];
+  djs[djId].settings.autoJoinTagLockedAt = null;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function getAutoJoinEnabled(djId) {
   const djs = loadDjs();
   return !!(djs[djId] && djs[djId].autoJoinEnabled);
@@ -492,6 +506,7 @@ module.exports = {
   resetSettings,
   isBlocked,
   setAutoJoinEnabled,
+  resetAutoJoinTagLock,
   getAutoJoinEnabled,
   exists,
   verifyPassword,

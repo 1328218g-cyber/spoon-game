@@ -1330,9 +1330,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint">
           · !신청곡 : 대기 중인 목록을 출력합니다.<br>
           · !신청곡 [가수] [곡이름] : 곡을 신청합니다.<br>
-          · !제거 [번호] : 특정 곡을 제거합니다. (DJ/매니저 전용)<br>
-          · 리셋 : 목록을 초기화합니다. (DJ/매니저 전용)<br>
-          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ/매니저 전용)<br>
+          · !제거 [번호] : 특정 곡을 제거합니다. (DJ 전용)<br>
+          · 리셋 : 목록을 초기화합니다. (DJ 전용)<br>
+          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ 전용)<br>
           · !현재곡 : 현재 재생 중인(1번) 곡을 채팅으로 알립니다.
           </p>
         </div>
@@ -4863,7 +4863,7 @@ function renderUserListTable(){
         </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
         <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}</td>
-        <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}</td>
+        <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}${isSum?'':`<div style="margin-top:4px"><button class="btn-gray" style="padding:4px 8px;font-size:10.5px" onclick="resetUserAutoJoinLock('${escapeAttr(u.djId)}')">🔓 2일잠금 해제</button></div>`}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
         <td>${lastLoginCell}</td>
@@ -4998,6 +4998,16 @@ async function toggleUserAutoJoin(djIdTarget,enabled){
     const d=await res.json();
     if(d.success){showToast(enabled?'자동입장 허용함':'자동입장 차단함');loadUserList();}
     else {showToast(d.error||'처리 실패');loadUserList();}
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function resetUserAutoJoinLock(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정의 "고유닉 2일 변경 잠금"을 지금 바로 풀어줄까요?\n풀어주면 바로 다른 고유닉으로 바꿀 수 있게 돼요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/reset-autojoin-lock',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)showToast('잠금을 풀어줬어요');
+    else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 

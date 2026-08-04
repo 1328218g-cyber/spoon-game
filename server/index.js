@@ -646,10 +646,6 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
   const sr = getSongRequestSettings(djId, settings)
   const msg = String(text || '').trim()
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  // !제거/리셋/마감/접수는 DJ뿐 아니라 매니저(지정인사 아님, 애청지수 화면의 "지급 권한 부여" 닉네임 목록)도 사용 가능
-  const chatAct = getActivitySettings(djId, settings)
-  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
-  const canManage = isDj || isManager
 
   const save = () => store.saveSettings(djId, { songRequest: sr })
   const reqPrefix = sr.cmdRequest + ' '
@@ -704,9 +700,10 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
     return
   }
 
-  // !제거/리셋/!마감/!접수 — DJ + 매니저 사용 가능
+  // 아래는 전부 DJ 전용 관리 명령어
+  if (!isDj) return
+
   if (msg.startsWith(sr.cmdRemove + ' ')) {
-    if (!canManage) return
     const idx = parseInt(msg.slice(sr.cmdRemove.length).trim(), 10)
     if (idx >= 1 && idx <= sr.items.length) {
       const removed = sr.items.splice(idx - 1, 1)[0]
@@ -717,18 +714,14 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
     return
   }
   if (msg === sr.cmdReset) {
-    if (!canManage) return
     sr.items = []
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
     setTimeout(() => sendChatToRoom(djId, '🔄 신청곡 목록이 초기화됐어요'), 400)
     return
   }
-  if (msg === sr.cmdClose) { if (!canManage) return; sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
-  if (msg === sr.cmdOpen) { if (!canManage) return; sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
-
-  // 아래는 DJ 전용 설정 명령어 (우선모드/신청자 표시 여부)
-  if (!isDj) return
+  if (msg === sr.cmdClose) { sr.accepting = false; save(); setTimeout(() => sendChatToRoom(djId, '🚫 신청곡 접수를 마감했어요'), 400); return }
+  if (msg === sr.cmdOpen) { sr.accepting = true; save(); setTimeout(() => sendChatToRoom(djId, '✅ 신청곡 접수를 시작했어요'), 400); return }
   if (msg === sr.cmdPriorityOn) { sr.priorityMode = true; save(); return }
   if (msg === sr.cmdPriorityOff) { sr.priorityMode = false; save(); return }
   if (msg === sr.cmdNameOn) { sr.showRequester = true; save(); return }
@@ -11557,6 +11550,14 @@ app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 관리자 전용 — 특정 유저의 고유닉 2일 변경 잠금을 즉시 풀어준다 (정당한 사유 있을 때 예외 처리용)
+app.post('/admin/users/:djId/reset-autojoin-lock', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.resetAutoJoinTagLock(req.params.djId)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true })
+})
+
 // ══════════════════════════════════════════════════════
 // 디제이별 설정 (로그인 필요)
 app.get('/settings', auth.requireAuth, (req, res) => {
@@ -12598,10 +12599,10 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const s = settings.songRequest
     groups.push({
       key: 'request', icon: '🎵', label: '신청곡 관리', items: [
-        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '[번호] 해당 곡 제거 (DJ/매니저)' }, { cmd: s.cmdReset, desc: '전체 초기화 (DJ/매니저)' },
-        { cmd: s.cmdClose, desc: '접수 마감 (DJ/매니저)' }, { cmd: s.cmdOpen, desc: '접수 재개 (DJ/매니저)' },
-        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (DJ 전용)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (DJ 전용)' },
-        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (DJ 전용)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (DJ 전용)' },
+        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (관리자)' },
+        { cmd: s.cmdClose, desc: '접수 마감 (관리자)' }, { cmd: s.cmdOpen, desc: '접수 재개 (관리자)' },
+        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (관리자)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (관리자)' },
+        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (관리자)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (관리자)' },
         { cmd: s.cmdRecommend, desc: '멜론 차트 랜덤 추천곡' },
       ].filter(x => x.cmd)
     })
@@ -13328,6 +13329,38 @@ app.post('/bot/toggle', auth.requireAuth, (req, res) => {
   res.json({ success: true, msg: enabled ? '봇 기능 켜짐' : '봇 기능 꺼짐 (순수 시청 모드)' })
 })
 
+// 🔒 자동입장/수동입장에 등록하는 고유닉이 계속 바뀌면서 봇이 다른 사람 방을 들락거리게
+// 되는 걸 막는 장치. 처음 등록한 고유닉(들)을 "본인 방"으로 잠가두고, 다른 고유닉으로
+// 바꾸려면 마지막 변경 후 2일이 지나야 허용한다. 관리자(sum)는 예외.
+// 자동입장(다중감시, 여러 개)이랑 수동입장(1회성, 1개)은 별개 기능이지만 이 잠금은 공유한다 —
+// 안 그러면 한쪽이 막혀도 다른 쪽으로 우회해서 다른 방에 들어갈 수 있기 때문.
+const AUTOJOIN_TAG_CHANGE_COOLDOWN_MS = 2 * 24 * 60 * 60 * 1000 // 2일
+function checkAutoJoinTagChangeAllowed(djId, settings, newTags) {
+  if (djId === 'sum') return { ok: true }
+  const lockedTags = Array.isArray(settings.autoJoinLockedTags) ? settings.autoJoinLockedTags : []
+  const lockedSet = new Set(lockedTags)
+  const newSet = new Set(newTags)
+  const isSameSet = lockedSet.size === newSet.size && [...newSet].every(t => lockedSet.has(t))
+  if (!lockedTags.length || isSameSet) return { ok: true }
+
+  const remain = AUTOJOIN_TAG_CHANGE_COOLDOWN_MS - (Date.now() - (settings.autoJoinTagLockedAt || 0))
+  if (remain > 0) {
+    const hours = Math.max(1, Math.ceil(remain / (60 * 60 * 1000)))
+    return { ok: false, error: `다른 계정 보호를 위해, 등록한 고유닉은 마지막 변경 후 2일이 지나야 바꿀 수 있어요. (약 ${hours}시간 후 가능)` }
+  }
+  return { ok: true }
+}
+function commitAutoJoinTagLock(djId, settings, newTags) {
+  if (djId === 'sum') return
+  const lockedTags = Array.isArray(settings.autoJoinLockedTags) ? settings.autoJoinLockedTags : []
+  const lockedSet = new Set(lockedTags)
+  const newSet = new Set(newTags)
+  const isSameSet = lockedSet.size === newSet.size && [...newSet].every(t => lockedSet.has(t))
+  if (!lockedTags.length || !isSameSet) {
+    store.saveSettings(djId, { autoJoinLockedTags: [...newSet], autoJoinTagLockedAt: Date.now() })
+  }
+}
+
 // 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
@@ -13339,7 +13372,13 @@ app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
 
   if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
 
+  if (cleanTags.length) {
+    const check = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, cleanTags)
+    if (!check.ok) return res.json({ success: false, error: check.error })
+  }
+
   store.saveSettings(djId, { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
+  if (cleanTags.length) commitAutoJoinTagLock(djId, settingsForCheck, cleanTags)
   if (!enabled) {
     const room = getRoom(djId)
     room.autoJoinedFor = ''
@@ -13364,8 +13403,11 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!tokenManager.getAccessToken(SHARED_TOKEN_DJID)) {
     return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
+  const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
+  if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
 
   store.saveSettings(djId, { autoJoinTag: cleanTag })
+  commitAutoJoinTagLock(djId, settingsForCheck, [cleanTag])
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
 
   try {
