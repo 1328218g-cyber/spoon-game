@@ -825,15 +825,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <a href="/downloads/edibot-extension.zip" download style="text-decoration:none">
             <button class="btn-connect" style="width:100%;margin-top:10px">🧩 크롬 확장프로그램 다운로드 (.zip)</button>
           </a>
-          <p class="hint" style="margin-top:10px">
-            <b>설치 방법</b><br>
-            1. 다운로드한 zip 압축 풀기 (지우면 확장프로그램도 같이 사라지니 적당한 위치에 보관)<br>
-            2. 크롬 주소창에 <code>chrome://extensions</code> 입력<br>
-            3. 오른쪽 위 "개발자 모드" 켜기<br>
-            4. "압축해제된 확장 프로그램을 로드합니다" 클릭 → 압축 푼 <code>extension</code> 폴더 선택<br>
-            5. 확장프로그램 아이콘 클릭 → 이 웹 대시보드 로그인 정보(아이디/비밀번호) 입력 → 저장하면 끝<br>
-            ※ 스푼(spooncast.net)에 로그인되어 있는 상태여야 세션을 읽어올 수 있어요.
-          </p>
+          <div class="hint" style="margin-top:14px">
+            <b style="color:var(--text);font-size:13px">설치 방법</b>
+            <div style="display:flex;flex-direction:column;gap:14px;margin-top:8px">
+              <div>
+                <img src="/img/ext-guide-1.svg" alt="1단계: zip 압축 풀기" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
+                <p class="hint" style="margin:6px 0 0">1. 다운로드한 zip 압축 풀기 (지우면 확장프로그램도 같이 사라지니 적당한 위치에 보관)</p>
+              </div>
+              <div>
+                <img src="/img/ext-guide-2.svg" alt="2-3단계: chrome://extensions 접속 후 개발자 모드 켜기" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
+                <p class="hint" style="margin:6px 0 0">2. 크롬 주소창에 <code>chrome://extensions</code> 입력 &nbsp;·&nbsp; 3. 오른쪽 위 "개발자 모드" 켜기</p>
+              </div>
+              <div>
+                <img src="/img/ext-guide-3.svg" alt="4단계: 압축해제된 확장 프로그램을 로드합니다 클릭 후 폴더 선택" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
+                <p class="hint" style="margin:6px 0 0">4. "압축해제된 확장 프로그램을 로드합니다" 클릭 → 압축 푼 <code>extension</code> 폴더 선택</p>
+              </div>
+              <div>
+                <img src="/img/ext-guide-4.svg" alt="5단계: 확장프로그램 아이콘 클릭 후 로그인 정보 입력" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
+                <p class="hint" style="margin:6px 0 0">5. 확장프로그램 아이콘 클릭 → 이 웹 대시보드 로그인 정보(아이디/비밀번호) 입력 → 저장하면 끝</p>
+              </div>
+            </div>
+            <p class="hint" style="margin-top:10px">※ 스푼(spooncast.net)에 로그인되어 있는 상태여야 세션을 읽어올 수 있어요.</p>
+          </div>
         </div>
       </div>
 

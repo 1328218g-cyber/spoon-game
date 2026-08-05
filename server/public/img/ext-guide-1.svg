@@ -1,0 +1,31 @@
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', system-ui, sans-serif">
+  <rect x="0" y="0" width="900" height="220" rx="14" fill="#f4fafd"/>
+  <!-- zip file icon -->
+  <g transform="translate(90,55)">
+    <rect x="0" y="0" width="90" height="110" rx="8" fill="#0ea5e9"/>
+    <rect x="0" y="0" width="90" height="26" rx="8" fill="#0284c7"/>
+    <text x="45" y="18" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">ZIP</text>
+    <rect x="14" y="40" width="62" height="8" rx="3" fill="#e0f2fe"/>
+    <rect x="14" y="56" width="62" height="8" rx="3" fill="#e0f2fe"/>
+    <rect x="14" y="72" width="40" height="8" rx="3" fill="#e0f2fe"/>
+  </g>
+  <!-- arrow -->
+  <g stroke="#fb923c" stroke-width="6" fill="none" stroke-linecap="round">
+    <line x1="230" y1="110" x2="330" y2="110"/>
+    <polyline points="308,88 330,110 308,132"/>
+  </g>
+  <!-- folder icon (extracted) -->
+  <g transform="translate(380,50)">
+    <path d="M0 16 a8 8 0 0 1 8-8 h34 l14 16 h64 a8 8 0 0 1 8 8 v70 a8 8 0 0 1-8 8 H8 a8 8 0 0 1-8-8 Z" fill="#fbbf24"/>
+    <rect x="0" y="30" width="128" height="66" rx="8" fill="#fcd34d"/>
+    <text x="64" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#7c4a03">extension</text>
+  </g>
+  <g transform="translate(555,60)">
+    <rect x="0" y="0" width="150" height="90" rx="10" fill="#fff" stroke="#d7ecf5" stroke-width="2"/>
+    <text x="75" y="30" text-anchor="middle" font-size="12" fill="#0f2a3a" font-weight="700">extension/</text>
+    <rect x="14" y="42" width="60" height="8" rx="3" fill="#d7ecf5"/>
+    <rect x="14" y="56" width="80" height="8" rx="3" fill="#d7ecf5"/>
+    <rect x="14" y="70" width="50" height="8" rx="3" fill="#d7ecf5"/>
+  </g>
+  <text x="450" y="200" text-anchor="middle" font-size="16" font-weight="700" fill="#0f2a3a">① zip 파일을 압축 풀면 "extension" 폴더가 나와요</text>
+</svg>
