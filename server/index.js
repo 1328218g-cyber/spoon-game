@@ -129,16 +129,51 @@ async function fetchUserTag(liveId, userId, accessToken) {
   }
 }
 
+// /member/{userId}/profile/ 단건 조회가 특정 유저에게서 계속 실패(권한 문제, id 불일치 등)할 때를 위한 보조 수단.
+// 실시간 접속자 목록(/lives/{liveId}/members/)에서 같은 id를 찾아 태그를 대신 확보한다.
+// (이 목록은 단건 프로필 조회와 다른 엔드포인트라 "봇 계정 자신의 프로필을 잘못 돌려주는" 문제가 없다)
+async function fetchUserTagFromLiveMembers(liveId, userId, accessToken) {
+  if (!liveId || userId == null || !accessToken) return null
+  try {
+    const members = await fetchLiveMembers(liveId, accessToken, 3)
+    const found = members.find(m => m.id != null && Number(m.id) === Number(userId))
+    return (found && found.tag) ? found.tag : null
+  } catch (e) {
+    return null
+  }
+}
+
 // 한 번 성공적으로 확인된 유저의 태그는 room별로 캐시해서 계속 재사용한다.
 // (스푼 프로필 조회 API가 가끔 결과가 오락가락하는 문제가 있어서, 매번 새로 조회하면
 //  선물 시점과 명령어 입력 시점에 서로 다른 값이 나와 기록이 어긋나는 문제가 생김.
 //  한 번 확실하게(요청 userId와 응답 id가 일치) 확인된 값만 캐시하고, 이후엔 API를 다시 부르지 않는다.)
+// 태그 조회 재시도 횟수/간격. 특정 유저에게서 계속 실패하는 문제를 줄이려고 바로 포기하지 않고
+// 단건 조회 → 실시간 접속자 목록, 두 소스를 번갈아 몇 차례 더 시도한다 (네트워크/API 일시 오류 대비).
+const TAG_RESOLVE_MAX_TRIES = 3
+const TAG_RESOLVE_RETRY_DELAY_MS = 350
+
 async function getCachedUserTag(room, liveId, userId, accessToken) {
   if (userId == null) return null
   if (room && room.tagCache && room.tagCache.has(userId)) {
     return room.tagCache.get(userId)
   }
-  const tag = await fetchUserTag(liveId, userId, accessToken)
+  let tag = null
+  for (let attempt = 1; attempt <= TAG_RESOLVE_MAX_TRIES && !tag; attempt++) {
+    tag = await fetchUserTag(liveId, userId, accessToken)
+    if (!tag) {
+      // 단건 조회 실패 → 실시간 접속자 목록에서 보정 시도 (특정 유저에서 계속 닉네임 키로
+      // 기록이 새로 생기는 문제, 즉 고유닉 조회가 매번 실패하는 문제를 줄이기 위함)
+      tag = await fetchUserTagFromLiveMembers(liveId, userId, accessToken)
+    }
+    if (!tag && attempt < TAG_RESOLVE_MAX_TRIES) {
+      await new Promise(r => setTimeout(r, TAG_RESOLVE_RETRY_DELAY_MS))
+    }
+  }
+  if (tag) {
+    console.log(`[tag 확보] userId=${userId} → "${tag}"`)
+  } else {
+    console.log(`[tag 조회 최종실패] userId=${userId} — ${TAG_RESOLVE_MAX_TRIES}회 재시도 후에도 고유닉을 확인 못함`)
+  }
   if (tag && room && room.tagCache) {
     room.tagCache.set(userId, tag)
   }
@@ -206,7 +241,8 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
       if (!tag && !nickname) return null
       const imgUrl = m.profile_url || m.profileUrl || m.image_url || m.imageUrl || m.thumbnail_url
         || (m.profile && (m.profile.url || m.profile.image_url)) || m.photo || ''
-      return { tag, nickname: nickname || tag, imgUrl }
+      const id = m.id != null ? Number(m.id) : (m.user_id != null ? Number(m.user_id) : (m.user && m.user.id != null ? Number(m.user.id) : null))
+      return { id, tag, nickname: nickname || tag, imgUrl }
     }).filter(Boolean)
   } catch (e) {
     console.log('[fetchLiveMembers 오류]', e.message)
@@ -981,7 +1017,8 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
 
   if (msg === cmdCreate) {
     if (act.users[key]) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님은 이미 애청지수 정보가 있습니다.`), 400); return }
-    actEnsureUser(act, key, author, tag)
+    if (!tag) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return } // 고유닉 확정 전에는 신규 등록(닉네임 키) 금지
+    actEnsureUser(act, tag, author, tag)
     save()
     setTimeout(() => sendChatToRoom(djId, actFormat(act.msgCreate, { nickname: author })), 400)
     return
@@ -1121,15 +1158,18 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const existingKey = findActUserKey(act, targetNick)
     // 기록이 없는 유저는 !룰렛지급과 동일하게 자동으로 등록하고 지급하되, 고유닉을 잘못 입력해도
     // 조용히 새 유저가 생기는 걸 막기 위해 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
+    // 신규 등록은 무조건 고유닉 기준으로만 한다 — 닉네임을 키로 쓰지 않는다.
+    let found = null
     if (!existingKey) {
-      const found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
+      found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
       if (!found) {
         setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
         return
       }
+      if (!found.tag) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     }
-    const key = existingKey || targetNick
-    const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : targetNick, existingKey ? null : targetNick)
+    const key = existingKey || found.tag.toLowerCase()
+    const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : (found.nickname || found.tag), existingKey ? null : found.tag)
     d.lotto = Math.max(0, (d.lotto || 0) + amount)
     save()
     const action = amount > 0 ? '지급' : '차감'
@@ -1142,15 +1182,18 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     if (!targetNick || isNaN(expAmount)) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdShop} [닉네임] [경험치]`), 400); return }
     const existingKey = findActUserKey(act, targetNick)
     // 기록이 없는 유저는 자동으로 등록하고 지급하되, 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
+    // 신규 등록은 무조건 고유닉 기준으로만 한다 — 닉네임을 키로 쓰지 않는다.
+    let found = null
     if (!existingKey) {
-      const found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
+      found = await findLiveMemberByNickOrTag(djId, liveId, targetNick)
       if (!found) {
         setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님을 지금 방송에서 찾을 수 없어요. 닉네임/고유닉을 다시 확인해주세요.`), 400)
         return
       }
+      if (!found.tag) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     }
-    const key = existingKey || targetNick
-    const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : targetNick, existingKey ? null : targetNick)
+    const key = existingKey || found.tag.toLowerCase()
+    const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : (found.nickname || found.tag), existingKey ? null : found.tag)
     actGrantExp(djId, act, key, expAmount)
     save()
     const action = expAmount >= 0 ? '지급' : '차감'
@@ -1824,9 +1867,10 @@ setInterval(async () => {
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
+  if (!tag) { console.log(`[대시보드] ${nickname} 고유닉 미확인 — 스푼로그 기록 보류`); return } // 닉네임 키 생성 금지
   const dash = getDashboardData(djId, settings)
   const today = todayKST()
-  const key = String(tag || nickname || '').trim() || nickname
+  const key = String(tag).trim().toLowerCase()
   if (!dash.spoonLog[today]) dash.spoonLog[today] = { total: 0, byUser: {} }
   const entry = dash.spoonLog[today]
   if (!entry.byUser[key]) entry.byUser[key] = { nickname, amount: 0, count: 0 }
@@ -1841,8 +1885,9 @@ function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount)
 // type: 'free'(일반 좋아요 탭) | 'ad'(광고/룰렛 하트) | 'plan'(플랜 하트) | 'paid'(그 외 유료 하트)
 function recordDashboardHeart(djId, settings, nickname, tag, type = 'free', amount = 1) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
+  if (!tag) { console.log(`[대시보드] ${nickname} 고유닉 미확인 — 하트로그 기록 보류`); return } // 닉네임 키 생성 금지
   const dash = getDashboardData(djId, settings)
-  const key = String(tag || nickname || '').trim() || nickname
+  const key = String(tag).trim().toLowerCase()
   if (!dash.heartLog[key]) dash.heartLog[key] = { nickname, count: 0 }
   dash.heartLog[key].nickname = nickname
   dash.heartLog[key].count += amount
@@ -1954,6 +1999,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const rouletteList = ((settings.roulette || {}).list || [])
     const lines = []
     rouletteList.forEach((r, i) => {
@@ -1998,6 +2044,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     }
     const targetName = found.nickname || found.tag
     const rec = getHistoryRecByIdentity(settings, found.tag, targetName)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     if (first === cmdGive) {
       rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
     } else {
@@ -4551,8 +4598,8 @@ function handleAuctionDonationHook(djId, settings, author, tag, spoonTotal) {
   if (a.config.enabled === false) return
   const auc = auctionActive(a)
   if (!auc) return // 진행중인 경매가 없으면 무시
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) return
+  if (!tag) { console.log(`[경매] ${author} 고유닉 미확인 — 입찰 반영 보류`); return } // 닉네임 키 매칭 금지
+  const key = String(tag).trim().toLowerCase()
   if (!auc.joined || !auc.joined[key]) return // "!경매 참여"로 먼저 참가 등록한 사람만 자동 반영됨
 
   if (!auc.bids) auc.bids = {}
@@ -4580,8 +4627,8 @@ function handleAuctionDonationHook(djId, settings, author, tag, spoonTotal) {
 function auctionJoin(djId, a, tag, author) {
   const auc = auctionActive(a)
   if (!auc) { sendChatSplit(djId, '❌ 지금 진행중인 경매가 없어요.', 150, 300); return }
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  if (!tag) { sendChatSplit(djId, TAG_RETRY_MSG, 150, 300); return } // 고유닉 확정 전에는 닉네임으로 참여 등록 금지
+  const key = String(tag).trim().toLowerCase()
   if (!auc.joined) auc.joined = {}
   if (auc.joined[key]) {
     sendChatSplit(djId, `✅ ${author}님은 이미 [${auc.itemName}] 경매에 참여중이에요. 선물을 보내면 자동으로 확률에 반영돼요!`, 150, 300)
@@ -4601,8 +4648,8 @@ function auctionListMsg(djId, a) {
 }
 
 function auctionMyBids(djId, a, tag, author) {
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) { sendChatSplit(djId, '⚠️ 닉네임을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+  if (!tag) { sendChatSplit(djId, TAG_RETRY_MSG, 150, 300); return }
+  const key = String(tag).trim().toLowerCase()
   const mine = a.list.filter(x => (x.joined && x.joined[key]) || (x.bids && x.bids[key]))
   if (!mine.length) { sendChatSplit(djId, `📋 ${author}님은 참여중인 경매가 없어요.`, 150, 300); return }
   const lines = mine.map(x => {
@@ -10012,7 +10059,7 @@ function handleQuizTimeout(djId) {
 }
 
 // 채팅 메시지가 들어올 때마다(진행 중인 문제가 있을 때만) 정답 여부를 확인한다.
-function handleQuizAnswer(djId, settings, author, text) {
+function handleQuizAnswer(djId, settings, author, text, tag) {
   if (!isModuleOn(settings, 'quiz', djId)) return
   const room = getRoom(djId)
   ensureQuizState(room)
@@ -10026,10 +10073,12 @@ function handleQuizAnswer(djId, settings, author, text) {
 
   const quiz = getQuizSettings(djId, settings)
   // 애청지수와 연동: 등록 안 된 유저도 다른 지급 기능과 동일하게 자동 등록하고 지급한다.
+  // 신규 등록은 무조건 고유닉 기준으로만 한다 — 닉네임을 키로 쓰지 않는다.
   const act = getActivitySettings(djId, settings)
-  const existingKey = actResolveKey(act, author, null)
-  const key = existingKey || author
-  actEnsureUser(act, key, author)
+  const existingKey = actResolveKey(act, author, tag)
+  const key = existingKey || (tag ? String(tag).trim().toLowerCase() : null)
+  if (!key) { console.log(`[퀴즈] ${author} 고유닉 미확인 — 정답 보상 보류`); return }
+  actEnsureUser(act, key, author, tag)
   if (cur.score) actGrantExp(djId, act, key, cur.score)
   store.saveSettings(djId, { activity: act })
 
@@ -10099,7 +10148,8 @@ function applySpecialRouletteItem(djId, settings, authorTag, author, itemName) {
     const amount = parseInt(lottoM[1], 10)
     if (amount > 0) {
       const act = getActivitySettings(djId, settings)
-      const key = actResolveKey(act, author, authorTag) || authorTag || author
+      const key = actResolveKey(act, author, authorTag) || (authorTag ? String(authorTag).trim().toLowerCase() : null)
+      if (!key) { console.log(`[룰렛당첨] ${author} 고유닉 미확인 — 복권 적립 보류`); return }
       const d = actEnsureUser(act, key, author, authorTag)
       d.lotto = (d.lotto || 0) + amount
       store.saveSettings(djId, { activity: act })
@@ -10127,28 +10177,29 @@ function getHistoryRec(settings, tag) {
   return rec
 }
 
-// 룰렛 기록은 이제 고유닉(tag) 기준으로 저장한다 — 닉네임은 자주 바뀌지만 고유닉은 안 바뀌기 때문.
-// (예전엔 태그 조회 API가 불안정해서 닉네임 고정으로 저장했었는데, getCachedUserTag가
-//  응답 id 검증 + 캐싱까지 해줘서 이제 훨씬 신뢰할 수 있어 다시 태그 기준으로 되돌린다)
-// tag를 정말 못 구하는 경우(예: lurker 모드)에만 어쩔 수 없이 닉네임을 임시 키로 쓴다.
-// 처음으로 tag가 확인된 사람은, 예전에 닉네임 키로 저장돼있던 기록을 자동으로 tag 키로 옮겨준다(1회성 마이그레이션).
+// 룰렛 기록은 무조건 고유닉(tag) 기준으로만 저장한다 — 닉네임으로는 절대 기록을 만들지 않는다.
+// (닉네임은 중복되거나 자주 바뀌어서 다른 사람 기록과 섞일 수 있음. 반드시 고유닉이 확정된 뒤에만 기록한다)
+// 고유닉을 못 구했으면 null을 반환하고, 호출부는 재시도 안내만 하고 아무것도 저장하지 않는다.
+// 처음으로 tag가 확인된 사람은, 예전에 닉네임 키로 저장돼있던 레거시 기록을 자동으로 tag 키로 옮겨준다(1회성 마이그레이션).
 // 이후로도 닉네임이 바뀌면 기록 안의 nickname 필드가 자동으로 최신 값으로 갱신된다.
 function getHistoryRecByIdentity(settings, tag, nickname) {
   if (!settings.rouletteHistory) settings.rouletteHistory = {}
   const cleanTag = tag ? String(tag).trim().toLowerCase() : '' // 대소문자 달라도 같은 사람으로 합쳐지게 소문자로 통일
-  const key = cleanTag || nickname
-  if (!key) return getHistoryRec(settings, 'unknown')
+  if (!cleanTag) return null // 고유닉이 없으면 절대 기록을 만들지 않는다 (닉네임 키 생성 금지)
 
-  if (cleanTag && !settings.rouletteHistory[cleanTag] && nickname && settings.rouletteHistory[nickname]) {
+  if (!settings.rouletteHistory[cleanTag] && nickname && settings.rouletteHistory[nickname]) {
     settings.rouletteHistory[cleanTag] = settings.rouletteHistory[nickname]
     delete settings.rouletteHistory[nickname]
     console.log(`[룰렛기록 마이그레이션] 닉네임 "${nickname}" 기록 → 고유닉 "${cleanTag}" 로 이전`)
   }
 
-  const rec = getHistoryRec(settings, key)
+  const rec = getHistoryRec(settings, cleanTag)
   if (nickname && rec.nickname !== nickname) rec.nickname = nickname // 닉네임 변경 자동 반영
   return rec
 }
+
+// 태그 조회가 실패했을 때 채팅으로 보낼 공통 안내 메시지 (기록을 만들지 않고 재시도를 유도)
+const TAG_RETRY_MSG = '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'
 
 // 킵/기타/이벤트 목록 조회·사용 명령어 이름 — DJ가 룰렛 기록 화면 상단에서 자유롭게 바꿀 수 있다.
 // 확인N/사용/추가는 이 기본 명령어에 고정 접미사를 붙여서 자동으로 만들어진다 (예: 기본이 !킵이면 !킵확인, !킵사용, !킵추가).
@@ -10281,6 +10332,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
     sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first), 150, 600)
     return
@@ -10301,6 +10353,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const targetTag = found ? found.tag : targetInput
     const displayName = found ? (found.nickname || found.tag) : targetInput
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
     sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel), 150, 600)
     return
@@ -10316,6 +10369,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const targetTag = found ? found.tag : targetInput
     const displayName = found ? (found.nickname || found.tag) : targetInput
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     rec.keepList[content] = (rec.keepList[content] || 0) + 1
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
     broadcast({ type: 'roulette', djId, tag: targetTag })
@@ -10334,6 +10388,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
     if (authorTag) rememberTagNickname(room, authorTag, author)
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
+    if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const field = SECTION_FIELD[section]
     const data = rec[field]
     const items = Object.keys(data)
@@ -10379,6 +10434,7 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   if (found.tag) rememberTagNickname(room, found.tag, targetName)
 
   const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
+  if (!rec) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetName}' 님의 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.`), 400); return }
   rec.coupons[idx] = Number(rec.coupons[idx] || 0) + count
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag: targetTag || targetName })
@@ -10427,8 +10483,9 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
-  const histKey = authorTag || author
   const hist = getHistoryRecByIdentity(settings, authorTag, author)
+  if (!hist) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
+  const histKey = authorTag
   let resultDelay = 400
 
   if (!isDj) {
@@ -10487,9 +10544,14 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
   if (authorTag) rememberTagNickname(room, authorTag, author)
-  const histKey = authorTag || author
-  console.log(`[룰렛디버그:${djId}] histKey(태그 우선)=${histKey}`)
   const hist = getHistoryRecByIdentity(settings, authorTag, author)
+  if (!hist) {
+    console.log(`[룰렛디버그:${djId}] author=${author} 고유닉 확인 실패 — 닉네임 키로는 기록하지 않고 건너뜀`)
+    setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님 고유닉을 확인하지 못해 룰렛권 지급을 잠시 보류했어요. 채팅 한 번 더 남겨주시면 다시 시도할게요.`), 400)
+    return
+  }
+  const histKey = authorTag
+  console.log(`[룰렛디버그:${djId}] histKey(태그)=${histKey}`)
   let changed = false
 
   for (const { rt, idx, count } of applicable) {
@@ -10776,7 +10838,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
           recordTodayMvp(room, 'chat', actTag || author, author, 1)
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
-          handleQuizAnswer(djId, settings, author, text)
+          handleQuizAnswer(djId, settings, author, text, actTag)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
