@@ -3518,10 +3518,8 @@ function enterApp(){
 
   const isAdmin = djId===ADMIN_DJ_ID;
   const canAutoJoin = true; // 다중감시는 이제 관리자 권한 없이 누구나 사용 가능
-  const sessionNav=document.querySelector('.nav-item[data-panel="session"]');
-  const sessionPanel=document.querySelector('.panel[data-panel="session"]');
-  if(sessionNav) sessionNav.style.display = isAdmin ? '' : 'none';
-  if(sessionPanel) sessionPanel.style.display = isAdmin ? '' : 'none';
+  // 세션 연결(크롬 확장프로그램 다운로드 포함)은 이제 관리자뿐 아니라 모든 DJ가 볼 수 있어야 함
+  // (각자 본인 계정으로 세션 연결하고 싶은 사람을 위한 화면이라 전체 공개로 변경)
   const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
@@ -3806,7 +3804,7 @@ function toggleModuleBadge(el){
 }
 
 /* ── 🛒 모듈 마켓 ── */
-const MARKET_ADMIN_ONLY_KEYS=['session','userlist']; // 관리자 전용 메뉴는 관리자 로그인일 때만 카드로 노출
+const MARKET_ADMIN_ONLY_KEYS=['userlist']; // 관리자 전용 메뉴는 관리자 로그인일 때만 카드로 노출 (세션 연결은 모든 DJ가 쓸 수 있어서 제외)
 let marketTab='all'; // 'all' | 'on' | 'off'
 
 function switchMarketTab(tab){
