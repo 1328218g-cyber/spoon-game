@@ -819,6 +819,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-top:10px">봇이 방송에 들어가서 채팅을 보내려면 스푼 로그인 세션이 필요해요. PC용 세션 연결 도구(<code>1_login.bat</code> → <code>2_자동실행.bat</code>)를 실행할 때, <b>이 웹 대시보드에 로그인할 때 쓰는 본인 아이디/비밀번호</b>를 입력하면 자동으로 본인 계정으로 연결돼요.</p>
           <p class="hint">별도로 연결하지 않으면 지금처럼 관리자 공용 계정으로 계속 동작하니, 굳이 본인 계정을 쓰고 싶은 경우가 아니라면 이 화면에서 따로 할 일은 없어요.</p>
         </div>
+        <div class="card">
+          <div class="card-title"><span>🧩 크롬 확장프로그램으로 연결 (더 쉬운 방법)</span></div>
+          <p class="hint" style="margin-top:0">Node.js 설치나 PC 프로그램 실행 없이, 크롬 브라우저에 확장프로그램만 넣으면 10분마다 알아서 세션이 자동으로 연결돼요. 이미 열려있는 크롬의 스푼 로그인 상태를 그대로 읽어오는 방식이라 별도 로그인/실행이 필요 없어요.</p>
+          <a href="/downloads/edibot-extension.zip" download style="text-decoration:none">
+            <button class="btn-connect" style="width:100%;margin-top:10px">🧩 크롬 확장프로그램 다운로드 (.zip)</button>
+          </a>
+          <p class="hint" style="margin-top:10px">
+            <b>설치 방법</b><br>
+            1. 다운로드한 zip 압축 풀기 (지우면 확장프로그램도 같이 사라지니 적당한 위치에 보관)<br>
+            2. 크롬 주소창에 <code>chrome://extensions</code> 입력<br>
+            3. 오른쪽 위 "개발자 모드" 켜기<br>
+            4. "압축해제된 확장 프로그램을 로드합니다" 클릭 → 압축 푼 <code>extension</code> 폴더 선택<br>
+            5. 확장프로그램 아이콘 클릭 → 이 웹 대시보드 로그인 정보(아이디/비밀번호) 입력 → 저장하면 끝<br>
+            ※ 스푼(spooncast.net)에 로그인되어 있는 상태여야 세션을 읽어올 수 있어요.
+          </p>
+        </div>
       </div>
 
       <!-- 유저 관리 (관리자 전용) -->
