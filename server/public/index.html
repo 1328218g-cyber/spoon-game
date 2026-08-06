@@ -1827,7 +1827,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="dday">
         <div class="card">
           <div class="card-title"><span>📅 디데이 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveDdaySettings()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">[명령어] [MM-DD] [내용] 으로 등록(DJ 전용) · [명령어]만 입력하면 목록 확인</p>
+          <p class="hint" style="margin-bottom:12px">[명령어] [날짜] [내용] 으로 등록(DJ 전용) · [명령어]만 입력하면 목록 확인<br>매년 반복: 12-25 크리스마스 &nbsp;·&nbsp; 특정 날짜(한 번만): 2026.05.04 이브날</p>
           <label>명령어</label>
           <input type="text" id="ddayCmd" value="!디데이" style="max-width:220px">
           <label>등록 메시지</label>
@@ -6482,7 +6482,7 @@ async function loadDdayData(){
     document.getElementById('ddayCmd').value=d.settings.cmd||'!디데이';
     document.getElementById('ddayRegisterMsg').value=d.settings.registerMsg||'';
     const wrap=document.getElementById('ddayListWrap');
-    if(!d.items||!d.items.length){ wrap.innerHTML='<p class="hint">등록된 디데이가 없어요. 방송 중 채팅에서 [명령어] [MM-DD] [내용]으로 등록해보세요.</p>'; return; }
+    if(!d.items||!d.items.length){ wrap.innerHTML='<p class="hint">등록된 디데이가 없어요. 방송 중 채팅에서 [명령어] [날짜] [내용]으로 등록해보세요. (예: !디데이 2026.05.04 이브날)</p>'; return; }
     wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+d.items.map(it=>{
       const label=it.diff===0?'D-Day':(it.diff>0?`D-${it.diff}`:`D+${Math.abs(it.diff)}`);
       return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px">

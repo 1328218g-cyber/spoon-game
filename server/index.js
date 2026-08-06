@@ -149,8 +149,8 @@ async function fetchUserTagFromLiveMembers(liveId, userId, accessToken) {
 //  한 번 확실하게(요청 userId와 응답 id가 일치) 확인된 값만 캐시하고, 이후엔 API를 다시 부르지 않는다.)
 // 태그 조회 재시도 횟수/간격. 특정 유저에게서 계속 실패하는 문제를 줄이려고 바로 포기하지 않고
 // 단건 조회 → 실시간 접속자 목록, 두 소스를 번갈아 몇 차례 더 시도한다 (네트워크/API 일시 오류 대비).
-const TAG_RESOLVE_MAX_TRIES = 3
-const TAG_RESOLVE_RETRY_DELAY_MS = 350
+const TAG_RESOLVE_MAX_TRIES = 4
+const TAG_RESOLVE_RETRY_DELAY_MS = 450
 
 async function getCachedUserTag(room, liveId, userId, accessToken) {
   if (userId == null) return null
@@ -1446,7 +1446,8 @@ function handleReminderCommand(djId, room, settings, author, text) {
 
 // ══════════════════════════════════════════════════════
 // 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
-// 등록된 디데이 목록과 남은/지난 일수를 보여준다. 매년 반복되는 날짜로 계산한다.
+// 등록된 디데이 목록과 남은/지난 일수를 보여준다. MM-DD는 매년 반복되는 날짜로 계산하고,
+// YYYY.MM.DD / YYYY-MM-DD 처럼 연도까지 입력하면 그 해 그 날짜 딱 한 번만 기준으로 계산한다.
 
 // 📝 나만의 메모장 — DJ 본인이 필요할 때마다 자유롭게 새 메모를 만들어서 내용을 적어두는 개인 메모장.
 // (시청자별로 남기는 "usernotes"와는 완전히 별개 — 이건 그냥 DJ 혼자 쓰는 자유 메모)
@@ -1468,12 +1469,43 @@ function getDdaySettings(djId, settings) {
   return settings.dday
 }
 
-function calcNextDdayDiff(mmdd) {
-  const m = String(mmdd || '').match(/^(\d{1,2})-(\d{1,2})$/)
-  if (!m) return null
-  const month = parseInt(m[1], 10), day = parseInt(m[2], 10)
+// DJ 입력값(2026.05.04 / 2026-05-04 / 05-04 / 05.04)을 저장용 표준 형식으로 변환.
+// 연도가 있으면 "YYYY-MM-DD"(한 번뿐인 날짜), 없으면 "MM-DD"(매년 반복)로 통일한다.
+function normalizeDdayDate(raw) {
+  const s = String(raw || '').trim()
+  const full = s.match(/^(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})$/)
+  if (full) {
+    const y = full[1], mo = String(full[2]).padStart(2, '0'), d = String(full[3]).padStart(2, '0')
+    // 실존하는 날짜인지 확인 (예: 2026-02-30 같은 잘못된 날짜 방지)
+    const check = new Date(Number(y), Number(mo) - 1, Number(d))
+    if (check.getFullYear() != y || check.getMonth() != Number(mo) - 1 || check.getDate() != Number(d)) return null
+    return `${y}-${mo}-${d}`
+  }
+  const md = s.match(/^(\d{1,2})[.\-](\d{1,2})$/)
+  if (md) {
+    const mo = String(md[1]).padStart(2, '0'), d = String(md[2]).padStart(2, '0')
+    if (Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31) return null
+    return `${mo}-${d}`
+  }
+  return null
+}
+
+// 저장된 날짜(YYYY-MM-DD 또는 MM-DD)를 기준으로 오늘로부터 며칠 남았는지 계산.
+// YYYY-MM-DD는 그 해 그 날짜 딱 한 번, MM-DD는 매년 반복(지났으면 내년 걸로) 계산한다.
+function calcNextDdayDiff(dateStr) {
+  const s = String(dateStr || '')
   const now = new Date()
   const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  const full = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (full) {
+    const target = new Date(parseInt(full[1], 10), parseInt(full[2], 10) - 1, parseInt(full[3], 10))
+    return Math.round((target - today0) / 86400000)
+  }
+
+  const m = s.match(/^(\d{1,2})-(\d{1,2})$/)
+  if (!m) return null
+  const month = parseInt(m[1], 10), day = parseInt(m[2], 10)
   let target = new Date(now.getFullYear(), month - 1, day)
   if (target < today0) target = new Date(now.getFullYear() + 1, month - 1, day)
   return Math.round((target - today0) / 86400000)
@@ -1499,9 +1531,12 @@ function handleDdayCommand(djId, room, settings, author, authorId, text) {
   if (msg.startsWith(cmd + ' ')) {
     if (!isDj) { setTimeout(() => sendChatToRoom(djId, '❌ 디데이 등록은 DJ만 할 수 있습니다.'), 400); return }
     const rest = msg.slice(cmd.length).trim()
-    const m = rest.match(/^(\d{1,2}-\d{1,2})\s+(.+)$/)
-    if (!m || calcNextDdayDiff(m[1]) === null) { setTimeout(() => sendChatToRoom(djId, `📅 사용법: ${cmd} [MM-DD] [내용] (예: ${cmd} 12-25 크리스마스)`), 400); return }
-    const date = m[1]
+    const m = rest.match(/^(\S+)\s+(.+)$/)
+    const date = m ? normalizeDdayDate(m[1]) : null
+    if (!m || !date) {
+      setTimeout(() => sendChatToRoom(djId, `📅 사용법: ${cmd} [날짜] [내용]\n・매년 반복: ${cmd} 12-25 크리스마스\n・특정 날짜: ${cmd} 2026.05.04 이브날`), 400)
+      return
+    }
     const content = m[2].trim()
     if (cfg.items.length >= 30) { setTimeout(() => sendChatToRoom(djId, '📅 등록 가능한 디데이는 최대 30개예요.'), 400); return }
     cfg.items.push({ id: 'dd' + Date.now() + Math.floor(Math.random() * 1000), date, content })
@@ -2036,14 +2071,24 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
       return
     }
 
-    // ⚠️ 오타로 조용히 없는 유저가 만들어지지 않도록, 지금 방에 실제로 있는 사람인지 먼저 확인 (기존 !룰렛지급과 동일한 규칙)
-    const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
-    if (!found) {
-      setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요.`), 400)
-      return
+    // 이미 그 고유닉으로 기록이 있으면(예: 지금은 방송에 없어도 예전에 확인된 사람) 그대로 처리한다.
+    // 처음 보는 입력일 때만, 오타로 조용히 없는 유저가 만들어지지 않게 지금 방에 실제로 있는지 확인한다.
+    const cleanTargetInput = String(targetInput || '').replace('@', '').trim().toLowerCase()
+    let targetTag = null
+    let targetName = targetInput
+    if (settings.rouletteHistory && settings.rouletteHistory[cleanTargetInput]) {
+      targetTag = cleanTargetInput
+      targetName = settings.rouletteHistory[cleanTargetInput].nickname || targetInput
+    } else {
+      const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
+      if (!found) {
+        setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요.`), 400)
+        return
+      }
+      targetTag = found.tag
+      targetName = found.nickname || found.tag
     }
-    const targetName = found.nickname || found.tag
-    const rec = getHistoryRecByIdentity(settings, found.tag, targetName)
+    const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     if (first === cmdGive) {
       rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
@@ -2051,7 +2096,7 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
       rec.coupons[rouletteNo] = Math.max(0, countVal)
     }
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    broadcast({ type: 'roulette', djId, tag: found.tag || targetName })
+    broadcast({ type: 'roulette', djId, tag: targetTag || targetName })
     const label = first === cmdGive ? '지급' : '동기화'
     setTimeout(() => sendChatToRoom(djId, `✅ ${targetName}님 룰렛${rouletteNo} ${label} 완료 / 보유 ${rec.coupons[rouletteNo]}장`), 400)
     return
@@ -10423,15 +10468,26 @@ async function handleRouletteGiveCommand(djId, room, settings, author, authorId,
   const count = parseInt(parts[2], 10) || 1
   if (!targetInput) { setTimeout(() => sendChatToRoom(djId, `🎡 사용법: !룰렛지급${idx} [고유닉] [수량]`), 400); return }
 
-  // ⚠️ 고유닉을 잘못 입력해도 조용히 지급되던 버그 수정: 지금 방송에 실제로 있는 사람인지 먼저 확인한다.
-  const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
-  if (!found) {
-    setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요. 고유닉을 다시 확인해주세요.`), 400)
-    return
+  // 이미 그 고유닉으로 기록이 있으면(예: 지금은 방송에 없어도 예전에 확인된 사람) 그대로 지급한다.
+  // "지금 방송에 있어야만" 지급 가능했던 게 너무 엄격해서, 고유닉을 정확히 입력해도
+  // 방금 퇴장했거나 접속자 목록 갱신이 늦으면 "찾을 수 없다"고 나오던 문제였음.
+  const cleanInput = targetInput.toLowerCase()
+  let targetTag = null
+  let targetName = targetInput
+  if (settings.rouletteHistory && settings.rouletteHistory[cleanInput]) {
+    targetTag = cleanInput
+    targetName = settings.rouletteHistory[cleanInput].nickname || targetInput
+  } else {
+    // 처음 보는 입력이면, 오타로 조용히 유령 유저가 생기지 않게 지금 방송에 실제로 있는 사람인지 확인
+    const found = await findLiveMemberByNickOrTag(djId, liveId, targetInput)
+    if (!found) {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetInput}' 님을 지금 방송에서 찾을 수 없어요. 고유닉을 다시 확인해주세요.`), 400)
+      return
+    }
+    targetTag = found.tag || null
+    targetName = found.nickname || found.tag
+    if (found.tag) rememberTagNickname(room, found.tag, targetName)
   }
-  const targetTag = found.tag || null
-  const targetName = found.nickname || found.tag
-  if (found.tag) rememberTagNickname(room, found.tag, targetName)
 
   const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
   if (!rec) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetName}' 님의 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.`), 400); return }
@@ -10542,13 +10598,24 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
   // ⚠️ 스푼 태그(고유닉) 조회 API가 가끔 결과가 오락가락했었는데, getCachedUserTag가 응답 id
   // 검증 + 캐싱까지 해줘서 이제 신뢰할 수 있다. 닉네임이 바뀌어도 항상 같은 사람으로 인식되도록 태그를 우선 사용한다.
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
-  if (authorTag) rememberTagNickname(room, authorTag, author)
-  const hist = getHistoryRecByIdentity(settings, authorTag, author)
+  const authorTag0 = await getCachedUserTag(room, liveId, authorId, accessToken)
+  if (authorTag0) rememberTagNickname(room, authorTag0, author)
+  let authorTag = authorTag0
+  let hist = getHistoryRecByIdentity(settings, authorTag, author)
   if (!hist) {
-    console.log(`[룰렛디버그:${djId}] author=${author} 고유닉 확인 실패 — 닉네임 키로는 기록하지 않고 건너뜀`)
-    setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님 고유닉을 확인하지 못해 룰렛권 지급을 잠시 보류했어요. 채팅 한 번 더 남겨주시면 다시 시도할게요.`), 400)
-    return
+    // 도네이션은 실제 돈이 걸린 거라 한 번 실패했다고 바로 포기하지 않는다.
+    // 채팅에 "잠시 후 다시 시도"를 매번 띄우면 도네이션 많을 때 스팸이 되니, 조용히 몇 초 간격으로 더 시도한다.
+    for (let i = 0; i < 3 && !hist; i++) {
+      await new Promise(r => setTimeout(r, 1500))
+      authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
+      if (authorTag) rememberTagNickname(room, authorTag, author)
+      hist = getHistoryRecByIdentity(settings, authorTag, author)
+    }
+    if (!hist) {
+      console.log(`[룰렛디버그:${djId}] author=${author} 고유닉 확인 최종 실패 — 룰렛권 지급 스킵 (채팅 알림 없음, 로그만 남김)`)
+      return
+    }
+    console.log(`[룰렛디버그:${djId}] author=${author} 재시도 끝에 고유닉 확보 → 지급 진행`)
   }
   const histKey = authorTag
   console.log(`[룰렛디버그:${djId}] histKey(태그)=${histKey}`)
