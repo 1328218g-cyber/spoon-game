@@ -620,6 +620,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="lottoauto"><span class="ic">🎟️</span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reactiontimer"><span class="ic">⏰</span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1837,6 +1838,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>📅 등록된 디데이 목록</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadDdayData()">🔄 새로고침</button></div>
           <div id="ddayListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 🔮 사주팔자 -->
+      <div class="panel" data-panel="saju">
+        <div class="card">
+          <div class="card-title"><span>🔮 사주팔자 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSajuSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">시청자가 [명령어] [생년월일] [태어난시(선택)]로 입력하면, 실제 만세력 계산으로 사주팔자와 오행 풀이를 채팅으로 보내줘요.<br>예) !사주 1995.08.15 14 &nbsp;·&nbsp; 시간을 몰라도 !사주 1995.08.15 처럼 년/월/일주만 조회 가능해요.</p>
+          <label>명령어</label>
+          <input type="text" id="sajuCmd" value="!사주" style="max-width:220px">
+          <div class="hint" style="margin-top:10px">누구나 사용 가능한 명령어예요 (DJ 전용 아님). 지원 범위: 1900~2050년생.</div>
         </div>
       </div>
 
@@ -3596,6 +3608,7 @@ const PANEL_META={
   lottoauto:['🎟️ 복권 자동지급','정해진 주기마다 현재 접속 중인 유저에게 복권을 자동으로 지급합니다'],
   reactiontimer:['⏰ 리액션 타이머','정해진 시간 후에 채팅으로 알림을 보내는 타이머를 등록합니다'],
   dday:['📅 디데이','기념일/이벤트 날짜를 등록해두고 D-Day를 자동으로 계산해줍니다'],
+  saju:['🔮 사주팔자','생년월일(시)을 입력하면 진짜 만세력 계산으로 사주팔자를 봐줍니다'],
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
@@ -3718,7 +3731,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3730,7 +3743,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4727,6 +4740,7 @@ async function loadDjSettings(){
       if(document.getElementById('lottoAutoStatusPill')) loadLottoAutoData();
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
+      if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
@@ -6507,6 +6521,25 @@ async function deleteDdayItem(id){
     await fetch(SERVER+'/dday/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
     showToast('삭제했어요');
     loadDdayData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🔮 사주팔자 ── */
+async function loadSajuData(){
+  try{
+    const res=await fetch(SERVER+'/saju/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('sajuCmd').value=d.settings.cmd||'!사주';
+  }catch(e){}
+}
+async function saveSajuSettings(){
+  const body={ cmd:document.getElementById('sajuCmd').value };
+  try{
+    const res=await fetch(SERVER+'/saju/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadSajuData();}
+    else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
