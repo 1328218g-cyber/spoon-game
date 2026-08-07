@@ -13684,6 +13684,15 @@ const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
 
+  // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
+  // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가
+  // 재배포 후에도 이전과 같은 숫자로 나오는지 확인해보면 된다 — 매번 0(또는 훨씬 적은 수)로
+  // 나온다면 djs.json이 Volume이 아닌 컨테이너 안(재배포 시 사라지는 곳)에 저장되고 있다는 뜻.
+  try {
+    const djCount = store.listDjIds().length
+    console.log(`[데이터 경로 진단] DATA_DIR=${process.env.DATA_DIR || '(미설정 → 코드 폴더 안, 재배포 시 초기화될 수 있음)'} / 불러온 계정 수=${djCount}`)
+  } catch (e) { console.log('[데이터 경로 진단] 실패', e.message) }
+
   // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
   try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
 
