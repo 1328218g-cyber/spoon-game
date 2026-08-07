@@ -326,7 +326,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1571,6 +1571,75 @@ function getMyNotesSettings(djId, settings) {
   return settings.myNotes
 }
 
+// 📝 메모2 — "메모장"(웹 화면 전용)과 달리, 채팅 명령어로 DJ/매니저가 메모를 남기고
+// 누구나 채팅으로 조회할 수 있는 공개 메모 게시판. 매니저 권한은 실드 관리/신청곡 관리와
+// 동일한 방식(고유닉 목록 + 즉시 재조회)으로 체크한다.
+function getMemo2Settings(djId, settings) {
+  if (!settings.memo2) {
+    settings.memo2 = { cmd: '!메모', cmdDelete: '!메모제거', items: [], perms: [] }
+    store.saveSettings(djId, { memo2: settings.memo2 })
+  }
+  if (!settings.memo2.items) settings.memo2.items = []
+  if (!settings.memo2.perms) settings.memo2.perms = []
+  if (!settings.memo2.cmdDelete) settings.memo2.cmdDelete = '!메모제거'
+  return settings.memo2
+}
+
+async function handleMemo2Command(djId, room, settings, author, authorId, text, liveId) {
+  if (!isModuleOn(settings, 'memo2', djId)) return
+  const cfg = getMemo2Settings(djId, settings)
+  const msg = String(text || '').trim()
+  const cmd = cfg.cmd || '!메모'
+  const cmdDelete = cfg.cmdDelete || '!메모제거'
+
+  if (msg === cmd) {
+    if (!cfg.items.length) { setTimeout(() => sendChatToRoom(djId, '📝 등록된 메모가 없어요.'), 400); return }
+    const lines = cfg.items.map((it, i) => `${i + 1}. ${it.text}`)
+    sendChatSplit(djId, ['📝 등록된 메모'].concat(lines).join('\n'), 100, 600)
+    return
+  }
+
+  const isAddCmd = msg.startsWith(cmd + ' ')
+  const isDeleteCmd = msg.startsWith(cmdDelete + ' ')
+  if (!isAddCmd && !isDeleteCmd) return
+
+  // 여기부터는 DJ 또는 등록된 관리 권한자(고유닉)만 사용 가능 (실드 관리/신청곡 관리와 동일한 방식)
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const perms = (cfg.perms || []).map(t => String(t).replace('@', '').toLowerCase())
+  const authorNorm = String(author || '').toLowerCase()
+  let isPermUser = perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)
+  if (!isPermUser && perms.length && liveId) {
+    try {
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+      const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
+      const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
+      if (me && me.tag) {
+        rememberTagNickname(room, me.tag, author)
+        isPermUser = perms.includes(me.tag.toLowerCase())
+      }
+    } catch (e) {
+      console.log('[메모2 권한 재조회 오류]', e.message)
+    }
+  }
+  if (!isDj && !isPermUser) return
+
+  if (isDeleteCmd) {
+    const idx = parseInt(msg.slice(cmdDelete.length).trim(), 10)
+    if (!idx || idx < 1 || idx > cfg.items.length) { setTimeout(() => sendChatToRoom(djId, `📝 사용법: ${cmdDelete} [번호] (예: ${cmdDelete} 1)`), 400); return }
+    const removed = cfg.items.splice(idx - 1, 1)[0]
+    store.saveSettings(djId, { memo2: cfg })
+    setTimeout(() => sendChatToRoom(djId, `🗑️ ${idx}번 메모를 삭제했어요. ("${removed.text}")`), 400)
+    return
+  }
+
+  const content = msg.slice(cmd.length).trim()
+  if (!content) { setTimeout(() => sendChatToRoom(djId, `📝 사용법: ${cmd} [내용]`), 400); return }
+  if (cfg.items.length >= 100) { setTimeout(() => sendChatToRoom(djId, '📝 등록 가능한 메모는 최대 100개예요. 오래된 메모를 지워주세요.'), 400); return }
+  cfg.items.push({ id: 'm2_' + Date.now() + Math.floor(Math.random() * 1000), text: content, author, createdAt: Date.now() })
+  store.saveSettings(djId, { memo2: cfg })
+  setTimeout(() => sendChatToRoom(djId, `📝 메모가 등록됐어요. (${cfg.items.length}번째)`), 400)
+}
+
 function getDdaySettings(djId, settings) {
   if (!settings.dday) {
     settings.dday = { cmd: '!디데이', registerMsg: '📅 디데이 등록: {content} ({date})', items: [] }
@@ -2013,10 +2082,12 @@ setInterval(async () => {
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
-  if (!tag) { console.log(`[대시보드] ${nickname} 고유닉 미확인 — 스푼로그 기록 보류`); return } // 닉네임 키 생성 금지
+  // 대시보드는 통계용이라 굳이 고유닉 조회를 기다릴 필요 없이, 기본은 닉네임을 키로 바로 기록한다.
+  // (닉네임이 없는 예외적인 경우에만 고유닉으로 대체)
+  const key = nickname ? String(nickname).trim() : (tag ? String(tag).trim().toLowerCase() : null)
+  if (!key) return
   const dash = getDashboardData(djId, settings)
   const today = todayKST()
-  const key = String(tag).trim().toLowerCase()
   if (!dash.spoonLog[today]) dash.spoonLog[today] = { total: 0, byUser: {} }
   const entry = dash.spoonLog[today]
   if (!entry.byUser[key]) entry.byUser[key] = { nickname, amount: 0, count: 0 }
@@ -2031,9 +2102,10 @@ function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount)
 // type: 'free'(일반 좋아요 탭) | 'ad'(광고/룰렛 하트) | 'plan'(플랜 하트) | 'paid'(그 외 유료 하트)
 function recordDashboardHeart(djId, settings, nickname, tag, type = 'free', amount = 1) {
   if (!isModuleOn(settings, 'dashboard', djId)) return
-  if (!tag) { console.log(`[대시보드] ${nickname} 고유닉 미확인 — 하트로그 기록 보류`); return } // 닉네임 키 생성 금지
+  // 대시보드는 통계용이라 기본은 닉네임을 키로 바로 기록한다 (닉네임 없는 예외적인 경우만 고유닉으로 대체).
+  const key = nickname ? String(nickname).trim() : (tag ? String(tag).trim().toLowerCase() : null)
+  if (!key) return
   const dash = getDashboardData(djId, settings)
-  const key = String(tag).trim().toLowerCase()
   if (!dash.heartLog[key]) dash.heartLog[key] = { nickname, count: 0 }
   dash.heartLog[key].nickname = nickname
   dash.heartLog[key].count += amount
@@ -11021,6 +11093,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
+          handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
           handleWheelCommand(djId, room, settings, author, authorId, text)
@@ -12249,6 +12322,31 @@ app.post('/saju/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 📝 메모2 — !메모 [내용]으로 DJ/매니저가 메모를 남기면, !메모만 입력했을 때 전체 목록을 보여준다.
+app.get('/memo2/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getMemo2Settings(req.djId, settings) })
+})
+app.post('/memo2/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'memo2', req.djId)) return res.json({ success: false, error: '메모2 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getMemo2Settings(req.djId, settings)
+  const { cmd, cmdDelete, perms } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!메모'
+  if (cmdDelete != null) cfg.cmdDelete = String(cmdDelete).trim() || '!메모제거'
+  if (Array.isArray(perms)) cfg.perms = perms.map(t => String(t).replace('@', '').trim()).filter(Boolean).slice(0, 100)
+  store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+app.post('/memo2/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMemo2Settings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+
 // 📅 디데이
 app.get('/dday/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -12948,6 +13046,13 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
   }
   if (on('saju') && settings.saju && settings.saju.cmd) {
     groups.push({ key: 'saju', icon: '🔮', label: '사주팔자', items: [{ cmd: settings.saju.cmd, desc: '[명령어] [생년월일] [태어난시(선택)]로 사주팔자 조회 (예: 1995.08.15 14)' }] })
+  }
+  if (on('memo2') && settings.memo2 && settings.memo2.cmd) {
+    groups.push({ key: 'memo2', icon: '📝', label: '메모2', items: [
+      { cmd: settings.memo2.cmd, desc: '등록된 메모 전체 조회' },
+      { cmd: settings.memo2.cmd + ' [내용]', desc: '메모 등록 (DJ/매니저)' },
+      { cmd: (settings.memo2.cmdDelete || '!메모제거') + ' [번호]', desc: '해당 번호 메모 삭제 (DJ/매니저)' },
+    ] })
   }
   if (on('raffle') && settings.raffle && settings.raffle.cmd) {
     groups.push({ key: 'raffle', icon: '🎊', label: '추첨', items: [{ cmd: settings.raffle.cmd, desc: '추첨 실행 (관리자)' }] })
