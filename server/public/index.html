@@ -866,6 +866,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔍 가입 유저 검색 / 이용기간 수정</span></div>
+          <p class="hint" style="margin-bottom:12px">아이디로 검색해서, 유저 관리 화면까지 안 가고 바로 이용만료일을 추가/수정할 수 있어요.</p>
+          <input type="text" id="adminUserSearchInput" placeholder="아이디로 검색 (예: sum1)" oninput="renderAdminUserSearch()">
+          <div id="adminUserSearchResults" style="display:flex;flex-direction:column;gap:10px;margin-top:12px"></div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🚨 서비스 상태 배너</span></div>
           <p class="hint" style="margin-bottom:12px">켜두면 <b>모든 유저 화면 상단</b>에 계속 떠있는 배너예요. 점검/장애 안내용으로 쓰세요. (업데이트 공지 팝업과 달리 관리자가 끌 때까지 안 사라져요)</p>
           <label>배너 문구</label>
@@ -3726,7 +3732,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats')loadAdminStats();
+  if(name==='adminstats'){ loadAdminStats(); loadUserList(); }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -4950,6 +4956,51 @@ async function loadAdminStats(){
   }catch(e){ grid.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
 }
 
+function renderAdminUserSearch(){
+  const box=document.getElementById('adminUserSearchResults');
+  if(!box)return;
+  const q=(document.getElementById('adminUserSearchInput')?.value||'').trim().toLowerCase();
+  if(!q){ box.innerHTML=''; return; }
+  const matches=adminUserListData.filter(u=>u.djId.toLowerCase().includes(q)).slice(0,20);
+  if(!matches.length){ box.innerHTML='<p class="hint">검색 결과가 없어요.</p>'; return; }
+  box.innerHTML=matches.map(u=>{
+    const isSum=u.djId==='sum';
+    const created=u.createdAt?new Date(u.createdAt).toLocaleDateString('ko-KR'):'-';
+    return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div><b>${escapeHtml(u.djId)}</b>${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''} <span class="hint" style="margin:0">가입일 ${created}</span></div>
+        ${isSum?'<span class="status-pill ongoing">항상 이용가능</span>':expiryStatusPill(u.expiresAt)}
+      </div>
+      ${isSum?'':`<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <input type="datetime-local" id="searchExpireInput-${escapeAttr(u.djId)}" value="${isoToLocalInputValue(u.expiresAt)}" style="padding:7px 9px;font-size:12.5px">
+        <button class="btn-connect" style="padding:7px 12px;font-size:12px" onclick="setUserExpiryFromSearch('${escapeAttr(u.djId)}')">설정</button>
+        ${u.expiresAt?`<button class="btn-gray" style="padding:7px 12px;font-size:12px" onclick="clearUserExpiryFromSearch('${escapeAttr(u.djId)}')">무제한으로 해제</button>`:''}
+      </div>`}
+    </div>`;
+  }).join('');
+}
+async function setUserExpiryFromSearch(djIdTarget){
+  const input=document.getElementById('searchExpireInput-'+djIdTarget);
+  const val=input?input.value:'';
+  if(!val)return showToast('만료 일시를 선택해주세요');
+  const iso=new Date(val).toISOString();
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/expiry',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({expiresAt:iso})});
+    const d=await res.json();
+    if(d.success){showToast(djIdTarget+' 계정의 이용만료일을 설정했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function clearUserExpiryFromSearch(djIdTarget){
+  if(!confirm(djIdTarget+' 계정의 이용만료일을 해제하고 무제한으로 되돌릴까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/expiry',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({expiresAt:null})});
+    const d=await res.json();
+    if(d.success){showToast('무제한으로 해제했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function loadStatusBannerAdmin(){
   try{
     const res=await fetch(SERVER+'/status-banner',{headers:authHeaders()});
@@ -5032,6 +5083,7 @@ async function loadUserList(){
     if(!d.success){wrap.innerHTML='<p class="hint">불러오지 못했어요: '+(d.error||'')+'</p>';return;}
     adminUserListData=d.users||[];
     renderUserListTable();
+    renderAdminUserSearch();
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
