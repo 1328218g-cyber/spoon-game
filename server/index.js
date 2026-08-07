@@ -8,6 +8,14 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+// 🔮 사주팔자 — package.json에 npm install 전이어도 서버 전체가 죽지 않도록 안전하게 불러온다.
+// (설치 안 된 상태로 배포되면 require 자체가 예외를 던져서 서버가 통째로 크래시하는 문제가 있었음)
+let calculateSaju = null, calculateSajuSimple = null
+try {
+  ; ({ calculateSaju, calculateSajuSimple } = require('@fullstackfamily/manseryeok'))
+} catch (e) {
+  console.log('[사주팔자] @fullstackfamily/manseryeok 패키지가 설치되지 않았어요. "npm install @fullstackfamily/manseryeok --save" 실행 후 다시 배포해주세요. 그 전까지 사주팔자 기능은 자동으로 비활성화됩니다.')
+}
 
 const app = express()
 app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
@@ -318,7 +326,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1445,6 +1453,92 @@ function handleReminderCommand(djId, room, settings, author, text) {
 }
 
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🔮 사주팔자 — 생년월일(시)을 입력하면 만세력 라이브러리(@fullstackfamily/manseryeok, MIT,
+// KASI 한국천문연구원 데이터 기반)로 실제 사주팔자(년/월/일/시주)를 계산하고, 일간(日干) 오행과
+// 사주 내 오행 분포를 바탕으로 풀이를 보여준다. 무작위 텍스트가 아니라 실제 계산된 결과.
+const SAJU_STEM_ELEMENT = { '갑': '목', '을': '목', '병': '화', '정': '화', '무': '토', '기': '토', '경': '금', '신': '금', '임': '수', '계': '수' }
+const SAJU_BRANCH_ELEMENT = { '인': '목', '묘': '목', '사': '화', '오': '화', '진': '토', '술': '토', '축': '토', '미': '토', '신': '금', '유': '금', '자': '수', '해': '수' }
+const SAJU_BRANCH_ZODIAC = { '자': '쥐', '축': '소', '인': '호랑이', '묘': '토끼', '진': '용', '사': '뱀', '오': '말', '미': '양', '신': '원숭이', '유': '닭', '술': '개', '해': '돼지' }
+const SAJU_ELEMENT_DESC = {
+  '목': '성장과 추진력이 강점이에요. 리더십이 있고 유연하게 상황에 적응하지만, 가끔 고집이 세질 때가 있어요.',
+  '화': '열정적이고 표현력이 풍부해요. 사교성이 좋아서 주변에 사람이 잘 모이지만, 성격이 급해질 때는 한 박자 쉬어가세요.',
+  '토': '안정적이고 신뢰감을 주는 타입이에요. 포용력이 넓지만, 변화 앞에서는 다소 신중하고 느린 편이에요.',
+  '금': '원칙적이고 결단력이 있어요. 분석적이고 맺고 끊음이 확실하지만, 가끔 냉정해 보일 수 있어요.',
+  '수': '지혜롭고 유연한 사고를 가졌어요. 적응력이 좋지만, 생각이 많아지고 예민해질 때가 있어요.',
+}
+
+function getSajuSettings(djId, settings) {
+  if (!settings.saju) {
+    settings.saju = { cmd: '!사주' }
+    store.saveSettings(djId, { saju: settings.saju })
+  }
+  return settings.saju
+}
+
+function handleSajuCommand(djId, room, settings, author, authorId, text) {
+  if (!isModuleOn(settings, 'saju', djId)) return
+  const cfg = getSajuSettings(djId, settings)
+  const cmd = cfg.cmd || '!사주'
+  const msg = String(text || '').trim()
+  if (msg !== cmd && !msg.startsWith(cmd + ' ')) return
+
+  if (!calculateSaju || !calculateSajuSimple) {
+    setTimeout(() => sendChatToRoom(djId, `🔮 사주팔자 기능이 아직 서버에 설치 중이에요. 잠시 후 다시 시도해주세요.`), 400)
+    return
+  }
+
+  const rest = msg.slice(cmd.length).trim()
+  const m = rest.match(/^(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})(?:\s+(\d{1,2}))?$/)
+  if (!rest || !m) {
+    setTimeout(() => sendChatToRoom(djId, `🔮 사용법: ${cmd} [생년월일] [태어난시(선택)]\n예) ${cmd} 1995.08.15 14\n(시간 몰라도 괜찮아요, 안 적으면 년/월/일주만 봐드려요)`), 400)
+    return
+  }
+  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10)
+  const hasHour = m[4] != null
+  const h = hasHour ? parseInt(m[4], 10) : undefined
+  const validDate = mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 1900 && y <= 2050 && (!hasHour || (h >= 0 && h <= 23))
+  if (!validDate) {
+    setTimeout(() => sendChatToRoom(djId, `🔮 날짜를 다시 확인해주세요. (지원 범위: 1900~2050년, 시는 0~23)`), 400)
+    return
+  }
+
+  let saju
+  try {
+    saju = hasHour ? calculateSaju(y, mo, d, h) : calculateSajuSimple(y, mo, d)
+  } catch (e) {
+    setTimeout(() => sendChatToRoom(djId, `🔮 사주 계산에 실패했어요. 날짜를 다시 확인해주세요. (${e.message})`), 400)
+    return
+  }
+
+  const pillars = [saju.yearPillar, saju.monthPillar, saju.dayPillar, hasHour ? saju.hourPillar : null].filter(Boolean)
+  const chars = pillars.flatMap(p => [p[0], p[1]])
+  const counts = {}
+  chars.forEach(c => {
+    const el = SAJU_STEM_ELEMENT[c] || SAJU_BRANCH_ELEMENT[c]
+    if (el) counts[el] = (counts[el] || 0) + 1
+  })
+  const dayStem = saju.dayPillar[0]
+  const dayElement = SAJU_STEM_ELEMENT[dayStem]
+  const zodiac = SAJU_BRANCH_ZODIAC[saju.yearPillar[1]] || ''
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  const most = sorted[0]
+  const missing = ['목', '화', '토', '금', '수'].filter(e => !counts[e])
+  const dateStr = `${y}.${String(mo).padStart(2, '0')}.${String(d).padStart(2, '0')}`
+
+  const lines = [
+    `🔮 [${author}]님의 사주팔자`,
+    `${dateStr}${hasHour ? ' ' + h + '시' : ''} · ${zodiac}띠`,
+    `년주 ${saju.yearPillar} · 월주 ${saju.monthPillar} · 일주 ${saju.dayPillar}${hasHour ? ' · 시주 ' + saju.hourPillar : ''}`,
+    `일간(나): ${dayStem}(${dayElement}) — ${SAJU_ELEMENT_DESC[dayElement] || ''}`,
+  ]
+  if (most) lines.push(`✨ 사주에 ${most[0]}(${most[1]}개) 기운이 가장 강해요.`)
+  if (missing.length) lines.push(`부족한 기운: ${missing.join(', ')}`)
+  if (!hasHour) lines.push(`(태어난 시각까지 알면 시주까지 봐드려요: ${cmd} ${dateStr} 14)`)
+
+  sendChatSplit(djId, lines.join('\n'), 150, 600)
+}
+
 // 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
 // 등록된 디데이 목록과 남은/지난 일수를 보여준다. MM-DD는 매년 반복되는 날짜로 계산하고,
 // YYYY.MM.DD / YYYY-MM-DD 처럼 연도까지 입력하면 그 해 그 날짜 딱 한 번만 기준으로 계산한다.
@@ -10909,6 +11003,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
+          handleSajuCommand(djId, room, settings, author, authorId, text)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
           handleWheelCommand(djId, room, settings, author, authorId, text)
@@ -12080,6 +12175,21 @@ app.post('/mynotes/delete', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🔮 사주팔자
+app.get('/saju/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getSajuSettings(req.djId, settings) })
+})
+app.post('/saju/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'saju', req.djId)) return res.json({ success: false, error: '사주팔자 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSajuSettings(req.djId, settings)
+  const { cmd } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!사주'
+  store.saveSettings(req.djId, { saju: cfg })
+  res.json({ success: true })
+})
+
 // 📅 디데이
 app.get('/dday/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -12776,6 +12886,9 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
   }
   if (on('dday') && settings.dday && settings.dday.cmd) {
     groups.push({ key: 'dday', icon: '📅', label: '디데이', items: [{ cmd: settings.dday.cmd, desc: '디데이 등록/조회' }] })
+  }
+  if (on('saju') && settings.saju && settings.saju.cmd) {
+    groups.push({ key: 'saju', icon: '🔮', label: '사주팔자', items: [{ cmd: settings.saju.cmd, desc: '[명령어] [생년월일] [태어난시(선택)]로 사주팔자 조회 (예: 1995.08.15 14)' }] })
   }
   if (on('raffle') && settings.raffle && settings.raffle.cmd) {
     groups.push({ key: 'raffle', icon: '🎊', label: '추첨', items: [{ cmd: settings.raffle.cmd, desc: '추첨 실행 (관리자)' }] })
