@@ -213,6 +213,67 @@ function removeDuplicateCheckAllowedIp(ip) {
   return { ok: true };
 }
 
+// 📢 업데이트 공지 — 관리자가 등록하면, 유저가 로그인할 때 팝업으로 한 번 보여준다.
+// (관리자 계정의 settings 안에 저장해두고, 각 유저는 자기 settings에 마지막으로 본 공지 id를 기록해서
+//  다음에 접속했을 때 이미 본 공지면 다시 안 뜨게 한다)
+// 등록할 때마다 announcementHistory에도 같이 쌓아서, 유저가 지난 공지들을 "업데이트 내역"에서 볼 수 있게 한다.
+function getAnnouncement() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.announcement;
+  return v && v.id ? v : null;
+}
+function getAnnouncementHistory() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.announcementHistory;
+  return Array.isArray(v) ? v : [];
+}
+function setAnnouncement(title, content) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const announcement = { id: Date.now(), title: String(title || '').trim(), content: String(content || '').trim(), createdAt: Date.now() };
+  djs['sum'].settings.announcement = announcement;
+  const history = Array.isArray(djs['sum'].settings.announcementHistory) ? djs['sum'].settings.announcementHistory : [];
+  history.unshift(announcement) // 최신이 맨 앞
+  djs['sum'].settings.announcementHistory = history.slice(0, 50) // 최근 50개까지만 보관
+  saveDjs(djs);
+  return { ok: true, announcement };
+}
+
+// 🚨 서비스 상태 배너 — 점검/장애 등 안내를 사이드바 상단에 항상 떠있는 배너로 표시한다.
+// (업데이트 공지 팝업과 달리 "확인" 눌러도 안 사라지고, 관리자가 끌 때까지 계속 보임)
+function getStatusBanner() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.statusBanner;
+  return v && v.enabled ? v : null;
+}
+function setStatusBanner(enabled, message, type) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.statusBanner = { enabled: !!enabled, message: String(message || '').trim(), type: ['warning', 'info', 'danger'].includes(type) ? type : 'warning', updatedAt: Date.now() };
+  saveDjs(djs);
+  return { ok: true, banner: djs['sum'].settings.statusBanner };
+}
+
+// 📊 관리자 대시보드용 요약 통계
+function getAdminStats() {
+  const djs = loadDjs();
+  const ids = Object.keys(djs).filter(id => id !== 'sum');
+  const now = Date.now();
+  const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  let activeToday = 0, autoJoinWatching = 0, expired = 0, blocked = 0
+  for (const id of ids) {
+    const rec = djs[id];
+    if (rec.lastLoginAt && rec.lastLoginAt >= today0.getTime()) activeToday++
+    const s = rec.settings || {}
+    if (s.autoJoinWatch) autoJoinWatching++
+    if (s.expiresAt && now > new Date(s.expiresAt).getTime()) expired++
+    if (rec.blocked) blocked++
+  }
+  return { totalDjs: ids.length, activeToday, autoJoinWatching, expired, blocked }
+}
+
 // 가입 전 미리 체크용 — 겹치는 기존 계정의 djId를 반환한다(없으면 null).
 function findDuplicateSignup(signupIp, deviceId) {
   const djs = loadDjs();
@@ -520,6 +581,12 @@ module.exports = {
   getDuplicateCheckAllowedIps,
   addDuplicateCheckAllowedIp,
   removeDuplicateCheckAllowedIp,
+  getAnnouncement,
+  setAnnouncement,
+  getAnnouncementHistory,
+  getStatusBanner,
+  setStatusBanner,
+  getAdminStats,
   validEmail,
   DATA_DIR,
   verifyRecoveryEmail,
