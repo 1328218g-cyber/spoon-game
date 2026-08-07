@@ -596,6 +596,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic">📊</span><span class="lbl">관리자 대시보드</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic">📦</span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -650,7 +651,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
       <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="다크모드 전환">🌙</button>
       <button class="theme-toggle-btn" onclick="openCommandsModal()" title="전체 명령어 보기">📋</button>
-      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openAnnouncementHistory()">🔔 업데이트</button><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+    </div>
+
+    <div id="statusServiceBanner" style="display:none;align-items:center;gap:10px;padding:9px 16px;font-size:13px;font-weight:600">
+      <span id="statusServiceBannerText"></span>
     </div>
 
     <div id="impersonateBanner" style="display:none;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:9px 16px;font-size:13px;font-weight:600">
@@ -852,12 +857,48 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       </div>
 
       <!-- 유저 관리 (관리자 전용) -->
+      <!-- 📊 관리자 대시보드 -->
+      <div class="panel" data-panel="adminstats">
+        <div class="card">
+          <div class="card-title"><span>📊 전체 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadAdminStats()">🔄 새로고침</button></div>
+          <div id="adminStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:10px">
+            <p class="hint">불러오는 중...</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🚨 서비스 상태 배너</span></div>
+          <p class="hint" style="margin-bottom:12px">켜두면 <b>모든 유저 화면 상단</b>에 계속 떠있는 배너예요. 점검/장애 안내용으로 쓰세요. (업데이트 공지 팝업과 달리 관리자가 끌 때까지 안 사라져요)</p>
+          <label>배너 문구</label>
+          <input type="text" id="statusBannerMsg" placeholder="예: 지금 서버 점검 중이에요. 잠시만 기다려주세요.">
+          <label style="margin-top:10px">색상</label>
+          <select id="statusBannerType">
+            <option value="warning">⚠️ 주의 (주황)</option>
+            <option value="danger">🚨 긴급 (빨강)</option>
+            <option value="info">ℹ️ 안내 (파랑)</option>
+          </select>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn-connect" style="flex:1" onclick="saveStatusBanner(true)">🚨 배너 켜기</button>
+            <button class="btn-gray" style="flex:1" onclick="saveStatusBanner(false)">배너 끄기</button>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" data-panel="userlist">
         <div class="card">
           <div class="card-title">📢 실시간 공지</div>
           <p class="hint" style="margin-bottom:12px">지금 접속 중인 <b>모든 디제이의 채팅 화면</b>에 즉시 나타나는 공지예요. (스푼 실제 방송 채팅이 아니라, 웹봇 화면 안에서만 보이는 내부 공지예요)</p>
           <textarea id="announceText" placeholder="예: 오늘 밤 12시부터 1시간 서버 점검이 있습니다." style="height:70px"></textarea>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendAnnouncement()">📢 공지 보내기</button>
+        </div>
+        <div class="card">
+          <div class="card-title">🔔 업데이트 공지 (로그인 팝업)</div>
+          <p class="hint" style="margin-bottom:12px">위 실시간 공지랑은 달라요 — 이건 <b>등록해두면 그 뒤로 로그인하는 모든 유저</b>한테 딱 한 번 팝업창으로 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 한 번씩 떠요.</p>
+          <label>제목</label>
+          <input type="text" id="updateNoticeTitle" placeholder="예: 업데이트 안내 (2026.08.07)">
+          <label>내용</label>
+          <textarea id="updateNoticeContent" placeholder="예: 사주팔자 모듈이 추가됐어요! 모듈 마켓에서 켜보세요." style="height:90px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="postUpdateNotice()">🔔 공지 등록 (전체 유저에게 팝업)</button>
+          <div id="updateNoticeCurrent" class="hint" style="margin-top:10px"></div>
         </div>
         <div class="card">
           <div class="card-title"><span>🆕 신규 가입 기본 이용기간</span></div>
@@ -3005,6 +3046,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="tutorialDontShowAgain"> 다시 보지 않기 <span class="hint-inline">(상단의 "❓ 튜토리얼" 버튼으로 언제든 다시 볼 수 있어요)</span></label>
   </div>
 </div>
+<!-- 📢 업데이트 공지 팝업 -->
+<div id="announcementOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAnnouncementModal()">
+  <div class="modal-box" style="max-width:480px;max-height:80vh;overflow-y:auto">
+    <div class="modal-title"><span>📢 <span id="announcementTitle">업데이트 안내</span></span><button class="icon-btn" onclick="closeAnnouncementModal()">✕</button></div>
+    <div id="announcementBody" style="font-size:14px;line-height:1.75;white-space:pre-line"></div>
+    <button class="btn-connect" style="width:100%;margin-top:18px" onclick="closeAnnouncementModal()">확인</button>
+  </div>
+</div>
+<!-- 🔔 업데이트 내역(체인지로그) -->
+<div id="announcementHistoryOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAnnouncementHistory()">
+  <div class="modal-box" style="max-width:520px;max-height:80vh;overflow-y:auto">
+    <div class="modal-title"><span>🔔 업데이트 내역</span><button class="icon-btn" onclick="closeAnnouncementHistory()">✕</button></div>
+    <div id="announcementHistoryBody" style="display:flex;flex-direction:column;gap:12px"><p class="hint">불러오는 중...</p></div>
+  </div>
+</div>
 <!-- 📖 TTS API 키 발급 가이드 -->
 <div id="ttsGuideModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTtsGuideModal()">
   <div class="modal-box" style="max-width:520px;max-height:82vh;overflow-y:auto">
@@ -3440,8 +3496,27 @@ function renderTutorialStep(){
 }
 function maybeAutoShowTutorial(){
   try{
-    if(!localStorage.getItem(tutorialSeenKey())) openTutorial();
+    if(!localStorage.getItem(tutorialSeenKey())){ openTutorial(); return; }
   }catch(e){}
+  checkAnnouncement();
+}
+
+let currentAnnouncementId=null;
+async function checkAnnouncement(){
+  try{
+    const res=await fetch(SERVER+'/announcement',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.announcement||d.seen)return;
+    currentAnnouncementId=d.announcement.id;
+    document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
+    document.getElementById('announcementBody').textContent=d.announcement.content||'';
+    document.getElementById('announcementOverlay').style.display='flex';
+  }catch(e){}
+}
+async function closeAnnouncementModal(){
+  document.getElementById('announcementOverlay').style.display='none';
+  if(currentAnnouncementId==null)return;
+  try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
 }
 
 function openMyInfoModal(){
@@ -3547,6 +3622,8 @@ function enterApp(){
   // (각자 본인 계정으로 세션 연결하고 싶은 사람을 위한 화면이라 전체 공개로 변경)
   const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
+  const adminStatsNav=document.getElementById('adminStatsNav');
+  if(adminStatsNav) adminStatsNav.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
   if(autojoinNav) autojoinNav.style.display = '';
   const watchCard=document.getElementById('watchCard');
@@ -3555,7 +3632,9 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); }
+  loadStatusBanner();
+  if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
   initApp();
@@ -3592,6 +3671,7 @@ const PANEL_META={
   migrate:['📦 로컬 데이터 가져오기','로컬 에디봇(Electron) 설정 파일을 업로드해서 내 계정에 옮겨옵니다'],
   settingsbackup:['💾 설정 내보내기/가져오기','내 계정 설정을 JSON 파일로 백업하거나, 백업 파일로 되돌립니다'],
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
+  adminstats:['📊 관리자 대시보드','전체 서비스 현황을 한눈에 봅니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -3646,6 +3726,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
+  if(name==='adminstats')loadAdminStats();
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -4819,6 +4900,115 @@ async function sendAnnouncement(){
     else showToast(d.error||'전송 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
+
+async function loadUpdateNoticeCurrent(){
+  const box=document.getElementById('updateNoticeCurrent');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/announcement',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success&&d.announcement){
+      const dt=new Date(d.announcement.createdAt).toLocaleString('ko-KR');
+      box.textContent=`현재 등록된 공지: "${d.announcement.title||'(제목 없음)'}" (${dt} 등록)`;
+    }else{
+      box.textContent='등록된 공지가 없어요.';
+    }
+  }catch(e){}
+}
+async function postUpdateNotice(){
+  const title=document.getElementById('updateNoticeTitle').value.trim();
+  const content=document.getElementById('updateNoticeContent').value.trim();
+  if(!content)return showToast('공지 내용을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/announcement',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title,content})});
+    const d=await res.json();
+    if(d.success){
+      showToast('공지를 등록했어요 🔔 다음 로그인부터 유저들에게 팝업으로 떠요');
+      document.getElementById('updateNoticeTitle').value='';
+      document.getElementById('updateNoticeContent').value='';
+      loadUpdateNoticeCurrent();
+    }else showToast(d.error||'등록 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+const ADMIN_STAT_LABELS={ totalDjs:['👥','전체 가입 DJ'], activeToday:['✅','오늘 접속'], autoJoinWatching:['🚪','자동입장 감시중'], expired:['⏰','이용기간 만료'], blocked:['🚫','차단됨'] };
+async function loadAdminStats(){
+  const grid=document.getElementById('adminStatsGrid');
+  if(!grid)return;
+  try{
+    const res=await fetch(SERVER+'/admin/stats',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ grid.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    grid.innerHTML=Object.entries(ADMIN_STAT_LABELS).map(([key,[icon,label]])=>{
+      const val=d.stats[key]!=null?d.stats[key]:0;
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:22px">${icon}</div>
+        <div style="font-size:24px;font-weight:800;margin:6px 0">${val}</div>
+        <div class="hint" style="margin:0">${label}</div>
+      </div>`;
+    }).join('');
+  }catch(e){ grid.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+
+async function loadStatusBannerAdmin(){
+  try{
+    const res=await fetch(SERVER+'/status-banner',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success&&d.banner){
+      document.getElementById('statusBannerMsg').value=d.banner.message||'';
+      document.getElementById('statusBannerType').value=d.banner.type||'warning';
+    }
+  }catch(e){}
+}
+async function saveStatusBanner(enabled){
+  const message=document.getElementById('statusBannerMsg').value.trim();
+  const type=document.getElementById('statusBannerType').value;
+  if(enabled&&!message)return showToast('배너 문구를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/status-banner',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,message,type})});
+    const d=await res.json();
+    if(d.success){ showToast(enabled?'배너를 켰어요 🚨':'배너를 껐어요'); loadStatusBanner(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+const STATUS_BANNER_COLORS={ warning:'linear-gradient(135deg,#f59e0b,#f97316)', danger:'linear-gradient(135deg,#ef4444,#dc2626)', info:'linear-gradient(135deg,#0ea5e9,#3b82f6)' };
+async function loadStatusBanner(){
+  const box=document.getElementById('statusServiceBanner');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/status-banner',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success&&d.banner&&d.banner.enabled){
+      box.style.display='flex';
+      box.style.background=STATUS_BANNER_COLORS[d.banner.type]||STATUS_BANNER_COLORS.warning;
+      box.style.color='#fff';
+      document.getElementById('statusServiceBannerText').textContent=(d.banner.type==='danger'?'🚨 ':d.banner.type==='info'?'ℹ️ ':'⚠️ ')+d.banner.message;
+    }else{
+      box.style.display='none';
+    }
+  }catch(e){}
+}
+
+async function openAnnouncementHistory(){
+  document.getElementById('announcementHistoryOverlay').style.display='flex';
+  const body=document.getElementById('announcementHistoryBody');
+  body.innerHTML='<p class="hint">불러오는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/announcement/history',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.history||!d.history.length){ body.innerHTML='<p class="hint">아직 등록된 업데이트 내역이 없어요.</p>'; return; }
+    body.innerHTML=d.history.map(a=>{
+      const dt=new Date(a.createdAt).toLocaleString('ko-KR');
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+        <div style="font-weight:700;margin-bottom:4px">${escapeHtml(a.title||'(제목 없음)')}</div>
+        <div class="hint" style="margin-bottom:8px">${dt}</div>
+        <div style="font-size:13.5px;line-height:1.7;white-space:pre-line">${escapeHtml(a.content||'')}</div>
+      </div>`;
+    }).join('');
+  }catch(e){ body.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+function closeAnnouncementHistory(){ document.getElementById('announcementHistoryOverlay').style.display='none'; }
 
 async function saveDefaultTrialDays(){
   const val=document.getElementById('defaultTrialDaysInput').value;

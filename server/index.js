@@ -11450,6 +11450,48 @@ app.post('/admin/duplicate-check-allowed-ips/remove', auth.requireAuth, (req, re
   res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
 })
 
+// 📢 업데이트 공지 — 로그인하면 팝업으로 한 번 보여주는 전체 공지
+app.get('/announcement', auth.requireAuth, (req, res) => {
+  const announcement = store.getAnnouncement()
+  if (!announcement) return res.json({ success: true, announcement: null })
+  const settings = store.getSettings(req.djId) || {}
+  const seen = settings.lastSeenAnnouncementId === announcement.id
+  res.json({ success: true, announcement, seen })
+})
+app.post('/announcement', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { title, content } = req.body || {}
+  if (!String(content || '').trim()) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
+  const result = store.setAnnouncement(title, content)
+  res.json(result.ok ? { success: true, announcement: result.announcement } : { success: false, error: result.error })
+})
+app.post('/announcement/seen', auth.requireAuth, (req, res) => {
+  const announcement = store.getAnnouncement()
+  if (!announcement) return res.json({ success: true })
+  store.saveSettings(req.djId, { lastSeenAnnouncementId: announcement.id })
+  res.json({ success: true })
+})
+app.get('/announcement/history', auth.requireAuth, (req, res) => {
+  res.json({ success: true, history: store.getAnnouncementHistory() })
+})
+
+// 🚨 서비스 상태 배너 — 점검/장애 등을 사이드바 상단에 계속 떠있는 배너로 표시
+app.get('/status-banner', auth.requireAuth, (req, res) => {
+  res.json({ success: true, banner: store.getStatusBanner() })
+})
+app.post('/status-banner', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { enabled, message, type } = req.body || {}
+  const result = store.setStatusBanner(enabled, message, type)
+  res.json(result.ok ? { success: true, banner: result.banner } : { success: false, error: result.error })
+})
+
+// 📊 관리자 대시보드 요약 통계
+app.get('/admin/stats', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, stats: store.getAdminStats() })
+})
+
 // 🔑 비밀번호 찾기 — 가입 시 등록한 이메일이 일치하는지 확인 후, 맞으면 새 비밀번호로 바로 변경한다.
 app.post('/auth/forgot-password', (req, res) => {
   const { djId, email, newPassword } = req.body || {}
