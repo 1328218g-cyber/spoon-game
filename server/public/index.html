@@ -626,6 +626,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="reactiontimer"><span class="ic">⏰</span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="memo2"><span class="ic">📝</span><span class="lbl">메모2</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1913,6 +1914,33 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label>명령어</label>
           <input type="text" id="sajuCmd" value="!사주" style="max-width:220px">
           <div class="hint" style="margin-top:10px">누구나 사용 가능한 명령어예요 (DJ 전용 아님). 지원 범위: 1900~2050년생.</div>
+        </div>
+      </div>
+
+      <!-- 📝 메모2 -->
+      <div class="panel" data-panel="memo2">
+        <div class="card">
+          <div class="card-title"><span>📝 메모2 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveMemo2Settings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">[명령어] [내용] 으로 메모를 남기면(DJ/매니저 전용), [명령어]만 입력했을 때 등록된 메모를 전부 보여줘요. 누구나 조회는 가능해요.</p>
+          <label>명령어</label>
+          <input type="text" id="memo2Cmd" value="!메모" style="max-width:220px">
+          <label style="margin-top:10px">삭제 명령어</label>
+          <input type="text" id="memo2CmdDelete" value="!메모제거" style="max-width:220px">
+          <div class="hint" style="margin-top:6px">사용법: [삭제 명령어] [번호] (예: !메모제거 1)</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔑 메모2 작성 권한 <span class="hint-inline">(DJ 전용 설정)</span></div>
+          <p class="hint">아래에 등록된 고유닉은 DJ처럼 메모를 남기고 삭제할 수 있어요. 조회는 등록 여부와 상관없이 누구나 가능해요.</p>
+          <div class="chip-input-row">
+            <input type="text" id="memo2PermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addMemo2Perm()">
+            <button class="btn-connect" onclick="addMemo2Perm()">추가</button>
+          </div>
+          <div class="chip-list" id="memo2PermList"></div>
+          <div class="hint">※ 명령어 입력 시점에 그 사람의 실제 고유닉을 즉시 재조회해서 확인해요 (닉네임이 바뀌어도 정상 동작).</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📋 등록된 메모</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadMemo2Data()">🔄 새로고침</button></div>
+          <div id="memo2ListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -3712,6 +3740,7 @@ const PANEL_META={
   reactiontimer:['⏰ 리액션 타이머','정해진 시간 후에 채팅으로 알림을 보내는 타이머를 등록합니다'],
   dday:['📅 디데이','기념일/이벤트 날짜를 등록해두고 D-Day를 자동으로 계산해줍니다'],
   saju:['🔮 사주팔자','생년월일(시)을 입력하면 진짜 만세력 계산으로 사주팔자를 봐줍니다'],
+  memo2:['📝 메모2','채팅으로 메모를 남기고 조회합니다 (DJ/매니저 전용 작성)'],
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
@@ -3835,7 +3864,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3847,7 +3876,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4845,6 +4874,7 @@ async function loadDjSettings(){
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
+      if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
@@ -6825,6 +6855,74 @@ async function saveSajuSettings(){
     const d=await res.json();
     if(d.success){showToast('설정 저장 완료 ✓');loadSajuData();}
     else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📝 메모2 ── */
+let memo2Data={cmd:'!메모',cmdDelete:'!메모제거',items:[],perms:[]};
+async function loadMemo2Data(){
+  try{
+    const res=await fetch(SERVER+'/memo2/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    memo2Data=d.settings||memo2Data;
+    document.getElementById('memo2Cmd').value=memo2Data.cmd||'!메모';
+    document.getElementById('memo2CmdDelete').value=memo2Data.cmdDelete||'!메모제거';
+    renderMemo2Perms();
+    renderMemo2List();
+  }catch(e){}
+}
+async function saveMemo2Settings(){
+  memo2Data.cmd=document.getElementById('memo2Cmd').value;
+  memo2Data.cmdDelete=document.getElementById('memo2CmdDelete').value;
+  try{
+    const res=await fetch(SERVER+'/memo2/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({cmd:memo2Data.cmd,cmdDelete:memo2Data.cmdDelete,perms:memo2Data.perms})});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadMemo2Data();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+function renderMemo2Perms(){
+  const wrap=document.getElementById('memo2PermList');
+  if(!wrap)return;
+  if(!memo2Data.perms||!memo2Data.perms.length){wrap.innerHTML='<span class="hint">등록된 사용자가 없습니다</span>';return;}
+  wrap.innerHTML=memo2Data.perms.map(tag=>`
+    <span class="perm-chip">${escapeHtml(tag)}<button onclick="removeMemo2Perm('${escapeAttr(tag)}')">✕</button></span>
+  `).join('');
+}
+function addMemo2Perm(){
+  const input=document.getElementById('memo2PermInput');
+  const tag=input.value.trim().replace('@','');
+  if(!tag)return;
+  if(!memo2Data.perms)memo2Data.perms=[];
+  if(memo2Data.perms.includes(tag))return showToast('이미 등록된 고유닉이에요');
+  memo2Data.perms.push(tag);
+  input.value='';
+  renderMemo2Perms();
+  saveMemo2Settings();
+}
+function removeMemo2Perm(tag){
+  memo2Data.perms=memo2Data.perms.filter(t=>t!==tag);
+  renderMemo2Perms();
+  saveMemo2Settings();
+}
+function renderMemo2List(){
+  const wrap=document.getElementById('memo2ListWrap');
+  if(!wrap)return;
+  if(!memo2Data.items||!memo2Data.items.length){wrap.innerHTML='<p class="hint">등록된 메모가 없어요.</p>';return;}
+  wrap.innerHTML=memo2Data.items.map((it,i)=>`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:13.5px;line-height:1.6"><b>${i+1}.</b> ${escapeHtml(it.text)}<div class="hint" style="margin-top:2px">${escapeHtml(it.author||'')} · ${it.createdAt?new Date(it.createdAt).toLocaleString('ko-KR'):''}</div></div>
+      <button class="btn-gray" style="padding:5px 10px;font-size:11.5px;flex-shrink:0" onclick="deleteMemo2Item('${escapeAttr(it.id)}')">삭제</button>
+    </div>
+  `).join('');
+}
+async function deleteMemo2Item(id){
+  if(!confirm('이 메모를 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/memo2/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    showToast('삭제했어요');
+    loadMemo2Data();
   }catch(e){showToast('오류: '+e.message);}
 }
 
