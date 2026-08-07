@@ -452,7 +452,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 /* ── 사이드바+상세 2단 레이아웃 (애청지수/룰렛기록/실시간지급 공용) ── */
 .split-card{padding:0;overflow:hidden;display:flex;align-items:stretch}
-.split-side{width:230px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto}
+.split-side{width:320px;flex-shrink:0;border-right:1px solid var(--border);padding:16px;max-height:70vh;overflow-y:auto}
 .split-main{flex:1;padding:22px;min-width:0}
 
 @media (max-width: 860px){
@@ -554,18 +554,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   <div class="landing-wrap">
     <div class="landing-eyebrow">SPOON RADIO DJ를 위한 올인원 봇</div>
     <div class="landing-title">방송 운영, 에디봇이 도와드려요</div>
-    <div class="landing-sub">입장부터 룰렛, 애청지수, 신청곡까지 — 반복되는 방송 운영은 에디봇에게 맡기고<br>디제이는 방송 그 자체에만 집중하세요.</div>
+    <div class="landing-sub">입장부터 룰렛, 애청지수, 경제게임, 사주팔자까지 — 반복되는 방송 운영은 에디봇에게 맡기고<br>디제이는 방송 그 자체에만 집중하세요. 30개가 넘는 기능을 필요한 것만 골라 켤 수 있어요.</div>
     <div class="landing-grid">
       <div class="landing-card"><div class="lc-icon">🚪</div><div class="lc-title">자동입장</div><div class="lc-desc">방송을 켜면 봇이 알아서 입장해요</div></div>
       <div class="landing-card"><div class="lc-icon">🎡</div><div class="lc-title">룰렛 설정</div><div class="lc-desc">스푼·스티커 조건에 맞춰 자동으로 룰렛이 돌아가요</div></div>
       <div class="landing-card"><div class="lc-icon">⭐</div><div class="lc-title">애청지수</div><div class="lc-desc">채팅·좋아요·출석으로 레벨업하고 복권까지</div></div>
+      <div class="landing-card"><div class="lc-icon">🔮</div><div class="lc-title">사주팔자</div><div class="lc-desc">생년월일 입력하면 진짜 만세력으로 사주를 봐줘요</div></div>
+      <div class="landing-card"><div class="lc-icon">📊</div><div class="lc-title">대시보드</div><div class="lc-desc">날짜별 스푼·하트 랭킹·MVP를 한눈에 봐요</div></div>
+      <div class="landing-card"><div class="lc-icon">🍞</div><div class="lc-title">증권거래소</div><div class="lc-desc">주식·은행·도박까지 즐기는 경제 게임</div></div>
+      <div class="landing-card"><div class="lc-icon">🎣</div><div class="lc-title">낚시 게임</div><div class="lc-desc">물고기 잡고 상점·대출까지 즐기는 미니 게임</div></div>
+      <div class="landing-card"><div class="lc-icon">⚔️</div><div class="lc-title">검키우기</div><div class="lc-desc">강화·던전·배틀을 즐기는 검 키우기 RPG</div></div>
+      <div class="landing-card"><div class="lc-icon">🎙️</div><div class="lc-title">TTS</div><div class="lc-desc">고액 선물 유저의 채팅을 음성으로 읽어줘요</div></div>
       <div class="landing-card"><div class="lc-icon">🛡️</div><div class="lc-title">실드 관리</div><div class="lc-desc">채팅 명령어로 실드를 적립·차감해요</div></div>
-      <div class="landing-card"><div class="lc-icon">💰</div><div class="lc-title">펀딩·깃발</div><div class="lc-desc">목표 금액과 진행률을 실시간으로 보여줘요</div></div>
       <div class="landing-card"><div class="lc-icon">🎵</div><div class="lc-title">신청곡 관리</div><div class="lc-desc">시청자 신청곡을 대기열로 깔끔하게 정리해요</div></div>
-      <div class="landing-card"><div class="lc-icon">🧩</div><div class="lc-title">퀴즈 이벤트</div><div class="lc-desc">정해진 간격마다 자동으로 퀴즈를 출제해요</div></div>
-      <div class="landing-card"><div class="lc-icon">🙋</div><div class="lc-title">지정 인사</div><div class="lc-desc">특별한 시청자에게 전용 인사말을 보내요</div></div>
+      <div class="landing-card"><div class="lc-icon">🔔</div><div class="lc-title">디스코드 알림</div><div class="lc-desc">방송을 켜면 디스코드 채널에 자동으로 알려줘요</div></div>
     </div>
-    <div class="landing-footer">문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
+    <div class="landing-footer">이 외에도 펀딩·깃발, 퀴즈, 추첨, 경매, 랜덤박스, 뽑기판, 메모장 등 다양한 기능이 준비돼 있어요.<br>문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
   </div>
 </div>
 
@@ -1397,13 +1401,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title">🔑 신청곡 관리 권한 <span class="hint-inline">(DJ 전용 설정)</span></div>
+          <p class="hint">아래에 등록된 고유닉은 리셋/마감/접수/우선온/우선오프/이름온/이름오프 같은 관리 명령어를 DJ처럼 사용할 수 있어요. (곡 신청/내 신청곡 취소는 원래 누구나 가능해서 대상 아님)</p>
+          <div class="chip-input-row">
+            <input type="text" id="srPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addSrPerm()">
+            <button class="btn-connect" onclick="addSrPerm()">추가</button>
+          </div>
+          <div class="chip-list" id="srPermList"></div>
+          <div class="hint">※ 명령어 입력 시점에 그 사람의 실제 고유닉을 즉시 재조회해서 확인해요 (닉네임이 바뀌어도 정상 동작).</div>
+        </div>
+
+        <div class="card">
           <div class="card-title">📋 신청곡 명령어 안내</div>
           <p class="hint">
           · !신청곡 : 대기 중인 목록을 출력합니다.<br>
           · !신청곡 [가수] [곡이름] : 곡을 신청합니다.<br>
-          · !제거 [번호] : 특정 곡을 제거합니다. (DJ 전용)<br>
-          · 리셋 : 목록을 초기화합니다. (DJ 전용)<br>
-          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ 전용)<br>
+          · !제거 [번호] : 특정 곡을 제거합니다. (DJ/매니저)<br>
+          · 리셋 : 목록을 초기화합니다. (DJ/매니저)<br>
+          · !마감 / !접수 : 신청곡 접수 상태를 변경합니다. (DJ/매니저)<br>
+          · !우선온 / !우선오프 : 우선모드를 켜고 끕니다. (DJ/매니저)<br>
+          · !이름온 / !이름오프 : 신청자명 표시를 켜고 끕니다. (DJ/매니저)<br>
           · !현재곡 : 현재 재생 중인(1번) 곡을 채팅으로 알립니다.
           </p>
         </div>
@@ -4737,7 +4754,7 @@ async function loadDjSettings(){
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
-  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]});
+  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[]});
   Object.assign(rouletteData,{list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'});
   rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
   document.getElementById('rouletteHistoryWrap').innerHTML='';
@@ -5552,7 +5569,7 @@ async function saveGreetGlobal(){
 }
 
 /* ── 신청곡 관리 ── */
-let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[]};
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[]};
 
 /* ── 애청지수 ── */
 const ACT_DEFAULT={
@@ -5915,6 +5932,7 @@ function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+  renderSrPerms();
 
   const wrap=document.getElementById('srListWrap');
   if(!srData.items.length){
@@ -6009,6 +6027,31 @@ async function saveSrGlobal(){
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({songRequest:srData})});
   }catch(e){showToast('저장 실패');}
+}
+
+function renderSrPerms(){
+  const wrap=document.getElementById('srPermList');
+  if(!wrap)return;
+  if(!srData.perms||!srData.perms.length){wrap.innerHTML='<span class="hint">등록된 사용자가 없습니다</span>';return;}
+  wrap.innerHTML=srData.perms.map(tag=>`
+    <span class="perm-chip">${escapeHtml(tag)}<button onclick="removeSrPerm('${escapeAttr(tag)}')">✕</button></span>
+  `).join('');
+}
+function addSrPerm(){
+  const input=document.getElementById('srPermInput');
+  const tag=input.value.trim().replace('@','');
+  if(!tag)return;
+  if(!srData.perms)srData.perms=[];
+  if(srData.perms.includes(tag))return showToast('이미 등록된 고유닉이에요');
+  srData.perms.push(tag);
+  input.value='';
+  renderSrPerms();
+  saveSrGlobal();
+}
+function removeSrPerm(tag){
+  srData.perms=srData.perms.filter(t=>t!==tag);
+  renderSrPerms();
+  saveSrGlobal();
 }
 
 /* ── 룰렛 설정 ── */

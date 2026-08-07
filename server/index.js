@@ -610,7 +610,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
       .replace(/{time_rank}/g, rv.time_rank)
   }
 
-  setTimeout(() => sendChatToRoom(djId, response), 400)
+  sendChatSplit(djId, response, 100, 600)
 }
 
 // 메시지 길이 제한에 맞춰 여러 줄을 나눠서 순차 전송
@@ -641,6 +641,7 @@ function getSongRequestSettings(djId, settings) {
       cmdRequest: '!신청곡', cmdRemove: '!제거', cmdReset: '리셋', cmdClose: '!마감', cmdOpen: '!접수',
       cmdPriorityOn: '!우선온', cmdPriorityOff: '!우선오프', cmdNameOn: '!이름온', cmdNameOff: '!이름오프',
       cmdRecommend: '!추천곡',
+      perms: [], // DJ 외에 리셋/마감/접수/우선온오프/이름온오프를 쓸 수 있는 고유닉 목록 (실드 관리와 동일한 방식)
       doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
       listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
       maxCharsPerMsg: 100, msgIntervalMs: 600, items: []
@@ -692,7 +693,7 @@ async function fetchMelonChartSongs() {
   return melonChartCache.list
 }
 
-function handleSongRequestCommand(djId, room, settings, author, authorId, text) {
+async function handleSongRequestCommand(djId, room, settings, author, authorId, text, liveId) {
   if (!isModuleOn(settings, 'request', djId)) return
   const sr = getSongRequestSettings(djId, settings)
   const msg = String(text || '').trim()
@@ -751,8 +752,24 @@ function handleSongRequestCommand(djId, room, settings, author, authorId, text) 
     return
   }
 
-  // 아래는 전부 DJ 전용 관리 명령어
-  if (!isDj) return
+  // 아래는 전부 DJ 또는 등록된 관리 권한자(고유닉)만 사용 가능 (실드 관리와 동일한 방식)
+  const perms = (sr.perms || []).map(t => String(t).replace('@', '').toLowerCase())
+  const authorNorm = String(author || '').toLowerCase()
+  let isPermUser = perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)
+  if (!isPermUser && perms.length && liveId) {
+    try {
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+      const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
+      const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
+      if (me && me.tag) {
+        rememberTagNickname(room, me.tag, author)
+        isPermUser = perms.includes(me.tag.toLowerCase())
+      }
+    } catch (e) {
+      console.log('[신청곡 권한 재조회 오류]', e.message)
+    }
+  }
+  if (!isDj && !isPermUser) return
 
   if (msg.startsWith(sr.cmdRemove + ' ')) {
     const idx = parseInt(msg.slice(sr.cmdRemove.length).trim(), 10)
@@ -10990,7 +11007,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
-          handleSongRequestCommand(djId, room, settings, author, authorId, text)
+          handleSongRequestCommand(djId, room, settings, author, authorId, text, liveId)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
           handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
@@ -11250,7 +11267,7 @@ setInterval(() => {
           .replace(/{choice_rank}/g, rv.choice_rank)
           .replace(/{like_rank}/g, rv.like_rank)
           .replace(/{time_rank}/g, rv.time_rank)
-        sendChatToRoom(djId, out)
+        sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
         lastMap[m.id] = now
       }
     })
@@ -12887,10 +12904,10 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const s = settings.songRequest
     groups.push({
       key: 'request', icon: '🎵', label: '신청곡 관리', items: [
-        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (관리자)' },
-        { cmd: s.cmdClose, desc: '접수 마감 (관리자)' }, { cmd: s.cmdOpen, desc: '접수 재개 (관리자)' },
-        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (관리자)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (관리자)' },
-        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (관리자)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (관리자)' },
+        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (DJ/매니저)' },
+        { cmd: s.cmdClose, desc: '접수 마감 (DJ/매니저)' }, { cmd: s.cmdOpen, desc: '접수 재개 (DJ/매니저)' },
+        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (DJ/매니저)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (DJ/매니저)' },
+        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (DJ/매니저)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (DJ/매니저)' },
         { cmd: s.cmdRecommend, desc: '멜론 차트 랜덤 추천곡' },
       ].filter(x => x.cmd)
     })
