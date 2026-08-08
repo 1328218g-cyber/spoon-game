@@ -11260,7 +11260,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
-          handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          await handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, donationTag, author)
