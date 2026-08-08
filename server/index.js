@@ -151,6 +151,31 @@ async function fetchUserTagFromLiveMembers(liveId, userId, accessToken) {
   }
 }
 
+// 방송(live)과 완전히 무관한 일반 유저 프로필 API. /users/{userId}/follow/ 처럼 이미 다른 기능에서
+// userId만으로 쓰고 있는 엔드포인트 계열이라, 방송 멤버 조회가 계속 실패하는 특정 계정도 이쪽은
+// 성공할 가능성이 있어 세 번째 보조 수단으로 시도한다. (실제 응답 필드는 확인 전이라 여러 이름을 다 시도)
+async function fetchUserTagFromGeneralProfile(userId, accessToken) {
+  if (userId == null || !accessToken) return null
+  try {
+    const res = await fetch(`${KR_API_BASE}/users/${userId}/`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+      }
+    })
+    const json = await res.json()
+    const profile = (json.results && json.results[0]) || json
+    const returnedId = profile.id != null ? Number(profile.id) : (profile.user_id != null ? Number(profile.user_id) : null)
+    if (returnedId != null && returnedId !== Number(userId)) return null // 다른 사람 프로필이면 무시
+    let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
+    if (tag) tag = String(tag).replace('@', '').trim()
+    return tag
+  } catch (e) {
+    return null
+  }
+}
+
 // 한 번 성공적으로 확인된 유저의 태그는 room별로 캐시해서 계속 재사용한다.
 // (스푼 프로필 조회 API가 가끔 결과가 오락가락하는 문제가 있어서, 매번 새로 조회하면
 //  선물 시점과 명령어 입력 시점에 서로 다른 값이 나와 기록이 어긋나는 문제가 생김.
@@ -172,6 +197,11 @@ async function getCachedUserTag(room, liveId, userId, accessToken) {
       // 단건 조회 실패 → 실시간 접속자 목록에서 보정 시도 (특정 유저에서 계속 닉네임 키로
       // 기록이 새로 생기는 문제, 즉 고유닉 조회가 매번 실패하는 문제를 줄이기 위함)
       tag = await fetchUserTagFromLiveMembers(liveId, userId, accessToken)
+    }
+    if (!tag) {
+      // 그래도 실패하면 방송과 무관한 일반 유저 프로필 API로 세 번째 시도
+      tag = await fetchUserTagFromGeneralProfile(userId, accessToken)
+      if (tag) console.log(`[tag 확보] userId=${userId} → 일반 프로필 API에서 확보 성공`)
     }
     if (!tag && attempt < TAG_RESOLVE_MAX_TRIES) {
       await new Promise(r => setTimeout(r, TAG_RESOLVE_RETRY_DELAY_MS))
