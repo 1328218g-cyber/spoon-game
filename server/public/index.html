@@ -6534,7 +6534,7 @@ async function grantRouletteToSelected(sign){
   const magnitude=Math.abs(Number(document.getElementById('agRouletteAmount').value))||0;
   if(!magnitude)return showToast('수량을 입력해주세요');
   const amount=magnitude*sign;
-  const target=u.nickname||u.tag; // 룰렛 기록은 닉네임 기준
+  const target=u.tag||u.nickname; // ⚠️ 룰렛 기록은 무조건 고유닉 기반 — 예전엔 닉네임 우선이라 닉네임 키로 기록되던 버그가 있었음
   try{
     const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(target)+'/coupon',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({idx,delta:amount})});
     const d=await res.json();
