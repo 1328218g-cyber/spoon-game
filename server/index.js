@@ -10406,7 +10406,7 @@ function getHistoryRec(settings, tag) {
 }
 
 // 룰렛 기록은 무조건 고유닉(tag) 기준으로만 저장한다 — 닉네임으로는 절대 기록을 만들지 않는다.
-// (닉네임은 중복되거나 자주 바뀌어서 다른 사람 기록과 섞일 수 있음. 반드시 고유닉이 확정된 뒤에만 기록한다)
+// (닉네임은 수시로 바뀌고 중복될 수 있어서 다른 사람 기록과 섞일 수 있음. 반드시 고유닉이 확정된 뒤에만 기록한다)
 // 고유닉을 못 구했으면 null을 반환하고, 호출부는 재시도 안내만 하고 아무것도 저장하지 않는다.
 // 처음으로 tag가 확인된 사람은, 예전에 닉네임 키로 저장돼있던 레거시 기록을 자동으로 tag 키로 옮겨준다(1회성 마이그레이션).
 // 이후로도 닉네임이 바뀌면 기록 안의 nickname 필드가 자동으로 최신 값으로 갱신된다.
@@ -10780,25 +10780,17 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 
   // ⚠️ 스푼 태그(고유닉) 조회 API가 가끔 결과가 오락가락했었는데, getCachedUserTag가 응답 id
   // 검증 + 캐싱까지 해줘서 이제 신뢰할 수 있다. 닉네임이 바뀌어도 항상 같은 사람으로 인식되도록 태그를 우선 사용한다.
+  // ⚠️ 로컬 Electron봇과 동일한 방식: 고유닉 조회 실패했다고 룰렛 당첨 발표 자체를 막지 않는다.
+  // (getCachedUserTag는 이미 내부적으로 4번 재시도하므로, 여기서 또 몇 초씩 더 기다리게 하면
+  //  선물 주고 몇 초씩 반응이 없는 것처럼 보여서 방송 흐름이 끊긴다 — 로컬봇도 이 방식으로 잘 동작함)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const authorTag0 = await getCachedUserTag(room, liveId, authorId, accessToken)
-  if (authorTag0) rememberTagNickname(room, authorTag0, author)
-  let authorTag = authorTag0
-  let hist = getHistoryRecByIdentity(settings, authorTag, author)
+  const authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
+  if (authorTag) rememberTagNickname(room, authorTag, author)
+  // ⚠️ 킵 기록(hist)은 무조건 고유닉 기반 — 닉네임으로는 절대 기록하지 않는다(닉네임은 수시로 바뀌어서
+  // 다른 사람 기록과 섞일 수 있음). 이 순간 고유닉이 없으면 당첨 발표는 그대로 하되, 킵 목록에는 안 남긴다.
+  const hist = getHistoryRecByIdentity(settings, authorTag, author)
   if (!hist) {
-    // 도네이션은 실제 돈이 걸린 거라 한 번 실패했다고 바로 포기하지 않는다.
-    // 채팅에 "잠시 후 다시 시도"를 매번 띄우면 도네이션 많을 때 스팸이 되니, 조용히 몇 초 간격으로 더 시도한다.
-    for (let i = 0; i < 3 && !hist; i++) {
-      await new Promise(r => setTimeout(r, 1500))
-      authorTag = await getCachedUserTag(room, liveId, authorId, accessToken)
-      if (authorTag) rememberTagNickname(room, authorTag, author)
-      hist = getHistoryRecByIdentity(settings, authorTag, author)
-    }
-    if (!hist) {
-      console.log(`[룰렛디버그:${djId}] author=${author} 고유닉 확인 최종 실패 — 룰렛권 지급 스킵 (채팅 알림 없음, 로그만 남김)`)
-      return
-    }
-    console.log(`[룰렛디버그:${djId}] author=${author} 재시도 끝에 고유닉 확보 → 지급 진행`)
+    console.log(`[룰렛디버그:${djId}] author=${author} 고유닉 미확인 — 당첨 발표는 진행하되 킵 기록은 남기지 않음`)
   }
   const histKey = authorTag
   console.log(`[룰렛디버그:${djId}] histKey(태그)=${histKey}`)
@@ -10810,7 +10802,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
       const won = percentPick(rt.items)
       if (!won) continue
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
-      if (!won.skipHistory) {
+      if (!won.skipHistory && hist) {
         hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
         addRouletteWinToList(hist, won.saveTo, won.name)
         changed = true
@@ -10821,7 +10813,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
     setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), 400)
   }
-  console.log(`[룰렛디버그:${djId}] changed=${changed} keepList=`, JSON.stringify(hist.keepList))
+  console.log(`[룰렛디버그:${djId}] changed=${changed} keepList=`, hist ? JSON.stringify(hist.keepList) : '(기록 없음 - 고유닉 미확인)')
 
   if (changed) {
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
