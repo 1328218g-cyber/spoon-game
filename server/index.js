@@ -125,11 +125,15 @@ async function fetchUserTag(liveId, userId, accessToken) {
     // (이걸 안 걸러내면 서로 다른 시청자의 기록이 전부 봇 계정 태그 하나로 뒤섞여버림)
     const returnedId = profile.id != null ? Number(profile.id) : (profile.user_id != null ? Number(profile.user_id) : null)
     if (returnedId != null && returnedId !== Number(userId)) {
-      console.log(`[tag 조회 불일치] 요청 userId=${userId} 응답 id=${returnedId} → 무시하고 null 처리`)
+      console.log(`[tag 조회 불일치] 요청 userId=${userId} 응답 id=${returnedId} → 무시하고 null 처리 / 원본응답:`, JSON.stringify(json).slice(0, 500))
       return null
     }
     let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
     if (tag) tag = String(tag).replace('@', '').trim()
+    if (!tag) {
+      // ⚠️ 진단용: 왜 태그를 못 뽑았는지 원본 응답을 그대로 남긴다 (status 코드 + 응답 본문 앞부분)
+      console.log(`[tag 추출 실패] userId=${userId} status=${res.status} / 원본응답:`, JSON.stringify(json).slice(0, 500))
+    }
     return tag
   } catch (e) {
     console.log('[tag 조회 오류]', e.message)
@@ -170,6 +174,7 @@ async function fetchUserTagFromGeneralProfile(userId, accessToken) {
     if (returnedId != null && returnedId !== Number(userId)) return null // 다른 사람 프로필이면 무시
     let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
     if (tag) tag = String(tag).replace('@', '').trim()
+    if (!tag) console.log(`[tag 추출 실패(일반프로필)] userId=${userId} status=${res.status} / 원본응답:`, JSON.stringify(json).slice(0, 500))
     return tag
   } catch (e) {
     return null
