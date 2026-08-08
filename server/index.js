@@ -125,11 +125,15 @@ async function fetchUserTag(liveId, userId, accessToken) {
     // (이걸 안 걸러내면 서로 다른 시청자의 기록이 전부 봇 계정 태그 하나로 뒤섞여버림)
     const returnedId = profile.id != null ? Number(profile.id) : (profile.user_id != null ? Number(profile.user_id) : null)
     if (returnedId != null && returnedId !== Number(userId)) {
-      console.log(`[tag 조회 불일치] 요청 userId=${userId} 응답 id=${returnedId} → 무시하고 null 처리`)
+      console.log(`[tag 조회 불일치] 요청 userId=${userId} 응답 id=${returnedId} → 무시하고 null 처리 / 원본응답:`, JSON.stringify(json).slice(0, 500))
       return null
     }
     let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
     if (tag) tag = String(tag).replace('@', '').trim()
+    if (!tag) {
+      // ⚠️ 진단용: 왜 태그를 못 뽑았는지 원본 응답을 그대로 남긴다 (status 코드 + 응답 본문 앞부분)
+      console.log(`[tag 추출 실패] userId=${userId} status=${res.status} / 원본응답:`, JSON.stringify(json).slice(0, 500))
+    }
     return tag
   } catch (e) {
     console.log('[tag 조회 오류]', e.message)
@@ -170,6 +174,7 @@ async function fetchUserTagFromGeneralProfile(userId, accessToken) {
     if (returnedId != null && returnedId !== Number(userId)) return null // 다른 사람 프로필이면 무시
     let tag = profile.tag || profile.tag_name || profile.username || profile.id_name || null
     if (tag) tag = String(tag).replace('@', '').trim()
+    if (!tag) console.log(`[tag 추출 실패(일반프로필)] userId=${userId} status=${res.status} / 원본응답:`, JSON.stringify(json).slice(0, 500))
     return tag
   } catch (e) {
     return null
@@ -11067,7 +11072,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       if (eventName === 'ChatMessage') {
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.userId != null ? Number(eventPayload.userId)
+            : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         const text = eventPayload.message || ''
 
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
@@ -11134,7 +11141,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       } else if (eventName === 'RoomJoin') {
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.userId != null ? Number(eventPayload.userId)
+            : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         broadcast({ type: 'join', djId, nick: author })
 
         // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머든 유저도 잡히도록)
@@ -11175,7 +11184,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.userId != null ? Number(eventPayload.userId)
+            : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         broadcast({ type: 'like', djId, nick: author })
         const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
         rememberTagNickname(room, likeTag, author)
@@ -11235,7 +11246,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
-        const authorId = gen.id != null ? Number(gen.id) : null
+        // ⚠️ authorId는 generator 안에 중첩돼서 올 때도 있고, generator 없이 eventPayload 최상위에
+        // userId로 바로 올 때도 있다. 닉네임은 이미 최상위 폴백이 있었는데 authorId만 빠져있어서,
+        // generator가 없는 형태의 이벤트에서는 authorId가 계속 null → 태그 조회 자체를 못 하고 있었다.
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.userId != null ? Number(eventPayload.userId)
+            : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
@@ -11244,7 +11260,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
-          handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          await handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, donationTag, author)
