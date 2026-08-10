@@ -361,7 +361,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -990,7 +990,9 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   if (tag) d.tag = tag
   if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
-  actGrantExp(djId, act, key, Number(act.scoreChat) || 2)
+  const chatTier = getVipTierForTag(settings, tag)
+  const chatMulti = chatTier ? (Number(settings.vipTier?.tiers?.find(t => t.name === chatTier.tier)?.expMulti) || 1) : 1
+  actGrantExp(djId, act, key, Math.round((Number(act.scoreChat) || 2) * chatMulti))
   store.saveSettings(djId, { activity: act })
 }
 
@@ -1675,6 +1677,145 @@ async function handleMemo2Command(djId, room, settings, author, authorId, text, 
   setTimeout(() => sendChatToRoom(djId, `📝 메모가 등록됐어요. (${cfg.items.length}번째)`), 400)
 }
 
+// 💎 구독자 플랜 월간 지급 — 채팅 이벤트에 실시간으로 딸려오는 generator.subscribeToDj(구독자 여부)를
+// 그 순간 바로 확인해서, 이번 달에 아직 못 받은 구독자면 자동으로 복권/룰렛권을 지급한다.
+// 별도 등록 절차가 필요 없고(고유닉 조회만 되면 끝), "이번 달에 받았는지"만 고유닉 기준으로 기록해둔다.
+// (7월에 받았으면 8월에 다시 받을 수 있는 구조 — grants[tag]에 마지막으로 받은 월(YYYY-MM)만 저장)
+function getPlanSubSettings(djId, settings) {
+  if (!settings.planSub) {
+    settings.planSub = {
+      rewardType: 'lotto', // 'lotto'(복권) | 'roulette'(룰렛권)
+      rouletteIdx: 1,       // rewardType이 roulette일 때 몇 번 룰렛권을 줄지
+      amount: 1,
+      message: '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.',
+      grants: {}, // { [고유닉]: { month: 'YYYY-MM', nickname } }
+    }
+    store.saveSettings(djId, { planSub: settings.planSub })
+  }
+  if (!settings.planSub.grants) settings.planSub.grants = {}
+  return settings.planSub
+}
+
+function handlePlanSubHook(djId, settings, author, tag, isSubscribe) {
+  if (!isSubscribe) return // 구독자 아니면 상관없음
+  if (!isModuleOn(settings, 'plansub', djId)) return
+  if (!tag) return // ⚠️ 무조건 고유닉 기반 — 고유닉 없으면 절대 지급/기록 안 함 (닉네임 키 생성 금지)
+  const cfg = getPlanSubSettings(djId, settings)
+  const key = String(tag).trim().toLowerCase()
+  const month = thisMonthKST()
+  const already = cfg.grants[key]
+  if (already && already.month === month) return // 이번 달에 이미 지급함
+
+  let rewardLabel = ''
+  if (cfg.rewardType === 'roulette') {
+    const rec = getHistoryRecByIdentity(settings, tag, author)
+    if (!rec) return // 이 순간 고유닉 기록 조회 자체가 실패하면(극히 드묾) 그냥 넘어가고 다음 채팅 때 재시도됨
+    const idx = Number(cfg.rouletteIdx) || 1
+    rec.coupons[idx] = Number(rec.coupons[idx] || 0) + (Number(cfg.amount) || 1)
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    rewardLabel = `룰렛${idx}권 ${Number(cfg.amount) || 1}장`
+  } else {
+    const act = getActivitySettings(djId, settings)
+    const existingKey = actResolveKey(act, author, tag) || key
+    const d = actEnsureUser(act, existingKey, author, tag)
+    d.lotto = Math.max(0, (d.lotto || 0) + (Number(cfg.amount) || 1))
+    store.saveSettings(djId, { activity: act })
+    rewardLabel = `복권 ${Number(cfg.amount) || 1}장`
+  }
+
+  cfg.grants[key] = { month, nickname: author }
+  store.saveSettings(djId, { planSub: cfg })
+
+  const text = (cfg.message || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.')
+    .replace(/{nickname}/g, author).replace(/{보상}/g, rewardLabel)
+  setTimeout(() => sendChatToRoom(djId, text), 500)
+}
+
+// 🌟 통합 귀빈 등급 시스템 — 구독자/팬랭킹/VIP등급/온도(애정도)를 하나의 점수로 합산해서
+// 자체 등급(일반/단골/찐팬/VIP 등, 이름·구간 다 커스텀 가능)을 자동으로 매긴다.
+// 이벤트가 올 때마다(채팅/입장) 그 순간 확인 가능한 필드로 점수를 다시 계산해서 갱신하는 방식이라
+// 별도 등록 절차가 없고, 언제나 "가장 최근 확인된 값" 기준으로 유지된다. 무조건 고유닉 기반.
+function getVipTierSettings(djId, settings) {
+  if (!settings.vipTier) {
+    settings.vipTier = {
+      cmd: '!내등급',
+      weights: { subscribe: 30, fanRankTop3: 40, fanRankTop10: 20, vipGradePoint: 10, tempTop: 20 },
+      tiers: [
+        { name: '일반', min: 0, expMulti: 1, bonusSpins: 0 },
+        { name: '단골', min: 30, expMulti: 1.2, bonusSpins: 0 },
+        { name: '찐팬', min: 60, expMulti: 1.5, bonusSpins: 1 },
+        { name: 'VIP', min: 90, expMulti: 2, bonusSpins: 2 },
+      ],
+      users: {}, // { [고유닉]: { score, tier, nickname, updatedAt } }
+    }
+    store.saveSettings(djId, { vipTier: settings.vipTier })
+  }
+  if (!settings.vipTier.users) settings.vipTier.users = {}
+  if (!settings.vipTier.weights) settings.vipTier.weights = { subscribe: 30, fanRankTop3: 40, fanRankTop10: 20, vipGradePoint: 10, tempTop: 20 }
+  if (!settings.vipTier.tiers || !settings.vipTier.tiers.length) {
+    settings.vipTier.tiers = [
+      { name: '일반', min: 0, expMulti: 1, bonusSpins: 0 },
+      { name: '단골', min: 30, expMulti: 1.2, bonusSpins: 0 },
+      { name: '찐팬', min: 60, expMulti: 1.5, bonusSpins: 1 },
+      { name: 'VIP', min: 90, expMulti: 2, bonusSpins: 2 },
+    ]
+  }
+  return settings.vipTier
+}
+
+// 그 순간 이벤트에서 확인 가능한 필드만으로 점수를 계산한다 (없는 필드는 그냥 0점 취급).
+function computeVipScore(gen, weights) {
+  if (!gen) return 0
+  let score = 0
+  if (gen.subscribeToDj) score += Number(weights.subscribe) || 0
+  const fanRank = gen.fanRank != null ? Number(gen.fanRank) : null
+  if (fanRank != null && fanRank > 0) {
+    if (fanRank <= 3) score += Number(weights.fanRankTop3) || 0
+    else if (fanRank <= 10) score += Number(weights.fanRankTop10) || 0
+  }
+  if (gen.vipGrade != null && !isNaN(Number(gen.vipGrade))) score += Number(gen.vipGrade) * (Number(weights.vipGradePoint) || 0)
+  if (gen.isHighTemperature || gen.temperatureType === 'TOP_RANK_3') score += Number(weights.tempTop) || 0
+  return score
+}
+// tiers는 min 오름차순이어야 함 — 점수 이상인 것 중 가장 높은 구간을 찾는다.
+function getTierForScore(tiers, score) {
+  const sorted = [...(tiers || [])].sort((a, b) => (Number(a.min) || 0) - (Number(b.min) || 0))
+  let matched = sorted[0] || { name: '일반', min: 0, expMulti: 1, bonusSpins: 0 }
+  for (const t of sorted) {
+    if (score >= (Number(t.min) || 0)) matched = t
+  }
+  return matched
+}
+// 채팅/입장 이벤트마다 호출해서 그 유저의 등급을 최신 상태로 갱신한다. 반환값은 매칭된 tier 객체(또는 null).
+function updateVipTierForUser(djId, settings, author, tag, gen) {
+  if (!isModuleOn(settings, 'viptier', djId)) return null
+  if (!tag) return null // ⚠️ 무조건 고유닉 기반 — 고유닉 없으면 등급 기록 자체를 안 만든다
+  const cfg = getVipTierSettings(djId, settings)
+  const score = computeVipScore(gen, cfg.weights)
+  const tier = getTierForScore(cfg.tiers, score)
+  const key = String(tag).trim().toLowerCase()
+  cfg.users[key] = { score, tier: tier.name, nickname: author, updatedAt: Date.now() }
+  store.saveSettings(djId, { vipTier: cfg })
+  return tier
+}
+// 저장된 값 기준으로 그 유저의 현재 등급 정보를 가져온다 (이벤트 없이 그냥 조회만 할 때).
+function getVipTierForTag(settings, tag) {
+  if (!tag) return null
+  const cfg = settings.vipTier
+  if (!cfg || !cfg.users) return null
+  return cfg.users[String(tag).trim().toLowerCase()] || null
+}
+
+function handleVipTierCommand(djId, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'viptier', djId)) return
+  const cfg = getVipTierSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg !== (cfg.cmd || '!내등급')) return
+  const rec = tag ? cfg.users[String(tag).trim().toLowerCase()] : null
+  if (!rec) { setTimeout(() => sendChatToRoom(djId, `🌟 ${author}님의 등급 정보를 아직 확인 중이에요. 채팅 한 번 더 남겨주세요!`), 400); return }
+  setTimeout(() => sendChatToRoom(djId, `🌟 ${author}님의 등급은 [${rec.tier}] 입니다! (점수: ${rec.score}점)`), 400)
+}
+
 function getDdaySettings(djId, settings) {
   if (!settings.dday) {
     settings.dday = { cmd: '!디데이', registerMsg: '📅 디데이 등록: {content} ({date})', items: [] }
@@ -1939,6 +2080,9 @@ function clearTtsAccess(room) {
 function todayKST() {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
   return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`
+}
+function thisMonthKST() {
+  return todayKST().slice(0, 7) // "YYYY-MM"
 }
 
 // 채팅 화면 하단 "오늘의 MVP" — 선물/좋아요/채팅 각 1명씩. 대시보드/애청지수 켜짐 여부와
@@ -10831,9 +10975,14 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
   console.log(`[룰렛디버그:${djId}] histKey(태그)=${histKey}`)
   let changed = false
 
+  // 🌟 귀빈 등급 보너스 — 등급별로 설정된 만큼 스핀 횟수를 추가로 더 돌려준다.
+  const bonusTier = getVipTierForTag(settings, authorTag)
+  const bonusSpins = bonusTier ? (Number(settings.vipTier?.tiers?.find(t => t.name === bonusTier.tier)?.bonusSpins) || 0) : 0
+
   for (const { rt, idx, count } of applicable) {
+    const totalCount = count + bonusSpins
     const wonCounts = {}
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < totalCount; i++) {
       const won = percentPick(rt.items)
       if (!won) continue
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
@@ -11065,6 +11214,17 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
+      // 🔍 임시 진단용 — "팔로우 시 인사말" 기능 개발을 위해, 이벤트 안에 "팬"/"팔로우"/"구독" 단어가
+      // 하나라도 들어있으면 이벤트 이름/전체 내용을 눈에 띄게 따로 로그로 남긴다. 원인 찾으면 이 블록은 제거할 것.
+      try {
+        const rawStr = JSON.stringify(eventPayload)
+        if (/팬|팔로우|구독/.test(rawStr)) {
+          console.log(`\n🔍🔍🔍 [팬/팔로우 감지] djId=${djId} eventName=${eventName}\n${rawStr}\n🔍🔍🔍\n`)
+        }
+      } catch (e) {}
+      // 🛰️ 관리자 이벤트 뷰어용 — 스푼에서 오는 모든 원본 이벤트를 그대로 실시간 브로드캐스트한다.
+      // (다른 기능 개발/디버깅할 때 실제 이벤트 이름과 구조를 눈으로 바로 확인하기 위함)
+      broadcast({ type: 'raw_event', djId, eventName, eventPayload, ts: Date.now() })
 
       const settings = store.getSettings(djId) || {}
       const isLurker = settings.botEnabled === false
@@ -11094,7 +11254,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const chatAct = getActivitySettings(djId, settings)
         const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
         const isVip = !!(gen.is_vip || gen.vip || gen.isVip || (gen.fan_level && Number(gen.fan_level) > 0))
-        const isSubscribe = !!(gen.is_subscribe || gen.subscribe || gen.isSubscribe || gen.plan)
+        const isSubscribe = !!gen.subscribeToDj // ✅ 실제 이벤트로 확인된 정확한 필드명
 
         broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible, isDj, isManager, isVip, isSubscribe })
         if (!isLurker) {
@@ -11122,6 +11282,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
+          handlePlanSubHook(djId, settings, author, actTag, isSubscribe)
+          updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
+          handleVipTierCommand(djId, settings, author, actTag, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -11161,17 +11324,19 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+          const joinTier = updateVipTierForUser(djId, settings, author, tag, gen) // 🌟 귀빈 등급 갱신 (입장 시점에 확인 가능한 필드 기준)
+          const tierName = joinTier ? joinTier.name : ''
 
           handleActAttendHook(djId, settings, author, tag)
 
           if (greeting) {
-            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`)
+            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
             setTimeout(() => sendChatToRoom(djId, text), 500)
             if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages || []).filter(m => m.enabled)
             if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
+              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
           }
@@ -11206,6 +11371,28 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
+
+      } else if (eventName === 'LiveFollow' || eventName === 'live_follow' || eventName === 'Follow' || eventName === 'FollowMessage') {
+        // 🤍 팔로우 — 정확한 원본 이벤트 구조를 아직 실측 전이라, 다른 봇 프레임워크 참고자료(evt.data.author)
+        // 기준으로 author/eventPayload.data.author/generator/최상위 순서로 폭넓게 시도한다.
+        const dataAuthor = eventPayload.data?.author || {}
+        const gen = eventPayload.generator || dataAuthor || {}
+        const author = gen.nickname || eventPayload.author?.nickname || eventPayload.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.author?.id != null ? Number(eventPayload.author.id)
+            : (eventPayload.userId != null ? Number(eventPayload.userId)
+              : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null)))
+        console.log(`[${djId}] 팔로우 이벤트 감지: author=${author} authorId=${authorId}`)
+        if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
+          const followTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
+          rememberTagNickname(room, followTag, author)
+          const fm = pickEntryMessage(settings.entryData, 'follow', author, followTag)
+          if (fm && fm.text && fm.text.trim()) {
+            const text = fm.text.replace(/{nickname}/g, author).replace(/{tag}/g, followTag ? `@${followTag}` : `@${author}`)
+            setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(fm.delay) || 0) * 1000 || 500)
+          }
+          if (fm && (fm.soundUrl || fm.soundData)) broadcast({ type: 'entrysound', djId, category: 'follow', id: fm.id })
+        }
 
       } else if (eventName === 'LiveItemUse' || eventName === 'live_item_use') {
         // 유료 아이템(좋아요 효과) — itemId로 광고하트(37)/플랜하트(510,511)/그 외 유료하트를 구분한다.
@@ -11539,7 +11726,7 @@ function migrateSoundDataToFiles() {
     }
 
     if (settings.entryData) {
-      ['entry', 'leave', 'like', 'gift', 'repeat'].forEach(cat => {
+      ['entry', 'leave', 'like', 'gift', 'follow', 'repeat'].forEach(cat => {
         (settings.entryData[cat] || []).forEach(migrateItem)
       })
     }
@@ -11551,6 +11738,23 @@ function migrateSoundDataToFiles() {
     console.log(`[음원 마이그레이션] 완료 — ${migratedCount}개 파일을 djs.json 밖으로 옮겼어요 (총 ${(bytesFreed / 1024 / 1024).toFixed(2)}MB 절약)`)
   }
 }
+
+// 👤 관리자 전용 — 수동으로 계정 생성 (일반 회원가입과 같은 로직이지만, 중복가입 IP/기기 체크는 건너뛴다)
+app.post('/admin/create-account', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { djId, password, djTag, email, trialDays } = req.body || {}
+  const result = store.signup(djId, password, djTag, email, req.ip, null, true)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  // 관리자가 이용기간을 직접 지정했으면(빈 값이면 기본 정책 그대로 둠) 바로 반영한다.
+  if (trialDays !== undefined && trialDays !== null && String(trialDays).trim() !== '') {
+    const days = Number(trialDays)
+    if (!isNaN(days)) {
+      const expiresAt = days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null
+      store.saveSettings(String(djId).trim(), { expiresAt })
+    }
+  }
+  res.json({ success: true, msg: `계정 "${djId}" 생성 완료` })
+})
 
 app.post('/auth/signup', (req, res) => {
   const { djId, password, djTag, email, deviceId } = req.body || {}
@@ -12382,6 +12586,72 @@ app.post('/memo2/delete', auth.requireAuth, (req, res) => {
   const { id } = req.body || {}
   cfg.items = cfg.items.filter(it => it.id !== id)
   store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+
+// 💎 구독자 플랜 월간 지급
+app.get('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const grantsList = Object.entries(cfg.grants || {}).map(([tag, v]) => ({ tag, nickname: v.nickname, month: v.month })).sort((a, b) => (a.month < b.month ? 1 : -1))
+  res.json({ success: true, settings: { rewardType: cfg.rewardType, rouletteIdx: cfg.rouletteIdx, amount: cfg.amount, message: cfg.message }, grants: grantsList, thisMonth: thisMonthKST() })
+})
+app.post('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'plansub', req.djId)) return res.json({ success: false, error: '구독자 플랜 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const { rewardType, rouletteIdx, amount, message } = req.body || {}
+  if (rewardType === 'lotto' || rewardType === 'roulette') cfg.rewardType = rewardType
+  if (rouletteIdx != null) cfg.rouletteIdx = Math.max(1, parseInt(rouletteIdx, 10) || 1)
+  if (amount != null) cfg.amount = Math.max(1, parseInt(amount, 10) || 1)
+  if (message != null) cfg.message = String(message).trim() || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.'
+  store.saveSettings(req.djId, { planSub: cfg })
+  res.json({ success: true })
+})
+// 관리자/DJ가 특정 유저의 "이번 달 지급 기록"만 지워서, 다시 지급받게 하고 싶을 때 (테스트용 등)
+app.post('/plansub/reset-grant', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().toLowerCase()
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  delete cfg.grants[tag]
+  store.saveSettings(req.djId, { planSub: cfg })
+  res.json({ success: true })
+})
+
+// 🌟 통합 귀빈 등급 시스템
+app.get('/viptier/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVipTierSettings(req.djId, settings)
+  const counts = {}
+  cfg.tiers.forEach(t => { counts[t.name] = 0 })
+  const userList = Object.entries(cfg.users || {}).map(([tag, v]) => {
+    if (counts[v.tier] == null) counts[v.tier] = 0
+    counts[v.tier]++
+    return { tag, nickname: v.nickname, tier: v.tier, score: v.score, updatedAt: v.updatedAt }
+  }).sort((a, b) => b.score - a.score)
+  res.json({ success: true, cmd: cfg.cmd, weights: cfg.weights, tiers: cfg.tiers, counts, users: userList.slice(0, 100) })
+})
+app.post('/viptier/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'viptier', req.djId)) return res.json({ success: false, error: '귀빈 등급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getVipTierSettings(req.djId, settings)
+  const { cmd, weights, tiers } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!내등급'
+  if (weights && typeof weights === 'object') {
+    ;['subscribe', 'fanRankTop3', 'fanRankTop10', 'vipGradePoint', 'tempTop'].forEach(k => {
+      if (weights[k] != null) cfg.weights[k] = Number(weights[k]) || 0
+    })
+  }
+  if (Array.isArray(tiers) && tiers.length) {
+    cfg.tiers = tiers.map(t => ({
+      name: String(t.name || '').trim().slice(0, 20) || '등급',
+      min: Number(t.min) || 0,
+      expMulti: Math.max(0, Number(t.expMulti) || 1),
+      bonusSpins: Math.max(0, parseInt(t.bonusSpins, 10) || 0),
+    })).sort((a, b) => a.min - b.min)
+  }
+  store.saveSettings(req.djId, { vipTier: cfg })
   res.json({ success: true })
 })
 

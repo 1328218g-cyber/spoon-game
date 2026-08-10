@@ -288,7 +288,7 @@ function findDuplicateSignup(signupIp, deviceId) {
   return null;
 }
 
-function signup(djId, password, djTag, email, signupIp, deviceId) {
+function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck = false) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
@@ -297,8 +297,10 @@ function signup(djId, password, djTag, email, signupIp, deviceId) {
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
 
-  const dupId = findDuplicateSignup(signupIp, deviceId);
-  if (dupId) return { ok: false, error: '이미 가입 기록이 있는 기기 또는 네트워크예요. 중복 가입은 제한돼요. 오해라면(피시방/공용 와이파이 등) 관리자에게 문의해주세요.' };
+  if (!skipDupCheck) {
+    const dupId = findDuplicateSignup(signupIp, deviceId);
+    if (dupId) return { ok: false, error: '이미 가입 기록이 있는 기기 또는 네트워크예요. 중복 가입은 제한돼요. 오해라면(피시방/공용 와이파이 등) 관리자에게 문의해주세요.' };
+  }
 
   // 디제이 고유닉은 필수. 가입 즉시 다중감시(자동입장) 목록에 자동으로 등록해서,
   // 로그인 후 별도 설정 없이도 자동입장이 바로 동작하게 한다.
