@@ -364,8 +364,16 @@ async function pressLikeForRoom(djId, liveId) {
       'Referer': 'https://www.spooncast.net/',
     }
     if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/like/me/`, { method: 'POST', headers })
-    console.log(`[자동좋아요:${djId}] liveId=${liveId} 응답:`, res.status)
+    const url = `${KR_API_BASE}/lives/${liveId}/like/me/`
+
+    let res = await fetch(url, { method: 'POST', headers })
+    if (res.status === 405) {
+      // ⚠️ POST가 안 먹히면, 서버가 Allow 헤더로 알려주는 실제 허용 메서드를 로그로 남기고 PUT으로 재시도.
+      const allow = res.headers.get('allow')
+      console.log(`[자동좋아요:${djId}] POST 405 — 허용된 메서드(Allow 헤더): ${allow || '(정보 없음)'} → PUT으로 재시도`)
+      res = await fetch(url, { method: 'PUT', headers })
+    }
+    console.log(`[자동좋아요:${djId}] liveId=${liveId} 최종 응답:`, res.status)
     return res.ok
   } catch (e) {
     console.log(`[자동좋아요:${djId} 오류]`, e.message)
