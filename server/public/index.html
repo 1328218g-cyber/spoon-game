@@ -5137,12 +5137,11 @@ function appendEventViewerRow(d){
   if(wrap.querySelector('.hint')) wrap.innerHTML=''; // "기다리는 중" 문구 제거
   const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
   const row=document.createElement('div');
-  row.style.cssText='border-bottom:1px solid var(--border);padding:6px 4px;cursor:pointer';
+  row.style.cssText='border-bottom:1px solid var(--border);padding:8px 4px;cursor:pointer';
   const time=new Date(d.ts||Date.now()).toLocaleTimeString('ko-KR',{hour12:false});
-  const preview=JSON.stringify(d.eventPayload||{}).slice(0,140);
-  row.innerHTML=`<div><span class="hint" style="margin:0">${time}</span> <b style="color:var(--accent)">[${escapeHtml(d.djId||'?')}]</b> <b>${escapeHtml(d.eventName||'?')}</b></div><div class="hint" style="margin:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(preview)}</div>`;
+  row.innerHTML=`<div><span class="hint" style="margin:0">${time}</span> <b style="color:var(--accent)">[${escapeHtml(d.djId||'?')}]</b> <b>${escapeHtml(d.eventName||'?')}</b> <span class="hint" style="margin:0">(클릭해서 접기/펴기)</span></div>`;
   const full=document.createElement('pre');
-  full.style.cssText='display:none;white-space:pre-wrap;word-break:break-all;background:var(--bg);border-radius:8px;padding:8px;margin:6px 0 0;font-size:11.5px';
+  full.style.cssText='display:block;white-space:pre-wrap;word-break:break-all;background:var(--bg);border-radius:8px;padding:8px;margin:6px 0 0;font-size:11.5px';
   full.textContent=JSON.stringify(d.eventPayload||{},null,2);
   row.appendChild(full);
   row.onclick=()=>{ full.style.display = full.style.display==='none' ? 'block' : 'none'; };
