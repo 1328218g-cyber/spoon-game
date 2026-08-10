@@ -2032,7 +2032,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title"><span>🏅 등급 구간</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addVipTierRow()">+ 등급 추가</button></div>
-          <p class="hint" style="margin-bottom:12px">점수가 "최소 점수" 이상이면 그 등급이 돼요 (가장 높은 조건이 최종 적용). 경험치 배율은 애청지수 채팅 경험치에, 보너스 스핀은 도네 자동 룰렛에 추가로 더 돌려주는 횟수예요.</p>
+          <p class="hint" style="margin-bottom:12px">점수가 "최소 점수" 이상이면 그 등급이 돼요 (가장 높은 조건이 최종 적용). 경험치 배율은 애청지수 채팅 경험치에 곱해지고, 보너스 스핀은 도네 자동 룰렛이 돌아갈 때 <b>원래 횟수에 그대로 더해져요</b> (예: 기본 5번 도는 상황 + 보너스 스핀 2 = 총 7번).</p>
           <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr auto;gap:8px;padding:0 2px 4px" class="hint">
             <div>등급 이름</div><div>최소 점수</div><div>경험치 배율</div><div>보너스 스핀</div><div></div>
           </div>
@@ -7793,8 +7793,8 @@ const MODULE_HELP_CONTENT={
       <p style="margin-top:12px"><b>③ 이 등급이 실제로 쓰이는 곳</b></p>
       <ul style="margin:0;padding-left:18px">
         <li>입장/지정 인사말의 <code>{등급}</code> 변수 → "찐팬님 어서오세요!" 처럼 자동 표시</li>
-        <li>애청지수 채팅 경험치 배율 (등급별로 다르게 설정 가능)</li>
-        <li>도네 자동 룰렛의 보너스 스핀 횟수 (등급별로 다르게 설정 가능)</li>
+        <li>애청지수 채팅 경험치 배율 (등급별로 다르게 설정 가능) — 예: 배율 1.5면 원래 받을 경험치 × 1.5</li>
+        <li>도네 자동 룰렛의 <b>보너스 스핀</b> (등급별로 다르게 설정 가능) — 도네로 룰렛이 자동으로 돌아갈 때, <b>원래 돌아가는 횟수에 그대로 더해져요.</b><br>계산식: <code>총 스핀 횟수 = 원래 횟수 + 보너스 스핀</code><br>예) 도네 조건상 원래 5번 도는 상황인데 그 사람 등급의 보너스 스핀이 2면 → <b>총 7번</b> 돌아감. 보너스 스핀이 0인 등급(기본 일반/단골)은 원래 횟수 그대로예요.</li>
         <li><code>!내등급</code> 채팅 명령어로 본인이 직접 확인 가능</li>
       </ul>
       <p style="margin-top:12px" class="hint">※ 무조건 고유닉 기준으로만 기록돼요. 닉네임이 바뀌어도 같은 사람으로 계속 인식돼요.</p>
