@@ -569,6 +569,11 @@ function listDjIds() {
 function getRawSnapshot() {
   return loadDjs();
 }
+// 특정 DJ 한 명의 전체 레코드(비밀번호 해시 포함)를 가져온다 — 본인 셀프 백업용.
+function getDjRecord(djId) {
+  const djs = loadDjs();
+  return djs[djId] || null;
+}
 
 // 🔄 외부 백업에서 가져온 특정 DJ 레코드를 그대로 덮어써서 복구한다.
 function restoreDjRecord(djId, record) {
@@ -690,5 +695,6 @@ module.exports = {
   flush,
   createBackupSnapshot,
   getRawSnapshot,
+  getDjRecord,
   restoreDjRecord,
 };

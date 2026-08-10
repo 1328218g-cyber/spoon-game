@@ -12096,6 +12096,41 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   }
 })
 
+// ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
+// 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await backupOneDjToBase44(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status}` })
+    res.json({ success: true })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/restore-preview', auth.requireAuth, async (req, res) => {
+  try {
+    const result = await fetchBackupFromBase44(req.djId)
+    if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
+    res.json({ success: true, timestamp: result.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const result = await fetchBackupFromBase44(req.djId)
+    if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
+    store.restoreDjRecord(req.djId, result.data)
+    console.log(`[셀프복구] ${req.djId} 계정을 ${result.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, timestamp: result.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 app.get('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
