@@ -1815,15 +1815,19 @@ function getTierForScore(tiers, score) {
   return matched
 }
 // 채팅/입장 이벤트마다 호출해서 그 유저의 등급을 최신 상태로 갱신한다. 반환값은 매칭된 tier 객체(또는 null).
+let settingsDirty = false // 채팅마다 도는 고빈도 갱신용 — true면 다음 flush 타이밍에 한 번 저장
+
 function updateVipTierForUser(djId, settings, author, tag, gen) {
   if (!isModuleOn(settings, 'viptier', djId)) return null
   if (!tag) return null // ⚠️ 무조건 고유닉 기반 — 고유닉 없으면 등급 기록 자체를 안 만든다
   const cfg = getVipTierSettings(djId, settings)
-  const score = computeVipScore(gen, cfg.weights)
-  const tier = getTierForScore(cfg.tiers, score)
+  const gain = computeVipScore(gen, cfg.weights) // 이번 이벤트에서 조건 만족한 만큼의 점수
   const key = String(tag).trim().toLowerCase()
+  const prevScore = (cfg.users[key] && cfg.users[key].score) || 0
+  const score = prevScore + gain // 📈 누적 — 기존 점수에 그대로 더한다 (매번 새로 계산해서 덮어쓰지 않음)
+  const tier = getTierForScore(cfg.tiers, score)
   cfg.users[key] = { score, tier: tier.name, nickname: author, updatedAt: Date.now() }
-  store.saveSettings(djId, { vipTier: cfg })
+  settingsDirty = true // ⚡ 채팅마다 매번 디스크에 즉시 쓰면 느려져서, 메모리만 갱신하고 저장은 주기적으로 몰아서
   return tier
 }
 // 저장된 값 기준으로 그 유저의 현재 등급 정보를 가져온다 (이벤트 없이 그냥 조회만 할 때).
@@ -1855,8 +1859,18 @@ function updateTempRanking(djId, settings, author, tag, gen) {
   if (!settings.tempRanking.users) settings.tempRanking.users = {}
   const key = String(tag).trim().toLowerCase()
   settings.tempRanking.users[key] = { nickname: author, temp, updatedAt: Date.now() }
-  store.saveSettings(djId, { tempRanking: settings.tempRanking })
+  settingsDirty = true // ⚡ 위와 동일한 이유로 즉시 저장 대신 dirty 표시만
 }
+
+// ⚡ 위 두 함수처럼 "채팅 한 줄마다" 도는 고빈도 갱신들은 즉시 store.saveSettings()를 부르지 않고
+// dirty 플래그만 세워둔다. saveSettings 없이도 메모리 캐시(참조)에는 이미 반영돼있어서 즉시
+// 조회(!내등급, !온도)는 정상 동작하고, 디스크 반영만 아래 인터벌로 몰아서 8초에 한 번 처리한다.
+setInterval(() => {
+  if (settingsDirty) {
+    settingsDirty = false
+    store.flush()
+  }
+}, 8000)
 
 function handleTempRankCommand(djId, settings, text) {
   const msg = String(text || '').trim()
@@ -14564,3 +14578,12 @@ app.listen(PORT, () => {
   runAutoJoinCleanup()
   setInterval(runAutoJoinCleanup, 24 * 60 * 60 * 1000)
 })
+
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
+// (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
+function gracefulShutdown() {
+  try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
+  process.exit(0)
+}
+process.on('SIGTERM', gracefulShutdown)
+process.on('SIGINT', gracefulShutdown)

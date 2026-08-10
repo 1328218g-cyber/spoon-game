@@ -48,6 +48,14 @@ function saveDjs(djs) {
   fs.writeFileSync(DJ_FILE, JSON.stringify(djs, null, 2), 'utf-8');
 }
 
+// 채팅 한 줄마다 호출되는 것처럼 아주 잦은 이벤트에서 매번 saveSettings()로 디스크에 즉시
+// 쓰면(=saveDjs 매번 호출) 전체 djs.json을 통째로 다시 쓰는 동기 작업이 반복돼서 이벤트 루프가
+// 막히고 명령어 반응이 느려진다. 이런 곳은 getSettings()로 받은 객체를 직접 수정만 해두고
+// (참조라서 캐시에는 바로 반영됨), 이 flush()를 주기적으로 한 번씩만 불러서 디스크에 반영한다.
+function flush() {
+  if (_cache) saveDjs(_cache);
+}
+
 function defaultSettings() {
   return {
     autoJoinTag: '',
@@ -592,4 +600,5 @@ module.exports = {
   validEmail,
   DATA_DIR,
   verifyRecoveryEmail,
+  flush,
 };
