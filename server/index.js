@@ -14577,6 +14577,11 @@ app.listen(PORT, () => {
   }
   runAutoJoinCleanup()
   setInterval(runAutoJoinCleanup, 24 * 60 * 60 * 1000)
+
+  // 🗂️ 2시간마다 djs.json 백업 스냅샷을 남긴다 (최근 20개 보관, 그 이상은 자동 삭제).
+  // 서버 시작 5분 뒤에 첫 백업(막 시작한 시점엔 아직 캐시가 덜 안정적일 수 있어 살짝 늦춤).
+  setTimeout(() => { try { store.createBackupSnapshot() } catch (e) {} }, 5 * 60 * 1000)
+  setInterval(() => { try { store.createBackupSnapshot() } catch (e) {} }, 2 * 60 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인

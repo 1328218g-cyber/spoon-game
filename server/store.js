@@ -12,6 +12,13 @@
 // 그 사이 /auth/login 같은 요청이 몇 분씩 밀리는 문제가 있었다. 그래서 인메모리 캐시를
 // 두고, 쓰기(saveDjs)가 일어날 때만 디스크에 반영하도록 바꿨다.
 // 여러 프로세스가 같은 DATA_DIR을 동시에 쓰는 구조가 아니므로 캐시가 안전하다.
+//
+// 🚨 사고 기록(2026-08): 저장 도중(fs.writeFileSync) 서버가 죽으면서 djs.json이 통째로
+// 0바이트가 돼버려 전체 계정 데이터가 유실된 적이 있다. writeFileSync는 원자적이지
+// 않아서, 쓰는 도중에 프로세스가 죽으면 파일이 반쯤 쓰이거나 완전히 비어버릴 수 있다.
+// 그래서 지금은: (1) 임시 파일에 먼저 쓰고 다 쓰인 뒤에만 원본 이름으로 바꿔치기(rename —
+// 이건 운영체제 차원에서 원자적이라 중간 상태가 존재할 수 없다), (2) 몇 시간에 한 번씩
+// 타임스탬프 붙은 백업을 따로 남겨서, 혹시 또 문제가 생겨도 되돌릴 지점을 확보해둔다.
 
 const fs = require('fs');
 const path = require('path');
@@ -19,9 +26,30 @@ const bcrypt = require('bcryptjs');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DJ_FILE = path.join(DATA_DIR, 'djs.json');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP_COUNT = 20; // 최근 20개까지만 보관 (그 이상 오래된 건 자동 삭제)
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+// 손상된 djs.json을 만났을 때, 가장 최근 백업으로 자동 복구를 시도한다.
+function tryRestoreFromLatestBackup() {
+  try {
+    ensureBackupDir();
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('djs-')).sort().reverse();
+    for (const f of files) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf-8'));
+        console.log(`[store] 🚨 djs.json 손상 감지 → 백업(${f})에서 자동 복구했어요.`);
+        return parsed;
+      } catch (e) { /* 이 백업도 손상됐으면 다음(더 예전) 백업 시도 */ }
+    }
+  } catch (e) { /* 백업 폴더 자체가 없거나 문제있으면 그냥 포기 */ }
+  return null;
 }
 
 let _cache = null; // 최초 로드 이후엔 메모리에서만 읽는다
@@ -34,18 +62,46 @@ function loadDjs() {
     return _cache;
   }
   try {
-    _cache = JSON.parse(fs.readFileSync(DJ_FILE, 'utf-8'));
+    const raw = fs.readFileSync(DJ_FILE, 'utf-8');
+    if (!raw || !raw.trim()) throw new Error('파일이 비어있음');
+    _cache = JSON.parse(raw);
   } catch (e) {
     console.log('[store] djs.json 읽기 실패:', e.message);
-    _cache = {};
+    const restored = tryRestoreFromLatestBackup();
+    _cache = restored || {};
+    if (restored) saveDjs(_cache) // 복구된 걸 즉시 원본 자리에도 반영해둔다
   }
   return _cache;
 }
 
+// 원자적 저장 — 임시 파일에 먼저 다 쓴 다음, 원본 이름으로 바꿔치기(rename)한다.
+// rename은 운영체제 차원에서 원자적이라, 쓰는 도중 프로세스가 죽어도 djs.json은
+// 항상 "완전한 예전 버전" 아니면 "완전한 새 버전" 둘 중 하나만 유지된다.
 function saveDjs(djs) {
   ensureDir();
   _cache = djs; // 캐시 갱신
-  fs.writeFileSync(DJ_FILE, JSON.stringify(djs, null, 2), 'utf-8');
+  const json = JSON.stringify(djs, null, 2);
+  const tmpFile = DJ_FILE + '.tmp';
+  fs.writeFileSync(tmpFile, json, 'utf-8');
+  fs.renameSync(tmpFile, DJ_FILE);
+}
+
+// 🗂️ 주기적 백업 — 타임스탬프 붙여서 backups/ 폴더에 스냅샷을 남긴다.
+function createBackupSnapshot() {
+  try {
+    if (!_cache) return
+    ensureBackupDir();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const backupFile = path.join(BACKUP_DIR, `djs-${stamp}.json`)
+    fs.writeFileSync(backupFile, JSON.stringify(_cache, null, 2), 'utf-8')
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('djs-')).sort()
+    while (files.length > BACKUP_KEEP_COUNT) {
+      const oldest = files.shift()
+      try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)) } catch (e) {}
+    }
+  } catch (e) {
+    console.log('[store] 백업 생성 실패:', e.message)
+  }
 }
 
 // 채팅 한 줄마다 호출되는 것처럼 아주 잦은 이벤트에서 매번 saveSettings()로 디스크에 즉시
@@ -601,4 +657,5 @@ module.exports = {
   DATA_DIR,
   verifyRecoveryEmail,
   flush,
+  createBackupSnapshot,
 };
