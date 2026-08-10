@@ -629,6 +629,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="memo2"><span class="ic">📝</span><span class="lbl">메모2</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="plansub"><span class="ic">💎</span><span class="lbl">구독자 플랜 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="viptier"><span class="ic">🌟</span><span class="lbl">귀빈 등급 시스템</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -2002,6 +2003,37 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>📋 이번 달(<span id="planSubThisMonth"></span>) 지급 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadPlanSubData()">🔄 새로고침</button></div>
           <div id="planSubListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 🌟 귀빈 등급 시스템 -->
+      <div class="panel" data-panel="viptier">
+        <div class="card">
+          <div class="card-title"><span>🌟 귀빈 등급 시스템 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveVipTierSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">구독·팬랭킹·VIP등급·온도를 합산해서 자동으로 등급을 매겨요. 채팅/입장할 때마다 그 순간 확인 가능한 정보로 점수가 갱신돼요. 인사말에 <code>{등급}</code> 변수로 쓸 수 있고, 애청지수 경험치·룰렛 보너스에도 자동 연동돼요.</p>
+          <label>내 등급 확인 명령어</label>
+          <input type="text" id="viptierCmd" value="!내등급" style="max-width:220px">
+        </div>
+        <div class="card">
+          <div class="card-title">⚖️ 점수 가중치</div>
+          <p class="hint" style="margin-bottom:12px">각 조건이 만족될 때마다 몇 점씩 더할지 정해요.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+            <div><label>구독자(플랜 가입)</label><input type="number" id="vtWSubscribe" value="30"></div>
+            <div><label>팬랭킹 1~3위</label><input type="number" id="vtWFanTop3" value="40"></div>
+            <div><label>팬랭킹 4~10위</label><input type="number" id="vtWFanTop10" value="20"></div>
+            <div><label>VIP등급 1당 점수</label><input type="number" id="vtWVipGrade" value="10"></div>
+            <div><label>고온(찐팬) 상태</label><input type="number" id="vtWTemp" value="20"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🏅 등급 구간</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addVipTierRow()">+ 등급 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">점수가 "최소 점수" 이상이면 그 등급이 돼요 (가장 높은 조건이 최종 적용). 경험치 배율은 애청지수 채팅 경험치에, 보너스 스핀은 도네 자동 룰렛에 추가로 더 돌려주는 횟수예요.</p>
+          <div id="viptierTiersWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📊 등급 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadVipTierData()">🔄 새로고침</button></div>
+          <div id="viptierCountsWrap" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
+          <div id="viptierUsersWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -3806,6 +3838,7 @@ const PANEL_META={
   saju:['🔮 사주팔자','생년월일(시)을 입력하면 진짜 만세력 계산으로 사주팔자를 봐줍니다'],
   memo2:['📝 메모2','채팅으로 메모를 남기고 조회합니다 (DJ/매니저 전용 작성)'],
   plansub:['💎 구독자 플랜 지급','이번 달 구독자에게 자동으로 복권/룰렛권을 매달 지급합니다'],
+  viptier:['🌟 귀빈 등급 시스템','구독·팬랭킹·VIP·온도를 합산해 자체 등급을 매기고 인사말·경험치·룰렛에 연동합니다'],
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
@@ -3930,7 +3963,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','viptier','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3942,7 +3975,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4943,6 +4976,7 @@ async function loadDjSettings(){
       if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
+      if(document.getElementById('viptierTiersWrap')) loadVipTierData();
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
@@ -7125,6 +7159,79 @@ async function resetPlanSubGrant(tag){
     await fetch(SERVER+'/plansub/reset-grant',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     showToast('초기화했어요');
     loadPlanSubData();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🌟 귀빈 등급 시스템 ── */
+let viptierTiers=[];
+function renderVipTierRows(){
+  const wrap=document.getElementById('viptierTiersWrap');
+  if(!wrap)return;
+  wrap.innerHTML=viptierTiers.map((t,i)=>`
+    <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr auto;gap:8px;align-items:center">
+      <input type="text" value="${escapeAttr(t.name)}" placeholder="등급명" oninput="viptierTiers[${i}].name=this.value">
+      <input type="number" value="${t.min}" placeholder="최소 점수" oninput="viptierTiers[${i}].min=Number(this.value)">
+      <input type="number" step="0.1" value="${t.expMulti}" placeholder="경험치 배율" oninput="viptierTiers[${i}].expMulti=Number(this.value)">
+      <input type="number" value="${t.bonusSpins}" placeholder="보너스 스핀" oninput="viptierTiers[${i}].bonusSpins=Number(this.value)">
+      <button class="icon-btn danger" onclick="removeVipTierRow(${i})" title="삭제">🗑</button>
+    </div>
+  `).join('');
+}
+function addVipTierRow(){
+  viptierTiers.push({name:'새 등급',min:0,expMulti:1,bonusSpins:0});
+  renderVipTierRows();
+}
+function removeVipTierRow(i){
+  viptierTiers.splice(i,1);
+  renderVipTierRows();
+}
+async function loadVipTierData(){
+  try{
+    const res=await fetch(SERVER+'/viptier/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('viptierCmd').value=d.cmd||'!내등급';
+    document.getElementById('vtWSubscribe').value=d.weights.subscribe;
+    document.getElementById('vtWFanTop3').value=d.weights.fanRankTop3;
+    document.getElementById('vtWFanTop10').value=d.weights.fanRankTop10;
+    document.getElementById('vtWVipGrade').value=d.weights.vipGradePoint;
+    document.getElementById('vtWTemp').value=d.weights.tempTop;
+    viptierTiers=d.tiers.map(t=>({...t}));
+    renderVipTierRows();
+    const countsWrap=document.getElementById('viptierCountsWrap');
+    countsWrap.innerHTML=Object.entries(d.counts||{}).map(([name,count])=>`
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 16px;text-align:center">
+        <div style="font-size:20px;font-weight:800">${count}</div>
+        <div class="hint" style="margin:0">${escapeHtml(name)}</div>
+      </div>
+    `).join('');
+    const usersWrap=document.getElementById('viptierUsersWrap');
+    if(!d.users||!d.users.length){ usersWrap.innerHTML='<p class="hint">아직 등급 매겨진 유저가 없어요.</p>'; return; }
+    usersWrap.innerHTML=d.users.map(u=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <div><b>${escapeHtml(u.nickname||'')}</b> <span class="hint" style="margin:0">@${escapeHtml(u.tag)}</span></div>
+        <div><span class="status-pill ongoing">${escapeHtml(u.tier)}</span> <span class="hint" style="margin-left:6px">${u.score}점</span></div>
+      </div>
+    `).join('');
+  }catch(e){}
+}
+async function saveVipTierSettings(){
+  const body={
+    cmd:document.getElementById('viptierCmd').value,
+    weights:{
+      subscribe:document.getElementById('vtWSubscribe').value,
+      fanRankTop3:document.getElementById('vtWFanTop3').value,
+      fanRankTop10:document.getElementById('vtWFanTop10').value,
+      vipGradePoint:document.getElementById('vtWVipGrade').value,
+      tempTop:document.getElementById('vtWTemp').value,
+    },
+    tiers:viptierTiers,
+  };
+  try{
+    const res=await fetch(SERVER+'/viptier/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadVipTierData();}
+    else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
