@@ -981,9 +981,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title">🌐 외부(Base44) 자동 백업</div>
-          <p class="hint" style="margin-top:0">전체 유저 데이터를 5분마다 Base44 서버에도 따로 복사해둬요. Railway 볼륨에 또 문제가 생겨도 여기서 복구할 수 있어요.</p>
+          <p class="hint" style="margin-top:0">전체 유저 데이터를 5분마다 Base44 서버에도 DJ별로 따로 복사해둬요. Railway 볼륨에 또 문제가 생겨도 여기서 복구할 수 있어요.</p>
           <button class="btn-connect" onclick="testBase44Backup()">🧪 지금 바로 백업 테스트</button>
           <div id="base44BackupResult" class="hint" style="margin-top:8px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔄 Base44에서 복구</div>
+          <p class="hint" style="margin-top:0"><b>⚠️ 되돌릴 수 없는 작업이에요.</b> 먼저 "미리보기"로 언제 백업된 건지 확인하고, 맞으면 그때 복구를 실행하세요. 복구하면 그 고유닉의 현재 데이터는 그 백업 시점으로 완전히 덮어써져요.</p>
+          <input type="text" id="restoreDjIdInput" placeholder="복구할 고유닉(djId) 입력">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn-gray" style="flex:1" onclick="previewBase44Restore()">🔍 미리보기</button>
+            <button class="btn-shield-reset" style="flex:1" id="restoreApplyBtn" disabled onclick="applyBase44Restore()">♻️ 복구 실행</button>
+          </div>
+          <div id="restorePreviewResult" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
 
@@ -5485,6 +5495,46 @@ async function testBase44Backup(){
     const d=await res.json();
     if(d.error){ box.textContent='❌ 오류: '+d.error; return; }
     box.textContent = `${d.success?'✅':'⚠️'} 전체 ${d.total}명 중 성공 ${d.okCount}건 / 실패 ${d.failCount}건${d.firstError?' (예: '+d.firstError+')':''}`;
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+
+let restorePreviewedDjId=null;
+async function previewBase44Restore(){
+  const djIdVal=document.getElementById('restoreDjIdInput').value.trim();
+  const box=document.getElementById('restorePreviewResult');
+  document.getElementById('restoreApplyBtn').disabled=true;
+  restorePreviewedDjId=null;
+  if(!djIdVal)return showToast('고유닉을 입력해주세요');
+  box.textContent='조회 중...';
+  try{
+    const res=await fetch(SERVER+'/admin/restore-preview-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal})});
+    const d=await res.json();
+    if(!d.success){ box.textContent='❌ '+(d.error||'조회 실패'); return; }
+    const when=d.timestamp?new Date(d.timestamp).toLocaleString('ko-KR'):'알 수 없음';
+    box.innerHTML=`✅ 백업 찾았어요 — <b>${escapeHtml(when)}</b> 시점 저장본${d.hasSettings?'':' (⚠️ 설정 데이터가 비어있을 수 있어요)'}<br>확인하셨으면 "복구 실행" 버튼을 눌러주세요.`;
+    restorePreviewedDjId=djIdVal;
+    document.getElementById('restoreApplyBtn').disabled=false;
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+async function applyBase44Restore(){
+  const djIdVal=document.getElementById('restoreDjIdInput').value.trim();
+  if(!restorePreviewedDjId || restorePreviewedDjId!==djIdVal){
+    return showToast('먼저 미리보기를 다시 실행해주세요 (입력값이 바뀌었어요)');
+  }
+  if(!confirm(`정말로 "${djIdVal}" 계정을 백업 시점으로 되돌릴까요?\n지금 있는 데이터는 사라지고 백업 시점 데이터로 완전히 덮어써져요. 되돌릴 수 없어요.`))return;
+  const box=document.getElementById('restorePreviewResult');
+  box.textContent='복구 중...';
+  try{
+    const res=await fetch(SERVER+'/admin/restore-apply-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal,confirm:true})});
+    const d=await res.json();
+    if(d.success){
+      box.textContent='✅ 복구 완료! 이제 이 계정으로 로그인해서 확인해보세요.';
+      showToast('복구 완료 ✓');
+      restorePreviewedDjId=null;
+      document.getElementById('restoreApplyBtn').disabled=true;
+    }else{
+      box.textContent='❌ '+(d.error||'복구 실패');
+    }
   }catch(e){box.textContent='오류: '+e.message;}
 }
 async function loadDupAllowIps(){

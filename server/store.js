@@ -565,9 +565,16 @@ function listDjIds() {
   return Object.keys(loadDjs());
 }
 
-// 🌐 외부 백업(Base44 등)용 — 전체 계정 데이터를 그대로 반환한다 (비밀번호 해시 포함, 백업 목적이라 그대로 둠).
+// 🌐 외부 백업(Base44)용 — 전체 계정 데이터를 그대로 반환한다 (비밀번호 해시 포함, 백업 목적이라 그대로 둠).
 function getRawSnapshot() {
   return loadDjs();
+}
+
+// 🔄 외부 백업에서 가져온 특정 DJ 레코드를 그대로 덮어써서 복구한다.
+function restoreDjRecord(djId, record) {
+  const djs = loadDjs();
+  djs[djId] = record;
+  saveDjs(djs);
 }
 
 // 유저 관리 화면용 요약 정보 (비밀번호 해시는 제외)
@@ -683,4 +690,5 @@ module.exports = {
   flush,
   createBackupSnapshot,
   getRawSnapshot,
+  restoreDjRecord,
 };

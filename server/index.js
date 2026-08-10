@@ -48,8 +48,25 @@ const DEFAULT_LEAVE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nick
 // 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
 // (2026-08-10 채팅에서 발급받은 값)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
 // BASE44_BACKUP_URL / BASE44_BACKUP_KEY로 옮기고 아래 기본값은 지워도 된다.
-const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/saveBackup'
+const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview--tested-snap-vault-sync.base44.app/functions/saveBackup'
 const BASE44_BACKUP_KEY = process.env.BASE44_BACKUP_KEY || '1328218'
+// 🔄 복구용 조회 함수 — 같은 Base44 앱 도메인에 있다고 가정 (다르면 BASE44_RESTORE_URL 환경변수로 덮어쓰기)
+const BASE44_RESTORE_URL = process.env.BASE44_RESTORE_URL || 'https://preview--tested-snap-vault-sync.base44.app/functions/getBackup'
+const BASE44_RESTORE_KEY = process.env.BASE44_RESTORE_KEY || BASE44_BACKUP_KEY
+async function fetchBackupFromBase44(djId) {
+  const res = await fetch(`${BASE44_RESTORE_URL}?djId=${encodeURIComponent(djId)}`, {
+    headers: { 'x-api-key': BASE44_RESTORE_KEY },
+  })
+  if (res.status === 404) return { found: false }
+  if (!res.ok) throw new Error(`getBackup 응답 ${res.status}`)
+  const body = await res.json()
+  // 응답 구조를 정확히 몰라서 여러 형태를 다 시도해본다 (raw entity 반환일 수도, 단순화된 형태일 수도 있음)
+  const rec = body.record || body.result || body
+  const rawData = rec.data != null ? rec.data : (body.data != null ? body.data : null)
+  if (rawData == null) return { found: false, raw: body }
+  const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData
+  return { found: true, timestamp: rec.timestamp || body.timestamp || null, data: parsed, raw: body }
+}
 async function backupOneDjToBase44(djId, djRecord) {
   const res = await fetch(BASE44_BACKUP_URL, {
     method: 'POST',
@@ -12043,6 +12060,37 @@ app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
       }
     }
     res.json({ success: failCount === 0, okCount, failCount, total: djIds.length, firstError: firstErrorText || null })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔄 Base44 복구 1단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 djId로 저장된 백업이 있는지/언제
+// 저장된 건지만 확인한다. (되돌릴 수 없는 작업이라 반드시 미리보기 먼저 거치게 함)
+app.post('/admin/restore-preview-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  try {
+    const result = await fetchBackupFromBase44(targetDjId)
+    if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
+    res.json({ success: true, timestamp: result.timestamp, hasSettings: !!(result.data && result.data.settings) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+// 🔄 Base44 복구 2단계 — 실제로 덮어쓴다. confirm:true가 명시적으로 와야만 실행.
+app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const result = await fetchBackupFromBase44(targetDjId)
+    if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
+    store.restoreDjRecord(targetDjId, result.data)
+    console.log(`[Base44 복구] ${targetDjId} 계정을 ${result.timestamp} 시점 백업으로 복구했어요.`)
+    res.json({ success: true, timestamp: result.timestamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
