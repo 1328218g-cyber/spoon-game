@@ -1844,6 +1844,30 @@ function handleVipTierCommand(djId, settings, author, tag, text) {
   setTimeout(() => sendChatToRoom(djId, `🌟 ${author}님의 등급은 [${rec.tier}] 입니다! (점수: ${rec.score}점)`), 400)
 }
 
+// 🌡️ 스푼 온도 랭킹 — 채팅/입장 이벤트에 실려오는 favoriteTemperature(애정도 온도)를 그때그때
+// 고유닉 기준으로 기록해두고, !온도 치면 지금까지 확인된 사람들 중 온도 상위 10명을 보여준다.
+// 무조건 고유닉 기반 — 고유닉 없으면 기록하지 않는다.
+function updateTempRanking(djId, settings, author, tag, gen) {
+  if (!tag || !gen || gen.favoriteTemperature == null) return
+  const temp = Number(gen.favoriteTemperature)
+  if (isNaN(temp)) return
+  if (!settings.tempRanking) settings.tempRanking = { users: {} }
+  if (!settings.tempRanking.users) settings.tempRanking.users = {}
+  const key = String(tag).trim().toLowerCase()
+  settings.tempRanking.users[key] = { nickname: author, temp, updatedAt: Date.now() }
+  store.saveSettings(djId, { tempRanking: settings.tempRanking })
+}
+
+function handleTempRankCommand(djId, settings, text) {
+  const msg = String(text || '').trim()
+  if (msg !== '!온도') return
+  const users = (settings.tempRanking && settings.tempRanking.users) || {}
+  const sorted = Object.values(users).sort((a, b) => b.temp - a.temp).slice(0, 10)
+  if (!sorted.length) { setTimeout(() => sendChatToRoom(djId, '🌡️ 아직 확인된 온도 정보가 없어요.'), 400); return }
+  const lines = ['🌡️ 스푼 온도 랭킹 TOP 10'].concat(sorted.map((u, i) => `${i + 1}. ${u.nickname} - ${u.temp.toFixed(1)}°`))
+  sendChatSplit(djId, lines.join('\n'), 150, 600)
+}
+
 // 💰 매니저 토큰(매토) — DJ가 매니저들의 점수(토큰)를 번호로 관리하는 시스템.
 // 무조건 고유닉 기반: 매니저는 DJ가 직접 고유닉을 입력해서 등록/삭제하므로 API 조회가 필요 없다.
 // 권한: DJ, 이미 등록된 매니저(managers 목록에 있는 사람), 그리고 관리자 계정(고유닉 sum)만
@@ -11463,6 +11487,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
+          updateTempRanking(djId, settings, author, actTag, gen) // 🌡️ 스푼 온도 기록
+          handleTempRankCommand(djId, settings, text)
           handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
@@ -11505,6 +11531,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
           const joinTier = updateVipTierForUser(djId, settings, author, tag, gen) // 🌟 귀빈 등급 갱신 (입장 시점에 확인 가능한 필드 기준)
           const tierName = joinTier ? joinTier.name : ''
+          updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록 (입장 시점에도 확인 가능)
 
           handleActAttendHook(djId, settings, author, tag)
 
