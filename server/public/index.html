@@ -3690,28 +3690,44 @@ function renderTutorialStep(){
   document.getElementById('tutorialBody').scrollTop=0;
 }
 function maybeAutoShowTutorial(){
-  try{
-    if(!localStorage.getItem(tutorialSeenKey())){ openTutorial(); return; }
-  }catch(e){}
-  checkAnnouncement();
+  // 📢 순서 변경: 신규/기존 유저 모두 업데이트 공지부터 먼저 체크하고,
+  // 공지가 없거나 확인 후에 신규 유저면 그때 튜토리얼을 띄운다.
+  const isNewUser=(()=>{ try{ return !localStorage.getItem(tutorialSeenKey()); }catch(e){ return false; } })();
+  checkAnnouncement(isNewUser);
+}
+
+function maybeShowTutorialIfNew(){
+  try{ if(!localStorage.getItem(tutorialSeenKey())) openTutorial(); }catch(e){}
 }
 
 let currentAnnouncementId=null;
-async function checkAnnouncement(){
+let pendingTutorialAfterAnnouncement=false;
+async function checkAnnouncement(thenShowTutorialForNewUser){
   try{
     const res=await fetch(SERVER+'/announcement',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success||!d.announcement||d.seen)return;
+    if(!d.success||!d.announcement||d.seen){
+      if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
+      return;
+    }
     currentAnnouncementId=d.announcement.id;
+    pendingTutorialAfterAnnouncement=!!thenShowTutorialForNewUser;
     document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
     document.getElementById('announcementBody').textContent=d.announcement.content||'';
     document.getElementById('announcementOverlay').style.display='flex';
-  }catch(e){}
+  }catch(e){
+    if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
+  }
 }
 async function closeAnnouncementModal(){
   document.getElementById('announcementOverlay').style.display='none';
-  if(currentAnnouncementId==null)return;
-  try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
+  if(currentAnnouncementId!=null){
+    try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
+  }
+  if(pendingTutorialAfterAnnouncement){
+    pendingTutorialAfterAnnouncement=false;
+    maybeShowTutorialIfNew();
+  }
 }
 
 function openMyInfoModal(){
