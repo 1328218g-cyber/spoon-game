@@ -11984,6 +11984,19 @@ app.post('/auth/signup', (req, res) => {
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
 })
 
+// 관리자(sum) 전용 — 중복 가입 체크 자체를 통째로 켜고 끄기 (데이터 유실 복구 등 여러 명이
+// 짧은 시간에 재가입해야 할 때 잠깐 꺼둘 수 있게)
+app.get('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
+})
+app.post('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setDuplicateCheckEnabled((req.body || {}).enabled)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
+})
+
 // 관리자(sum) 전용 — 중복 가입 체크에서 제외할 IP 목록(피시방/공용 와이파이 등) 관리
 app.get('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })

@@ -972,7 +972,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title">🔐 중복 가입 방지</div>
           <p class="hint" style="margin-top:0">같은 브라우저 기기 또는 같은 IP로 이미 가입한 기록이 있으면 새 가입을 막아요. 피시방·회사·가족 와이파이처럼 여러 명이 같은 IP를 쓰는 곳은 아래에 IP를 등록해두면 그 IP는 중복 체크에서 제외돼요.</p>
-          <div style="display:flex;gap:8px">
+          <label class="check-opt" style="margin-top:4px"><input type="checkbox" id="dupCheckEnabledToggle" checked onchange="toggleDupCheckEnabled(this.checked)"> 중복 가입 체크 사용 <span class="hint-inline">(데이터 복구 등으로 여러 명이 짧은 시간에 재가입해야 할 땐 잠깐 꺼두세요)</span></label>
+          <div style="display:flex;gap:8px;margin-top:12px">
             <input type="text" id="dupAllowIpInput" placeholder="예: 123.45.67.89" style="flex:1">
             <button class="btn-connect" style="padding:9px 16px;white-space:nowrap" onclick="addDupAllowIp()">+ 허용 추가</button>
           </div>
@@ -3845,7 +3846,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); }
   loadStatusBanner();
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
@@ -5455,6 +5456,21 @@ function renderUserListTable(){
 
 /* ── 🔐 중복 가입 방지: IP 허용목록 관리 ── */
 let dupAllowIps=[];
+async function loadDupCheckEnabled(){
+  try{
+    const res=await fetch(SERVER+'/admin/duplicate-check-enabled',{headers:authHeaders()});
+    const d=await res.json();
+    document.getElementById('dupCheckEnabledToggle').checked = d.success ? d.enabled!==false : true;
+  }catch(e){}
+}
+async function toggleDupCheckEnabled(enabled){
+  try{
+    const res=await fetch(SERVER+'/admin/duplicate-check-enabled',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    if(d.success) showToast(enabled?'중복가입 체크를 켰어요':'⚠️ 중복가입 체크를 껐어요');
+    else { showToast(d.error||'변경 실패'); document.getElementById('dupCheckEnabledToggle').checked=!enabled; }
+  }catch(e){showToast('오류: '+e.message);}
+}
 async function loadDupAllowIps(){
   try{
     const res=await fetch(SERVER+'/admin/duplicate-check-allowed-ips',{headers:authHeaders()});

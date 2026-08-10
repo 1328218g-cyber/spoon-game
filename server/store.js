@@ -251,6 +251,23 @@ function validEmail(email) {
 // 있으면 신규 가입을 막는다. 완벽하진 않다(시크릿모드+VPN이면 우회 가능)는 걸 감안하고,
 // "귀찮게 만드는" 수준의 억제책으로 사용한다. 관리자가 IP 허용목록에 등록해두면(피시방/가족 와이파이
 // 등 여러 명이 같은 IP를 쓰는 경우) 그 IP는 중복 체크에서 제외된다.
+//
+// 전체 스위치도 따로 둔다 — 데이터 유실 복구처럼 짧은 시간에 여러 명이 재가입해야 하는
+// 상황에서는 이 체크 자체가 방해가 될 수 있어서, 관리자가 통째로 껐다 켰다 할 수 있게 한다.
+function getDuplicateCheckEnabled() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.duplicateCheckEnabled;
+  return v !== false; // 기본값 true (명시적으로 false로 꺼둔 경우만 꺼짐)
+}
+function setDuplicateCheckEnabled(enabled) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.duplicateCheckEnabled = !!enabled;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function getDuplicateCheckAllowedIps() {
   const djs = loadDjs();
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.duplicateCheckAllowedIps;
@@ -361,7 +378,7 @@ function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck =
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
 
-  if (!skipDupCheck) {
+  if (!skipDupCheck && getDuplicateCheckEnabled()) {
     const dupId = findDuplicateSignup(signupIp, deviceId);
     if (dupId) return { ok: false, error: '이미 가입 기록이 있는 기기 또는 네트워크예요. 중복 가입은 제한돼요. 오해라면(피시방/공용 와이파이 등) 관리자에게 문의해주세요.' };
   }
@@ -647,6 +664,8 @@ module.exports = {
   getDuplicateCheckAllowedIps,
   addDuplicateCheckAllowedIp,
   removeDuplicateCheckAllowedIp,
+  getDuplicateCheckEnabled,
+  setDuplicateCheckEnabled,
   getAnnouncement,
   setAnnouncement,
   getAnnouncementHistory,
