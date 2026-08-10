@@ -979,6 +979,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <div id="dupAllowIpList" style="margin-top:10px"><p class="hint">불러오는 중...</p></div>
         </div>
+        <div class="card">
+          <div class="card-title">🌐 외부(Base44) 자동 백업</div>
+          <p class="hint" style="margin-top:0">전체 유저 데이터를 5분마다 Base44 서버에도 따로 복사해둬요. Railway 볼륨에 또 문제가 생겨도 여기서 복구할 수 있어요.</p>
+          <button class="btn-connect" onclick="testBase44Backup()">🧪 지금 바로 백업 테스트</button>
+          <div id="base44BackupResult" class="hint" style="margin-top:8px"></div>
+        </div>
       </div>
 
       <!-- 자동입장 -->
@@ -5470,6 +5476,16 @@ async function toggleDupCheckEnabled(enabled){
     if(d.success) showToast(enabled?'중복가입 체크를 켰어요':'⚠️ 중복가입 체크를 껐어요');
     else { showToast(d.error||'변경 실패'); document.getElementById('dupCheckEnabledToggle').checked=!enabled; }
   }catch(e){showToast('오류: '+e.message);}
+}
+async function testBase44Backup(){
+  const box=document.getElementById('base44BackupResult');
+  box.textContent='백업 중... (DJ 수만큼 개별 전송이라 시간이 좀 걸려요)';
+  try{
+    const res=await fetch(SERVER+'/admin/backup-to-base44',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.error){ box.textContent='❌ 오류: '+d.error; return; }
+    box.textContent = `${d.success?'✅':'⚠️'} 전체 ${d.total}명 중 성공 ${d.okCount}건 / 실패 ${d.failCount}건${d.firstError?' (예: '+d.firstError+')':''}`;
+  }catch(e){box.textContent='오류: '+e.message;}
 }
 async function loadDupAllowIps(){
   try{

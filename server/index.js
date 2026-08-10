@@ -36,6 +36,45 @@ const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+// 👋 입장/좋아요/퇴장 기본 인사 문구 — DJ가 설정 화면에서 한 번도 "저장"을 안 눌러도
+// (즉 settings.joinMessages 등이 아직 서버에 없어도) 모듈만 켜면 바로 동작하도록 하는 기본값.
+// DJ가 실제로 설정 화면에서 저장하면 그 값으로 대체된다.
+const DEFAULT_JOIN_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 반가워요! ❤️', delay: 1, sound: '' }]
+const DEFAULT_LIKE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 좋아요 감사해요! 💓', delay: 1, sound: '' }]
+const DEFAULT_LEAVE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 다음에 또 만나요! 👋', delay: 1, sound: '' }]
+
+// 🌐 외부(Base44) 자동 백업 — Railway 볼륨이 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
+// 외부 서버에도 유저 데이터를 주기적으로 복사해둔다. DJ별로 개별 레코드로 저장해서, 나중에 필요할 때
+// 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
+// (2026-08-10 채팅에서 발급받은 값)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
+// BASE44_BACKUP_URL / BASE44_BACKUP_KEY로 옮기고 아래 기본값은 지워도 된다.
+const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/saveBackup'
+const BASE44_BACKUP_KEY = process.env.BASE44_BACKUP_KEY || '1328218'
+async function backupOneDjToBase44(djId, djRecord) {
+  const res = await fetch(BASE44_BACKUP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': BASE44_BACKUP_KEY },
+    body: JSON.stringify({ timestamp: new Date().toISOString(), djId, data: JSON.stringify(djRecord) }),
+  })
+  return res
+}
+async function backupToBase44() {
+  const snapshot = store.getRawSnapshot()
+  const djIds = Object.keys(snapshot)
+  let okCount = 0, failCount = 0
+  for (const id of djIds) {
+    try {
+      const res = await backupOneDjToBase44(id, snapshot[id])
+      if (res.ok) okCount++
+      else { failCount++; console.log(`[Base44 백업] ${id} 실패 응답:`, res.status) }
+    } catch (e) {
+      failCount++
+      console.log(`[Base44 백업] ${id} 오류:`, e.message)
+    }
+  }
+  console.log(`[Base44 백업] 완료 — 성공 ${okCount}건 / 실패 ${failCount}건 (전체 ${djIds.length}명)`)
+}
+
 // ⚠️ 지금은 djId별 멀티 계정 대신, 모든 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
 // (tokenManager 자체는 계속 djId 기반 멀티 계정을 지원하므로, 나중에 다시 DJ별로 나누고 싶으면
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
@@ -11223,7 +11262,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 // 🚪 퇴장 감지 폴링 — 스푼은 소켓으로 퇴장 이벤트를 보내지 않으므로,
 // 시청자 명단 API를 주기적으로 조회해서 직전 스냅샷과 비교하는 방식으로 판정한다.
 const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지
-const LEAVE_ABSENCE_THRESHOLD = 1   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1=즉시)
+const LEAVE_ABSENCE_THRESHOLD = 3   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (5초 주기 폴링 기준 — 1이면 API가 잠깐 갱신 늦을 때 방금 입장한 사람도 오탐지될 수 있어서 3으로 완화)
 
 function registerJoinSnapshot(room, nickname, tag, prevKey) {
   if (!room._lastLiveMembers) return
@@ -11257,7 +11296,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
   if (!isModuleOn(settings, 'entrysettings', djId)) return
-  const msgs = (settings.leaveMessages || []).filter(m => m.enabled)
+  const msgs = (settings.leaveMessages != null ? settings.leaveMessages : DEFAULT_LEAVE_MESSAGES).filter(m => m.enabled)
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
     const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
@@ -11554,7 +11593,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             setTimeout(() => sendChatToRoom(djId, text), 500)
             if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
-            const msgs = (settings.joinMessages || []).filter(m => m.enabled)
+            const msgs = (settings.joinMessages != null ? settings.joinMessages : DEFAULT_JOIN_MESSAGES).filter(m => m.enabled)
             if (msgs.length > 0) {
               const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
               setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -11581,7 +11620,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
-        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages || []).filter(m => m.enabled)
+        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages != null ? settings.likeMessages : DEFAULT_LIKE_MESSAGES).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
           setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -11986,6 +12025,29 @@ app.post('/auth/signup', (req, res) => {
 
 // 관리자(sum) 전용 — 중복 가입 체크 자체를 통째로 켜고 끄기 (데이터 유실 복구 등 여러 명이
 // 짧은 시간에 재가입해야 할 때 잠깐 꺼둘 수 있게)
+// 🌐 Base44 외부 백업 — 지금 바로 한 번 테스트해보고 싶을 때 (관리자 전용)
+app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const snapshot = store.getRawSnapshot()
+    const djIds = Object.keys(snapshot)
+    let okCount = 0, failCount = 0, firstErrorText = ''
+    for (const id of djIds) {
+      try {
+        const r = await backupOneDjToBase44(id, snapshot[id])
+        if (r.ok) okCount++
+        else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status}` }
+      } catch (e) {
+        failCount++
+        if (!firstErrorText) firstErrorText = `${id}: ${e.message}`
+      }
+    }
+    res.json({ success: failCount === 0, okCount, failCount, total: djIds.length, firstError: firstErrorText || null })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 app.get('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
@@ -14595,6 +14657,10 @@ app.listen(PORT, () => {
   // 서버 시작 5분 뒤에 첫 백업(막 시작한 시점엔 아직 캐시가 덜 안정적일 수 있어 살짝 늦춤).
   setTimeout(() => { try { store.createBackupSnapshot() } catch (e) {} }, 5 * 60 * 1000)
   setInterval(() => { try { store.createBackupSnapshot() } catch (e) {} }, 2 * 60 * 60 * 1000)
+
+  // 🌐 Base44로 5분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 5분마다 반복)
+  setTimeout(backupToBase44, 60 * 1000)
+  setInterval(backupToBase44, 5 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
