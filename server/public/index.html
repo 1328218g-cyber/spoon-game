@@ -7122,15 +7122,35 @@ function renderPlanSubRewardFields(){
   const type=document.getElementById('planSubRewardType').value;
   document.getElementById('planSubRouletteIdxWrap').style.display = type==='roulette' ? '' : 'none';
 }
+const PLAN_LEVEL_PRESETS=[10,20,30,40,50,60,70,80,90,100]; // 10단위 관례 기준 플랜1~10 프리셋 (직접입력도 가능)
+function planLevelOptionsHtml(selectedLevel){
+  const known=PLAN_LEVEL_PRESETS.includes(Number(selectedLevel));
+  let html=PLAN_LEVEL_PRESETS.map(n=>`<option value="${n}" ${Number(selectedLevel)===n?'selected':''}>플랜${n/10} (${n})</option>`).join('');
+  html+=`<option value="__custom__" ${!known&&selectedLevel?'selected':''}>직접 입력...</option>`;
+  return html;
+}
+function onPlanSubLevelSelectChange(i,val){
+  if(val==='__custom__'){
+    const raw=prompt('등급값을 직접 입력해주세요 (스푼에서 오는 그대로, 예: 15)');
+    if(raw==null||raw.trim()==='')return renderPlanSubLevelRows();
+    planSubLevels[i].level=raw.trim();
+    if(!planSubLevels[i].label) planSubLevels[i].label='구독자플랜(직접입력)';
+  }else{
+    planSubLevels[i].level=val;
+    planSubLevels[i].label=`구독자플랜${Number(val)/10}`;
+  }
+  renderPlanSubLevelRows();
+}
 function renderPlanSubLevelRows(){
   const wrap=document.getElementById('planSubLevelsWrap');
   if(!wrap)return;
   if(!planSubLevels.length){ wrap.innerHTML='<p class="hint">등록된 등급별 설정이 없어요. 구독자가 채팅 치면 자동으로 여기 등급이 생기고, "+ 등급 추가"로 직접 만들 수도 있어요.</p>'; return; }
   wrap.innerHTML=planSubLevels.map((r,i)=>`
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center">
-        <input type="text" value="${escapeAttr(r.level)}" placeholder="등급값 (예: 10)" oninput="planSubLevels[${i}].level=this.value">
-        <input type="text" value="${escapeAttr(r.label||'')}" placeholder="이름 (예: 구독자플랜1)" oninput="planSubLevels[${i}].label=this.value">
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr auto;gap:8px;align-items:center">
+        <select onchange="onPlanSubLevelSelectChange(${i},this.value)">
+          ${planLevelOptionsHtml(r.level)}
+        </select>
         <select onchange="planSubLevels[${i}].rewardType=this.value;renderPlanSubLevelRows()">
           <option value="lotto" ${r.rewardType==='lotto'?'selected':''}>🎟️ 복권</option>
           <option value="roulette" ${r.rewardType==='roulette'?'selected':''}>🎡 룰렛권</option>
@@ -7139,12 +7159,13 @@ function renderPlanSubLevelRows(){
         <input type="number" min="1" value="${r.amount}" placeholder="수량" oninput="planSubLevels[${i}].amount=Number(this.value)">
         <button class="icon-btn danger" onclick="removePlanSubLevelRow(${i})" title="삭제">🗑</button>
       </div>
+      <div class="hint" style="margin-top:4px">${escapeHtml(r.label||'')}${r.level?' (등급값: '+escapeHtml(String(r.level))+')':''}</div>
       <input type="text" value="${escapeAttr(r.message||'')}" placeholder="이 등급 전용 안내 메시지 (비우면 기본 메시지 사용, {플랜} 변수로 이름 쓸 수 있어요)" style="margin-top:8px" oninput="planSubLevels[${i}].message=this.value">
     </div>
   `).join('');
 }
 function addPlanSubLevelRow(){
-  planSubLevels.push({level:'',label:'',rewardType:'lotto',rouletteIdx:1,amount:1,message:''});
+  planSubLevels.push({level:10,label:'구독자플랜1',rewardType:'lotto',rouletteIdx:1,amount:1,message:''});
   renderPlanSubLevelRows();
 }
 function removePlanSubLevelRow(i){
