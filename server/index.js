@@ -43,6 +43,26 @@ const DEFAULT_JOIN_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickn
 const DEFAULT_LIKE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 좋아요 감사해요! 💓', delay: 1, sound: '' }]
 const DEFAULT_LEAVE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 다음에 또 만나요! 👋', delay: 1, sound: '' }]
 
+const zlib = require('zlib')
+
+// JSON 텍스트는 반복되는 필드명이 많아서 압축이 매우 잘 된다 (보통 80~95% 줄어듦).
+// Base44 텍스트 필드 용량 제한에 걸리는 걸 피하려고, 보낼 때 gzip 압축 후 base64로 인코딩한다.
+function compressForBackup(obj) {
+  const json = JSON.stringify(obj)
+  return zlib.gzipSync(Buffer.from(json, 'utf-8')).toString('base64')
+}
+// 압축된 데이터를 원래대로 복원한다. 혹시 예전에 비압축으로 저장된 백업이 남아있을 수도 있어서,
+// gzip 해제가 실패하면 그냥 평범한 JSON 문자열로 간주하고 그대로 파싱을 시도한다(하위 호환).
+function decompressBackup(rawStr) {
+  try {
+    const buf = Buffer.from(rawStr, 'base64')
+    const decompressed = zlib.gunzipSync(buf).toString('utf-8')
+    return JSON.parse(decompressed)
+  } catch (e) {
+    return JSON.parse(rawStr) // 압축 안 된 예전 형식 fallback
+  }
+}
+
 // 🌐 외부(Base44) 자동 백업 — Railway 볼륨이 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
 // 외부 서버에도 유저 데이터를 주기적으로 복사해둔다. DJ별로 개별 레코드로 저장해서, 나중에 필요할 때
 // 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
@@ -64,11 +84,12 @@ async function fetchBackupFromBase44(djId) {
   const rec = body.record || body.result || body
   const rawData = rec.data != null ? rec.data : (body.data != null ? body.data : null)
   if (rawData == null) return { found: false, raw: body }
-  const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData
+  const parsed = typeof rawData === 'string' ? decompressBackup(rawData) : rawData
   return { found: true, timestamp: rec.timestamp || body.timestamp || null, data: parsed, raw: body }
 }
 async function backupOneDjToBase44(djId, djRecord) {
-  const bodyStr = JSON.stringify({ timestamp: new Date().toISOString(), djId, data: JSON.stringify(djRecord) })
+  const compressedData = compressForBackup(djRecord)
+  const bodyStr = JSON.stringify({ timestamp: new Date().toISOString(), djId, data: compressedData })
   const res = await fetch(BASE44_BACKUP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': BASE44_BACKUP_KEY },
@@ -78,7 +99,7 @@ async function backupOneDjToBase44(djId, djRecord) {
   if (!res.ok) {
     // ⚠️ 진단용 — 실패하면 보낸 데이터 크기랑 Base44가 돌려준 실제 에러 본문을 로그 + 반환값 둘 다에 남긴다.
     const errText = await res.text().catch(() => '(응답 본문 읽기 실패)')
-    console.log(`[Base44 백업 실패 상세] djId=${djId} 요청크기=${sizeBytes}바이트 status=${res.status} 응답본문:`, errText.slice(0, 500))
+    console.log(`[Base44 백업 실패 상세] djId=${djId} 요청크기(압축후)=${sizeBytes}바이트 status=${res.status} 응답본문:`, errText.slice(0, 500))
     return { ok: false, status: res.status, sizeBytes, errText: errText.slice(0, 500) }
   }
   return { ok: true, status: res.status, sizeBytes }
