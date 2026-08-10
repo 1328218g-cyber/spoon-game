@@ -7122,7 +7122,7 @@ function renderPlanSubRewardFields(){
   const type=document.getElementById('planSubRewardType').value;
   document.getElementById('planSubRouletteIdxWrap').style.display = type==='roulette' ? '' : 'none';
 }
-const PLAN_LEVEL_PRESETS=[10,20,30,40,50,60,70,80,90,100]; // 10단위 관례 기준 플랜1~10 프리셋 (직접입력도 가능)
+const PLAN_LEVEL_PRESETS=[10,20,30]; // 플랜1~3까지만 있음 (10단위 관례, 필요하면 "직접 입력"으로 추가 가능)
 function planLevelOptionsHtml(selectedLevel){
   const known=PLAN_LEVEL_PRESETS.includes(Number(selectedLevel));
   let html=PLAN_LEVEL_PRESETS.map(n=>`<option value="${n}" ${Number(selectedLevel)===n?'selected':''}>플랜${n/10} (${n})</option>`).join('');
