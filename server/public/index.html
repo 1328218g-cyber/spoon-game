@@ -601,6 +601,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic">📊</span><span class="lbl">관리자 대시보드</span></div>
+    <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic">🛰️</span><span class="lbl">이벤트 뷰어</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic">📦</span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -894,7 +895,39 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🛰️ 이벤트 뷰어 -->
+      <div class="panel" data-panel="eventviewer">
+        <div class="card">
+          <div class="card-title"><span>🛰️ 실시간 이벤트 뷰어</span></div>
+          <p class="hint" style="margin-bottom:12px">스푼에서 들어오는 모든 원본 이벤트를 실시간으로 그대로 보여줘요. 새 기능 만들 때 실제 이벤트 이름/구조를 눈으로 바로 확인할 수 있어요.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="evDjIdFilter" placeholder="djId 필터 (비우면 전체, 예: sum1)" style="max-width:220px" oninput="renderEventViewerList()">
+            <input type="text" id="evNameFilter" placeholder="이벤트명 필터 (예: Donation)" style="max-width:220px" oninput="renderEventViewerList()">
+            <button class="btn-connect" id="evPauseBtn" style="padding:9px 16px" onclick="toggleEventViewerPause()">⏸️ 일시정지</button>
+            <button class="btn-gray" style="padding:9px 16px" onclick="clearEventViewerLog()">🗑️ 지우기</button>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="evAutoScroll" checked> 자동 스크롤</label>
+          </div>
+          <div class="hint" style="margin-top:8px">누적 <span id="evCount">0</span>개 (최근 300개까지만 보관돼요)</div>
+        </div>
+        <div class="card">
+          <div id="evListWrap" style="max-height:65vh;overflow-y:auto;font-family:Consolas,monospace;font-size:12px">
+            <p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="userlist">
+        <div class="card">
+          <div class="card-title">👤 계정 수동 생성</div>
+          <p class="hint" style="margin-bottom:12px">일반 회원가입 화면 없이, 관리자가 직접 계정을 만들어줘요. (중복가입 IP/기기 체크는 여기선 안 걸려요)</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+            <div><label>아이디</label><input type="text" id="createAccDjId" placeholder="영문/숫자 2~20자"></div>
+            <div><label>비밀번호</label><input type="text" id="createAccPassword" placeholder="4자 이상"></div>
+            <div><label>디제이 고유닉</label><input type="text" id="createAccDjTag" placeholder="자동입장에 쓰일 고유닉"></div>
+            <div><label>이메일</label><input type="email" id="createAccEmail" placeholder="비밀번호 찾기용"></div>
+            <div><label>이용기간(일)</label><input type="number" id="createAccTrialDays" placeholder="비우면 기본 정책 적용, 0=무제한" min="0"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="createAccountManually()">👤 계정 생성</button>
+        </div>
         <div class="card">
           <div class="card-title">📢 실시간 공지</div>
           <p class="hint" style="margin-bottom:12px">지금 접속 중인 <b>모든 디제이의 채팅 화면</b>에 즉시 나타나는 공지예요. (스푼 실제 방송 채팅이 아니라, 웹봇 화면 안에서만 보이는 내부 공지예요)</p>
@@ -1079,6 +1112,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="tab-btn" data-tab="leave" onclick="switchEntryTab('leave')">🚶 퇴장</button>
           <button class="tab-btn" data-tab="like" onclick="switchEntryTab('like')">❤️ 좋아요</button>
           <button class="tab-btn" data-tab="gift" onclick="switchEntryTab('gift')">🎁 선물</button>
+          <button class="tab-btn" data-tab="follow" onclick="switchEntryTab('follow')">🤍 팔로우</button>
           <button class="tab-btn" data-tab="repeat" onclick="switchEntryTab('repeat')">🔁 반복문구</button>
         </div>
 
@@ -3675,6 +3709,8 @@ function enterApp(){
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
   const adminStatsNav=document.getElementById('adminStatsNav');
   if(adminStatsNav) adminStatsNav.style.display = isAdmin ? '' : 'none';
+  const eventViewerNav=document.getElementById('eventViewerNav');
+  if(eventViewerNav) eventViewerNav.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
   if(autojoinNav) autojoinNav.style.display = '';
   const watchCard=document.getElementById('watchCard');
@@ -3723,6 +3759,7 @@ const PANEL_META={
   settingsbackup:['💾 설정 내보내기/가져오기','내 계정 설정을 JSON 파일로 백업하거나, 백업 파일로 되돌립니다'],
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
   adminstats:['📊 관리자 대시보드','전체 서비스 현황을 한눈에 봅니다'],
+  eventviewer:['🛰️ 이벤트 뷰어','스푼에서 들어오는 원본 이벤트를 실시간으로 확인합니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -3779,6 +3816,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadUserList(); }
+  if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -4602,7 +4640,7 @@ async function saveFundingGlobal(){
 
 
 /* ── 입장 설정 (UI 전용 — 서버 연동은 추후 작업) ── */
-const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',repeat:'🔁 반복 문구'};
+const ENTRY_TAB_LABELS={entry:'🚪 입장 메시지',leave:'🚶 퇴장 메시지',like:'❤️ 좋아요 메시지',gift:'🎁 선물 메시지',follow:'🤍 팔로우 메시지',repeat:'🔁 반복 문구'};
 let entryTab='entry';
 let entryIdSeq=1;
 const entryData={
@@ -4610,6 +4648,7 @@ const entryData={
   leave:[],
   like:[],
   gift:[],
+  follow:[],
   repeat:[],
 };
 
@@ -4942,6 +4981,30 @@ async function loadDefaultTrialDays(){
   }catch(e){}
 }
 
+async function createAccountManually(){
+  const djIdVal=document.getElementById('createAccDjId').value.trim();
+  const password=document.getElementById('createAccPassword').value;
+  const djTag=document.getElementById('createAccDjTag').value.trim();
+  const email=document.getElementById('createAccEmail').value.trim();
+  const trialDaysVal=document.getElementById('createAccTrialDays').value;
+  if(!djIdVal||!password||!djTag||!email)return showToast('아이디/비밀번호/고유닉/이메일을 모두 입력해주세요');
+  try{
+    const body={djId:djIdVal,password,djTag,email};
+    if(trialDaysVal.trim()!=='') body.trialDays=Number(trialDaysVal);
+    const res=await fetch(SERVER+'/admin/create-account',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){
+      showToast('계정 생성 완료 ✓ ('+djIdVal+')');
+      document.getElementById('createAccDjId').value='';
+      document.getElementById('createAccPassword').value='';
+      document.getElementById('createAccDjTag').value='';
+      document.getElementById('createAccEmail').value='';
+      document.getElementById('createAccTrialDays').value='';
+      loadUserList();
+    }else showToast(d.error||'생성 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function sendAnnouncement(){
   const ta=document.getElementById('announceText');
   const message=ta.value.trim();
@@ -5046,6 +5109,66 @@ async function clearUserExpiryFromSearch(djIdTarget){
     if(d.success){showToast('무제한으로 해제했어요');loadUserList();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🛰️ 이벤트 뷰어 ── */
+let eventViewerBuffer=[];
+let eventViewerPaused=false;
+const EVENT_VIEWER_MAX=300;
+function pushEventViewerLog(d){
+  if(eventViewerPaused)return;
+  eventViewerBuffer.push(d);
+  if(eventViewerBuffer.length>EVENT_VIEWER_MAX) eventViewerBuffer.shift();
+  if(document.getElementById('evListWrap')) appendEventViewerRow(d);
+  const countEl=document.getElementById('evCount');
+  if(countEl) countEl.textContent=eventViewerBuffer.length;
+}
+function eventViewerMatchesFilter(d){
+  const djFilter=(document.getElementById('evDjIdFilter')?.value||'').trim().toLowerCase();
+  const nameFilter=(document.getElementById('evNameFilter')?.value||'').trim().toLowerCase();
+  if(djFilter && !(d.djId||'').toLowerCase().includes(djFilter)) return false;
+  if(nameFilter && !(d.eventName||'').toLowerCase().includes(nameFilter)) return false;
+  return true;
+}
+function appendEventViewerRow(d){
+  if(!eventViewerMatchesFilter(d))return;
+  const wrap=document.getElementById('evListWrap');
+  if(!wrap)return;
+  if(wrap.querySelector('.hint')) wrap.innerHTML=''; // "기다리는 중" 문구 제거
+  const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
+  const row=document.createElement('div');
+  row.style.cssText='border-bottom:1px solid var(--border);padding:6px 4px;cursor:pointer';
+  const time=new Date(d.ts||Date.now()).toLocaleTimeString('ko-KR',{hour12:false});
+  const preview=JSON.stringify(d.eventPayload||{}).slice(0,140);
+  row.innerHTML=`<div><span class="hint" style="margin:0">${time}</span> <b style="color:var(--accent)">[${escapeHtml(d.djId||'?')}]</b> <b>${escapeHtml(d.eventName||'?')}</b></div><div class="hint" style="margin:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(preview)}</div>`;
+  const full=document.createElement('pre');
+  full.style.cssText='display:none;white-space:pre-wrap;word-break:break-all;background:var(--bg);border-radius:8px;padding:8px;margin:6px 0 0;font-size:11.5px';
+  full.textContent=JSON.stringify(d.eventPayload||{},null,2);
+  row.appendChild(full);
+  row.onclick=()=>{ full.style.display = full.style.display==='none' ? 'block' : 'none'; };
+  wrap.appendChild(row);
+  while(wrap.children.length>EVENT_VIEWER_MAX) wrap.removeChild(wrap.firstChild);
+  if(document.getElementById('evAutoScroll')?.checked && atBottom) wrap.scrollTop=wrap.scrollHeight;
+}
+function renderEventViewerList(){
+  const wrap=document.getElementById('evListWrap');
+  if(!wrap)return;
+  wrap.innerHTML='';
+  const filtered=eventViewerBuffer.filter(eventViewerMatchesFilter);
+  if(!filtered.length){ wrap.innerHTML='<p class="hint">조건에 맞는 이벤트가 없어요.</p>'; return; }
+  filtered.forEach(d=>appendEventViewerRow(d));
+}
+function toggleEventViewerPause(){
+  eventViewerPaused=!eventViewerPaused;
+  const btn=document.getElementById('evPauseBtn');
+  if(btn) btn.textContent = eventViewerPaused ? '▶️ 재개' : '⏸️ 일시정지';
+}
+function clearEventViewerLog(){
+  eventViewerBuffer=[];
+  const wrap=document.getElementById('evListWrap');
+  if(wrap) wrap.innerHTML='<p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>';
+  const countEl=document.getElementById('evCount');
+  if(countEl) countEl.textContent='0';
 }
 
 async function loadStatusBannerAdmin(){
@@ -10813,7 +10936,7 @@ function startSSE(){
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
-    if(d.type!=='session' && d.djId && d.djId!==djId) return;
+    if(d.type!=='session' && d.type!=='raw_event' && d.djId && d.djId!==djId) return;
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
@@ -10837,6 +10960,7 @@ function startSSE(){
       showToast(d.page!=null?`🎡 채팅에서 돌림판 ${d.page+1}페이지를 요청했어요!`:'🎡 채팅에서 돌림판을 요청했어요!');
       if(d.page!=null && document.getElementById('wheelPageTabBar')) switchWheelPage(d.page,true);
     }
+    else if(d.type==='raw_event'){ if(typeof pushEventViewerLog==='function') pushEventViewerLog(d); }
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);

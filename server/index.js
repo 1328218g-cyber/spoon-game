@@ -11065,6 +11065,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
+      // 🛰️ 관리자 이벤트 뷰어용 — 스푼에서 오는 모든 원본 이벤트를 그대로 실시간 브로드캐스트한다.
+      // (다른 기능 개발/디버깅할 때 실제 이벤트 이름과 구조를 눈으로 바로 확인하기 위함)
+      broadcast({ type: 'raw_event', djId, eventName, eventPayload, ts: Date.now() })
 
       const settings = store.getSettings(djId) || {}
       const isLurker = settings.botEnabled === false
@@ -11206,6 +11209,28 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
         }
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
+
+      } else if (eventName === 'LiveFollow' || eventName === 'live_follow' || eventName === 'Follow' || eventName === 'FollowMessage') {
+        // 🤍 팔로우 — 정확한 원본 이벤트 구조를 아직 실측 전이라, 다른 봇 프레임워크 참고자료(evt.data.author)
+        // 기준으로 author/eventPayload.data.author/generator/최상위 순서로 폭넓게 시도한다.
+        const dataAuthor = eventPayload.data?.author || {}
+        const gen = eventPayload.generator || dataAuthor || {}
+        const author = gen.nickname || eventPayload.author?.nickname || eventPayload.nickname || '?'
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.author?.id != null ? Number(eventPayload.author.id)
+            : (eventPayload.userId != null ? Number(eventPayload.userId)
+              : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null)))
+        console.log(`[${djId}] 팔로우 이벤트 감지: author=${author} authorId=${authorId}`)
+        if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
+          const followTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
+          rememberTagNickname(room, followTag, author)
+          const fm = pickEntryMessage(settings.entryData, 'follow', author, followTag)
+          if (fm && fm.text && fm.text.trim()) {
+            const text = fm.text.replace(/{nickname}/g, author).replace(/{tag}/g, followTag ? `@${followTag}` : `@${author}`)
+            setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(fm.delay) || 0) * 1000 || 500)
+          }
+          if (fm && (fm.soundUrl || fm.soundData)) broadcast({ type: 'entrysound', djId, category: 'follow', id: fm.id })
+        }
 
       } else if (eventName === 'LiveItemUse' || eventName === 'live_item_use') {
         // 유료 아이템(좋아요 효과) — itemId로 광고하트(37)/플랜하트(510,511)/그 외 유료하트를 구분한다.
@@ -11539,7 +11564,7 @@ function migrateSoundDataToFiles() {
     }
 
     if (settings.entryData) {
-      ['entry', 'leave', 'like', 'gift', 'repeat'].forEach(cat => {
+      ['entry', 'leave', 'like', 'gift', 'follow', 'repeat'].forEach(cat => {
         (settings.entryData[cat] || []).forEach(migrateItem)
       })
     }
@@ -11551,6 +11576,23 @@ function migrateSoundDataToFiles() {
     console.log(`[음원 마이그레이션] 완료 — ${migratedCount}개 파일을 djs.json 밖으로 옮겼어요 (총 ${(bytesFreed / 1024 / 1024).toFixed(2)}MB 절약)`)
   }
 }
+
+// 👤 관리자 전용 — 수동으로 계정 생성 (일반 회원가입과 같은 로직이지만, 중복가입 IP/기기 체크는 건너뛴다)
+app.post('/admin/create-account', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { djId, password, djTag, email, trialDays } = req.body || {}
+  const result = store.signup(djId, password, djTag, email, req.ip, null, true)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  // 관리자가 이용기간을 직접 지정했으면(빈 값이면 기본 정책 그대로 둠) 바로 반영한다.
+  if (trialDays !== undefined && trialDays !== null && String(trialDays).trim() !== '') {
+    const days = Number(trialDays)
+    if (!isNaN(days)) {
+      const expiresAt = days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null
+      store.saveSettings(String(djId).trim(), { expiresAt })
+    }
+  }
+  res.json({ success: true, msg: `계정 "${djId}" 생성 완료` })
+})
 
 app.post('/auth/signup', (req, res) => {
   const { djId, password, djTag, email, deviceId } = req.body || {}
