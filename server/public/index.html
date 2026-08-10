@@ -901,9 +901,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="eventviewer">
         <div class="card">
           <div class="card-title"><span>🛰️ 실시간 이벤트 뷰어</span></div>
-          <p class="hint" style="margin-bottom:12px">스푼에서 들어오는 모든 원본 이벤트를 실시간으로 그대로 보여줘요. 새 기능 만들 때 실제 이벤트 이름/구조를 눈으로 바로 확인할 수 있어요.</p>
+          <p class="hint" style="margin-bottom:12px">스푼에서 들어오는 모든 원본 이벤트를 실시간으로 그대로 보여줘요. 새 기능 만들 때 실제 이벤트 이름/구조를 눈으로 바로 확인할 수 있어요. (지금 로그인한 계정이 접속 중인 방의 이벤트만 보여요)</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <input type="text" id="evDjIdFilter" placeholder="djId 필터 (비우면 전체, 예: sum1)" style="max-width:220px" oninput="renderEventViewerList()">
             <input type="text" id="evNameFilter" placeholder="이벤트명 필터 (예: Donation)" style="max-width:220px" oninput="renderEventViewerList()">
             <button class="btn-connect" id="evPauseBtn" style="padding:9px 16px" onclick="toggleEventViewerPause()">⏸️ 일시정지</button>
             <button class="btn-gray" style="padding:9px 16px" onclick="clearEventViewerLog()">🗑️ 지우기</button>
@@ -1983,8 +1982,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 💎 구독자 플랜 지급 -->
       <div class="panel" data-panel="plansub">
         <div class="card">
-          <div class="card-title"><span>💎 구독자 플랜 월간 지급 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePlanSubSettings()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">구독자(플랜 가입자)가 채팅을 치면, 이번 달에 아직 못 받았을 경우 자동으로 보상을 지급해요. 등록 절차 없이 채팅 한 번이면 되고, 이미 이번 달에 받은 사람은 다음 달까지 다시 안 나가요.</p>
+          <div class="card-title"><span>💎 구독자 플랜 월간 지급 — 기본값</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePlanSubSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">구독자(플랜 가입자)가 채팅을 치면, 이번 달에 아직 못 받았을 경우 자동으로 보상을 지급해요. 등록 절차 없이 채팅 한 번이면 되고, 이미 이번 달에 받은 사람은 다음 달까지 다시 안 나가요.<br>아래 "플랜 등급별 차등 지급"에 등록 안 된 등급(또는 등급 정보를 못 받은 경우)은 이 기본값이 적용돼요.</p>
           <label>지급 종류</label>
           <select id="planSubRewardType" onchange="renderPlanSubRewardFields()">
             <option value="lotto">🎟️ 복권 (애청지수)</option>
@@ -1999,6 +1998,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label style="margin-top:10px">지급 안내 메시지</label>
           <textarea id="planSubMessage" placeholder="💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요." style="height:70px"></textarea>
           <div class="hint" style="margin-top:6px">사용 가능 변수: {nickname}, {보상}</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🏷️ 플랜 등급별 차등 지급</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addPlanSubLevelRow()">+ 등급 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">스푼에서 오는 플랜 등급값(예: 1, 2, BASIC 등)마다 다른 보상을 줄 수 있어요. 실제로 어떤 값이 오는지 모르면, 구독자가 채팅 칠 때 "🛰️ 이벤트 뷰어"에서 <code>userPlanLevel</code> 값을 확인해보세요. 메시지 비워두면 위 기본 안내 메시지를 그대로 써요.</p>
+          <div id="planSubLevelsWrap" style="display:flex;flex-direction:column;gap:10px"></div>
         </div>
         <div class="card">
           <div class="card-title"><span>📋 이번 달(<span id="planSubThisMonth"></span>) 지급 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadPlanSubData()">🔄 새로고침</button></div>
@@ -7113,9 +7117,39 @@ async function deleteMemo2Item(id){
 }
 
 /* ── 💎 구독자 플랜 지급 ── */
+let planSubLevels=[];
 function renderPlanSubRewardFields(){
   const type=document.getElementById('planSubRewardType').value;
   document.getElementById('planSubRouletteIdxWrap').style.display = type==='roulette' ? '' : 'none';
+}
+function renderPlanSubLevelRows(){
+  const wrap=document.getElementById('planSubLevelsWrap');
+  if(!wrap)return;
+  if(!planSubLevels.length){ wrap.innerHTML='<p class="hint">등록된 등급별 설정이 없어요. 구독자가 채팅 치면 자동으로 여기 등급이 생기고, "+ 등급 추가"로 직접 만들 수도 있어요.</p>'; return; }
+  wrap.innerHTML=planSubLevels.map((r,i)=>`
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center">
+        <input type="text" value="${escapeAttr(r.level)}" placeholder="등급값 (예: 10)" oninput="planSubLevels[${i}].level=this.value">
+        <input type="text" value="${escapeAttr(r.label||'')}" placeholder="이름 (예: 구독자플랜1)" oninput="planSubLevels[${i}].label=this.value">
+        <select onchange="planSubLevels[${i}].rewardType=this.value;renderPlanSubLevelRows()">
+          <option value="lotto" ${r.rewardType==='lotto'?'selected':''}>🎟️ 복권</option>
+          <option value="roulette" ${r.rewardType==='roulette'?'selected':''}>🎡 룰렛권</option>
+        </select>
+        ${r.rewardType==='roulette'?`<input type="number" min="1" value="${r.rouletteIdx}" placeholder="몇 번 룰렛" oninput="planSubLevels[${i}].rouletteIdx=Number(this.value)">`:'<div></div>'}
+        <input type="number" min="1" value="${r.amount}" placeholder="수량" oninput="planSubLevels[${i}].amount=Number(this.value)">
+        <button class="icon-btn danger" onclick="removePlanSubLevelRow(${i})" title="삭제">🗑</button>
+      </div>
+      <input type="text" value="${escapeAttr(r.message||'')}" placeholder="이 등급 전용 안내 메시지 (비우면 기본 메시지 사용, {플랜} 변수로 이름 쓸 수 있어요)" style="margin-top:8px" oninput="planSubLevels[${i}].message=this.value">
+    </div>
+  `).join('');
+}
+function addPlanSubLevelRow(){
+  planSubLevels.push({level:'',label:'',rewardType:'lotto',rouletteIdx:1,amount:1,message:''});
+  renderPlanSubLevelRows();
+}
+function removePlanSubLevelRow(i){
+  planSubLevels.splice(i,1);
+  renderPlanSubLevelRows();
 }
 async function loadPlanSubData(){
   try{
@@ -7128,12 +7162,14 @@ async function loadPlanSubData(){
     document.getElementById('planSubMessage').value=d.settings.message||'';
     document.getElementById('planSubThisMonth').textContent=d.thisMonth||'';
     renderPlanSubRewardFields();
+    planSubLevels=(d.settings.levelRewards||[]).map(r=>({...r}));
+    renderPlanSubLevelRows();
     const wrap=document.getElementById('planSubListWrap');
     const thisMonthGrants=(d.grants||[]).filter(g=>g.month===d.thisMonth);
     if(!thisMonthGrants.length){ wrap.innerHTML='<p class="hint">이번 달 지급된 사람이 아직 없어요.</p>'; return; }
     wrap.innerHTML=thisMonthGrants.map(g=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div><b>${escapeHtml(g.nickname||'')}</b> <span class="hint" style="margin:0">@${escapeHtml(g.tag)}</span></div>
+        <div><b>${escapeHtml(g.nickname||'')}</b> <span class="hint" style="margin:0">@${escapeHtml(g.tag)}${g.label?' · '+escapeHtml(g.label):(g.level?' · 등급 '+escapeHtml(String(g.level)):'')}</span></div>
         <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetPlanSubGrant('${escapeAttr(g.tag)}')">이번 달 기록 초기화</button>
       </div>
     `).join('');
@@ -7145,6 +7181,7 @@ async function savePlanSubSettings(){
     rouletteIdx:document.getElementById('planSubRouletteIdx').value,
     amount:document.getElementById('planSubAmount').value,
     message:document.getElementById('planSubMessage').value,
+    levelRewards:planSubLevels,
   };
   try{
     const res=await fetch(SERVER+'/plansub/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
@@ -11122,7 +11159,7 @@ function startSSE(){
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
-    if(d.type!=='session' && d.type!=='raw_event' && d.djId && d.djId!==djId) return;
+    if(d.type!=='session' && d.djId && d.djId!==djId) return;
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
