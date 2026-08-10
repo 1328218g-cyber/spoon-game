@@ -1364,7 +1364,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 
   const delay = announce ? 900 : 400
   if (count > 0) {
-    setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급: 현재 접속 중인 ${count}명에게 ${amount}장씩 지급했어요! (누적 ${cfg.runCount}회)`), delay)
+    setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급: 현재 접속 중인 ${count}명에게 ${amount}장씩 지급했어요!`), delay)
   } else {
     setTimeout(() => sendChatToRoom(djId, `🎟️ 자동 복권 지급을 시도했지만, 애청지수에 등록되어 있으면서 지금 접속 중인 유저가 없었어요.`), delay)
   }
@@ -1684,19 +1684,25 @@ async function handleMemo2Command(djId, room, settings, author, authorId, text, 
 function getPlanSubSettings(djId, settings) {
   if (!settings.planSub) {
     settings.planSub = {
+      // 기본값 — 아래 levelRewards에 매칭되는 등급이 없을 때(또는 등급 정보를 못 받았을 때) 사용
       rewardType: 'lotto', // 'lotto'(복권) | 'roulette'(룰렛권)
       rouletteIdx: 1,       // rewardType이 roulette일 때 몇 번 룰렛권을 줄지
       amount: 1,
       message: '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.',
+      // 플랜 등급(userPlanLevel)별로 다르게 주고 싶을 때 등록. level 값은 스푼에서 오는 그대로
+      // 문자/숫자를 적으면 되고(예: "1","2","BASIC" 등 — 실제 뭐가 오는지는 이벤트 뷰어로 확인),
+      // 여기 등록 안 된 등급은 그냥 위 기본값이 적용된다.
+      levelRewards: [], // [{ level:'1', rewardType:'lotto', rouletteIdx:1, amount:1, message:'' }]
       grants: {}, // { [고유닉]: { month: 'YYYY-MM', nickname } }
     }
     store.saveSettings(djId, { planSub: settings.planSub })
   }
   if (!settings.planSub.grants) settings.planSub.grants = {}
+  if (!settings.planSub.levelRewards) settings.planSub.levelRewards = []
   return settings.planSub
 }
 
-function handlePlanSubHook(djId, settings, author, tag, isSubscribe) {
+function handlePlanSubHook(djId, settings, author, tag, isSubscribe, userPlanLevel) {
   if (!isSubscribe) return // 구독자 아니면 상관없음
   if (!isModuleOn(settings, 'plansub', djId)) return
   if (!tag) return // ⚠️ 무조건 고유닉 기반 — 고유닉 없으면 절대 지급/기록 안 함 (닉네임 키 생성 금지)
@@ -1706,28 +1712,50 @@ function handlePlanSubHook(djId, settings, author, tag, isSubscribe) {
   const already = cfg.grants[key]
   if (already && already.month === month) return // 이번 달에 이미 지급함
 
+  // 플랜 등급(userPlanLevel)에 맞는 개별 설정이 있으면 그걸 쓰고, 없으면 기본값을 쓴다.
+  const levelStr = userPlanLevel != null ? String(userPlanLevel) : null
+  let levelCfg = levelStr ? (cfg.levelRewards || []).find(r => String(r.level) === levelStr) : null
+  // 🆕 처음 보는 등급이면, 수동으로 미리 등록 안 해놔도 자동으로 "구독자플랜N" 이름을 붙여서 만들어준다.
+  // (10/20/30처럼 10 단위로 오는 걸 1/2/3단계로 자동 환산 — 나중에 DJ가 설정 화면에서 이름/보상 직접 조정 가능)
+  if (levelStr && !levelCfg) {
+    const num = Number(userPlanLevel)
+    const planNo = (!isNaN(num) && num > 0 && num % 10 === 0) ? (num / 10) : userPlanLevel
+    levelCfg = {
+      level: levelStr,
+      label: `구독자플랜${planNo}`,
+      rewardType: cfg.rewardType,
+      rouletteIdx: cfg.rouletteIdx,
+      amount: cfg.amount,
+      message: '',
+    }
+    if (!cfg.levelRewards) cfg.levelRewards = []
+    cfg.levelRewards.push(levelCfg)
+    console.log(`[구독자플랜] 새 등급 자동 등록: level=${levelStr} → "${levelCfg.label}" (기본값으로 시작, 설정 화면에서 조정 가능)`)
+  }
+  const rule = levelCfg || cfg
+
   let rewardLabel = ''
-  if (cfg.rewardType === 'roulette') {
+  if (rule.rewardType === 'roulette') {
     const rec = getHistoryRecByIdentity(settings, tag, author)
     if (!rec) return // 이 순간 고유닉 기록 조회 자체가 실패하면(극히 드묾) 그냥 넘어가고 다음 채팅 때 재시도됨
-    const idx = Number(cfg.rouletteIdx) || 1
-    rec.coupons[idx] = Number(rec.coupons[idx] || 0) + (Number(cfg.amount) || 1)
+    const idx = Number(rule.rouletteIdx) || 1
+    rec.coupons[idx] = Number(rec.coupons[idx] || 0) + (Number(rule.amount) || 1)
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-    rewardLabel = `룰렛${idx}권 ${Number(cfg.amount) || 1}장`
+    rewardLabel = `룰렛${idx}권 ${Number(rule.amount) || 1}장`
   } else {
     const act = getActivitySettings(djId, settings)
     const existingKey = actResolveKey(act, author, tag) || key
     const d = actEnsureUser(act, existingKey, author, tag)
-    d.lotto = Math.max(0, (d.lotto || 0) + (Number(cfg.amount) || 1))
+    d.lotto = Math.max(0, (d.lotto || 0) + (Number(rule.amount) || 1))
     store.saveSettings(djId, { activity: act })
-    rewardLabel = `복권 ${Number(cfg.amount) || 1}장`
+    rewardLabel = `복권 ${Number(rule.amount) || 1}장`
   }
 
-  cfg.grants[key] = { month, nickname: author }
+  cfg.grants[key] = { month, nickname: author, level: levelStr, label: rule.label || null }
   store.saveSettings(djId, { planSub: cfg })
 
-  const text = (cfg.message || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.')
-    .replace(/{nickname}/g, author).replace(/{보상}/g, rewardLabel)
+  const text = (rule.message || cfg.message || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.')
+    .replace(/{nickname}/g, author).replace(/{보상}/g, rewardLabel).replace(/{플랜}/g, rule.label || '')
   setTimeout(() => sendChatToRoom(djId, text), 500)
 }
 
@@ -11255,6 +11283,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
         const isVip = !!(gen.is_vip || gen.vip || gen.isVip || (gen.fan_level && Number(gen.fan_level) > 0))
         const isSubscribe = !!gen.subscribeToDj // ✅ 실제 이벤트로 확인된 정확한 필드명
+        const userPlanLevel = gen.userPlanLevel != null ? gen.userPlanLevel : null // 플랜 등급 (구독자 등급별 차등 지급에 사용)
 
         broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible, isDj, isManager, isVip, isSubscribe })
         if (!isLurker) {
@@ -11282,7 +11311,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
-          handlePlanSubHook(djId, settings, author, actTag, isSubscribe)
+          handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
@@ -12593,18 +12622,28 @@ app.post('/memo2/delete', auth.requireAuth, (req, res) => {
 app.get('/plansub/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const cfg = getPlanSubSettings(req.djId, settings)
-  const grantsList = Object.entries(cfg.grants || {}).map(([tag, v]) => ({ tag, nickname: v.nickname, month: v.month })).sort((a, b) => (a.month < b.month ? 1 : -1))
-  res.json({ success: true, settings: { rewardType: cfg.rewardType, rouletteIdx: cfg.rouletteIdx, amount: cfg.amount, message: cfg.message }, grants: grantsList, thisMonth: thisMonthKST() })
+  const grantsList = Object.entries(cfg.grants || {}).map(([tag, v]) => ({ tag, nickname: v.nickname, month: v.month, level: v.level || null, label: v.label || null })).sort((a, b) => (a.month < b.month ? 1 : -1))
+  res.json({ success: true, settings: { rewardType: cfg.rewardType, rouletteIdx: cfg.rouletteIdx, amount: cfg.amount, message: cfg.message, levelRewards: cfg.levelRewards || [] }, grants: grantsList, thisMonth: thisMonthKST() })
 })
 app.post('/plansub/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'plansub', req.djId)) return res.json({ success: false, error: '구독자 플랜 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getPlanSubSettings(req.djId, settings)
-  const { rewardType, rouletteIdx, amount, message } = req.body || {}
+  const { rewardType, rouletteIdx, amount, message, levelRewards } = req.body || {}
   if (rewardType === 'lotto' || rewardType === 'roulette') cfg.rewardType = rewardType
   if (rouletteIdx != null) cfg.rouletteIdx = Math.max(1, parseInt(rouletteIdx, 10) || 1)
   if (amount != null) cfg.amount = Math.max(1, parseInt(amount, 10) || 1)
   if (message != null) cfg.message = String(message).trim() || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.'
+  if (Array.isArray(levelRewards)) {
+    cfg.levelRewards = levelRewards.map(r => ({
+      level: String(r.level || '').trim().slice(0, 30),
+      label: String(r.label || '').trim().slice(0, 30) || null,
+      rewardType: r.rewardType === 'roulette' ? 'roulette' : 'lotto',
+      rouletteIdx: Math.max(1, parseInt(r.rouletteIdx, 10) || 1),
+      amount: Math.max(1, parseInt(r.amount, 10) || 1),
+      message: String(r.message || '').trim(),
+    })).filter(r => r.level)
+  }
   store.saveSettings(req.djId, { planSub: cfg })
   res.json({ success: true })
 })
