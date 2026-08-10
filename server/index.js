@@ -361,7 +361,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1842,6 +1842,154 @@ function handleVipTierCommand(djId, settings, author, tag, text) {
   const rec = tag ? cfg.users[String(tag).trim().toLowerCase()] : null
   if (!rec) { setTimeout(() => sendChatToRoom(djId, `🌟 ${author}님의 등급 정보를 아직 확인 중이에요. 채팅 한 번 더 남겨주세요!`), 400); return }
   setTimeout(() => sendChatToRoom(djId, `🌟 ${author}님의 등급은 [${rec.tier}] 입니다! (점수: ${rec.score}점)`), 400)
+}
+
+// 💰 매니저 토큰(매토) — DJ가 매니저들의 점수(토큰)를 번호로 관리하는 시스템.
+// 무조건 고유닉 기반: 매니저는 DJ가 직접 고유닉을 입력해서 등록/삭제하므로 API 조회가 필요 없다.
+// 권한: DJ, 이미 등록된 매니저(managers 목록에 있는 사람), 그리고 관리자 계정(고유닉 sum)만
+// 관리 명령어를 쓸 수 있다. 일반 시청자는 !매토, !설명서만 사용 가능.
+function getManagerTokenSettings(djId, settings) {
+  if (!settings.managerToken) {
+    settings.managerToken = {
+      title: '💰=====매니저 토큰=====💰',
+      content1: '',
+      content2: '',
+      managers: [], // [{ tag, nickname, score }]
+    }
+    store.saveSettings(djId, { managerToken: settings.managerToken })
+  }
+  if (!settings.managerToken.managers) settings.managerToken.managers = []
+  return settings.managerToken
+}
+
+function managerTokenHasPermission(cfg, room, authorId, tag) {
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (isDj) return true
+  if (tag && String(tag).trim().toLowerCase() === 'sum') return true
+  if (tag && cfg.managers.some(m => String(m.tag).toLowerCase() === String(tag).trim().toLowerCase())) return true
+  return false
+}
+
+function formatManagerTokenList(cfg) {
+  const lines = []
+  if (cfg.title) lines.push(cfg.title)
+  if (cfg.content1) lines.push(cfg.content1)
+  if (cfg.content2) lines.push(cfg.content2)
+  if (!cfg.managers.length) {
+    lines.push('등록된 매니저가 없어요.')
+  } else {
+    cfg.managers.forEach((m, i) => lines.push(`${i + 1}. ${m.nickname} - ${m.score}점`))
+  }
+  return lines.join('\n')
+}
+
+const MANAGER_TOKEN_HELP = [
+  '📖 매토 명령어 설명서',
+  '── 누구나 사용 가능 ──',
+  '!매토 : 등록된 매니저와 점수 확인',
+  '!설명서 : 이 안내 다시 보기',
+  '── DJ/매니저 전용 ──',
+  '!추가/매니저 [고유닉] (닉네임) : 매니저 추가',
+  '!삭제/매니저 [고유닉] : 매니저 삭제',
+  '!적립 [번호] [점수] : 점수 적립/차감 (마이너스 가능)',
+  '!제목 [내용] : 목록 제목 변경',
+  '!내용1 [내용] : 안내문구1 변경',
+  '!내용2 [내용] : 안내문구2 변경',
+].join('\n')
+
+function handleManagerTokenCommand(djId, room, settings, author, authorId, tag, text) {
+  if (!isModuleOn(settings, 'managertoken', djId)) return
+  const cfg = getManagerTokenSettings(djId, settings)
+  const msg = String(text || '').trim()
+
+  if (msg === '!매토') {
+    sendChatSplit(djId, formatManagerTokenList(cfg), 150, 600)
+    return
+  }
+  if (msg === '!설명서') {
+    sendChatSplit(djId, MANAGER_TOKEN_HELP, 150, 600)
+    return
+  }
+
+  // 아래부터는 DJ/매니저/관리자(sum)만 사용 가능
+  const isAddManager = msg.startsWith('!추가/매니저 ')
+  const isRemoveManager = msg.startsWith('!삭제/매니저 ')
+  const isDeposit = msg.startsWith('!적립 ')
+  const isTitle = msg.startsWith('!제목 ')
+  const isContent1 = msg.startsWith('!내용1 ')
+  const isContent2 = msg.startsWith('!내용2 ')
+  if (!isAddManager && !isRemoveManager && !isDeposit && !isTitle && !isContent1 && !isContent2) return
+
+  if (!managerTokenHasPermission(cfg, room, authorId, tag)) {
+    setTimeout(() => sendChatToRoom(djId, '⚠️ 매토 관리 명령어는 DJ/매니저만 사용할 수 있어요.'), 400)
+    return
+  }
+
+  if (isAddManager) {
+    const rest = msg.slice('!추가/매니저 '.length).trim().split(/\s+/)
+    const newTag = (rest[0] || '').replace('@', '').trim()
+    const nickname = rest.slice(1).join(' ').trim() || newTag
+    if (!newTag) { setTimeout(() => sendChatToRoom(djId, '⚠️ 사용법: !추가/매니저 [고유닉] (닉네임)'), 400); return }
+    if (cfg.managers.some(m => String(m.tag).toLowerCase() === newTag.toLowerCase())) {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ 이미 등록된 매니저예요. (@${newTag})`), 400)
+      return
+    }
+    cfg.managers.push({ tag: newTag, nickname, score: 0 })
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, `✅ 매니저 추가 완료: ${nickname} (@${newTag})`), 400)
+    setTimeout(() => sendChatSplit(djId, formatManagerTokenList(cfg), 150, 600), 900)
+    return
+  }
+
+  if (isRemoveManager) {
+    const targetTag = msg.slice('!삭제/매니저 '.length).trim().replace('@', '')
+    if (!targetTag) { setTimeout(() => sendChatToRoom(djId, '⚠️ 사용법: !삭제/매니저 [고유닉]'), 400); return }
+    const before = cfg.managers.length
+    cfg.managers = cfg.managers.filter(m => String(m.tag).toLowerCase() !== targetTag.toLowerCase())
+    if (cfg.managers.length === before) {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ 등록되지 않은 고유닉이에요. (@${targetTag})`), 400)
+      return
+    }
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, `🗑️ 매니저 삭제 완료: @${targetTag}`), 400)
+    setTimeout(() => sendChatSplit(djId, formatManagerTokenList(cfg), 150, 600), 900)
+    return
+  }
+
+  if (isDeposit) {
+    const parts = msg.slice('!적립 '.length).trim().split(/\s+/)
+    const idx = parseInt(parts[0], 10)
+    const scoreDelta = parseInt(parts[1], 10)
+    if (!idx || idx < 1 || idx > cfg.managers.length || isNaN(scoreDelta)) {
+      setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: !적립 [번호] [점수] (예: !적립 1 100)`), 400)
+      return
+    }
+    const m = cfg.managers[idx - 1]
+    m.score = (m.score || 0) + scoreDelta
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, `${scoreDelta >= 0 ? '✅' : '➖'} ${m.nickname}님 ${scoreDelta >= 0 ? '+' : ''}${scoreDelta}점 (현재 ${m.score}점)`), 400)
+    setTimeout(() => sendChatSplit(djId, formatManagerTokenList(cfg), 150, 600), 900)
+    return
+  }
+
+  if (isTitle) {
+    cfg.title = msg.slice('!제목 '.length).trim()
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, '✅ 제목이 변경됐어요.'), 400)
+    return
+  }
+  if (isContent1) {
+    cfg.content1 = msg.slice('!내용1 '.length).trim()
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, '✅ 안내문구1이 변경됐어요.'), 400)
+    return
+  }
+  if (isContent2) {
+    cfg.content2 = msg.slice('!내용2 '.length).trim()
+    store.saveSettings(djId, { managerToken: cfg })
+    setTimeout(() => sendChatToRoom(djId, '✅ 안내문구2가 변경됐어요.'), 400)
+    return
+  }
 }
 
 function getDdaySettings(djId, settings) {
@@ -11314,6 +11462,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
+          handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -12692,6 +12841,54 @@ app.post('/viptier/settings', auth.requireAuth, (req, res) => {
   }
   store.saveSettings(req.djId, { vipTier: cfg })
   res.json({ success: true })
+})
+
+// 💰 매니저 토큰(매토)
+app.get('/managertoken/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+app.post('/managertoken/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'managertoken', req.djId)) return res.json({ success: false, error: '매니저 토큰 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const { title, content1, content2 } = req.body || {}
+  if (title != null) cfg.title = String(title).trim()
+  if (content1 != null) cfg.content1 = String(content1).trim()
+  if (content2 != null) cfg.content2 = String(content2).trim()
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true })
+})
+app.post('/managertoken/manager/add', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  const nickname = String((req.body || {}).nickname || '').trim() || tag
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  if (cfg.managers.some(m => String(m.tag).toLowerCase() === tag.toLowerCase())) return res.json({ success: false, error: '이미 등록된 매니저예요' })
+  cfg.managers.push({ tag, nickname, score: 0 })
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
+})
+app.post('/managertoken/manager/remove', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  cfg.managers = cfg.managers.filter(m => String(m.tag).toLowerCase() !== tag.toLowerCase())
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
+})
+app.post('/managertoken/manager/score', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  const delta = parseInt((req.body || {}).delta, 10) || 0
+  const m = cfg.managers.find(x => String(x.tag).toLowerCase() === tag.toLowerCase())
+  if (!m) return res.json({ success: false, error: '등록되지 않은 매니저예요' })
+  m.score = (m.score || 0) + delta
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
 })
 
 // 📅 디데이
