@@ -68,12 +68,20 @@ async function fetchBackupFromBase44(djId) {
   return { found: true, timestamp: rec.timestamp || body.timestamp || null, data: parsed, raw: body }
 }
 async function backupOneDjToBase44(djId, djRecord) {
+  const bodyStr = JSON.stringify({ timestamp: new Date().toISOString(), djId, data: JSON.stringify(djRecord) })
   const res = await fetch(BASE44_BACKUP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': BASE44_BACKUP_KEY },
-    body: JSON.stringify({ timestamp: new Date().toISOString(), djId, data: JSON.stringify(djRecord) }),
+    body: bodyStr,
   })
-  return res
+  const sizeBytes = Buffer.byteLength(bodyStr, 'utf-8')
+  if (!res.ok) {
+    // ⚠️ 진단용 — 실패하면 보낸 데이터 크기랑 Base44가 돌려준 실제 에러 본문을 로그 + 반환값 둘 다에 남긴다.
+    const errText = await res.text().catch(() => '(응답 본문 읽기 실패)')
+    console.log(`[Base44 백업 실패 상세] djId=${djId} 요청크기=${sizeBytes}바이트 status=${res.status} 응답본문:`, errText.slice(0, 500))
+    return { ok: false, status: res.status, sizeBytes, errText: errText.slice(0, 500) }
+  }
+  return { ok: true, status: res.status, sizeBytes }
 }
 async function backupToBase44() {
   const snapshot = store.getRawSnapshot()
@@ -12053,7 +12061,7 @@ app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
       try {
         const r = await backupOneDjToBase44(id, snapshot[id])
         if (r.ok) okCount++
-        else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status}` }
+        else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status} (${r.sizeBytes}바이트) - ${r.errText || ''}` }
       } catch (e) {
         failCount++
         if (!firstErrorText) firstErrorText = `${id}: ${e.message}`
@@ -12103,7 +12111,7 @@ app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
     const record = store.getDjRecord(req.djId)
     if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
     const r = await backupOneDjToBase44(req.djId, record)
-    if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status}` })
+    if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status} (요청크기 ${r.sizeBytes}바이트)`, detail: r.errText })
     res.json({ success: true })
   } catch (e) {
     res.json({ success: false, error: e.message })

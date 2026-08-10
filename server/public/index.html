@@ -11214,7 +11214,7 @@ async function myBackupNow(){
   try{
     const res=await fetch(SERVER+'/mydata/backup',{method:'POST',headers:authHeaders()});
     const d=await res.json();
-    box.textContent = d.success ? '✅ 백업 완료!' : '❌ '+(d.error||'백업 실패');
+    box.textContent = d.success ? '✅ 백업 완료!' : '❌ '+(d.error||'백업 실패')+(d.detail?' — '+d.detail:'');
   }catch(e){box.textContent='오류: '+e.message;}
 }
 let myRestorePreviewed=false;
