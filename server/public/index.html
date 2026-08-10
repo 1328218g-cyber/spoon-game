@@ -628,6 +628,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="memo2"><span class="ic">📝</span><span class="lbl">메모2</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="plansub"><span class="ic">💎</span><span class="lbl">구독자 플랜 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1975,6 +1976,32 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>📋 등록된 메모</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadMemo2Data()">🔄 새로고침</button></div>
           <div id="memo2ListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <!-- 💎 구독자 플랜 지급 -->
+      <div class="panel" data-panel="plansub">
+        <div class="card">
+          <div class="card-title"><span>💎 구독자 플랜 월간 지급 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePlanSubSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">구독자(플랜 가입자)가 채팅을 치면, 이번 달에 아직 못 받았을 경우 자동으로 보상을 지급해요. 등록 절차 없이 채팅 한 번이면 되고, 이미 이번 달에 받은 사람은 다음 달까지 다시 안 나가요.</p>
+          <label>지급 종류</label>
+          <select id="planSubRewardType" onchange="renderPlanSubRewardFields()">
+            <option value="lotto">🎟️ 복권 (애청지수)</option>
+            <option value="roulette">🎡 룰렛권</option>
+          </select>
+          <div id="planSubRouletteIdxWrap" style="display:none;margin-top:10px">
+            <label>몇 번 룰렛권을 줄지</label>
+            <input type="number" id="planSubRouletteIdx" min="1" value="1" style="max-width:120px">
+          </div>
+          <label style="margin-top:10px">지급 수량</label>
+          <input type="number" id="planSubAmount" min="1" value="1" style="max-width:120px">
+          <label style="margin-top:10px">지급 안내 메시지</label>
+          <textarea id="planSubMessage" placeholder="💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요." style="height:70px"></textarea>
+          <div class="hint" style="margin-top:6px">사용 가능 변수: {nickname}, {보상}</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📋 이번 달(<span id="planSubThisMonth"></span>) 지급 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadPlanSubData()">🔄 새로고침</button></div>
+          <div id="planSubListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -3778,6 +3805,7 @@ const PANEL_META={
   dday:['📅 디데이','기념일/이벤트 날짜를 등록해두고 D-Day를 자동으로 계산해줍니다'],
   saju:['🔮 사주팔자','생년월일(시)을 입력하면 진짜 만세력 계산으로 사주팔자를 봐줍니다'],
   memo2:['📝 메모2','채팅으로 메모를 남기고 조회합니다 (DJ/매니저 전용 작성)'],
+  plansub:['💎 구독자 플랜 지급','이번 달 구독자에게 자동으로 복권/룰렛권을 매달 지급합니다'],
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
@@ -3902,7 +3930,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -3914,7 +3942,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4914,6 +4942,7 @@ async function loadDjSettings(){
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
+      if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
@@ -7046,6 +7075,56 @@ async function deleteMemo2Item(id){
     await fetch(SERVER+'/memo2/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
     showToast('삭제했어요');
     loadMemo2Data();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 💎 구독자 플랜 지급 ── */
+function renderPlanSubRewardFields(){
+  const type=document.getElementById('planSubRewardType').value;
+  document.getElementById('planSubRouletteIdxWrap').style.display = type==='roulette' ? '' : 'none';
+}
+async function loadPlanSubData(){
+  try{
+    const res=await fetch(SERVER+'/plansub/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('planSubRewardType').value=d.settings.rewardType||'lotto';
+    document.getElementById('planSubRouletteIdx').value=d.settings.rouletteIdx||1;
+    document.getElementById('planSubAmount').value=d.settings.amount||1;
+    document.getElementById('planSubMessage').value=d.settings.message||'';
+    document.getElementById('planSubThisMonth').textContent=d.thisMonth||'';
+    renderPlanSubRewardFields();
+    const wrap=document.getElementById('planSubListWrap');
+    const thisMonthGrants=(d.grants||[]).filter(g=>g.month===d.thisMonth);
+    if(!thisMonthGrants.length){ wrap.innerHTML='<p class="hint">이번 달 지급된 사람이 아직 없어요.</p>'; return; }
+    wrap.innerHTML=thisMonthGrants.map(g=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><b>${escapeHtml(g.nickname||'')}</b> <span class="hint" style="margin:0">@${escapeHtml(g.tag)}</span></div>
+        <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="resetPlanSubGrant('${escapeAttr(g.tag)}')">이번 달 기록 초기화</button>
+      </div>
+    `).join('');
+  }catch(e){}
+}
+async function savePlanSubSettings(){
+  const body={
+    rewardType:document.getElementById('planSubRewardType').value,
+    rouletteIdx:document.getElementById('planSubRouletteIdx').value,
+    amount:document.getElementById('planSubAmount').value,
+    message:document.getElementById('planSubMessage').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/plansub/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadPlanSubData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function resetPlanSubGrant(tag){
+  if(!confirm(tag+' 님의 이번 달 지급 기록을 초기화할까요? (다음 채팅 때 다시 지급돼요)'))return;
+  try{
+    await fetch(SERVER+'/plansub/reset-grant',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
+    showToast('초기화했어요');
+    loadPlanSubData();
   }catch(e){showToast('오류: '+e.message);}
 }
 

@@ -361,7 +361,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1675,6 +1675,60 @@ async function handleMemo2Command(djId, room, settings, author, authorId, text, 
   setTimeout(() => sendChatToRoom(djId, `📝 메모가 등록됐어요. (${cfg.items.length}번째)`), 400)
 }
 
+// 💎 구독자 플랜 월간 지급 — 채팅 이벤트에 실시간으로 딸려오는 generator.subscribeToDj(구독자 여부)를
+// 그 순간 바로 확인해서, 이번 달에 아직 못 받은 구독자면 자동으로 복권/룰렛권을 지급한다.
+// 별도 등록 절차가 필요 없고(고유닉 조회만 되면 끝), "이번 달에 받았는지"만 고유닉 기준으로 기록해둔다.
+// (7월에 받았으면 8월에 다시 받을 수 있는 구조 — grants[tag]에 마지막으로 받은 월(YYYY-MM)만 저장)
+function getPlanSubSettings(djId, settings) {
+  if (!settings.planSub) {
+    settings.planSub = {
+      rewardType: 'lotto', // 'lotto'(복권) | 'roulette'(룰렛권)
+      rouletteIdx: 1,       // rewardType이 roulette일 때 몇 번 룰렛권을 줄지
+      amount: 1,
+      message: '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.',
+      grants: {}, // { [고유닉]: { month: 'YYYY-MM', nickname } }
+    }
+    store.saveSettings(djId, { planSub: settings.planSub })
+  }
+  if (!settings.planSub.grants) settings.planSub.grants = {}
+  return settings.planSub
+}
+
+function handlePlanSubHook(djId, settings, author, tag, isSubscribe) {
+  if (!isSubscribe) return // 구독자 아니면 상관없음
+  if (!isModuleOn(settings, 'plansub', djId)) return
+  if (!tag) return // ⚠️ 무조건 고유닉 기반 — 고유닉 없으면 절대 지급/기록 안 함 (닉네임 키 생성 금지)
+  const cfg = getPlanSubSettings(djId, settings)
+  const key = String(tag).trim().toLowerCase()
+  const month = thisMonthKST()
+  const already = cfg.grants[key]
+  if (already && already.month === month) return // 이번 달에 이미 지급함
+
+  let rewardLabel = ''
+  if (cfg.rewardType === 'roulette') {
+    const rec = getHistoryRecByIdentity(settings, tag, author)
+    if (!rec) return // 이 순간 고유닉 기록 조회 자체가 실패하면(극히 드묾) 그냥 넘어가고 다음 채팅 때 재시도됨
+    const idx = Number(cfg.rouletteIdx) || 1
+    rec.coupons[idx] = Number(rec.coupons[idx] || 0) + (Number(cfg.amount) || 1)
+    store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+    rewardLabel = `룰렛${idx}권 ${Number(cfg.amount) || 1}장`
+  } else {
+    const act = getActivitySettings(djId, settings)
+    const existingKey = actResolveKey(act, author, tag) || key
+    const d = actEnsureUser(act, existingKey, author, tag)
+    d.lotto = Math.max(0, (d.lotto || 0) + (Number(cfg.amount) || 1))
+    store.saveSettings(djId, { activity: act })
+    rewardLabel = `복권 ${Number(cfg.amount) || 1}장`
+  }
+
+  cfg.grants[key] = { month, nickname: author }
+  store.saveSettings(djId, { planSub: cfg })
+
+  const text = (cfg.message || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.')
+    .replace(/{nickname}/g, author).replace(/{보상}/g, rewardLabel)
+  setTimeout(() => sendChatToRoom(djId, text), 500)
+}
+
 function getDdaySettings(djId, settings) {
   if (!settings.dday) {
     settings.dday = { cmd: '!디데이', registerMsg: '📅 디데이 등록: {content} ({date})', items: [] }
@@ -1939,6 +1993,9 @@ function clearTtsAccess(room) {
 function todayKST() {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
   return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`
+}
+function thisMonthKST() {
+  return todayKST().slice(0, 7) // "YYYY-MM"
 }
 
 // 채팅 화면 하단 "오늘의 MVP" — 선물/좋아요/채팅 각 1명씩. 대시보드/애청지수 켜짐 여부와
@@ -11065,6 +11122,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
+      // 🔍 임시 진단용 — "팔로우 시 인사말" 기능 개발을 위해, 이벤트 안에 "팬"/"팔로우"/"구독" 단어가
+      // 하나라도 들어있으면 이벤트 이름/전체 내용을 눈에 띄게 따로 로그로 남긴다. 원인 찾으면 이 블록은 제거할 것.
+      try {
+        const rawStr = JSON.stringify(eventPayload)
+        if (/팬|팔로우|구독/.test(rawStr)) {
+          console.log(`\n🔍🔍🔍 [팬/팔로우 감지] djId=${djId} eventName=${eventName}\n${rawStr}\n🔍🔍🔍\n`)
+        }
+      } catch (e) {}
       // 🛰️ 관리자 이벤트 뷰어용 — 스푼에서 오는 모든 원본 이벤트를 그대로 실시간 브로드캐스트한다.
       // (다른 기능 개발/디버깅할 때 실제 이벤트 이름과 구조를 눈으로 바로 확인하기 위함)
       broadcast({ type: 'raw_event', djId, eventName, eventPayload, ts: Date.now() })
@@ -11097,7 +11162,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const chatAct = getActivitySettings(djId, settings)
         const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
         const isVip = !!(gen.is_vip || gen.vip || gen.isVip || (gen.fan_level && Number(gen.fan_level) > 0))
-        const isSubscribe = !!(gen.is_subscribe || gen.subscribe || gen.isSubscribe || gen.plan)
+        const isSubscribe = !!gen.subscribeToDj // ✅ 실제 이벤트로 확인된 정확한 필드명
 
         broadcast({ type: 'chat', djId, nick: author, text, profileUrl: gen.profileUrl || '', ttsEligible, isDj, isManager, isVip, isSubscribe })
         if (!isLurker) {
@@ -11125,6 +11190,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
+          handlePlanSubHook(djId, settings, author, actTag, isSubscribe)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -12424,6 +12490,36 @@ app.post('/memo2/delete', auth.requireAuth, (req, res) => {
   const { id } = req.body || {}
   cfg.items = cfg.items.filter(it => it.id !== id)
   store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+
+// 💎 구독자 플랜 월간 지급
+app.get('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const grantsList = Object.entries(cfg.grants || {}).map(([tag, v]) => ({ tag, nickname: v.nickname, month: v.month })).sort((a, b) => (a.month < b.month ? 1 : -1))
+  res.json({ success: true, settings: { rewardType: cfg.rewardType, rouletteIdx: cfg.rouletteIdx, amount: cfg.amount, message: cfg.message }, grants: grantsList, thisMonth: thisMonthKST() })
+})
+app.post('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'plansub', req.djId)) return res.json({ success: false, error: '구독자 플랜 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const { rewardType, rouletteIdx, amount, message } = req.body || {}
+  if (rewardType === 'lotto' || rewardType === 'roulette') cfg.rewardType = rewardType
+  if (rouletteIdx != null) cfg.rouletteIdx = Math.max(1, parseInt(rouletteIdx, 10) || 1)
+  if (amount != null) cfg.amount = Math.max(1, parseInt(amount, 10) || 1)
+  if (message != null) cfg.message = String(message).trim() || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.'
+  store.saveSettings(req.djId, { planSub: cfg })
+  res.json({ success: true })
+})
+// 관리자/DJ가 특정 유저의 "이번 달 지급 기록"만 지워서, 다시 지급받게 하고 싶을 때 (테스트용 등)
+app.post('/plansub/reset-grant', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().toLowerCase()
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  delete cfg.grants[tag]
+  store.saveSettings(req.djId, { planSub: cfg })
   res.json({ success: true })
 })
 
