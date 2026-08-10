@@ -349,46 +349,6 @@ async function sendChatToRoom(djId, message) {
   }
 }
 
-// 🩷 봇 계정으로 좋아요 자동 누르기 — /lives/{liveId}/like/me/ 로 POST. 이 주소는 이전에 URL만
-// 확인된 상태라(실제 요청 성공 여부 미검증), 결과를 반드시 로그로 남겨서 실제로 되는지 확인 가능하게 한다.
-async function pressLikeForRoom(djId, liveId) {
-  const room = getRoom(djId)
-  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  if (!accessToken || !liveId) return false
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': CHROME_UA,
-      'Origin': 'https://www.spooncast.net',
-      'Referer': 'https://www.spooncast.net/',
-    }
-    if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
-    const url = `${KR_API_BASE}/lives/${liveId}/like/me/`
-
-    let res = await fetch(url, { method: 'POST', headers })
-    if (res.status === 405) {
-      // ⚠️ POST가 안 먹히면, 서버가 Allow 헤더로 알려주는 실제 허용 메서드를 로그로 남기고 PUT으로 재시도.
-      const allow = res.headers.get('allow')
-      console.log(`[자동좋아요:${djId}] POST 405 — 허용된 메서드(Allow 헤더): ${allow || '(정보 없음)'} → PUT으로 재시도`)
-      res = await fetch(url, { method: 'PUT', headers })
-    }
-    console.log(`[자동좋아요:${djId}] liveId=${liveId} 최종 응답:`, res.status)
-    return res.ok
-  } catch (e) {
-    console.log(`[자동좋아요:${djId} 오류]`, e.message)
-    return false
-  }
-}
-
-function getAutoLikeSettings(djId, settings) {
-  if (!settings.autoLike) {
-    settings.autoLike = { intervalMin: 3 } // 몇 분마다 한 번씩 자동으로 좋아요를 누를지
-    store.saveSettings(djId, { autoLike: settings.autoLike })
-  }
-  return settings.autoLike
-}
-
 function escapeRegExp(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -401,7 +361,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'autolike'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -11382,7 +11342,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
-  room.liveId = liveId // 🩷 자동 좋아요 등 liveId가 필요한 주기적 작업에서 사용
+  room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
     headers: {
@@ -11790,25 +11750,6 @@ setInterval(() => {
     })
   }
 }, REPEAT_TICK_MS)
-
-// 🩷 자동 좋아요 — DJ별로 설정한 분(intervalMin)마다 봇 계정으로 좋아요를 자동으로 눌러준다.
-const autoLikeLastAt = {} // djId -> 마지막으로 누른 시각
-setInterval(() => {
-  const now = Date.now()
-  for (const djId of store.listDjIds()) {
-    const room = getRoom(djId)
-    if (!room.isConnected || !room.liveId) continue
-    const settings = store.getSettings(djId) || {}
-    if (settings.botEnabled === false) continue
-    if (!isModuleOn(settings, 'autolike', djId)) continue
-    const cfg = getAutoLikeSettings(djId, settings)
-    const intervalMs = Math.max(1, Number(cfg.intervalMin) || 3) * 60 * 1000
-    const last = autoLikeLastAt[djId] || 0
-    if (now - last < intervalMs) continue
-    autoLikeLastAt[djId] = now
-    pressLikeForRoom(djId, room.liveId)
-  }
-}, 30 * 1000) // 30초마다 각 방의 간격이 됐는지 확인
 
 // ══════════════════════════════════════════════════════
 // 🎀 스티커 목록 프록시 — 브라우저에서 static.spooncast.net을 직접 fetch하면
@@ -12949,28 +12890,6 @@ app.post('/managertoken/manager/score', auth.requireAuth, (req, res) => {
   m.score = (m.score || 0) + delta
   store.saveSettings(req.djId, { managerToken: cfg })
   res.json({ success: true, managers: cfg.managers })
-})
-
-// 🩷 자동 좋아요
-app.get('/autolike/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  res.json({ success: true, settings: getAutoLikeSettings(req.djId, settings) })
-})
-app.post('/autolike/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'autolike', req.djId)) return res.json({ success: false, error: '자동 좋아요 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
-  const cfg = getAutoLikeSettings(req.djId, settings)
-  const { intervalMin } = req.body || {}
-  if (intervalMin != null) cfg.intervalMin = Math.max(1, parseInt(intervalMin, 10) || 3)
-  store.saveSettings(req.djId, { autoLike: cfg })
-  res.json({ success: true })
-})
-// 지금 바로 한 번 눌러보고 싶을 때 (테스트용) — 응답 status로 실제 성공 여부 확인 가능
-app.post('/autolike/test', auth.requireAuth, async (req, res) => {
-  const room = getRoom(req.djId)
-  if (!room.isConnected || !room.liveId) return res.json({ success: false, error: '지금 방송에 연결돼있지 않아요.' })
-  const ok = await pressLikeForRoom(req.djId, room.liveId)
-  res.json({ success: ok, error: ok ? null : '스푼 API가 실패 응답을 줬어요. 서버 로그에서 [자동좋아요] 줄을 확인해보세요.' })
 })
 
 // 📅 디데이

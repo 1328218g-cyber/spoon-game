@@ -631,7 +631,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="plansub"><span class="ic">💎</span><span class="lbl">구독자 플랜 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="viptier"><span class="ic">🌟</span><span class="lbl">귀빈 등급 시스템</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="managertoken"><span class="ic">💰</span><span class="lbl">매니저 토큰</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="autolike"><span class="ic">🩷</span><span class="lbl">자동 좋아요</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -2075,18 +2074,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           · !적립 [번호] [점수] : 점수 적립/차감, 마이너스 가능 (DJ/매니저)<br>
           · !제목 [내용] / !내용1 [내용] / !내용2 [내용] : 문구 변경 (DJ/매니저)
           </p>
-        </div>
-      </div>
-
-      <!-- 🩷 자동 좋아요 -->
-      <div class="panel" data-panel="autolike">
-        <div class="card">
-          <div class="card-title"><span>🩷 자동 좋아요 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveAutoLikeSettings()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">설정한 간격마다 봇 계정으로 자동으로 좋아요를 눌러줘요.<br><b>⚠️ 베타 기능이에요</b> — 스푼 쪽 API 주소만 확인된 상태라, 실제로 눌러지는지는 아래 "지금 테스트" 버튼으로 직접 확인해보시는 걸 추천해요.</p>
-          <label>몇 분마다 누를지</label>
-          <input type="number" id="autoLikeInterval" min="1" value="3" style="max-width:120px">
-          <button class="btn-gray" style="width:100%;margin-top:12px" onclick="testAutoLike()">🧪 지금 한 번 테스트</button>
-          <div id="autoLikeTestResult" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
 
@@ -3893,7 +3880,6 @@ const PANEL_META={
   plansub:['💎 구독자 플랜 지급','이번 달 구독자에게 자동으로 복권/룰렛권을 매달 지급합니다'],
   viptier:['🌟 귀빈 등급 시스템','구독·팬랭킹·VIP·온도를 합산해 자체 등급을 매기고 인사말·경험치·룰렛에 연동합니다'],
   managertoken:['💰 매니저 토큰','매니저들의 점수(매토)를 번호로 관리하고 채팅 명령어로 적립/차감합니다'],
-  autolike:['🩷 자동 좋아요','설정한 간격마다 봇 계정으로 자동으로 좋아요를 눌러줍니다 (베타)'],
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
@@ -4018,7 +4004,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','autolike','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4030,7 +4016,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken','autolike']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -5033,7 +5019,6 @@ async function loadDjSettings(){
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
       if(document.getElementById('mtManagerListWrap')) loadManagerTokenData();
-      if(document.getElementById('autoLikeInterval')) loadAutoLikeData();
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
@@ -7408,33 +7393,6 @@ async function adjustManagerTokenScore(tag,delta){
     await fetch(SERVER+'/managertoken/manager/score',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,delta})});
     loadManagerTokenData();
   }catch(e){showToast('오류: '+e.message);}
-}
-
-/* ── 🩷 자동 좋아요 ── */
-async function loadAutoLikeData(){
-  try{
-    const res=await fetch(SERVER+'/autolike/settings',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success)return;
-    document.getElementById('autoLikeInterval').value=d.settings.intervalMin||3;
-  }catch(e){}
-}
-async function saveAutoLikeSettings(){
-  try{
-    const res=await fetch(SERVER+'/autolike/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({intervalMin:document.getElementById('autoLikeInterval').value})});
-    const d=await res.json();
-    if(d.success)showToast('설정 저장 완료 ✓');
-    else showToast(d.error||'저장 실패');
-  }catch(e){showToast('오류: '+e.message);}
-}
-async function testAutoLike(){
-  const box=document.getElementById('autoLikeTestResult');
-  box.textContent='테스트 중...';
-  try{
-    const res=await fetch(SERVER+'/autolike/test',{method:'POST',headers:authHeaders()});
-    const d=await res.json();
-    box.textContent = d.success ? '✅ 성공! 스푼 앱에서 좋아요 반영됐는지 확인해보세요.' : '❌ '+(d.error||'실패');
-  }catch(e){box.textContent='오류: '+e.message;}
 }
 
 /* ── 🎁 추첨 ── */
