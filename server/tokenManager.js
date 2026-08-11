@@ -15,6 +15,11 @@ const path = require('path')
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 const ORIGIN = 'https://www.spooncast.net'
 
+// ⏱️ Railway처럼 자원이 빠듯한 환경에서는 30초로도 페이지 로드가 빠듯할 때가 있어서
+// (2026-08-11: Navigation timeout / Network.enable timed out 반복 발생 확인) 넉넉하게 늘렸다.
+const NAV_TIMEOUT_MS = 55000
+const PROTOCOL_TIMEOUT_MS = 90000 // CDP(크롬 원격제어 프로토콜) 자체 응답 타임아웃 — "Network.enable timed out" 에러의 직접적인 원인
+
 // Railway Volume(영구 디스크)에 저장해두면, 서버가 재배포/재시작돼도
 // 세션 쿠키를 다시 업로드하지 않아도 된다. (DATA_DIR 환경변수는 store.js와 동일하게 사용)
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data')
@@ -64,11 +69,11 @@ const LAUNCH_ARGS = [
 // 한 번 더 재시도한다. 그래도 실패하면 진짜 자원 부족(Railway 플랜 한도)일 가능성이 큼.
 async function launchBrowser() {
   try {
-    return await puppeteer.launch({ headless: 'new', args: LAUNCH_ARGS })
+    return await puppeteer.launch({ headless: 'new', args: LAUNCH_ARGS, protocolTimeout: PROTOCOL_TIMEOUT_MS })
   } catch (e) {
     console.log('[tokenManager] 브라우저 실행 실패, 1.5초 후 재시도:', e.message)
     await new Promise((r) => setTimeout(r, 1500))
-    return await puppeteer.launch({ headless: 'new', args: LAUNCH_ARGS })
+    return await puppeteer.launch({ headless: 'new', args: LAUNCH_ARGS, protocolTimeout: PROTOCOL_TIMEOUT_MS })
   }
 }
 // browser.close()가 응답 없이 멈추거나 조용히 실패하면 Chrome 프로세스가 좀비로 남아
@@ -226,10 +231,12 @@ async function newAuthenticatedPage(browser, djId) {
   const a = getAccount(djId)
   const page = await browser.newPage()
   await page.setUserAgent(CHROME_UA)
+  page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS)
+  page.setDefaultTimeout(NAV_TIMEOUT_MS)
   if (a.cookies && a.cookies.length) {
     await page.setCookie(...a.cookies)
   }
-  await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: 30000 })
+  await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS })
 
   if (a.localStorage || a.sessionStorage) {
     await page.evaluate((ls, ss) => {
@@ -246,12 +253,22 @@ async function newAuthenticatedPage(browser, djId) {
 // 방 입장 시 발급되는 roomToken(x-live-authorization)은 REST API로 직접 발급받을 수 없고,
 // 실제로 방 페이지(https://www.spooncast.net/kr/live/{liveId})에 접속했을 때
 // 브라우저가 보내는 요청 헤더에서만 얻을 수 있다. (기존 Electron 에디봇과 동일한 원리)
+// ⚠️ Railway처럼 자원이 빠듯한 환경에서는 첫 시도가 타임아웃 나는 경우가 종종 있어서,
+// 한 번 실패하면 곧바로 한 번 더 시도한다(총 최대 2회). 실제 입장이 걸려있는 중요한 값이라
+// 여기서만큼은 재시도 비용을 감수하는 게 낫다.
 async function fetchRoomToken(djId, liveId) {
   if (!hasCookies(djId)) {
     console.log(`[tokenManager:${djId}] roomToken 발급 실패: 세션 쿠키 없음`)
     return null
   }
-  return withPuppeteerLock(() => fetchRoomTokenInner(djId, liveId))
+  return withPuppeteerLock(async () => {
+    let result = await fetchRoomTokenInner(djId, liveId)
+    if (!result) {
+      console.log(`[tokenManager:${djId}] roomToken 1차 시도 실패 → 2차 재시도`)
+      result = await fetchRoomTokenInner(djId, liveId)
+    }
+    return result
+  })
 }
 
 async function fetchRoomTokenInner(djId, liveId) {
@@ -272,7 +289,7 @@ async function fetchRoomTokenInner(djId, liveId) {
       req.continue()
     })
 
-    await page.goto(`${ORIGIN}/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: 30000 })
+    await page.goto(`${ORIGIN}/kr/live/${liveId}`, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS })
     if (!captured) await new Promise((r) => setTimeout(r, 4000))
 
     const finalUrl = page.url()
@@ -320,7 +337,7 @@ async function refreshAccessTokenInner(djId) {
     const page = await newAuthenticatedPage(browser, djId)
 
     // localStorage 주입 후 다시 로드해야 사이트가 로그인 상태로 인식한다.
-    await page.reload({ waitUntil: 'networkidle2', timeout: 30000 })
+    await page.reload({ waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS })
     // 사이트 자체 로직이 토큰을 조용히 재발급하는 경우를 대비해 약간 대기
     await new Promise((r) => setTimeout(r, 2000))
 
