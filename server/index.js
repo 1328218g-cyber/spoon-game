@@ -11006,6 +11006,23 @@ function applySpecialRouletteItem(djId, settings, authorTag, author, itemName) {
       store.saveSettings(djId, { activity: act })
       setTimeout(() => sendChatToRoom(djId, `🎟️ [룰렛 당첨] ${author}님 복권 ${amount}장 적립! (현재 보유: ${d.lotto}장)`), 700)
     }
+    return
+  }
+
+  // 🎡 "룰렛지급N" — N번 룰렛의 룰렛권을 자동 지급. 뒤에 "M장"을 같이 적으면 그 수량만큼,
+  // 안 적으면 1장. 예) "룰렛지급1", "룰렛지급2 3장"
+  const rouletteGiveM = name.match(/룰렛지급\s*(\d+)(?:\s*[:\s]\s*(\d+)\s*장?)?/)
+  if (rouletteGiveM) {
+    const idx = parseInt(rouletteGiveM[1], 10)
+    const amount = rouletteGiveM[2] ? parseInt(rouletteGiveM[2], 10) : 1
+    if (idx > 0 && amount > 0) {
+      const rec = getHistoryRecByIdentity(settings, authorTag, author) // ⚠️ 고유닉 없으면 null — 무조건 고유닉 기반
+      if (!rec) { console.log(`[룰렛당첨] ${author} 고유닉 미확인 — 룰렛${idx}권 지급 보류`); return }
+      rec.coupons[idx] = Number(rec.coupons[idx] || 0) + amount
+      store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+      setTimeout(() => sendChatToRoom(djId, `🎡 [룰렛 당첨] ${author}님 룰렛${idx}권 ${amount}장 적립! (현재 보유: ${rec.coupons[idx]}장)`), 700)
+    }
+    return
   }
 }
 
