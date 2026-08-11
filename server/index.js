@@ -462,36 +462,55 @@ async function fetchLiveInfo(liveId, accessToken) {
 }
 
 // 📢 공지사항 변경 — PUT https://kr-api.spooncast.net/lives/{liveId}/ (개발자도구로 실측 확인된 주소).
-// ⚠️ 아직 실제 페이로드 구조를 100% 확인 못 했다. PUT이라 부분수정이 아니라 전체를 다시 보내야 할 걸로
-// 보여서, LiveMetaUpdate로 받아뒀던 방송 최신 상태(room.lastLiveMeta)를 그대로 베이스로 삼고 notice만
-// 바꿔서 보낸다. 혹시 이걸로 다른 필드(제목 등)가 같이 날아가면, 실제 Payload 캡처가 필요하다.
+// ⚠️ 실제 응답을 확인해보니, 웹소켓 이벤트(LiveMetaUpdate)는 camelCase(bgImageUrl, isMute...)를 쓰는데
+// 이 REST API는 snake_case(img_url, is_mute...)를 쓰는 완전히 다른 스키마였다. 그래서 room.lastLiveMeta를
+// 그대로 보내면 필드 이름이 하나도 안 맞아서 전부 무시됐다(200은 오지만 반영 안 됨).
+// → 이제는 PUT 하기 직전에 먼저 GET으로 스푼이 실제로 쓰는 스키마 그대로 현재 상태를 받아오고,
+//   그 객체 안에서 필드 하나만 바꿔서 그대로 되돌려주는 방식으로 바꿨다.
+// ⚠️ "welcome_message" 필드가 정확히 "공지사항"이 맞는지는 아직 100% 확정은 아니다 — 응답 안에서
+//   유일하게 "공지"스러운 필드라 이걸로 시도해본다. 안 되면 실제 Payload 캡처가 필요하다.
+const NOTICE_FIELD_NAME = 'welcome_message'
 async function updateSpoonNotice(djId, liveId, newNotice) {
-  const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!accessToken || !liveId) return { ok: false, error: '방송에 연결돼있지 않아요' }
-  if (!room.lastLiveMeta) return { ok: false, error: '아직 방송 정보를 받아온 적이 없어요. 방송 켜고 잠시 후 다시 시도해주세요.' }
+  const headers = {
+    'Authorization': `Bearer ${accessToken}`,
+    'User-Agent': CHROME_UA,
+    'Origin': 'https://www.spooncast.net',
+  }
   try {
-    const body = { ...room.lastLiveMeta, notice: newNotice }
-    console.log(`[공지변경:${djId}] 보낸 요청 본문:`, JSON.stringify(body).slice(0, 500))
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
+    // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
+    const getRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
+    const getText = await getRes.text().catch(() => '')
+    if (!getRes.ok) {
+      console.log(`[공지변경:${djId}] GET 실패 status=${getRes.status}:`, getText.slice(0, 500))
+      return { ok: false, error: `현재 상태 조회 실패 (${getRes.status})` }
+    }
+    const getBody = JSON.parse(getText)
+    const current = (getBody.results && getBody.results[0]) || getBody
+    console.log(`[공지변경:${djId}] GET으로 받은 현재 ${NOTICE_FIELD_NAME} 값:`, current[NOTICE_FIELD_NAME])
+
+    // 2) 그 객체를 그대로 복사해서 공지 필드 하나만 바꾼다.
+    const updated = { ...current, [NOTICE_FIELD_NAME]: newNotice }
+
+    // 3) 그대로 PUT
+    const putRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': CHROME_UA,
-        'Origin': 'https://www.spooncast.net',
-      },
-      body: JSON.stringify(body),
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
     })
-    // ⚠️ 진단용 — 200 OK가 와도 실제로 반영 안 되는 경우가 있어서, 성공이든 실패든
-    // 스푼이 실제로 뭐라고 응답했는지(응답 본문)를 항상 로그로 남긴다.
-    const resText = await res.text().catch(() => '')
-    console.log(`[공지변경:${djId}] 응답 status=${res.status}:`, resText.slice(0, 2500))
-    if (res.ok) {
-      room.lastLiveMeta.notice = newNotice // 성공했으면 우리가 들고 있는 상태도 같이 갱신
+    const putText = await putRes.text().catch(() => '')
+    console.log(`[공지변경:${djId}] PUT 응답 status=${putRes.status}:`, putText.slice(0, 1500))
+    if (!putRes.ok) return { ok: false, error: `응답 ${putRes.status}`, detail: putText.slice(0, 300) }
+
+    // 4) 실제로 반영됐는지 응답에서 다시 확인
+    const putBody = JSON.parse(putText)
+    const after = (putBody.results && putBody.results[0]) || putBody
+    if (after[NOTICE_FIELD_NAME] === newNotice) {
       return { ok: true }
     }
-    return { ok: false, error: `응답 ${res.status}`, detail: resText.slice(0, 300) }
+    console.log(`[공지변경:${djId}] ⚠️ PUT은 성공했지만 반영 확인 안 됨. 응답의 ${NOTICE_FIELD_NAME}:`, after[NOTICE_FIELD_NAME])
+    return { ok: false, error: `"${NOTICE_FIELD_NAME}" 필드가 정확한 공지 필드가 아닐 수 있어요 (반영 안 됨)` }
   } catch (e) {
     return { ok: false, error: e.message }
   }
