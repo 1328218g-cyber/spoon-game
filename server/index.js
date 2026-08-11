@@ -465,11 +465,17 @@ async function fetchLiveInfo(liveId, accessToken) {
 // ⚠️ 실제 응답을 확인해보니, 웹소켓 이벤트(LiveMetaUpdate)는 camelCase(bgImageUrl, isMute...)를 쓰는데
 // 이 REST API는 snake_case(img_url, is_mute...)를 쓰는 완전히 다른 스키마였다. 그래서 room.lastLiveMeta를
 // 그대로 보내면 필드 이름이 하나도 안 맞아서 전부 무시됐다(200은 오지만 반영 안 됨).
-// → 이제는 PUT 하기 직전에 먼저 GET으로 스푼이 실제로 쓰는 스키마 그대로 현재 상태를 받아오고,
-//   그 객체 안에서 필드 하나만 바꿔서 그대로 되돌려주는 방식으로 바꿨다.
-// ⚠️ "welcome_message" 필드가 정확히 "공지사항"이 맞는지는 아직 100% 확정은 아니다 — 응답 안에서
-//   유일하게 "공지"스러운 필드라 이걸로 시도해본다. 안 되면 실제 Payload 캡처가 필요하다.
+// → GET으로 스푼이 실제로 쓰는 스키마 그대로 현재 상태를 받아온 뒤, 그 안에서 "공지" 필드를 바꾼다.
+// ⚠️ "welcome_message"가 실제 앱 Payload 캡처로 확인된 정확한 필드명이다.
+// ⚠️ GET 응답을 통째로 다시 PUT하면 403이 났다 — room_token(서명된 임시 토큰), url_hls(서명된 스트림
+//   주소), author(읽기 전용 프로필) 같은 서버 전용/읽기 전용 필드까지 같이 보내서 거부된 것으로 보인다.
+//   그래서 실제 앱 Payload 캡처에서 확인된 "진짜로 수정 가능한 필드들"만 화이트리스트로 추려서 보낸다.
 const NOTICE_FIELD_NAME = 'welcome_message'
+const LIVE_EDITABLE_FIELDS = [
+  'title', 'welcome_message', 'type', 'categories', 'tags', 'allow_donations',
+  'engine', 'invite_member_ids', 'is_adult', 'is_save', 'is_access_ghost_user',
+  'is_live_call', 'is_live_call_donation', 'donation',
+]
 async function updateSpoonNotice(djId, liveId, newNotice) {
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!accessToken || !liveId) return { ok: false, error: '방송에 연결돼있지 않아요' }
@@ -490,8 +496,15 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     const current = (getBody.results && getBody.results[0]) || getBody
     console.log(`[공지변경:${djId}] GET으로 받은 현재 ${NOTICE_FIELD_NAME} 값:`, current[NOTICE_FIELD_NAME])
 
-    // 2) 그 객체를 그대로 복사해서 공지 필드 하나만 바꾼다.
-    const updated = { ...current, [NOTICE_FIELD_NAME]: newNotice }
+    // 2) 읽기전용/서버전용 필드는 빼고, 실제로 수정 가능한 필드들만 골라서 새 본문을 만든다.
+    const updated = {}
+    for (const key of LIVE_EDITABLE_FIELDS) {
+      if (current[key] !== undefined) updated[key] = current[key]
+    }
+    updated[NOTICE_FIELD_NAME] = newNotice
+    // device_unique_id는 실제 앱 Payload에서 UA 문자열을 정리해서 보내던 필드 — 형식만 비슷하게 맞춰서 채운다.
+    updated.device_unique_id = CHROME_UA.replace(/\s+/g, '').toLowerCase()
+    console.log(`[공지변경:${djId}] 추려서 보낼 본문:`, JSON.stringify(updated).slice(0, 500))
 
     // 3) 그대로 PUT
     const putRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
