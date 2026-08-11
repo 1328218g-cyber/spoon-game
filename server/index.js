@@ -486,7 +486,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     // ⚠️ 진단용 — 200 OK가 와도 실제로 반영 안 되는 경우가 있어서, 성공이든 실패든
     // 스푼이 실제로 뭐라고 응답했는지(응답 본문)를 항상 로그로 남긴다.
     const resText = await res.text().catch(() => '')
-    console.log(`[공지변경:${djId}] 응답 status=${res.status}:`, resText.slice(0, 500))
+    console.log(`[공지변경:${djId}] 응답 status=${res.status}:`, resText.slice(0, 2500))
     if (res.ok) {
       room.lastLiveMeta.notice = newNotice // 성공했으면 우리가 들고 있는 상태도 같이 갱신
       return { ok: true }
