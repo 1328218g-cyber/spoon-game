@@ -477,6 +477,7 @@ const LIVE_EDITABLE_FIELDS = [
   'is_live_call', 'is_live_call_donation', 'donation',
 ]
 async function updateSpoonNotice(djId, liveId, newNotice) {
+  const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!accessToken || !liveId) return { ok: false, error: '방송에 연결돼있지 않아요' }
   const headers = {
@@ -484,6 +485,9 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     'User-Agent': CHROME_UA,
     'Origin': 'https://www.spooncast.net',
   }
+  // ⚠️ 채팅 전송(sendChatToRoom)처럼, "지금 이 방송에 실시간으로 들어와있다"는 걸 증명하는
+  // roomToken도 같이 실어보낸다. 이게 빠져있어서 서버가 조용히 무시했을 가능성이 있다.
+  if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
   try {
     // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
     const getRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
