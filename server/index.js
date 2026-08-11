@@ -472,6 +472,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   if (!room.lastLiveMeta) return { ok: false, error: '아직 방송 정보를 받아온 적이 없어요. 방송 켜고 잠시 후 다시 시도해주세요.' }
   try {
     const body = { ...room.lastLiveMeta, notice: newNotice }
+    console.log(`[공지변경:${djId}] 보낸 요청 본문:`, JSON.stringify(body).slice(0, 500))
     const res = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
       method: 'PUT',
       headers: {
@@ -482,13 +483,15 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
       },
       body: JSON.stringify(body),
     })
+    // ⚠️ 진단용 — 200 OK가 와도 실제로 반영 안 되는 경우가 있어서, 성공이든 실패든
+    // 스푼이 실제로 뭐라고 응답했는지(응답 본문)를 항상 로그로 남긴다.
+    const resText = await res.text().catch(() => '')
+    console.log(`[공지변경:${djId}] 응답 status=${res.status}:`, resText.slice(0, 500))
     if (res.ok) {
       room.lastLiveMeta.notice = newNotice // 성공했으면 우리가 들고 있는 상태도 같이 갱신
       return { ok: true }
     }
-    const errText = await res.text().catch(() => '')
-    console.log(`[공지변경:${djId}] 실패 status=${res.status}`, errText.slice(0, 300))
-    return { ok: false, error: `응답 ${res.status}`, detail: errText.slice(0, 300) }
+    return { ok: false, error: `응답 ${res.status}`, detail: resText.slice(0, 300) }
   } catch (e) {
     return { ok: false, error: e.message }
   }
