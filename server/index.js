@@ -87,8 +87,22 @@ async function fetchBackupFromBase44(djId) {
   const parsed = typeof rawData === 'string' ? decompressBackup(rawData) : rawData
   return { found: true, timestamp: rec.timestamp || body.timestamp || null, data: parsed, raw: body }
 }
+// 📦 백업 범위를 줄인다 — 이미지/음원처럼 용량 큰 항목이 섞여있는 전체 계정 대신,
+// 룰렛/룰렛기록/애청지수/반복문구/단축명령어 이 5개만 뽑아서 백업한다.
+function extractBackupSubset(djRecord) {
+  const s = (djRecord && djRecord.settings) || {}
+  return {
+    roulette: s.roulette || null,
+    rouletteHistory: s.rouletteHistory || null,
+    activity: s.activity || null,
+    entryDataRepeat: (s.entryData && s.entryData.repeat) || [], // 반복문구는 entryData 안의 한 카테고리라 이것만 뽑음
+    commands: s.commands || null, // 단축명령어
+  }
+}
+
 async function backupOneDjToBase44(djId, djRecord) {
-  const compressedData = compressForBackup(djRecord)
+  const subset = extractBackupSubset(djRecord)
+  const compressedData = compressForBackup(subset)
   const bodyStr = JSON.stringify({ timestamp: new Date().toISOString(), djId, data: compressedData })
   const res = await fetch(BASE44_BACKUP_URL, {
     method: 'POST',
@@ -12117,8 +12131,9 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   try {
     const result = await fetchBackupFromBase44(targetDjId)
     if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
-    store.restoreDjRecord(targetDjId, result.data)
-    console.log(`[Base44 복구] ${targetDjId} 계정을 ${result.timestamp} 시점 백업으로 복구했어요.`)
+    const merged = store.mergeDjBackupSubset(targetDjId, result.data)
+    if (!merged.ok) return res.json({ success: false, error: merged.error })
+    console.log(`[Base44 복구] ${targetDjId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${result.timestamp} 시점 백업으로 복구했어요.`)
     res.json({ success: true, timestamp: result.timestamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
@@ -12152,12 +12167,27 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
   try {
     const result = await fetchBackupFromBase44(req.djId)
     if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
-    store.restoreDjRecord(req.djId, result.data)
-    console.log(`[셀프복구] ${req.djId} 계정을 ${result.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    const merged = store.mergeDjBackupSubset(req.djId, result.data)
+    if (!merged.ok) return res.json({ success: false, error: merged.error })
+    console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${result.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
     res.json({ success: true, timestamp: result.timestamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
+})
+
+// 🔍 특정 계정 설정에서 어느 항목이 유독 큰지 진단 (base64 이미지/음원이 박혀있는지 찾기 위함)
+app.get('/admin/diagnose-size/:djId', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const record = store.getDjRecord(req.params.djId)
+  if (!record) return res.json({ success: false, error: '계정을 찾을 수 없어요' })
+  const settings = record.settings || {}
+  const sizes = Object.keys(settings).map(key => ({
+    key,
+    bytes: Buffer.byteLength(JSON.stringify(settings[key]) || '', 'utf-8'),
+  })).sort((a, b) => b.bytes - a.bytes)
+  const totalBytes = Buffer.byteLength(JSON.stringify(record), 'utf-8')
+  res.json({ success: true, totalBytes, sizes: sizes.slice(0, 20) })
 })
 
 app.get('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
@@ -14770,9 +14800,9 @@ app.listen(PORT, () => {
   setTimeout(() => { try { store.createBackupSnapshot() } catch (e) {} }, 5 * 60 * 1000)
   setInterval(() => { try { store.createBackupSnapshot() } catch (e) {} }, 2 * 60 * 60 * 1000)
 
-  // 🌐 Base44로 5분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 5분마다 반복)
+  // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
-  setInterval(backupToBase44, 5 * 60 * 1000)
+  setInterval(backupToBase44, 30 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인

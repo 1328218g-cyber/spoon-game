@@ -582,6 +582,25 @@ function restoreDjRecord(djId, record) {
   saveDjs(djs);
 }
 
+// 🔄 축소된 백업(룰렛/룰렛기록/애청지수/반복문구/단축명령어)만 기존 계정 설정에 "병합"해서 복구한다.
+// 계정 정보(비밀번호 등)나 그 외 다른 모듈 설정은 그대로 두고, 이 5개 항목만 덮어쓴다.
+function mergeDjBackupSubset(djId, subset) {
+  const djs = loadDjs();
+  if (!djs[djId]) return { ok: false, error: '계정을 찾을 수 없어요' };
+  if (!djs[djId].settings) djs[djId].settings = {};
+  const s = djs[djId].settings;
+  if (subset.roulette != null) s.roulette = subset.roulette;
+  if (subset.rouletteHistory != null) s.rouletteHistory = subset.rouletteHistory;
+  if (subset.activity != null) s.activity = subset.activity;
+  if (subset.commands != null) s.commands = subset.commands;
+  if (Array.isArray(subset.entryDataRepeat)) {
+    if (!s.entryData) s.entryData = {};
+    s.entryData.repeat = subset.entryDataRepeat;
+  }
+  saveDjs(djs);
+  return { ok: true };
+}
+
 // 유저 관리 화면용 요약 정보 (비밀번호 해시는 제외)
 function listDjSummaries() {
   const djs = loadDjs();
@@ -697,4 +716,5 @@ module.exports = {
   getRawSnapshot,
   getDjRecord,
   restoreDjRecord,
+  mergeDjBackupSubset,
 };
