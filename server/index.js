@@ -484,10 +484,16 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     'Authorization': `Bearer ${accessToken}`,
     'User-Agent': CHROME_UA,
     'Origin': 'https://www.spooncast.net',
+    'Referer': `https://www.spooncast.net/kr/live/${liveId}`,
   }
   // ⚠️ 채팅 전송(sendChatToRoom)처럼, "지금 이 방송에 실시간으로 들어와있다"는 걸 증명하는
   // roomToken도 같이 실어보낸다. 이게 빠져있어서 서버가 조용히 무시했을 가능성이 있다.
   if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
+  // ⚠️ 진짜 브라우저는 같은 도메인 요청에 쿠키를 자동으로 같이 보내는데, 우리 서버는 지금까지
+  // 쿠키를 전혀 안 보내고 있었다. title은 반영되고 welcome_message만 무시되는 패턴을 보면,
+  // 민감한 필드(공지처럼 사람들에게 바로 노출되는 텍스트)에 세션 쿠키 기반 추가 검증이 있을 수 있다.
+  const cookieHeader = tokenManager.getCookieHeader(tokenDjIdFor(djId))
+  if (cookieHeader) headers['Cookie'] = cookieHeader
   try {
     // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
     const getRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
