@@ -97,16 +97,24 @@ async function listBackupsFromBase44(djId, limit = 20) {
   const res = await fetch(`${BASE44_LIST_URL}?djId=${encodeURIComponent(djId)}&limit=${limit}`, {
     headers: { 'x-api-key': BASE44_LIST_KEY },
   })
-  if (res.status === 404) return []
+  if (res.status === 404) return { items: [], raw: null }
   if (!res.ok) throw new Error(`listBackups 응답 ${res.status}`)
   const body = await res.json()
-  // 응답 구조가 배열 자체일 수도, { results: [...] } 형태일 수도 있어서 둘 다 시도
-  const items = Array.isArray(body) ? body : (body.results || body.records || body.data || [])
-  return items.map(item => {
+  console.log(`[listBackups 원본응답] djId=${djId}:`, JSON.stringify(body).slice(0, 800))
+  // 응답 구조가 배열 자체일 수도, { results: [...] } 형태일 수도 있어서 여러 형태 다 시도
+  const items = Array.isArray(body) ? body
+    : Array.isArray(body.results) ? body.results
+    : Array.isArray(body.records) ? body.records
+    : Array.isArray(body.data) ? body.data
+    : Array.isArray(body.backups) ? body.backups
+    : Array.isArray(body.items) ? body.items
+    : []
+  const parsed = items.map(item => {
     let parsedData = null
     try { parsedData = typeof item.data === 'string' ? decompressBackup(item.data) : item.data } catch (e) { /* 이 항목만 건너뜀 */ }
     return { timestamp: item.timestamp, data: parsedData }
   }).filter(item => item.data != null)
+  return { items: parsed, raw: parsed.length ? null : body } // 파싱 결과가 비었을 때만 원본을 같이 돌려줘서 진단 가능하게
 }
 // 📦 백업 범위를 줄인다 — 이미지/음원처럼 용량 큰 항목이 섞여있는 전체 계정 대신,
 // 룰렛/룰렛기록/애청지수/반복문구/단축명령어 이 5개만 뽑아서 백업한다.
@@ -12145,8 +12153,8 @@ app.post('/admin/list-backups-base44', auth.requireAuth, async (req, res) => {
   const targetDjId = String((req.body || {}).djId || '').trim()
   if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
   try {
-    const list = await listBackupsFromBase44(targetDjId)
-    res.json({ success: true, list: list.map(item => ({ timestamp: item.timestamp })) })
+    const { items, raw } = await listBackupsFromBase44(targetDjId)
+    res.json({ success: true, list: items.map(item => ({ timestamp: item.timestamp })), rawDebug: raw ? JSON.stringify(raw).slice(0, 500) : null })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -12174,8 +12182,8 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   try {
     let picked
     if (targetTimestamp) {
-      const list = await listBackupsFromBase44(targetDjId)
-      picked = list.find(item => item.timestamp === targetTimestamp)
+      const { items } = await listBackupsFromBase44(targetDjId)
+      picked = items.find(item => item.timestamp === targetTimestamp)
       if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
     } else {
       const result = await fetchBackupFromBase44(targetDjId)
@@ -12207,8 +12215,8 @@ app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
 })
 app.post('/mydata/list-backups', auth.requireAuth, async (req, res) => {
   try {
-    const list = await listBackupsFromBase44(req.djId)
-    res.json({ success: true, list: list.map(item => ({ timestamp: item.timestamp })) })
+    const { items, raw } = await listBackupsFromBase44(req.djId)
+    res.json({ success: true, list: items.map(item => ({ timestamp: item.timestamp })), rawDebug: raw ? JSON.stringify(raw).slice(0, 500) : null })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -12228,8 +12236,8 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
   try {
     let picked
     if (targetTimestamp) {
-      const list = await listBackupsFromBase44(req.djId)
-      picked = list.find(item => item.timestamp === targetTimestamp)
+      const { items } = await listBackupsFromBase44(req.djId)
+      picked = items.find(item => item.timestamp === targetTimestamp)
       if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
     } else {
       const result = await fetchBackupFromBase44(req.djId)

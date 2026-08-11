@@ -5550,7 +5550,7 @@ async function loadBase44BackupList(){
     const res=await fetch(SERVER+'/admin/list-backups-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal})});
     const d=await res.json();
     if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
-    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.'+(d.rawDebug?' <br>진단용 원본응답: '+escapeHtml(d.rawDebug):'')+'</p>'; return; }
     restoreListDjId=djIdVal;
     listWrap.innerHTML=d.list.map((item,i)=>`
       <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
@@ -11261,7 +11261,7 @@ async function loadMyBackupList(){
     const res=await fetch(SERVER+'/mydata/list-backups',{method:'POST',headers:authHeaders()});
     const d=await res.json();
     if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
-    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.'+(d.rawDebug?' <br>진단용 원본응답: '+escapeHtml(d.rawDebug):'')+'</p>'; return; }
     listWrap.innerHTML=d.list.map((item,i)=>`
       <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
         <input type="radio" name="myRestoreTsPick" value="${escapeAttr(item.timestamp)}" onchange="mySelectedTimestamp=this.value;document.getElementById('myRestoreApplyBtn').disabled=false;">
