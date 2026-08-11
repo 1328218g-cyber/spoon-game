@@ -461,6 +461,39 @@ async function fetchLiveInfo(liveId, accessToken) {
   }
 }
 
+// 📢 공지사항 변경 — PUT https://kr-api.spooncast.net/lives/{liveId}/ (개발자도구로 실측 확인된 주소).
+// ⚠️ 아직 실제 페이로드 구조를 100% 확인 못 했다. PUT이라 부분수정이 아니라 전체를 다시 보내야 할 걸로
+// 보여서, LiveMetaUpdate로 받아뒀던 방송 최신 상태(room.lastLiveMeta)를 그대로 베이스로 삼고 notice만
+// 바꿔서 보낸다. 혹시 이걸로 다른 필드(제목 등)가 같이 날아가면, 실제 Payload 캡처가 필요하다.
+async function updateSpoonNotice(djId, liveId, newNotice) {
+  const room = getRoom(djId)
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+  if (!accessToken || !liveId) return { ok: false, error: '방송에 연결돼있지 않아요' }
+  if (!room.lastLiveMeta) return { ok: false, error: '아직 방송 정보를 받아온 적이 없어요. 방송 켜고 잠시 후 다시 시도해주세요.' }
+  try {
+    const body = { ...room.lastLiveMeta, notice: newNotice }
+    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': CHROME_UA,
+        'Origin': 'https://www.spooncast.net',
+      },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      room.lastLiveMeta.notice = newNotice // 성공했으면 우리가 들고 있는 상태도 같이 갱신
+      return { ok: true }
+    }
+    const errText = await res.text().catch(() => '')
+    console.log(`[공지변경:${djId}] 실패 status=${res.status}`, errText.slice(0, 300))
+    return { ok: false, error: `응답 ${res.status}`, detail: errText.slice(0, 300) }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -2070,6 +2103,22 @@ const MANAGER_TOKEN_HELP = [
   '!내용1 [내용] : 안내문구1 변경',
   '!내용2 [내용] : 안내문구2 변경',
 ].join('\n')
+
+// 📢 !공지 [내용] — DJ 전용, 방송 공지사항을 채팅 명령어로 바로 변경
+async function handleNoticeCommand(djId, room, settings, author, authorId, text) {
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!공지 ')) return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) return
+  const newNotice = msg.slice('!공지 '.length).trim()
+  if (!newNotice) { setTimeout(() => sendChatToRoom(djId, '⚠️ 사용법: !공지 [내용]'), 400); return }
+  const result = await updateSpoonNotice(djId, room.liveId, newNotice)
+  if (result.ok) {
+    setTimeout(() => sendChatToRoom(djId, `✅ 공지사항이 변경됐어요: ${newNotice}`), 400)
+  } else {
+    setTimeout(() => sendChatToRoom(djId, `❌ 공지 변경 실패: ${result.error}`), 400)
+  }
+}
 
 function handleManagerTokenCommand(djId, room, settings, author, authorId, tag, text) {
   if (!isModuleOn(settings, 'managertoken', djId)) return
@@ -11393,7 +11442,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
   if (!isModuleOn(settings, 'entrysettings', djId)) return
-  const msgs = (settings.leaveMessages != null ? settings.leaveMessages : DEFAULT_LEAVE_MESSAGES).filter(m => m.enabled)
+  const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : DEFAULT_LEAVE_MESSAGES).filter(m => m.enabled)
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
     const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
@@ -11640,6 +11689,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           updateTempRanking(djId, settings, author, actTag, gen) // 🌡️ 스푼 온도 기록
           handleTempRankCommand(djId, settings, text)
           handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
+          handleNoticeCommand(djId, room, settings, author, authorId, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -11655,6 +11705,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
+
+      } else if (eventName === 'LiveMetaUpdate') {
+        // 📢 공지사항 변경(PUT https://kr-api.spooncast.net/lives/{liveId}/) 등에 쓰기 위해,
+        // 방송의 최신 전체 상태를 항상 최신으로 들고 있는다. PUT은 부분 수정이 아니라
+        // 전체를 다시 보내야 하는 방식으로 보여서, 여기서 받은 걸 그대로 베이스로 쓴다.
+        room.lastLiveMeta = eventPayload
 
       } else if (eventName === 'RoomJoin') {
         const gen = eventPayload.generator || {}
@@ -11690,7 +11746,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             setTimeout(() => sendChatToRoom(djId, text), 500)
             if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
-            const msgs = (settings.joinMessages != null ? settings.joinMessages : DEFAULT_JOIN_MESSAGES).filter(m => m.enabled)
+            const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : DEFAULT_JOIN_MESSAGES).filter(m => m.enabled)
             if (msgs.length > 0) {
               const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
               setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -11717,7 +11773,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
-        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages != null ? settings.likeMessages : DEFAULT_LIKE_MESSAGES).filter(m => m.enabled)
+        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : DEFAULT_LIKE_MESSAGES).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
           setTimeout(() => sendChatToRoom(djId, text), 500)
