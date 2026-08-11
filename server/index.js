@@ -1958,7 +1958,8 @@ function handlePlanSubHook(djId, settings, author, tag, isSubscribe, userPlanLev
     rewardLabel = `룰렛${idx}권 ${Number(rule.amount) || 1}장`
   } else {
     const act = getActivitySettings(djId, settings)
-    const existingKey = actResolveKey(act, author, tag) || key
+    const existingKey = actResolveKey(act, author, tag) // ⚠️ 미등록 유저면 null — 자동 등록 안 하고 조용히 무시
+    if (!existingKey) { console.log(`[구독자플랜] ${author} 애청지수 미등록 — 복권 지급 무시`); return }
     const d = actEnsureUser(act, existingKey, author, tag)
     d.lotto = Math.max(0, (d.lotto || 0) + (Number(rule.amount) || 1))
     store.saveSettings(djId, { activity: act })
@@ -10923,12 +10924,11 @@ function handleQuizAnswer(djId, settings, author, text, tag) {
   room.quiz.current = null
 
   const quiz = getQuizSettings(djId, settings)
-  // 애청지수와 연동: 등록 안 된 유저도 다른 지급 기능과 동일하게 자동 등록하고 지급한다.
-  // 신규 등록은 무조건 고유닉 기준으로만 한다 — 닉네임을 키로 쓰지 않는다.
+  // ⚠️ 애청지수 미등록 유저는 조용히 무시한다 (예전엔 자동으로 등록하고 지급했는데, 명령어로
+  // "!내정보 생성" 안 한 사람한테까지 자동으로 애청지수 정보가 생기는 버그라서 정책을 바꿈).
   const act = getActivitySettings(djId, settings)
-  const existingKey = actResolveKey(act, author, tag)
-  const key = existingKey || (tag ? String(tag).trim().toLowerCase() : null)
-  if (!key) { console.log(`[퀴즈] ${author} 고유닉 미확인 — 정답 보상 보류`); return }
+  const key = actResolveKey(act, author, tag)
+  if (!key) { console.log(`[퀴즈] ${author} 애청지수 미등록 — 정답 보상 무시`); return }
   actEnsureUser(act, key, author, tag)
   if (cur.score) actGrantExp(djId, act, key, cur.score)
   store.saveSettings(djId, { activity: act })
@@ -10999,8 +10999,8 @@ function applySpecialRouletteItem(djId, settings, authorTag, author, itemName) {
     const amount = parseInt(lottoM[1], 10)
     if (amount > 0) {
       const act = getActivitySettings(djId, settings)
-      const key = actResolveKey(act, author, authorTag) || (authorTag ? String(authorTag).trim().toLowerCase() : null)
-      if (!key) { console.log(`[룰렛당첨] ${author} 고유닉 미확인 — 복권 적립 보류`); return }
+      const key = actResolveKey(act, author, authorTag) // ⚠️ 미등록 유저면 null — 자동 등록 안 하고 조용히 무시
+      if (!key) { console.log(`[룰렛당첨] ${author} 애청지수 미등록 — 복권 적립 무시 (내정보 생성 안 한 유저)`); return }
       const d = actEnsureUser(act, key, author, authorTag)
       d.lotto = (d.lotto || 0) + amount
       store.saveSettings(djId, { activity: act })
