@@ -66,17 +66,17 @@ function decompressBackup(rawStr) {
 // 🌐 외부(Base44) 자동 백업 — Railway 볼륨이 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
 // 외부 서버에도 유저 데이터를 주기적으로 복사해둔다. DJ별로 개별 레코드로 저장해서, 나중에 필요할 때
 // 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
-// (2026-08-10 채팅에서 발급받은 값)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
+// (2026-08-10 정식 배포 시 확인된 고정 주소)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
 // BASE44_BACKUP_URL / BASE44_BACKUP_KEY로 옮기고 아래 기본값은 지워도 된다.
-// ⚠️ Base44 "preview" 주소는 앱을 수정할 때마다 바뀔 수 있다고 확인됨 — 나중에 또 404/연결실패
-// 뜨면 Base44에서 "고정 배포(Production) 주소"가 있는지 확인하고 그쪽으로 옮기는 게 안전하다.
-const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/saveBackup'
+// ✅ 2026-08-10: Base44 앱을 정식 배포(Publish)해서 고정 도메인(tested-snap-vault-sync.base44.app)을
+// 받았다. "preview--..." 처럼 계속 바뀌던 임시 주소 문제는 이제 해결됨.
+const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://tested-snap-vault-sync.base44.app/functions/saveBackup'
 const BASE44_BACKUP_KEY = process.env.BASE44_BACKUP_KEY || '1328218'
 // 🔄 복구용 조회 함수 — 같은 Base44 앱 도메인
-const BASE44_RESTORE_URL = process.env.BASE44_RESTORE_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/getBackup'
+const BASE44_RESTORE_URL = process.env.BASE44_RESTORE_URL || 'https://tested-snap-vault-sync.base44.app/functions/getBackup'
 const BASE44_RESTORE_KEY = process.env.BASE44_RESTORE_KEY || BASE44_BACKUP_KEY
 // 📋 백업 목록 조회 함수 — 특정 djId로 저장된 백업들을 최신순으로 여러 개 보여줄 때 사용
-const BASE44_LIST_URL = process.env.BASE44_LIST_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/listBackups'
+const BASE44_LIST_URL = process.env.BASE44_LIST_URL || 'https://tested-snap-vault-sync.base44.app/functions/listBackups'
 const BASE44_LIST_KEY = process.env.BASE44_LIST_KEY || BASE44_BACKUP_KEY
 async function fetchBackupFromBase44(djId) {
   const res = await fetch(`${BASE44_RESTORE_URL}?djId=${encodeURIComponent(djId)}`, {
