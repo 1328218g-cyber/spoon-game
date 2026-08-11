@@ -996,12 +996,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title">🔄 Base44에서 복구</div>
-          <p class="hint" style="margin-top:0">위 5개 항목만 복구돼요 — 계정 정보(비밀번호 등)나 다른 설정은 안 건드리고 그대로 남아요. 그래도 그 5개 항목은 백업 시점으로 덮어써지고 되돌릴 수 없으니, 먼저 "미리보기"로 언제 백업된 건지 확인하세요.</p>
-          <input type="text" id="restoreDjIdInput" placeholder="복구할 고유닉(djId) 입력">
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button class="btn-gray" style="flex:1" onclick="previewBase44Restore()">🔍 미리보기</button>
-            <button class="btn-shield-reset" style="flex:1" id="restoreApplyBtn" disabled onclick="applyBase44Restore()">♻️ 복구 실행</button>
+          <p class="hint" style="margin-top:0">위 5개 항목만 복구돼요 — 계정 정보(비밀번호 등)나 다른 설정은 안 건드리고 그대로 남아요. 원하는 시점의 백업을 목록에서 골라서 복구할 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="restoreDjIdInput" placeholder="복구할 고유닉(djId) 입력" style="flex:1">
+            <button class="btn-connect" style="white-space:nowrap" onclick="loadBase44BackupList()">📋 목록 불러오기</button>
           </div>
+          <div id="restoreListWrap" style="margin-top:10px"></div>
+          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="restoreApplyBtn" disabled onclick="applyBase44Restore()">♻️ 선택한 시점으로 복구</button>
           <div id="restorePreviewResult" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -1092,11 +1093,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%" onclick="myBackupNow()">☁️ 지금 바로 클라우드에 백업</button>
           <div id="myBackupResult" class="hint" style="margin-top:8px"></div>
           <div style="border-top:1px solid var(--border);margin:16px 0"></div>
-          <p class="hint" style="margin-bottom:10px">복구하면 위 5개 항목만 백업 시점으로 되돌아가요 (비밀번호 등 다른 정보는 그대로예요). 먼저 미리보기로 언제 백업된 건지 확인하세요.</p>
-          <div style="display:flex;gap:8px">
-            <button class="btn-gray" style="flex:1" onclick="myRestorePreview()">🔍 미리보기</button>
-            <button class="btn-shield-reset" style="flex:1" id="myRestoreApplyBtn" disabled onclick="myRestoreApply()">♻️ 복구 실행</button>
-          </div>
+          <p class="hint" style="margin-bottom:10px">복구하면 위 5개 항목만 백업 시점으로 되돌아가요 (비밀번호 등 다른 정보는 그대로예요). 원하는 시점의 백업을 목록에서 골라서 복구할 수 있어요.</p>
+          <button class="btn-connect" style="width:100%" onclick="loadMyBackupList()">📋 백업 목록 불러오기</button>
+          <div id="myRestoreListWrap" style="margin-top:10px"></div>
+          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtn" disabled onclick="myRestoreApply()">♻️ 선택한 시점으로 복구</button>
           <div id="myRestoreResult" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -5536,39 +5536,46 @@ async function testBase44Backup(){
   }catch(e){box.textContent='오류: '+e.message;}
 }
 
-let restorePreviewedDjId=null;
-async function previewBase44Restore(){
+let restoreSelectedTimestamp=null, restoreListDjId=null;
+async function loadBase44BackupList(){
   const djIdVal=document.getElementById('restoreDjIdInput').value.trim();
+  const listWrap=document.getElementById('restoreListWrap');
   const box=document.getElementById('restorePreviewResult');
+  restoreSelectedTimestamp=null;
   document.getElementById('restoreApplyBtn').disabled=true;
-  restorePreviewedDjId=null;
   if(!djIdVal)return showToast('고유닉을 입력해주세요');
-  box.textContent='조회 중...';
+  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  box.textContent='';
   try{
-    const res=await fetch(SERVER+'/admin/restore-preview-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal})});
+    const res=await fetch(SERVER+'/admin/list-backups-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal})});
     const d=await res.json();
-    if(!d.success){ box.textContent='❌ '+(d.error||'조회 실패'); return; }
-    const when=d.timestamp?new Date(d.timestamp).toLocaleString('ko-KR'):'알 수 없음';
-    box.innerHTML=`✅ 백업 찾았어요 — <b>${escapeHtml(when)}</b> 시점 저장본${d.hasSettings?'':' (⚠️ 설정 데이터가 비어있을 수 있어요)'}<br>확인하셨으면 "복구 실행" 버튼을 눌러주세요.`;
-    restorePreviewedDjId=djIdVal;
-    document.getElementById('restoreApplyBtn').disabled=false;
-  }catch(e){box.textContent='오류: '+e.message;}
+    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.</p>'; return; }
+    restoreListDjId=djIdVal;
+    listWrap.innerHTML=d.list.map((item,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="radio" name="restoreTsPick" value="${escapeAttr(item.timestamp)}" onchange="restoreSelectedTimestamp=this.value;document.getElementById('restoreApplyBtn').disabled=false;">
+        <span>${escapeHtml(new Date(item.timestamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
+      </label>
+    `).join('');
+  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
 }
 async function applyBase44Restore(){
   const djIdVal=document.getElementById('restoreDjIdInput').value.trim();
-  if(!restorePreviewedDjId || restorePreviewedDjId!==djIdVal){
-    return showToast('먼저 미리보기를 다시 실행해주세요 (입력값이 바뀌었어요)');
+  if(!restoreSelectedTimestamp || restoreListDjId!==djIdVal){
+    return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
   }
-  if(!confirm(`정말로 "${djIdVal}" 계정을 백업 시점으로 되돌릴까요?\n지금 있는 데이터는 사라지고 백업 시점 데이터로 완전히 덮어써져요. 되돌릴 수 없어요.`))return;
+  const when=new Date(restoreSelectedTimestamp).toLocaleString('ko-KR');
+  if(!confirm(`정말로 "${djIdVal}" 계정을 [${when}] 시점으로 되돌릴까요?\n룰렛/애청지수/반복문구/단축명령어가 그 시점 데이터로 덮어써져요. 되돌릴 수 없어요.`))return;
   const box=document.getElementById('restorePreviewResult');
   box.textContent='복구 중...';
   try{
-    const res=await fetch(SERVER+'/admin/restore-apply-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal,confirm:true})});
+    const res=await fetch(SERVER+'/admin/restore-apply-base44',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:djIdVal,timestamp:restoreSelectedTimestamp,confirm:true})});
     const d=await res.json();
     if(d.success){
       box.textContent='✅ 복구 완료! 이제 이 계정으로 로그인해서 확인해보세요.';
       showToast('복구 완료 ✓');
-      restorePreviewedDjId=null;
+      restoreSelectedTimestamp=null;
       document.getElementById('restoreApplyBtn').disabled=true;
     }else{
       box.textContent='❌ '+(d.error||'복구 실패');
@@ -11242,34 +11249,40 @@ async function myBackupNow(){
     box.textContent = d.success ? '✅ 백업 완료!' : '❌ '+(d.error||'백업 실패')+(d.detail?' — '+d.detail:'');
   }catch(e){box.textContent='오류: '+e.message;}
 }
-let myRestorePreviewed=false;
-async function myRestorePreview(){
+let mySelectedTimestamp=null;
+async function loadMyBackupList(){
+  const listWrap=document.getElementById('myRestoreListWrap');
   const box=document.getElementById('myRestoreResult');
+  mySelectedTimestamp=null;
   document.getElementById('myRestoreApplyBtn').disabled=true;
-  myRestorePreviewed=false;
-  box.textContent='조회 중...';
+  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  box.textContent='';
   try{
-    const res=await fetch(SERVER+'/mydata/restore-preview',{method:'POST',headers:authHeaders()});
+    const res=await fetch(SERVER+'/mydata/list-backups',{method:'POST',headers:authHeaders()});
     const d=await res.json();
-    if(!d.success){ box.textContent='❌ '+(d.error||'조회 실패'); return; }
-    const when=d.timestamp?new Date(d.timestamp).toLocaleString('ko-KR'):'알 수 없음';
-    box.innerHTML=`✅ 백업 찾았어요 — <b>${escapeHtml(when)}</b> 시점 저장본. 확인하셨으면 "복구 실행"을 눌러주세요.`;
-    myRestorePreviewed=true;
-    document.getElementById('myRestoreApplyBtn').disabled=false;
-  }catch(e){box.textContent='오류: '+e.message;}
+    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요.</p>'; return; }
+    listWrap.innerHTML=d.list.map((item,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="radio" name="myRestoreTsPick" value="${escapeAttr(item.timestamp)}" onchange="mySelectedTimestamp=this.value;document.getElementById('myRestoreApplyBtn').disabled=false;">
+        <span>${escapeHtml(new Date(item.timestamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
+      </label>
+    `).join('');
+  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
 }
 async function myRestoreApply(){
-  if(!myRestorePreviewed)return showToast('먼저 미리보기를 실행해주세요');
-  if(!confirm('정말로 지금 계정을 백업 시점으로 되돌릴까요?\n지금 있는 데이터는 사라지고 백업 시점 데이터로 완전히 덮어써져요. 되돌릴 수 없어요.'))return;
+  if(!mySelectedTimestamp)return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
+  const when=new Date(mySelectedTimestamp).toLocaleString('ko-KR');
+  if(!confirm(`정말로 [${when}] 시점으로 되돌릴까요?\n룰렛/애청지수/반복문구/단축명령어가 그 시점 데이터로 덮어써져요. 되돌릴 수 없어요.`))return;
   const box=document.getElementById('myRestoreResult');
   box.textContent='복구 중...';
   try{
-    const res=await fetch(SERVER+'/mydata/restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({confirm:true})});
+    const res=await fetch(SERVER+'/mydata/restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({timestamp:mySelectedTimestamp,confirm:true})});
     const d=await res.json();
     if(d.success){
       box.textContent='✅ 복구 완료! 새로고침해서 확인해보세요.';
       showToast('복구 완료 ✓');
-      myRestorePreviewed=false;
+      mySelectedTimestamp=null;
       document.getElementById('myRestoreApplyBtn').disabled=true;
     }else{
       box.textContent='❌ '+(d.error||'복구 실패');

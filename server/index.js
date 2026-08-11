@@ -68,11 +68,16 @@ function decompressBackup(rawStr) {
 // 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
 // (2026-08-10 채팅에서 발급받은 값)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
 // BASE44_BACKUP_URL / BASE44_BACKUP_KEY로 옮기고 아래 기본값은 지워도 된다.
-const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview--tested-snap-vault-sync.base44.app/functions/saveBackup'
+// ⚠️ Base44 "preview" 주소는 앱을 수정할 때마다 바뀔 수 있다고 확인됨 — 나중에 또 404/연결실패
+// 뜨면 Base44에서 "고정 배포(Production) 주소"가 있는지 확인하고 그쪽으로 옮기는 게 안전하다.
+const BASE44_BACKUP_URL = process.env.BASE44_BACKUP_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/saveBackup'
 const BASE44_BACKUP_KEY = process.env.BASE44_BACKUP_KEY || '1328218'
-// 🔄 복구용 조회 함수 — 같은 Base44 앱 도메인에 있다고 가정 (다르면 BASE44_RESTORE_URL 환경변수로 덮어쓰기)
-const BASE44_RESTORE_URL = process.env.BASE44_RESTORE_URL || 'https://preview--tested-snap-vault-sync.base44.app/functions/getBackup'
+// 🔄 복구용 조회 함수 — 같은 Base44 앱 도메인
+const BASE44_RESTORE_URL = process.env.BASE44_RESTORE_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/getBackup'
 const BASE44_RESTORE_KEY = process.env.BASE44_RESTORE_KEY || BASE44_BACKUP_KEY
+// 📋 백업 목록 조회 함수 — 특정 djId로 저장된 백업들을 최신순으로 여러 개 보여줄 때 사용
+const BASE44_LIST_URL = process.env.BASE44_LIST_URL || 'https://preview-sandbox--6a79e9e698be1b9d546b739a.base44.app/functions/listBackups'
+const BASE44_LIST_KEY = process.env.BASE44_LIST_KEY || BASE44_BACKUP_KEY
 async function fetchBackupFromBase44(djId) {
   const res = await fetch(`${BASE44_RESTORE_URL}?djId=${encodeURIComponent(djId)}`, {
     headers: { 'x-api-key': BASE44_RESTORE_KEY },
@@ -87,6 +92,22 @@ async function fetchBackupFromBase44(djId) {
   const parsed = typeof rawData === 'string' ? decompressBackup(rawData) : rawData
   return { found: true, timestamp: rec.timestamp || body.timestamp || null, data: parsed, raw: body }
 }
+// 📋 특정 djId로 저장된 백업들을 최신순으로 최대 20개까지 가져온다 (목록에서 골라서 복구하기 위함).
+async function listBackupsFromBase44(djId, limit = 20) {
+  const res = await fetch(`${BASE44_LIST_URL}?djId=${encodeURIComponent(djId)}&limit=${limit}`, {
+    headers: { 'x-api-key': BASE44_LIST_KEY },
+  })
+  if (res.status === 404) return []
+  if (!res.ok) throw new Error(`listBackups 응답 ${res.status}`)
+  const body = await res.json()
+  // 응답 구조가 배열 자체일 수도, { results: [...] } 형태일 수도 있어서 둘 다 시도
+  const items = Array.isArray(body) ? body : (body.results || body.records || body.data || [])
+  return items.map(item => {
+    let parsedData = null
+    try { parsedData = typeof item.data === 'string' ? decompressBackup(item.data) : item.data } catch (e) { /* 이 항목만 건너뜀 */ }
+    return { timestamp: item.timestamp, data: parsedData }
+  }).filter(item => item.data != null)
+}
 // 📦 백업 범위를 줄인다 — 이미지/음원처럼 용량 큰 항목이 섞여있는 전체 계정 대신,
 // 룰렛/룰렛기록/애청지수/반복문구/단축명령어 이 5개만 뽑아서 백업한다.
 function extractBackupSubset(djRecord) {
@@ -99,6 +120,10 @@ function extractBackupSubset(djRecord) {
     commands: s.commands || null, // 단축명령어
   }
 }
+
+// ⏭️ 자동 백업 변경감지용 — djId별로 "마지막에 실제로 Base44에 보낸 내용"을 기억해둔다.
+// (서버 재시작하면 초기화되는데, 그러면 다음 자동백업 1번은 그냥 다시 보내지는 정도라 문제 없음)
+const lastBackupSubsetStr = new Map()
 
 async function backupOneDjToBase44(djId, djRecord) {
   const subset = extractBackupSubset(djRecord)
@@ -121,18 +146,22 @@ async function backupOneDjToBase44(djId, djRecord) {
 async function backupToBase44() {
   const snapshot = store.getRawSnapshot()
   const djIds = Object.keys(snapshot)
-  let okCount = 0, failCount = 0
+  let okCount = 0, failCount = 0, skipCount = 0
   for (const id of djIds) {
     try {
+      // ⏭️ 자동 백업 전용 변경감지 — 지난번에 보낸 것과 지금 데이터가 똑같으면 그냥 건너뛴다.
+      // (수동으로 "지금 바로 백업" 누르는 버튼은 이 로직을 안 거치고 항상 그대로 실행됨)
+      const subsetStr = JSON.stringify(extractBackupSubset(snapshot[id]))
+      if (lastBackupSubsetStr.get(id) === subsetStr) { skipCount++; continue }
       const res = await backupOneDjToBase44(id, snapshot[id])
-      if (res.ok) okCount++
+      if (res.ok) { okCount++; lastBackupSubsetStr.set(id, subsetStr) }
       else { failCount++; console.log(`[Base44 백업] ${id} 실패 응답:`, res.status) }
     } catch (e) {
       failCount++
       console.log(`[Base44 백업] ${id} 오류:`, e.message)
     }
   }
-  console.log(`[Base44 백업] 완료 — 성공 ${okCount}건 / 실패 ${failCount}건 (전체 ${djIds.length}명)`)
+  console.log(`[Base44 백업] 완료 — 성공 ${okCount}건 / 실패 ${failCount}건 / 변경없음(건너뜀) ${skipCount}건 (전체 ${djIds.length}명)`)
 }
 
 // ⚠️ 지금은 djId별 멀티 계정 대신, 모든 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
@@ -12095,7 +12124,7 @@ app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
     for (const id of djIds) {
       try {
         const r = await backupOneDjToBase44(id, snapshot[id])
-        if (r.ok) okCount++
+        if (r.ok) { okCount++; lastBackupSubsetStr.set(id, JSON.stringify(extractBackupSubset(snapshot[id]))) }
         else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status} (${r.sizeBytes}바이트) - ${r.errText || ''}` }
       } catch (e) {
         failCount++
@@ -12110,6 +12139,18 @@ app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
 
 // 🔄 Base44 복구 1단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 djId로 저장된 백업이 있는지/언제
 // 저장된 건지만 확인한다. (되돌릴 수 없는 작업이라 반드시 미리보기 먼저 거치게 함)
+// 📋 특정 계정의 백업 목록(최신순 최대 20개)을 가져온다 — 여기서 골라서 복구할 수 있게
+app.post('/admin/list-backups-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  try {
+    const list = await listBackupsFromBase44(targetDjId)
+    res.json({ success: true, list: list.map(item => ({ timestamp: item.timestamp })) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
 app.post('/admin/restore-preview-base44', auth.requireAuth, async (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const targetDjId = String((req.body || {}).djId || '').trim()
@@ -12123,18 +12164,28 @@ app.post('/admin/restore-preview-base44', auth.requireAuth, async (req, res) => 
   }
 })
 // 🔄 Base44 복구 2단계 — 실제로 덮어쓴다. confirm:true가 명시적으로 와야만 실행.
+// timestamp를 같이 보내면 "목록에서 고른 그 시점"으로, 안 보내면 예전처럼 가장 최근 백업으로 복구한다.
 app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const targetDjId = String((req.body || {}).djId || '').trim()
+  const targetTimestamp = (req.body || {}).timestamp || null
   if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
   if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
   try {
-    const result = await fetchBackupFromBase44(targetDjId)
-    if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
-    const merged = store.mergeDjBackupSubset(targetDjId, result.data)
+    let picked
+    if (targetTimestamp) {
+      const list = await listBackupsFromBase44(targetDjId)
+      picked = list.find(item => item.timestamp === targetTimestamp)
+      if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
+    } else {
+      const result = await fetchBackupFromBase44(targetDjId)
+      if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
+      picked = result
+    }
+    const merged = store.mergeDjBackupSubset(targetDjId, picked.data)
     if (!merged.ok) return res.json({ success: false, error: merged.error })
-    console.log(`[Base44 복구] ${targetDjId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${result.timestamp} 시점 백업으로 복구했어요.`)
-    res.json({ success: true, timestamp: result.timestamp })
+    console.log(`[Base44 복구] ${targetDjId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 복구했어요.`)
+    res.json({ success: true, timestamp: picked.timestamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -12148,7 +12199,16 @@ app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
     if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
     const r = await backupOneDjToBase44(req.djId, record)
     if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status} (요청크기 ${r.sizeBytes}바이트)`, detail: r.errText })
+    lastBackupSubsetStr.set(req.djId, JSON.stringify(extractBackupSubset(record)))
     res.json({ success: true })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const list = await listBackupsFromBase44(req.djId)
+    res.json({ success: true, list: list.map(item => ({ timestamp: item.timestamp })) })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -12164,13 +12224,22 @@ app.post('/mydata/restore-preview', auth.requireAuth, async (req, res) => {
 })
 app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
   if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const targetTimestamp = (req.body || {}).timestamp || null
   try {
-    const result = await fetchBackupFromBase44(req.djId)
-    if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
-    const merged = store.mergeDjBackupSubset(req.djId, result.data)
+    let picked
+    if (targetTimestamp) {
+      const list = await listBackupsFromBase44(req.djId)
+      picked = list.find(item => item.timestamp === targetTimestamp)
+      if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
+    } else {
+      const result = await fetchBackupFromBase44(req.djId)
+      if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
+      picked = result
+    }
+    const merged = store.mergeDjBackupSubset(req.djId, picked.data)
     if (!merged.ok) return res.json({ success: false, error: merged.error })
-    console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${result.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
-    res.json({ success: true, timestamp: result.timestamp })
+    console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, timestamp: picked.timestamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
