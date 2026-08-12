@@ -1141,10 +1141,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="entrysettings">
         <div class="card">
           <div class="card-title"><span>✨ 첫 줄 자동 가운데 정렬</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveCenterAlign()">💾 저장</button></div>
-          <p class="hint">채팅은 진짜 가운데 정렬이 안 되니까, 앞에 공백을 계산해서 채워넣어 시각적으로 가운데처럼 보이게 해요. 닉네임 길이가 달라도 자동으로 맞춰져요. (입장/좋아요/퇴장/지정인사/반복문구의 <b>첫 줄</b>에 적용돼요)</p>
+          <p class="hint">채팅은 진짜 가운데 정렬이 안 되니까, 앞에 공백류 문자를 계산해서 채워넣어 시각적으로 가운데처럼 보이게 해요. 닉네임 길이가 달라도 자동으로 맞춰져요. (입장/좋아요/퇴장/지정인사/반복문구의 <b>첫 줄</b>에 적용돼요)</p>
           <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="centerAlignEnabled"> 첫 줄 가운데 정렬 사용</label>
           <label style="margin-top:10px">기준 너비 (숫자가 클수록 더 넓게 벌어져요)</label>
           <input type="number" id="centerAlignWidth" value="20" min="6" style="max-width:120px">
+          <label style="margin-top:10px">채워넣을 공백 종류</label>
+          <select id="centerAlignPadChar">
+            <option value="space">일반 스페이스 (스푼이 잘라낼 수도 있어요)</option>
+            <option value="nbsp">논브레이킹 스페이스</option>
+            <option value="ideographic">전각(한중일) 공백</option>
+            <option value="figure">숫자 폭 공백</option>
+            <option value="thin">얇은 공백</option>
+          </select>
+          <p class="hint" style="margin-top:6px">어떤 게 스푼 채팅창에서 안 잘리고 살아남는지는 직접 방송에서 테스트해봐야 확실해요. 아래 버튼으로 지금 설정 그대로 채팅에 테스트 문구를 보내볼 수 있어요.</p>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="testCenterAlign()">🧪 지금 방송 채팅에 테스트 전송</button>
         </div>
         <div class="card">
           <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영 메시지 음원 전용)</span></div>
@@ -5043,6 +5053,7 @@ async function loadDjSettings(){
       if(s.centerAlign){
         const cae=document.getElementById('centerAlignEnabled'); if(cae) cae.checked=!!s.centerAlign.enabled;
         const caw=document.getElementById('centerAlignWidth'); if(caw) caw.value=s.centerAlign.width||20;
+        const cap=document.getElementById('centerAlignPadChar'); if(cap) cap.value=s.centerAlign.padChar||'space';
       }
       if(s.shield){ Object.assign(shieldData, s.shield); }
       if(s.flags){
@@ -11511,11 +11522,19 @@ async function saveSettings(){
   }catch(e){showToast('저장 실패');}
 }
 async function saveCenterAlign(){
-  const body={centerAlign:{enabled:document.getElementById('centerAlignEnabled').checked,width:Number(document.getElementById('centerAlignWidth').value)||20}};
+  const body={centerAlign:{enabled:document.getElementById('centerAlignEnabled').checked,width:Number(document.getElementById('centerAlignWidth').value)||20,padChar:document.getElementById('centerAlignPadChar').value}};
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
+}
+async function testCenterAlign(){
+  const body={width:Number(document.getElementById('centerAlignWidth').value)||20,padChar:document.getElementById('centerAlignPadChar').value};
+  try{
+    const res=await fetch(SERVER+'/centeralign/test',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    showToast(d.success?'테스트 문구를 보냈어요, 방송 채팅 확인해보세요!':'전송 실패 (방송에 연결돼있는지 확인해주세요)');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function checkStatus(){

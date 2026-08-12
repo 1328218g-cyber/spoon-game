@@ -560,13 +560,23 @@ function visualTextWidth(str) {
   return w
 }
 // 여러 줄이면 첫 줄만 가운데 정렬한다 (닉네임 인사말 같은 건 보통 첫 줄만 중요해서).
-function centerAlignFirstLine(text, targetWidth = 20) {
+// 일반 스페이스(0x20)는 스푼 채팅창이 앞뒤로 잘라내버릴 수 있어서, 눈엔 똑같이 빈칸처럼
+// 보이지만 코드상 다른 종류의 "공백류" 문자도 골라 쓸 수 있게 한다. 어떤 게 안 잘리고
+// 살아남는지는 실제로 스푼에 보내보기 전까진 확실히 알 수 없어서, DJ가 몇 가지를 테스트해볼 수 있다.
+const PAD_CHAR_MAP = {
+  space: ' ',           // 일반 스페이스 (기본값 — 잘릴 가능성 있음)
+  nbsp: '\u00A0',        // 논브레이킹 스페이스
+  ideographic: '\u3000', // 전각(한중일) 공백
+  figure: '\u2007',      // 숫자 폭 공백
+  thin: '\u2009',        // 얇은 공백
+}
+function centerAlignFirstLine(text, targetWidth = 20, padChar = ' ') {
   const str = String(text || '')
   if (!str) return str
   const lines = str.split('\n')
   const w = visualTextWidth(lines[0])
   const padCount = Math.max(0, Math.floor((targetWidth - w) / 2))
-  lines[0] = ' '.repeat(padCount) + lines[0]
+  lines[0] = padChar.repeat(padCount) + lines[0]
   return lines.join('\n')
 }
 
@@ -11552,7 +11562,8 @@ function pickEntryMessage(entryData, type, author, tag) {
 function applyCenterAlignIfEnabled(settings, text) {
   const cfg = settings.centerAlign
   if (!cfg || !cfg.enabled) return text
-  return centerAlignFirstLine(text, Number(cfg.width) || 20)
+  const padChar = PAD_CHAR_MAP[cfg.padChar] || ' '
+  return centerAlignFirstLine(text, Number(cfg.width) || 20, padChar)
 }
 
 function sendLeaveMessage(djId, settings, nickname, tag) {
@@ -14724,8 +14735,20 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
-  if (centerAlign) patch.centerAlign = { enabled: !!centerAlign.enabled, width: Math.max(6, parseInt(centerAlign.width, 10) || 20) }
+  if (centerAlign) patch.centerAlign = { enabled: !!centerAlign.enabled, width: Math.max(6, parseInt(centerAlign.width, 10) || 20), padChar: ['space', 'nbsp', 'ideographic', 'figure', 'thin'].includes(centerAlign.padChar) ? centerAlign.padChar : 'space' }
   store.saveSettings(req.djId, patch)
+  res.json({ success: true })
+})
+
+// ✨ 가운데 정렬 즉시 테스트 — 실제 입장/좋아요 없이 지금 설정으로 바로 채팅에 쏴봐서 확인
+app.post('/centeralign/test', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const padCharKey = ['space', 'nbsp', 'ideographic', 'figure', 'thin'].includes((req.body || {}).padChar) ? (req.body || {}).padChar : 'space'
+  const width = Math.max(6, parseInt((req.body || {}).width, 10) || 20)
+  const sampleText = `테스트닉네임님, 어서와요!`
+  const padChar = PAD_CHAR_MAP[padCharKey] || ' '
+  const text = centerAlignFirstLine(sampleText, width, padChar)
+  sendChatToRoom(req.djId, text)
   res.json({ success: true })
 })
 
