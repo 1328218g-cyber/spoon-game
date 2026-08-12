@@ -11024,6 +11024,23 @@ function applySpecialRouletteItem(djId, settings, authorTag, author, itemName) {
     }
     return
   }
+
+  // 🎫 "뽑기권 N개" — 뽑기판 모듈의 뽑기권을 자동 지급. 예) "뽑기권 3개", "뽑기권 5"
+  const pickM = name.match(/뽑기권\s*(\d+)\s*개?/)
+  if (pickM) {
+    const amount = parseInt(pickM[1], 10)
+    if (amount > 0) {
+      if (!authorTag) { console.log(`[룰렛당첨] ${author} 고유닉 미확인 — 뽑기권 지급 보류`); return }
+      const pb = getPickboardSettings(djId, settings)
+      const user = pbGetUser(pb, authorTag)
+      if (!user.nickname) user.nickname = author
+      user.pick = (user.pick || 0) + amount
+      pbSetUser(pb, authorTag, user)
+      savePickboard(djId, pb)
+      setTimeout(() => sendChatToRoom(djId, `🎫 [룰렛 당첨] ${author}님 뽑기권 ${amount}개 적립! (현재 보유: ${user.pick}개)`), 700)
+    }
+    return
+  }
 }
 
 const SECTION_LABEL = { '킵목록': '킵', '이벤트목록': '이벤트', '기타목록': '내카드' }

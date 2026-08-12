@@ -1523,7 +1523,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card" id="rouletteFormCard" style="display:none">
           <div class="card-title">
             <input type="text" id="rlName" placeholder="예: 일반룰렛" style="max-width:220px;font-weight:700">
-            <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="openModuleHelp('rouletteAutoGrant')">🎁 자동지급</button>
+              <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
+            </div>
           </div>
           <label>작동 방식</label>
           <select id="rlTriggerMode" onchange="updateRouletteTriggerUI()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px">
@@ -7918,6 +7921,21 @@ function closeTtsGuideModal(){
 }
 
 const MODULE_HELP_CONTENT={
+  rouletteAutoGrant:{
+    title:'🎁 룰렛 항목 자동지급 안내',
+    body:`
+      <p>룰렛 <b>항목 이름</b>을 아래 규칙대로 지어두면, 그 항목에 당첨될 때 자동으로 지급/차감돼요. 항목 이름 칸에 정확히 이 형식으로 입력하시면 돼요.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px">
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 4px"><code>실드 20</code></td><td style="padding:8px 4px">실드 20개 적립</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 4px"><code>실드 -20</code></td><td style="padding:8px 4px">실드 20개 차감</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 4px"><code>복권 20장</code></td><td style="padding:8px 4px">애청지수 복권 20장 적립</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 4px"><code>룰렛지급1</code></td><td style="padding:8px 4px">1번 룰렛의 룰렛권 1장 지급</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 4px"><code>룰렛지급2 3장</code></td><td style="padding:8px 4px">2번 룰렛의 룰렛권 3장 지급</td></tr>
+        <tr><td style="padding:8px 4px"><code>뽑기권 5개</code></td><td style="padding:8px 4px">뽑기판 뽑기권 5개 적립</td></tr>
+      </table>
+      <p class="hint" style="margin-top:12px">※ 복권/룰렛권/뽑기권 지급은 무조건 고유닉 기준이에요. 고유닉이 확인 안 되는 시청자는 지급이 보류돼요.<br>※ 복권은 <code>!내정보 생성</code>을 한 유저만 지급돼요 — 등록 안 한 유저는 조용히 무시돼요.</p>
+    `
+  },
   viptier:{
     title:'❓ 🌟 귀빈 등급 시스템 도움말',
     body:`
