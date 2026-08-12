@@ -11541,6 +11541,42 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
+// 👋 입장 인사 — 웹소켓 RoomJoin 이벤트(매니저만 옴)랑, 시청자 명단 폴링 기반 감지(일반 시청자
+// 포함, 최대 5초 정도 늦게) 두 경로가 이 함수 하나를 공유한다. room._greetedKeys로 "이번 방송에서
+// 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
+// (같은 사람한테 인사가 두 번 나가는 걸 방지).
+function sendJoinMessage(djId, settings, author, tag, gen) {
+  if (settings.botEnabled === false) return
+  const room = getRoom(djId)
+  if (!room._greetedKeys) room._greetedKeys = new Set()
+  const greetKey = String(tag || author || '').trim().toLowerCase()
+  if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
+  if (greetKey) room._greetedKeys.add(greetKey)
+
+  const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+  const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
+  const tierName = joinTier ? joinTier.name : ''
+  if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
+
+  handleActAttendHook(djId, settings, author, tag)
+
+  if (greeting) {
+    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
+    setTimeout(() => sendChatToRoom(djId, text), 500)
+    if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
+  } else if (isModuleOn(settings, 'entrysettings', djId)) {
+    const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
+    if (msgs.length > 0) {
+      const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      setTimeout(() => sendChatToRoom(djId, text), 500)
+    }
+  }
+  if (isModuleOn(settings, 'entrysettings', djId)) {
+    const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
+    if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
+  }
+}
+
 function startLeavePolling(djId, liveId) {
   const room = getRoom(djId)
   stopLeavePolling(djId)
@@ -11548,6 +11584,8 @@ function startLeavePolling(djId, liveId) {
   room._memberAbsenceCount = new Map()
   room._leavePollInFlight = false
   room._lastAutoAttendCheck = Date.now() // 방금 입장했으니 자동 출석은 한 주기 지난 뒤부터 시작
+  room._greetedKeys = new Set() // 👋 이번 방송 세션에서 이미 인사 나간 사람 기록 (웹소켓/폴링 중복 방지)
+  room._joinPollBaseline = false // 첫 회차엔 "이미 방에 있던 사람들"을 전부 새 입장으로 오인하면 안 되므로, 첫 회차는 기준선만 잡고 인사는 건너뜀
 
   room._leavePollTimer = setInterval(async () => {
     if (room._leavePollInFlight) return
@@ -11601,6 +11639,20 @@ function startLeavePolling(djId, liveId) {
         const settings = store.getSettings(djId) || {}
         sendLeaveMessage(djId, settings, info.nickname, info.tag)
       }
+
+      // 👋 입장 감지 (매니저 아닌 일반 시청자용) — 스푼이 매니저가 아니면 RoomJoin 웹소켓 이벤트
+      // 자체를 안 보내주는 걸로 확인돼서, 시청자 명단을 비교하는 이 폴링으로 "새로 나타난 사람"을
+      // 잡아서 대신 인사를 보낸다. 첫 회차(방금 연결 직후)는 원래 있던 사람들까지 전부 "새 입장"으로
+      // 오인할 수 있어서 건너뛰고, 그 다음 회차부터만 진짜 신규 입장자를 인사한다.
+      if (room._joinPollBaseline) {
+        for (const [key, u] of currentMembers.entries()) {
+          if (room._lastLiveMembers.has(key)) continue // 이미 있던 사람
+          const settings = store.getSettings(djId) || {}
+          const nickname = u.nickname || u.tag || key
+          sendJoinMessage(djId, settings, nickname, u.tag || null, null)
+        }
+      }
+      room._joinPollBaseline = true
 
       for (const [key, info] of currentMembers.entries()) {
         room._lastLiveMembers.set(key, info)
@@ -11833,28 +11885,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           }
           rememberTagNickname(room, tag, author)
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
-          const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
-          const joinTier = updateVipTierForUser(djId, settings, author, tag, gen) // 🌟 귀빈 등급 갱신 (입장 시점에 확인 가능한 필드 기준)
-          const tierName = joinTier ? joinTier.name : ''
-          updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록 (입장 시점에도 확인 가능)
-
-          handleActAttendHook(djId, settings, author, tag)
-
-          if (greeting) {
-            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
-            setTimeout(() => sendChatToRoom(djId, text), 500)
-            if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
-          } else if (isModuleOn(settings, 'entrysettings', djId)) {
-            const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
-            if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
-              setTimeout(() => sendChatToRoom(djId, text), 500)
-            }
-          }
-          if (isModuleOn(settings, 'entrysettings', djId)) {
-            const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
-            if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
-          }
+          sendJoinMessage(djId, settings, author, tag, gen)
         }
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
@@ -14984,7 +15015,9 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   tokenManager.setCookies(djId, { cookies, localStorage, sessionStorage })
   // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
   // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  tokenManager.ensureAutoRefresh(djId, 180)
+  // (타이머 자체는 30분마다 깨어나지만, PC가 최근 1시간 안에 동기화했으면 그냥 건너뛰기만 하는
+  // 가벼운 체크라서 자주 돌아도 서버 부담이 거의 없다 — PC가 꺼지면 최대 30분 안에 서버가 이어받는다)
+  tokenManager.ensureAutoRefresh(djId, 30)
   console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
 })

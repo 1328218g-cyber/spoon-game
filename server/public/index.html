@@ -831,36 +831,25 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
           <p class="hint" id="sessionAccountHint" style="margin-top:0"></p>
-          <p class="hint" style="margin-top:10px">봇이 방송에 들어가서 채팅을 보내려면 스푼 로그인 세션이 필요해요. PC용 세션 연결 도구(<code>1_login.bat</code> → <code>2_자동실행.bat</code>)를 실행할 때, <b>이 웹 대시보드에 로그인할 때 쓰는 본인 아이디/비밀번호</b>를 입력하면 자동으로 본인 계정으로 연결돼요.</p>
+          <p class="hint" style="margin-top:10px">봇이 방송에 들어가서 채팅을 보내려면 스푼 로그인 세션이 필요해요. 아래 프로그램을 설치해서 <b>딱 한 번만 로그인</b>해두면, 그 뒤로는 완전히 자동으로 계속 연결이 유지돼요.</p>
           <p class="hint">별도로 연결하지 않으면 지금처럼 관리자 공용 계정으로 계속 동작하니, 굳이 본인 계정을 쓰고 싶은 경우가 아니라면 이 화면에서 따로 할 일은 없어요.</p>
         </div>
         <div class="card">
-          <div class="card-title"><span>🧩 크롬 확장프로그램으로 연결 (더 쉬운 방법)</span></div>
-          <p class="hint" style="margin-top:0">Node.js 설치나 PC 프로그램 실행 없이, 크롬 브라우저에 확장프로그램만 넣으면 10분마다 알아서 세션이 자동으로 연결돼요. 이미 열려있는 크롬의 스푼 로그인 상태를 그대로 읽어오는 방식이라 별도 로그인/실행이 필요 없어요.</p>
-          <a href="/downloads/edibot-extension.zip" download style="text-decoration:none">
-            <button class="btn-connect" style="width:100%;margin-top:10px">🧩 크롬 확장프로그램 다운로드 (.zip)</button>
+          <div class="card-title"><span>🖥️ 에디봇 자동로그인 (윈도우 프로그램)</span></div>
+          <p class="hint" style="margin-top:0">설치하고 <b>딱 한 번만 로그인</b>하면, 그 뒤로는 트레이(작업표시줄 오른쪽 아래 숨겨진 아이콘)에 조용히 상주하면서 알아서 로그인 상태를 계속 유지해줘요. Node.js 설치, 크롬 확장프로그램, 터미널 명령어 전부 필요 없어요.</p>
+          <a href="/downloads/edibot-auto-login-setup.exe" download style="text-decoration:none">
+            <button class="btn-connect" style="width:100%;margin-top:10px">🖥️ 자동로그인 프로그램 다운로드 (.exe)</button>
           </a>
           <div class="hint" style="margin-top:14px">
-            <b style="color:var(--text);font-size:13px">설치 방법</b>
-            <div style="display:flex;flex-direction:column;gap:14px;margin-top:8px">
-              <div>
-                <img src="/img/ext-guide-1.svg" alt="1단계: zip 압축 풀기" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
-                <p class="hint" style="margin:6px 0 0">1. 다운로드한 zip 압축 풀기 (지우면 확장프로그램도 같이 사라지니 적당한 위치에 보관)</p>
-              </div>
-              <div>
-                <img src="/img/ext-guide-2.svg" alt="2-3단계: chrome://extensions 접속 후 개발자 모드 켜기" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
-                <p class="hint" style="margin:6px 0 0">2. 크롬 주소창에 <code>chrome://extensions</code> 입력 &nbsp;·&nbsp; 3. 오른쪽 위 "개발자 모드" 켜기</p>
-              </div>
-              <div>
-                <img src="/img/ext-guide-3.svg" alt="4단계: 압축해제된 확장 프로그램을 로드합니다 클릭 후 폴더 선택" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
-                <p class="hint" style="margin:6px 0 0">4. "압축해제된 확장 프로그램을 로드합니다" 클릭 → 압축 푼 <code>extension</code> 폴더 선택</p>
-              </div>
-              <div>
-                <img src="/img/ext-guide-4.svg" alt="5단계: 확장프로그램 아이콘 클릭 후 로그인 정보 입력" style="width:100%;max-width:640px;border-radius:10px;border:1px solid var(--border)">
-                <p class="hint" style="margin:6px 0 0">5. 확장프로그램 아이콘 클릭 → 이 웹 대시보드 로그인 정보(아이디/비밀번호) 입력 → 저장하면 끝</p>
-              </div>
+            <b style="color:var(--text);font-size:13px">설치 방법 (총 1분)</b>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+              <p class="hint" style="margin:0">1. 다운로드한 <code>에디봇_자동로그인_Setup.exe</code> 실행 → 설치 (윈도우가 "알 수 없는 게시자" 경고를 띄우면 "추가 정보" → "실행" 클릭)</p>
+              <p class="hint" style="margin:0">2. 설치되면 자동으로 작은 창이 떠요 → <b>이 웹 대시보드에 로그인할 때 쓰는 본인 아이디/비밀번호</b> 입력 (스푼 계정 아니에요!)</p>
+              <p class="hint" style="margin:0">3. "스푼 로그인 창 열기" 버튼 클릭 → 평소처럼 스푼에 로그인 (카카오/구글 등 편하신 방법으로)</p>
+              <p class="hint" style="margin:0">4. 로그인만 완료하면 <b>자동으로 감지돼서 창이 알아서 닫혀요.</b> 이제 끝!</p>
             </div>
-            <p class="hint" style="margin-top:10px">※ 스푼(spooncast.net)에 로그인되어 있는 상태여야 세션을 읽어올 수 있어요.</p>
+            <p class="hint" style="margin-top:12px">✅ 이후로는 방송 켤 때 이 프로그램만 켜져있으면(트레이 아이콘 확인) 완전히 자동으로 계속 유지돼요. 세션이 만료되면 알림이 뜨는데, 그때 트레이 아이콘 우클릭 → "스푼 재로그인"만 눌러주시면 돼요.<br>
+            ※ 컴퓨터 켤 때 자동으로 같이 켜지게 하고 싶으면, 트레이 아이콘 우클릭 → "컴퓨터 켤 때 자동 시작" 체크해두세요.</p>
           </div>
         </div>
       </div>
