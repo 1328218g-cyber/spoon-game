@@ -539,6 +539,37 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   }
 }
 
+// ✨ 첫 줄 자동 가운데 정렬 — 채팅은 진짜 가운데 정렬(CSS)이 없어서, 텍스트 앞에 공백을
+// 계산해서 채워넣는 방식으로 시각적으로 가운데처럼 보이게 만든다. 한글/이모지/CJK 문자는
+// 화면에서 영문자보다 넓게 보여서 2칸으로 세고, 나머지(영문/숫자/기호)는 1칸으로 센다.
+function visualTextWidth(str) {
+  let w = 0
+  for (const ch of String(str || '')) {
+    const code = ch.codePointAt(0)
+    const isWide = (
+      (code >= 0x1100 && code <= 0x115F) ||   // 한글 자모
+      (code >= 0x2E80 && code <= 0xA4CF) ||   // CJK 부수/기호
+      (code >= 0xAC00 && code <= 0xD7A3) ||   // 한글 음절
+      (code >= 0xF900 && code <= 0xFAFF) ||   // CJK 호환 한자
+      (code >= 0xFF00 && code <= 0xFFEF) ||   // 전각 문자
+      (code >= 0x2600 && code <= 0x27BF) ||   // 기타 기호/딩뱃 (이모지 계열)
+      (code >= 0x1F300 && code <= 0x1FAFF)    // 이모지
+    )
+    w += isWide ? 2 : 1
+  }
+  return w
+}
+// 여러 줄이면 첫 줄만 가운데 정렬한다 (닉네임 인사말 같은 건 보통 첫 줄만 중요해서).
+function centerAlignFirstLine(text, targetWidth = 20) {
+  const str = String(text || '')
+  if (!str) return str
+  const lines = str.split('\n')
+  const w = visualTextWidth(lines[0])
+  const padCount = Math.max(0, Math.floor((targetWidth - w) / 2))
+  lines[0] = ' '.repeat(padCount) + lines[0]
+  return lines.join('\n')
+}
+
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -11517,6 +11548,13 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
+// 설정에서 "첫 줄 가운데 정렬"을 켜둔 경우에만 적용하는 헬퍼
+function applyCenterAlignIfEnabled(settings, text) {
+  const cfg = settings.centerAlign
+  if (!cfg || !cfg.enabled) return text
+  return centerAlignFirstLine(text, Number(cfg.width) || 20)
+}
+
 function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -11524,7 +11562,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : DEFAULT_LEAVE_MESSAGES).filter(m => m.enabled)
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
-    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
+    const text = applyCenterAlignIfEnabled(settings, msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`))
     setTimeout(() => sendChatToRoom(djId, text), 500)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
@@ -11821,13 +11859,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleActAttendHook(djId, settings, author, tag)
 
           if (greeting) {
-            const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
+            const text = applyCenterAlignIfEnabled(settings, greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName))
             setTimeout(() => sendChatToRoom(djId, text), 500)
             if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
             const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : DEFAULT_JOIN_MESSAGES).filter(m => m.enabled)
             if (msgs.length > 0) {
-              const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+              const text = applyCenterAlignIfEnabled(settings, msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName))
               setTimeout(() => sendChatToRoom(djId, text), 500)
             }
           }
@@ -11854,7 +11892,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : DEFAULT_LIKE_MESSAGES).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
+          const text = applyCenterAlignIfEnabled(settings, msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`))
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
@@ -12049,13 +12087,13 @@ setInterval(() => {
       }
       if (now - last >= intervalMs) {
         const rv = buildDashboardRankVars(settings)
-        const out = text
+        const out = applyCenterAlignIfEnabled(settings, text
           .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
           .replace(/{nickname}/g, rv.nickname)
           .replace(/{rank}/g, rv.rank)
           .replace(/{choice_rank}/g, rv.choice_rank)
           .replace(/{like_rank}/g, rv.like_rank)
-          .replace(/{time_rank}/g, rv.time_rank)
+          .replace(/{time_rank}/g, rv.time_rank))
         sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
         lastMap[m.id] = now
       }
@@ -14668,7 +14706,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, centerAlign } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -14686,6 +14724,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
+  if (centerAlign) patch.centerAlign = { enabled: !!centerAlign.enabled, width: Math.max(6, parseInt(centerAlign.width, 10) || 20) }
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })

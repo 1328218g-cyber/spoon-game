@@ -1140,6 +1140,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 입장 설정 -->
       <div class="panel" data-panel="entrysettings">
         <div class="card">
+          <div class="card-title"><span>✨ 첫 줄 자동 가운데 정렬</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveCenterAlign()">💾 저장</button></div>
+          <p class="hint">채팅은 진짜 가운데 정렬이 안 되니까, 앞에 공백을 계산해서 채워넣어 시각적으로 가운데처럼 보이게 해요. 닉네임 길이가 달라도 자동으로 맞춰져요. (입장/좋아요/퇴장/지정인사/반복문구의 <b>첫 줄</b>에 적용돼요)</p>
+          <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="centerAlignEnabled"> 첫 줄 가운데 정렬 사용</label>
+          <label style="margin-top:10px">기준 너비 (숫자가 클수록 더 넓게 벌어져요)</label>
+          <input type="number" id="centerAlignWidth" value="20" min="6" style="max-width:120px">
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영 메시지 음원 전용)</span></div>
           <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도 효과음이 반복 재생되지 않도록 제한합니다.<br>
           ※ 환영 메시지 음원에만 적용됩니다. (채팅 멘트는 그대로 출력)<br>
@@ -5033,6 +5040,10 @@ async function loadDjSettings(){
       if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
 
       if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
+      if(s.centerAlign){
+        const cae=document.getElementById('centerAlignEnabled'); if(cae) cae.checked=!!s.centerAlign.enabled;
+        const caw=document.getElementById('centerAlignWidth'); if(caw) caw.value=s.centerAlign.width||20;
+      }
       if(s.shield){ Object.assign(shieldData, s.shield); }
       if(s.flags){
         Object.assign(flagsData, s.flags);
@@ -11496,6 +11507,13 @@ async function saveSettings(){
   const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+async function saveCenterAlign(){
+  const body={centerAlign:{enabled:document.getElementById('centerAlignEnabled').checked,width:Number(document.getElementById('centerAlignWidth').value)||20}};
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
