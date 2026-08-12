@@ -11656,6 +11656,16 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.liveDjUserId = djUserId
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
+  // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
+  // 다중감시로 다른 사람 방을 옮겨다니면 예전 방 시청자들 온도까지 계속 섞여서 나오는 문제가 있었다.
+  // 새로운 방에 연결될 때만(같은 방 재연결은 그대로 유지) 초기화한다.
+  const settingsForReset = store.getSettings(djId) || {}
+  if (!settingsForReset.tempRanking || settingsForReset.tempRanking.lastLiveId !== liveId) {
+    settingsForReset.tempRanking = { users: {}, lastLiveId: liveId }
+    store.saveSettings(djId, { tempRanking: settingsForReset.tempRanking })
+    console.log(`[온도랭킹] ${djId} 새 방(${liveId}) 연결 — 온도 기록 초기화`)
+  }
+
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
     headers: {
       'Origin': 'https://www.spooncast.net',
@@ -13338,6 +13348,18 @@ app.post('/viptier/recalculate', auth.requireAuth, (req, res) => {
   }
   store.saveSettings(req.djId, { vipTier: cfg })
   res.json({ success: true, changedCount, totalCount: Object.keys(cfg.users).length })
+})
+
+// 🗑️ 귀빈 등급 전체 리셋 — 모든 유저의 누적 점수/등급 기록을 완전히 지운다 (되돌릴 수 없음).
+// 등급 구간/가중치 같은 설정 자체는 그대로 유지되고, 쌓인 기록만 지운다.
+app.post('/viptier/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'viptier', req.djId)) return res.json({ success: false, error: '귀빈 등급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getVipTierSettings(req.djId, settings)
+  const resetCount = Object.keys(cfg.users).length
+  cfg.users = {}
+  store.saveSettings(req.djId, { vipTier: cfg })
+  res.json({ success: true, resetCount })
 })
 
 // 💰 매니저 토큰(매토)

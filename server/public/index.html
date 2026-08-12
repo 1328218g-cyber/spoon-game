@@ -2081,7 +2081,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="viptierTiersWrap" style="display:flex;flex-direction:column;gap:8px"></div>
         </div>
         <div class="card">
-          <div class="card-title"><span>📊 등급 현황</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="recalcVipTiers()">🔄 지금 설정으로 등급 재계산</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadVipTierData()">↻ 새로고침</button></div></div>
+          <div class="card-title"><span>📊 등급 현황</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="recalcVipTiers()">🔄 지금 설정으로 등급 재계산</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadVipTierData()">↻ 새로고침</button><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="resetVipTiers()">🗑️ 전체 리셋</button></div></div>
           <p class="hint" style="margin-bottom:10px">등급 구간(최소 점수 등)을 바꾼 뒤, 그동안 채팅/입장을 안 해서 옛날 기준 등급 이름이 그대로 남아있는 사람들을 한 번에 정리해요. <b>점수 자체는 안 건드리고 등급 이름만</b> 지금 설정 기준으로 다시 매겨요.</p>
           <div id="viptierCountsWrap" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
           <div id="viptierUsersWrap"><p class="hint">불러오는 중...</p></div>
@@ -7445,6 +7445,15 @@ async function recalcVipTiers(){
     const d=await res.json();
     if(d.success){ showToast(`✅ ${d.totalCount}명 중 ${d.changedCount}명 등급 갱신됨`); loadVipTierData(); }
     else showToast(d.error||'재계산 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function resetVipTiers(){
+  if(!confirm('정말로 귀빈 등급 기록을 전체 리셋할까요?\n모든 유저의 누적 점수/등급이 완전히 사라져요. 되돌릴 수 없어요. (등급 구간 설정 자체는 그대로 남아요)'))return;
+  try{
+    const res=await fetch(SERVER+'/viptier/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast(`✅ ${d.resetCount}명의 등급 기록을 초기화했어요`); loadVipTierData(); }
+    else showToast(d.error||'리셋 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 async function loadVipTierData(){
