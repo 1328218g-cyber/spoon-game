@@ -1140,6 +1140,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 입장 설정 -->
       <div class="panel" data-panel="entrysettings">
         <div class="card">
+          <div class="card-title"><span>💬 기본 멘트 자동 사용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveUseDefaultEntryMessages()">💾 저장</button></div>
+          <p class="hint">아래 입장/좋아요/퇴장 멘트를 하나도 등록 안 해두면, 기본으로 마련된 멘트를 대신 보낼지 정해요. <b>꺼두면(기본값)</b> 직접 등록한 멘트가 없을 땐 아무것도 안 보내요.</p>
+          <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="useDefaultEntryMessages"> 멘트 등록 안 했을 때 기본 멘트 자동 사용</label>
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영 메시지 음원 전용)</span></div>
           <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도 효과음이 반복 재생되지 않도록 제한합니다.<br>
           ※ 환영 메시지 음원에만 적용됩니다. (채팅 멘트는 그대로 출력)<br>
@@ -5034,6 +5039,7 @@ async function loadDjSettings(){
       if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
 
       if(typeof s.entryCooldown==='number') document.getElementById('entryCooldown').value=s.entryCooldown;
+      const udem=document.getElementById('useDefaultEntryMessages'); if(udem) udem.checked=!!s.useDefaultEntryMessages;
       if(s.shield){ Object.assign(shieldData, s.shield); }
       if(s.flags){
         Object.assign(flagsData, s.flags);
@@ -11514,6 +11520,12 @@ async function saveSettings(){
   const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown})});
+    showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+async function saveUseDefaultEntryMessages(){
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({useDefaultEntryMessages:document.getElementById('useDefaultEntryMessages').checked})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }

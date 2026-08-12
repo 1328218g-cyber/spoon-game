@@ -11531,7 +11531,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
   if (!isModuleOn(settings, 'entrysettings', djId)) return
-  const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : DEFAULT_LEAVE_MESSAGES).filter(m => m.enabled)
+  const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : (settings.useDefaultEntryMessages ? DEFAULT_LEAVE_MESSAGES : [])).filter(m => m.enabled)
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
     const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
@@ -11845,7 +11845,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             setTimeout(() => sendChatToRoom(djId, text), 500)
             if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
           } else if (isModuleOn(settings, 'entrysettings', djId)) {
-            const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : DEFAULT_JOIN_MESSAGES).filter(m => m.enabled)
+            const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
             if (msgs.length > 0) {
               const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
               setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -11872,7 +11872,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
-        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : DEFAULT_LIKE_MESSAGES).filter(m => m.enabled)
+        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
         if (msgs.length > 0) {
           const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
           setTimeout(() => sendChatToRoom(djId, text), 500)
@@ -14716,7 +14716,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -14734,6 +14734,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
+  if (typeof useDefaultEntryMessages === 'boolean') patch.useDefaultEntryMessages = useDefaultEntryMessages
   store.saveSettings(req.djId, patch)
   res.json({ success: true })
 })
