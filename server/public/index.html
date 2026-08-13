@@ -6581,7 +6581,10 @@ async function searchSrPreview(id, btnEl){
 // 🎬 유튜브 완곡 재생 — 팝업 없이, 신청곡 탭 안에 항상 떠 있는 "지금 재생 중" 칸에서 바로 재생.
 // 로컬봇(Electron)이 쓰던 방식과 동일: YouTube IFrame Player API로 페이지 안 고정된 위치에
 // 플레이어를 하나 만들어두고, 재생 버튼 누르면 그 플레이어에 영상만 갈아끼운다.
-let srYtPlayer=null, srYtReady=false, srYtPending=null, srYtProgressTimer=null;
+// 검색된 영상 중 1순위가 임베드 재생 금지(저작권자가 막아둔 경우)일 수 있어서, 로컬봇과 동일하게
+// 점수순으로 정렬된 후보 여러 개를 큐로 들고 있다가, 재생 실패 시 자동으로 다음 후보를 시도한다.
+let srYtPlayer=null, srYtReady=false, srYtPendingId=null, srYtProgressTimer=null;
+let srYtPlayQueue=[], srYtCurrentInfo=null;
 function ensureSrYoutubeApiLoaded(){
   if(window.YT && window.YT.Player){ initSrYtPlayer(); return; }
   if(document.getElementById('srYtApiScript'))return;
@@ -6601,28 +6604,54 @@ function initSrYtPlayer(){
     events:{
       onReady:function(){
         srYtReady=true;
-        if(srYtPending){ const vid=srYtPending; srYtPending=null; srYtPlayer.loadVideoById(vid); srYtPlayer.unMute(); srYtPlayer.setVolume(100); }
+        if(srYtPendingId){ const vid=srYtPendingId; srYtPendingId=null; srYtPlayer.loadVideoById(vid); srYtPlayer.unMute(); srYtPlayer.setVolume(100); }
       },
       onStateChange:function(e){
         if(e.data===YT.PlayerState.PLAYING) startSrYtProgressTimer(); else stopSrYtProgressTimer();
-      }
+      },
+      onError:function(e){ handleSrYtPlayerError(e.data); }
     }
   });
+}
+const SR_YT_ERROR_MSGS={2:'잘못된 비디오 ID',5:'HTML5 플레이어 오류',100:'비디오를 찾을 수 없음',101:'이 곡은 외부 재생이 금지됨',150:'이 곡은 외부 재생이 금지됨',152:'재생 불가 (지역 제한)'};
+const SR_YT_RETRYABLE=[100,101,150,152];
+function handleSrYtPlayerError(code){
+  const msg=SR_YT_ERROR_MSGS[code]||('알 수 없는 오류 (code: '+code+')');
+  const statusEl=document.getElementById('srPlayerStatus');
+  if(SR_YT_RETRYABLE.includes(code) && srYtPlayQueue.length){
+    if(statusEl && srYtCurrentInfo) statusEl.textContent=`${msg} → 다음 후보 시도 (${srYtPlayQueue.length}개 남음)`;
+    setTimeout(trySrYtPlayNext,500);
+    return;
+  }
+  if(statusEl) statusEl.textContent = srYtCurrentInfo ? `재생 가능한 영상을 찾지 못했어요` : `재생 오류: ${msg}`;
+}
+function trySrYtPlayNext(){
+  const statusEl=document.getElementById('srPlayerStatus');
+  if(!srYtPlayQueue.length){
+    if(statusEl) statusEl.textContent='재생 가능한 영상을 찾지 못했어요 — 곡 옆 Spotify/Apple Music 배지로 직접 찾아보세요';
+    return;
+  }
+  const videoId=srYtPlayQueue.shift();
+  if(statusEl) statusEl.textContent='재생 중';
+  ensureSrYoutubeApiLoaded();
+  if(srYtReady && srYtPlayer){
+    srYtPlayer.loadVideoById(videoId);
+    srYtPlayer.unMute();
+    srYtPlayer.setVolume(100);
+  } else {
+    srYtPendingId=videoId;
+  }
 }
 function playSrYoutube(id){
   const it=(srData.items||[]).find(x=>String(x.id)===String(id));
   if(!it||!it.youtubeId){ showToast('아직 유튜브 영상을 못 찾았어요'); return; }
   if(srAudioPlayer){ srAudioPlayer.pause(); srAudioPlayer=null; }
   const titleEl=document.getElementById('srPlayerTitle'); if(titleEl) titleEl.textContent=(it.artist?it.artist+' - ':'')+it.title;
-  const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent='재생 중';
-  ensureSrYoutubeApiLoaded();
-  if(srYtReady && srYtPlayer){
-    srYtPlayer.loadVideoById(it.youtubeId);
-    srYtPlayer.unMute();
-    srYtPlayer.setVolume(100);
-  } else {
-    srYtPending=it.youtubeId;
-  }
+  srYtCurrentInfo={artist:it.artist,title:it.title};
+  // 후보 목록(점수순 정렬됨)이 있으면 전부 큐에 담고, 없으면(예전 데이터) youtubeId 하나만 사용
+  const cands = Array.isArray(it.youtubeCandidates) && it.youtubeCandidates.length ? it.youtubeCandidates.map(c=>c.id) : [it.youtubeId];
+  srYtPlayQueue = cands.slice();
+  trySrYtPlayNext();
 }
 function toggleSrYtPlayPause(){
   if(!srYtPlayer||!srYtReady)return;
@@ -6636,6 +6665,7 @@ function stopSrYtPlayer(){
   try{ srYtPlayer.stopVideo(); }catch(e){}
   const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent='곡을 선택하면 여기서 바로 재생돼요';
   const titleEl=document.getElementById('srPlayerTitle'); if(titleEl) titleEl.textContent='-';
+  srYtPlayQueue=[]; srYtCurrentInfo=null;
   stopSrYtProgressTimer();
 }
 function seekSrYtPlayer(ev){

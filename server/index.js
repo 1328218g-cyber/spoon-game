@@ -948,9 +948,34 @@ function attachSongPreviewAsync(djId, sr, item) {
 
 // 🎬 유튜브 완곡 재생 — 로그인/구독 없이도 완곡 재생이 가능한 유일한 무료 방법이라, iTunes 30초
 // 미리듣기와 별도로 함께 제공한다. 공식 Data API 키 없이, 유튜브 검색 결과 페이지에 내려오는
-// ytInitialData(페이지 내장 JSON)를 그대로 파싱해서 첫 번째 영상 ID를 가져온다 (멜론 차트 긁어오는
+// ytInitialData(페이지 내장 JSON)를 그대로 파싱해서 영상 후보들을 가져온다 (멜론 차트 긁어오는
 // 것과 동일한 방식). 실제 재생은 프론트에서 공식 유튜브 embed(iframe)로 하기 때문에, 여기서는
-// "영상 ID를 찾아주는" 역할만 한다 — 오디오 파일 자체를 서버가 다운로드/중계하지 않는다.
+// "영상 후보 목록을 찾아주는" 역할만 한다 — 오디오 파일 자체를 서버가 다운로드/중계하지 않는다.
+//
+// 후보를 하나만 주면, 그 영상이 임베드 재생 금지(저작권자가 막아둔 경우)일 때 그냥 끊겨버린다.
+// 그래서 로컬봇(Electron)과 동일하게 여러 후보를 점수순으로 정렬해서 배열로 돌려주고,
+// 프론트에서 재생 실패 시 다음 후보로 자동 넘어가도록 한다.
+function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
+  const videoTitle = String(title || '').toLowerCase()
+  const channel = String(channelTitle || '').toLowerCase()
+  const artistL = String(artist || '').toLowerCase()
+  const titleL = String(songTitle || '').toLowerCase()
+  let score = 0
+  // "- Topic" 채널은 YouTube Music이 자동 생성하는 공식 오디오 채널 — 최우선
+  if (channel.endsWith(' - topic') || channel.includes('- topic')) score += 100
+  if (artistL && channel.includes(artistL)) score += 30
+  if (channel.includes('vevo') || channel.includes('official')) score += 25
+  if (/\b(official\s*audio|audio\s*only|official\s*sound|lyrics?|가사)\b/.test(videoTitle)) score += 40
+  const negativeKeywords = ['cover', '커버', 'remix', '리믹스', 'live', '라이브', 'lesson', '강의',
+    'reaction', '리액션', 'tutorial', 'karaoke', '노래방', 'mr', '반주',
+    'instrumental', 'piano', '피아노', 'acoustic', 'slowed', 'sped up',
+    'nightcore', 'mashup', '매쉬업', 'parody', '패러디']
+  for (const kw of negativeKeywords) { if (videoTitle.includes(kw)) score -= 40 }
+  if (/\b(m\/v|mv|official\s*(music\s*)?video)\b/.test(videoTitle)) score += 20
+  if (artistL && titleL && videoTitle.includes(artistL) && videoTitle.includes(titleL)) score += 15
+  return score
+}
+
 async function searchYoutubeVideo(artist, title) {
   const term = `${artist} ${title}`.trim()
   if (!term) return null
@@ -962,17 +987,25 @@ async function searchYoutubeVideo(artist, title) {
     if (!m) return null
     const data = JSON.parse(m[1])
     const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || []
+    const candidates = []
     for (const section of contents) {
       const items = section?.itemSectionRenderer?.contents || []
       for (const it of items) {
         const vr = it.videoRenderer
         if (vr && vr.videoId) {
-          const title2 = (vr.title?.runs || []).map(r => r.text).join('') || term
-          return { videoId: vr.videoId, matchedTitle: title2 }
+          const vTitle = (vr.title?.runs || []).map(r => r.text).join('') || term
+          const channelTitle = (vr.ownerText?.runs || []).map(r => r.text).join('') || ''
+          candidates.push({ videoId: vr.videoId, title: vTitle, channelTitle })
         }
       }
+      if (candidates.length >= 12) break
     }
-    return null
+    if (!candidates.length) return null
+    const scored = candidates
+      .map(c => ({ ...c, score: scoreYoutubeCandidate(c.title, c.channelTitle, artist, title) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+    return { candidates: scored, matchedTitle: scored[0].title }
   } catch (e) {
     console.log('[신청곡 유튜브 검색 실패]', term, e.message)
     return null
@@ -987,8 +1020,9 @@ function attachYoutubeAsync(djId, sr, item) {
     if (!liveSr) return
     const target = liveSr.items.find(x => x.id === item.id)
     if (!target) return
-    target.youtubeId = yt.videoId
+    target.youtubeId = yt.candidates[0].videoId
     target.youtubeTitle = yt.matchedTitle
+    target.youtubeCandidates = yt.candidates.map(c => ({ id: c.videoId, title: c.title }))
     store.saveSettings(djId, { songRequest: liveSr })
     broadcast({ type: 'songrequest', djId, items: liveSr.items })
   })
