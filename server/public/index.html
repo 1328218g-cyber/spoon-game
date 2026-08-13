@@ -588,6 +588,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div style="padding:10px 16px 4px">
       <button id="sidebarEditBtn" onclick="toggleSidebarEditMode()" style="width:100%;padding:8px;font-size:12px;font-weight:600;background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:9px;cursor:pointer">✏️ 메뉴 순서 편집</button>
     </div>
+    <div id="pwaInstallWrap" style="padding:0 16px 4px">
+      <button id="pwaInstallBtn" onclick="installPwaApp()" style="width:100%;padding:9px;font-size:12.5px;font-weight:700;background:linear-gradient(90deg,#4a6cf7,#f7a44a);border:none;color:#fff;border-radius:9px;cursor:pointer">📲 앱 설치</button>
+    </div>
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -624,6 +627,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="lottoauto"><span class="ic">🎟️</span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="lottorank"><span class="ic">🏁</span><span class="lbl">복권 차등지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reactiontimer"><span class="ic">⏰</span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1939,6 +1943,39 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           · 봇이 방송에 들어가 있을 때만 타이머가 동작해요. (자동입장 시 자동으로 다시 시작됩니다)<br>
           · 활성화가 꺼져있으면 채팅 명령어로 "재개"해도 지급되지 않아요 — 위에서 먼저 "자동 지급 활성화"를 켜주세요.
           </p>
+        </div>
+      </div>
+
+      <!-- 🏁 복권 차등지급 -->
+      <div class="panel" data-panel="lottorank">
+        <div class="card">
+          <div class="card-title"><span>🏁 복권 차등지급 설정</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="openModuleHelp('lottorank')">❓ 도움말</button><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveLottoRankSettings()">💾 저장</button></div></div>
+          <p class="hint" style="margin-bottom:12px">방송에 입장한 순서대로 1등, 2등, 3등... 등수를 매겨서 등수별로 정해진 수량의 복권을 차등 지급해요. 입장하면 바로 "몇 등으로 오셨어요" 안내만 나가고, 실제 지급은 설정한 시간(기본 60초) 뒤에 그때까지 방송에 남아있는 경우에만 이뤄져요. (바로 들어왔다 나가는 사람한테 헛지급되는 걸 막기 위함)</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="lottoRankEnabled"> 차등지급 활성화</label>
+          <label style="margin-top:10px">지급까지 대기 시간 (초)</label>
+          <input type="number" id="lottoRankDelaySec" value="60" min="5" max="600" style="max-width:160px">
+          <div class="hint">이 시간 안에 나가면 복권을 받지 못해요. 애청지수(<code>!내정보 생성</code>)가 없는 유저는 이 시간이 지나도 지급되지 않고 "내정보 없음" 안내만 나가요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🏅 등수별 지급 수량</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addLottoRankRow()">+ 등수 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">여기 등록해둔 등수까지만 차등지급이 적용돼요. 예를 들어 5명(1~5등)까지 설정해두면, 6번째로 들어온 사람부터는 안내도 지급도 없어요.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;padding:0 2px 4px" class="hint">
+            <div>등수</div><div>지급 수량 (장)</div><div></div>
+          </div>
+          <div id="lottoRankRowsWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">💬 안내 멘트 커스텀</div>
+          <label>입장 직후 (등수 안내)</label>
+          <textarea id="lottoRankMsgJoin" style="height:56px">👏 {nickname}님 {rank}등으로 오셨습니다! ({delay}초 후 복권 {amount}장 지급 예정)</textarea>
+          <label style="margin-top:10px">대기시간 경과 후 (지급 완료)</label>
+          <textarea id="lottoRankMsgGive" style="height:56px">🎟️ {nickname}님 {rank}등 복권 {amount}장 지급 완료! (보유: {lotto}장)</textarea>
+          <label style="margin-top:10px">대기시간 경과 후 (내정보 없음)</label>
+          <textarea id="lottoRankMsgNoInfo" style="height:56px">⚠️ {nickname}님은 내정보가 없어서 복권이 지급되지 않았습니다.</textarea>
+          <div class="hint" style="margin-top:8px">변수: {nickname}, {tag}, {rank}, {amount}, {lotto}, {delay} · 어느 항목이든 비워두면 그 안내는 나가지 않아요.</div>
+          <div style="text-align:right;margin-top:10px"><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveLottoRankSettings()">💾 저장</button></div>
         </div>
       </div>
 
@@ -3910,6 +3947,52 @@ if('serviceWorker' in navigator){
   });
 }
 
+/* ── 📲 앱 설치(PWA) ── */
+// ⚠️ 브라우저의 "원클릭 자동 설치 팝업"(beforeinstallprompt)은 크롬이 자체 판단으로 띄우는 거라
+// 코드로 강제 발생시킬 방법이 없다 (새 도메인이거나 참여도가 낮으면 한동안 안 뜰 수 있음).
+// 그래서 버튼은 항상 보이게 해두고, 자동 팝업이 준비돼있으면 그걸 쓰고, 안 돼있으면 브라우저별
+// "수동 설치 메뉴 위치"를 손으로 따라할 수 있게 안내창을 띄운다 — 항상 뭔가 도움이 되는 반응이 나오게.
+let pwaDeferredPrompt=null;
+const isIos=/iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+const isAndroid=/android/i.test(navigator.userAgent);
+const isStandalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+
+if(isStandalone){
+  const wrap=document.getElementById('pwaInstallWrap');
+  if(wrap) wrap.style.display='none'; // 이미 앱으로 설치돼서 실행 중이면 버튼 자체가 필요 없음
+} else {
+  window.addEventListener('beforeinstallprompt', (e)=>{
+    e.preventDefault();
+    pwaDeferredPrompt=e; // 자동 팝업 준비됨 — 버튼 누르면 이제 원클릭으로 바로 뜸
+  });
+}
+window.addEventListener('appinstalled', ()=>{
+  const wrap=document.getElementById('pwaInstallWrap');
+  if(wrap) wrap.style.display='none';
+  pwaDeferredPrompt=null;
+});
+
+function pwaManualGuideText(){
+  if(isIos) return '아이폰/아이패드는 이 방법으로 설치해요:\n\n1. 하단(또는 상단) 공유 버튼(⬆️ 네모에 화살표) 누르기\n2. "홈 화면에 추가" 선택\n3. "추가" 누르면 끝!';
+  if(isAndroid) return '안드로이드는 이 방법으로 설치해요:\n\n1. 크롬 오른쪽 위 점 3개(⋮) 메뉴 누르기\n2. "앱 설치" 또는 "홈 화면에 추가" 선택\n3. "설치" 누르면 끝!';
+  return 'PC에서는 이 방법으로 설치해요:\n\n1. 주소창 오른쪽 끝에 설치 아이콘(⊕ 모양)이 있으면 그거 클릭\n2. 안 보이면 오른쪽 위 점 3개(⋮) 메뉴 → "에디봇 설치" 클릭\n3. "설치" 누르면 끝!\n\n(크롬/엣지 브라우저에서만 지원돼요. 사파리/파이어폭스는 지원 안 해요)';
+}
+async function installPwaApp(){
+  if(isIos){
+    alert(pwaManualGuideText());
+    return;
+  }
+  if(pwaDeferredPrompt){
+    pwaDeferredPrompt.prompt();
+    const { outcome } = await pwaDeferredPrompt.userChoice;
+    if(outcome==='accepted') showToast('설치가 시작됐어요 ✓');
+    pwaDeferredPrompt=null;
+    return;
+  }
+  // 자동 팝업이 아직 준비 안 됐으면(새 도메인이라 그럴 수 있음), 수동 설치 방법을 안내
+  alert(pwaManualGuideText());
+}
+
 
 /* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
 const PANEL_META={
@@ -3937,6 +4020,7 @@ const PANEL_META={
   loyalty:['⭐ 애청지수','경험치/레벨/복권 등 시청자 활동 시스템을 관리합니다'],
   quiz:['🧩 퀴즈 설정','실시간 퀴즈 문제·출제 간격·정답 처리를 관리합니다'],
   lottoauto:['🎟️ 복권 자동지급','정해진 주기마다 현재 접속 중인 유저에게 복권을 자동으로 지급합니다'],
+  lottorank:['🏁 복권 차등지급','방송에 입장한 순서(1등,2등,...)대로 복권을 차등 지급합니다'],
   reactiontimer:['⏰ 리액션 타이머','정해진 시간 후에 채팅으로 알림을 보내는 타이머를 등록합니다'],
   dday:['📅 디데이','기념일/이벤트 날짜를 등록해두고 D-Day를 자동으로 계산해줍니다'],
   saju:['🔮 사주팔자','생년월일(시)을 입력하면 진짜 만세력 계산으로 사주팔자를 봐줍니다'],
@@ -4068,7 +4152,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4080,7 +4164,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -4879,8 +4963,19 @@ function renderEntryList(){
         ${entryTab!=='leave'?`<span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>`:''}
         <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
         ${entryTab==='gift'?`<span class="chip" onclick="insertEntryVar(${m.id},'{amount}')">{amount}</span>`:''}
+        ${['entry','leave','like'].includes(entryTab)?`
+        <span class="chip" onclick="insertEntryVar(${m.id},'{rank}')">🏆 {rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{choice_rank}')">{choice_rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{like_rank}')">{like_rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{time_rank}')">{time_rank}</span>`:''}
         <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
       </div>
+      ${['entry','leave','like'].includes(entryTab)?`
+      <div class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px">
+      · 🏆 {rank}: 이달의 DJ 랭킹 한 줄 요약 (예: "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위")<br>
+      · {choice_rank}, {like_rank}, {time_rank}: 초이스/좋아요/방송시간 개별 순위<br>
+      · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해야 값이 채워져요.</b> (등록 안 하면 "[대시보드에 고유닉 미등록]"으로 나가요) 방송하는 DJ 본인 랭킹이에요 — 입장/좋아요/퇴장한 시청자 개인 랭킹이 아니에요.
+      </div>`:''}
       <div class="sound-row">
         <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
         <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
@@ -5077,6 +5172,7 @@ async function loadDjSettings(){
       if(document.getElementById('actEnabled')){ renderActivitySettings(); loadActivityUsers(); }
       if(document.getElementById('quizStatusPill')) loadQuizData();
       if(document.getElementById('lottoAutoStatusPill')) loadLottoAutoData();
+      if(document.getElementById('lottoRankRowsWrap')) loadLottoRankData();
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
@@ -7501,6 +7597,61 @@ async function saveVipTierSettings(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+/* ── 🏁 복권 차등지급 ── */
+let lottoRankRows=[];
+function renderLottoRankRows(){
+  const wrap=document.getElementById('lottoRankRowsWrap');
+  if(!wrap)return;
+  lottoRankRows.sort((a,b)=>(a.rank||0)-(b.rank||0));
+  wrap.innerHTML=lottoRankRows.map((r,i)=>`
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+      <input type="number" value="${r.rank}" min="1" placeholder="등수" oninput="lottoRankRows[${i}].rank=Number(this.value)">
+      <input type="number" value="${r.amount}" min="1" placeholder="지급 수량" oninput="lottoRankRows[${i}].amount=Number(this.value)">
+      <button class="icon-btn danger" onclick="removeLottoRankRow(${i})" title="삭제">🗑</button>
+    </div>
+  `).join('');
+}
+function addLottoRankRow(){
+  const nextRank=(lottoRankRows.reduce((m,r)=>Math.max(m,r.rank||0),0))+1;
+  lottoRankRows.push({rank:nextRank,amount:1});
+  renderLottoRankRows();
+}
+function removeLottoRankRow(i){
+  lottoRankRows.splice(i,1);
+  renderLottoRankRows();
+}
+async function loadLottoRankData(){
+  try{
+    const res=await fetch(SERVER+'/lottorank/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('lottoRankEnabled').checked=!!s.enabled;
+    document.getElementById('lottoRankDelaySec').value=s.delaySec||60;
+    document.getElementById('lottoRankMsgJoin').value=s.msgJoinRank||'';
+    document.getElementById('lottoRankMsgGive').value=s.msgGive||'';
+    document.getElementById('lottoRankMsgNoInfo').value=s.msgNoInfo||'';
+    lottoRankRows=(s.ranks||[]).map(r=>({...r}));
+    renderLottoRankRows();
+  }catch(e){}
+}
+async function saveLottoRankSettings(){
+  const body={
+    enabled:document.getElementById('lottoRankEnabled').checked,
+    delaySec:Number(document.getElementById('lottoRankDelaySec').value)||60,
+    ranks:lottoRankRows,
+    msgJoinRank:document.getElementById('lottoRankMsgJoin').value,
+    msgGive:document.getElementById('lottoRankMsgGive').value,
+    msgNoInfo:document.getElementById('lottoRankMsgNoInfo').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/lottorank/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadLottoRankData();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 /* ── 💰 매니저 토큰 ── */
 let mtManagers=[];
 async function loadManagerTokenData(){
@@ -7987,6 +8138,23 @@ const MODULE_HELP_CONTENT={
         <li>"이번 달에 받았음"으로 기록 → 다음 달이 되면 이 기록이 자연스럽게 초기화돼서 다시 받을 수 있음</li>
       </ol>
       <p style="margin-top:12px" class="hint">※ 채팅을 여러 번 쳐도 이번 달엔 딱 한 번만 지급돼요. 다음 달 되면 자동으로 다시 지급 대상이 돼요.<br>※ 무조건 고유닉 기준으로만 기록돼요.</p>
+    `
+  },
+  lottorank:{
+    title:'❓ 🏁 복권 차등지급 도움말',
+    body:`
+      <p><b>한 줄 요약:</b> 방송에 입장한 순서대로 등수를 매겨서(1등, 2등, 3등...), 등수별로 미리 정해둔 수량의 복권을 차등 지급해요.</p>
+      <p style="margin-top:12px"><b>① 등수는 이렇게 매겨져요</b></p>
+      <p>봇이 방송에 연결된 시점부터 새로 카운트가 시작돼요. 그 방송에서 가장 먼저 들어온 사람이 1등, 그 다음이 2등... 순서예요. "등수별 지급 수량"에 등록해둔 등수까지만 적용되고, 그 이상은(예: 5명까지만 설정했는데 6번째로 온 경우) 안내도 지급도 없어요.</p>
+      <p style="margin-top:12px"><b>② 지급은 두 단계로 나눠져요</b></p>
+      <ol style="margin:0;padding-left:18px">
+        <li>입장하는 순간 → "{rank}등으로 오셨습니다" 안내만 즉시 나감 (아직 지급 안 됨)</li>
+        <li>설정한 대기 시간(기본 60초) 후 → 그때까지 방송에 남아있으면 실제로 복권 지급</li>
+      </ol>
+      <p style="margin-top:10px">바로 들어왔다가 금방 나가버리는 사람한테 복권이 헛지급되는 걸 막기 위해 일부러 시간 차를 뒀어요. 대기 시간 안에 나가면 조용히 지급이 취소되고 별도 안내도 없어요.</p>
+      <p style="margin-top:12px"><b>③ 애청지수(내정보)가 없는 유저는?</b></p>
+      <p>대기 시간이 지난 시점에 애청지수에 등록(<code>!내정보 생성</code>)돼 있지 않으면 복권을 지급하지 않고, 대신 "내정보가 없어서 복권이 지급되지 않았습니다" 안내만 나가요. 애청지수 메뉴(loyalty)가 꺼져있으면 이 기능 자체가 동작하지 않아요.</p>
+      <p style="margin-top:12px" class="hint">※ 모든 안내 멘트는 커스텀 가능하고, 비워두면 그 단계의 안내는 나가지 않아요.<br>※ 웹소켓 입장 감지(매니저)와 명단 폴링 감지(일반 시청자) 양쪽 경로에서 동일하게 동작해요.</p>
     `
   },
 };
