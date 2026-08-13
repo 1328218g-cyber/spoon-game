@@ -6552,11 +6552,12 @@ function renderSrList(){
         ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
       </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
+      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}')">▶ 재생</button></td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `}).join('');
   wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th>관리</th></tr></thead>
+    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th>재생</th><th>관리</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
