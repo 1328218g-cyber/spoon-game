@@ -2755,6 +2755,19 @@ function buildDashboardRankVars(settings) {
   }
 }
 
+// 입장/좋아요/퇴장 멘트(입장 설정)에 {rank}{choice_rank}{like_rank}{time_rank}가 쓰였을 때만
+// buildDashboardRankVars를 조회해서 채워준다 (안 쓰였으면 조회 자체를 건너뛰어 불필요한 연산 방지).
+function applyDashboardRankVars(text, settings) {
+  const s = String(text || '')
+  if (!/{rank}|{choice_rank}|{like_rank}|{time_rank}/.test(s)) return s
+  const rv = buildDashboardRankVars(settings)
+  return s
+    .replace(/{rank}/g, rv.rank)
+    .replace(/{choice_rank}/g, rv.choice_rank)
+    .replace(/{like_rank}/g, rv.like_rank)
+    .replace(/{time_rank}/g, rv.time_rank)
+}
+
 // 등록된 djTag 기준으로 랭킹을 다시 조회해서 settings.dashboard.rankData에 저장한다.
 // needScan이 true면(캐시가 없거나 너무 오래됐으면) 전체 랭킹판을 먼저 새로 긁어온다.
 async function refreshDashboardRankFor(djId, settings) {
@@ -11623,7 +11636,8 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : (settings.useDefaultEntryMessages ? DEFAULT_LEAVE_MESSAGES : [])).filter(m => m.enabled)
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
-    const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
+    let text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
+    text = applyDashboardRankVars(text, settings)
     setTimeout(() => sendChatToRoom(djId, text), 200)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
@@ -11657,7 +11671,8 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
-      const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      text = applyDashboardRankVars(text, settings)
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
   }
@@ -11998,7 +12013,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
         if (msgs.length > 0) {
-          const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
+          let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
+          text = applyDashboardRankVars(text, settings)
           setTimeout(() => sendChatToRoom(djId, text), 500)
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {

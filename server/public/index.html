@@ -4963,8 +4963,19 @@ function renderEntryList(){
         ${entryTab!=='leave'?`<span class="chip" onclick="insertEntryVar(${m.id},'{tag}')">{tag}</span>`:''}
         <span class="chip" onclick="insertEntryVar(${m.id},'{count}')">{count}</span>
         ${entryTab==='gift'?`<span class="chip" onclick="insertEntryVar(${m.id},'{amount}')">{amount}</span>`:''}
+        ${['entry','leave','like'].includes(entryTab)?`
+        <span class="chip" onclick="insertEntryVar(${m.id},'{rank}')">🏆 {rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{choice_rank}')">{choice_rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{like_rank}')">{like_rank}</span>
+        <span class="chip" onclick="insertEntryVar(${m.id},'{time_rank}')">{time_rank}</span>`:''}
         <span class="delay-inline">지연(초): <input type="number" min="0" value="${m.delay}" oninput="updateEntryMsg(${m.id},'delay',this.value)"></span>
       </div>
+      ${['entry','leave','like'].includes(entryTab)?`
+      <div class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px">
+      · 🏆 {rank}: 이달의 DJ 랭킹 한 줄 요약 (예: "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위")<br>
+      · {choice_rank}, {like_rank}, {time_rank}: 초이스/좋아요/방송시간 개별 순위<br>
+      · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해야 값이 채워져요.</b> (등록 안 하면 "[대시보드에 고유닉 미등록]"으로 나가요) 방송하는 DJ 본인 랭킹이에요 — 입장/좋아요/퇴장한 시청자 개인 랭킹이 아니에요.
+      </div>`:''}
       <div class="sound-row">
         <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
         <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
