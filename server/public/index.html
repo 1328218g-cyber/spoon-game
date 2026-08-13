@@ -1813,6 +1813,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <div><label>@[닉네임] 조회 명령어 (DJ용)</label><input type="text" id="actCmdAt" value="@"></div>
               <div><label>!복권지급 명령어 (DJ + 지정 권한자)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
             </div>
+            <label>!복권양도 명령어 (누구나 자기 복권을 다른 유저에게)</label>
+            <input type="text" id="actCmdLottoTransfer" value="!복권양도" style="max-width:260px">
+            <div class="hint">사용법: [명령어] [고유닉] [수량] — 예: !복권양도 abc123 5. 본인이 보유한 복권만큼만 양도 가능하고, 대상은 애청지수에 이미 등록된 유저여야 해요.</div>
             <label>!상점 명령어 (DJ + 지정 권한자)</label>
             <input type="text" id="actCmdShop" value="!상점" style="max-width:260px">
 
@@ -6163,7 +6166,7 @@ const ACT_DEFAULT={
   enabled:true,
   cmdMyInfo:'!내정보',cmdCreate:'!내정보 생성',cmdDelete:'!내정보 삭제',
   cmdRank:'!랭킹',cmdLotto:'!복권',cmdAttend:'!출석',
-  cmdLottoGive:'!복권지급',cmdShop:'!상점',cmdAt:'@',
+  cmdLottoGive:'!복권지급',cmdLottoTransfer:'!복권양도',cmdShop:'!상점',cmdAt:'@',
   grantNicknames:[],
   lvBase:100,
   scoreHeart:1,scorePaidHeart:null,scoreChat:2,scoreAttend:10,scoreLottoPoint:5,
@@ -6197,6 +6200,7 @@ function renderActivitySettings(){
   document.getElementById('actCmdAttend').value=activityData.cmdAttend;
   document.getElementById('actCmdLotto').value=activityData.cmdLotto;
   document.getElementById('actCmdLottoGive').value=activityData.cmdLottoGive;
+  document.getElementById('actCmdLottoTransfer').value=activityData.cmdLottoTransfer;
   document.getElementById('actCmdShop').value=activityData.cmdShop;
   document.getElementById('actCmdAt').value=activityData.cmdAt;
   document.getElementById('actLvBase').value=activityData.lvBase;
@@ -6267,6 +6271,7 @@ function collectActivityFormValues(){
   activityData.cmdAttend=document.getElementById('actCmdAttend').value.trim()||'!출석';
   activityData.cmdLotto=document.getElementById('actCmdLotto').value.trim()||'!복권';
   activityData.cmdLottoGive=document.getElementById('actCmdLottoGive').value.trim()||'!복권지급';
+  activityData.cmdLottoTransfer=document.getElementById('actCmdLottoTransfer').value.trim()||'!복권양도';
   activityData.cmdShop=document.getElementById('actCmdShop').value.trim()||'!상점';
   activityData.cmdAt=document.getElementById('actCmdAt').value.trim()||'@';
   activityData.lvBase=Number(document.getElementById('actLvBase').value)||100;

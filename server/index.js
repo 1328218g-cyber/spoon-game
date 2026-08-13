@@ -1139,7 +1139,7 @@ function getActivitySettings(djId, settings) {
       enabled: true,
       cmdMyInfo: '!내정보', cmdCreate: '!내정보 생성', cmdDelete: '!내정보 삭제',
       cmdRank: '!랭킹', cmdLotto: '!복권', cmdAttend: '!출석',
-      cmdLottoGive: '!복권지급', cmdShop: '!상점', cmdAt: '@',
+      cmdLottoGive: '!복권지급', cmdLottoTransfer: '!복권양도', cmdShop: '!상점', cmdAt: '@',
       grantNicknames: [], // DJ 외에 복권지급/상점 명령어를 쓸 수 있는 닉네임 목록
       lvBase: 100,
       scoreHeart: 1, scorePaidHeart: null, scoreChat: 2, scoreAttend: 10, scoreLottoPoint: 5,
@@ -1164,6 +1164,7 @@ function getActivitySettings(djId, settings) {
     store.saveSettings(djId, { activity: settings.activity })
   }
   if (!settings.activity.users) settings.activity.users = {}
+  if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
   return settings.activity
 }
 
@@ -1479,6 +1480,28 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
       '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
     setTimeout(() => sendChatToRoom(djId, top), 400)
     setTimeout(() => sendChatToRoom(djId, bottom), 900)
+    return
+  }
+
+  // 🎁 !복권양도 [고유닉] [수량] — DJ/매니저 권한과 무관하게, 본인이 갖고 있는 복권을 다른 등록된
+  // 애청지수 유저에게 나눠줄 수 있는 명령어. 대상은 반드시 이미 애청지수에 등록돼 있어야 한다
+  // (오타로 새 유저가 조용히 생기는 걸 막기 위해 !복권지급과 달리 자동 신규등록은 하지 않는다).
+  const cmdLottoTransfer = act.cmdLottoTransfer || '!복권양도'
+  if (first === cmdLottoTransfer) {
+    const d = act.users[key]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgNoInfo, { nickname: author })), 400); return }
+    const targetNick = parts[1]
+    const amount = parseInt(parts[2], 10)
+    if (!targetNick || isNaN(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoTransfer} [고유닉] [수량] (1장 이상)`), 400); return }
+    const targetKey = findActUserKey(act, targetNick)
+    if (!targetKey) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님은 애청지수 정보가 없어요.`), 400); return }
+    if (targetKey === key) { setTimeout(() => sendChatToRoom(djId, `⚠️ 본인에게는 양도할 수 없어요.`), 400); return }
+    if ((d.lotto || 0) < amount) { setTimeout(() => sendChatToRoom(djId, `⚠️ 보유한 복권(${d.lotto || 0}장)보다 많이 양도할 수 없어요.`), 400); return }
+    const t = act.users[targetKey]
+    d.lotto -= amount
+    t.lotto = (t.lotto || 0) + amount
+    save()
+    setTimeout(() => sendChatToRoom(djId, `🎁 ${d.nickname || author}님이 ${t.nickname || targetNick}님에게 복권 ${amount}장을 양도했습니다! (${d.nickname || author}: ${d.lotto}장 / ${t.nickname || targetNick}: ${t.lotto}장)`), 400)
     return
   }
 
@@ -14349,7 +14372,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       key: 'loyalty', icon: '⭐', label: '애청지수', items: [
         { cmd: act.cmdMyInfo, desc: '내 애청지수 조회' }, { cmd: act.cmdCreate, desc: '애청지수 데이터 생성' }, { cmd: act.cmdDelete, desc: '애청지수 데이터 삭제' },
         { cmd: act.cmdRank, desc: '랭킹 조회' }, { cmd: act.cmdLotto, desc: '복권 사용' }, { cmd: act.cmdAttend, desc: '출석 체크' },
-        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdShop, desc: '상점 조회' },
+        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdLottoTransfer, desc: '복권 양도 (내 복권을 다른 유저에게)' }, { cmd: act.cmdShop, desc: '상점 조회' },
       ].filter(x => x.cmd)
     })
   }
