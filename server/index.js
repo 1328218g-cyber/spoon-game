@@ -10601,10 +10601,10 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
     } else if (textLower === '!검랭킹') {
       result = await handleRanking(tag, author)
     } else if (textLower.startsWith('!프로필')) {
-      const targetTag = (parts[1] || '').trim()
+      const targetTag = (parts[1] || '').trim().replace('@', '').toLowerCase() // ⚠️ 저장된 키는 소문자라, 대상 지정 시에도 똑같이 정규화해야 매칭됨
       result = handleSwordInfo(tag, author, targetTag)
     } else if (textLower.startsWith('!배틀')) {
-      const targetTag = parts[1] || ''
+      const targetTag = (parts[1] || '').trim().replace('@', '').toLowerCase() // ⚠️ 동일 — 정규화 안 하면 대소문자/@ 때문에 매칭 실패해서 "유저를 찾을 수 없다"고 뜨던 버그
       result = handleBattle(tag, author, targetTag)
     } else if (textLower === '!판매') {
       result = handleSell(tag, author)
