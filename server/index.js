@@ -11496,8 +11496,8 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 // ══════════════════════════════════════════════════════
 // 🚪 퇴장 감지 폴링 — 스푼은 소켓으로 퇴장 이벤트를 보내지 않으므로,
 // 시청자 명단 API를 주기적으로 조회해서 직전 스냅샷과 비교하는 방식으로 판정한다.
-const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지
-const LEAVE_ABSENCE_THRESHOLD = 3   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (5초 주기 폴링 기준 — 1이면 API가 잠깐 갱신 늦을 때 방금 입장한 사람도 오탐지될 수 있어서 3으로 완화)
+const LEAVE_POLL_MS = 1000          // 몇 초마다 명단을 조회할지 (⚠️ 1초마다 스푼 API를 호출하므로 API 호출량이 많이 늘어남 — 문제 생기면 값을 올릴 것)
+const LEAVE_ABSENCE_THRESHOLD = 2   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1초 주기 × 2회 = 최대 2초 안에 감지)
 
 function registerJoinSnapshot(room, nickname, tag, prevKey) {
   if (!room._lastLiveMembers) return
@@ -11535,14 +11535,14 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   if (msgs.length > 0) {
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
     const text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
-    setTimeout(() => sendChatToRoom(djId, text), 500)
+    setTimeout(() => sendChatToRoom(djId, text), 200)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
   if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
 }
 
 // 👋 입장 인사 — 웹소켓 RoomJoin 이벤트(매니저만 옴)랑, 시청자 명단 폴링 기반 감지(일반 시청자
-// 포함, 최대 5초 정도 늦게) 두 경로가 이 함수 하나를 공유한다. room._greetedKeys로 "이번 방송에서
+// 포함, 최대 1초 정도 늦게) 두 경로가 이 함수 하나를 공유한다. room._greetedKeys로 "이번 방송에서
 // 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
 // (같은 사람한테 인사가 두 번 나가는 걸 방지).
 function sendJoinMessage(djId, settings, author, tag, gen) {
@@ -11562,13 +11562,13 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
 
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
-    setTimeout(() => sendChatToRoom(djId, text), 500)
+    setTimeout(() => sendChatToRoom(djId, text), 200)
     if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
       const text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
-      setTimeout(() => sendChatToRoom(djId, text), 500)
+      setTimeout(() => sendChatToRoom(djId, text), 200)
     }
   }
   if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -11636,6 +11636,7 @@ function startLeavePolling(djId, liveId) {
       for (const { key, info } of leftCandidates) {
         room._lastLiveMembers.delete(key)
         room._memberAbsenceCount.delete(key)
+        if (room._greetedKeys) room._greetedKeys.delete(key) // 👋 나간 걸로 확정되면 "인사함" 기록도 지워서, 재입장하면 다시 인사하게 함
         const settings = store.getSettings(djId) || {}
         sendLeaveMessage(djId, settings, info.nickname, info.tag)
       }
