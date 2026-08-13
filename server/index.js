@@ -575,7 +575,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1667,6 +1667,95 @@ async function handleLottoAutoCommand(djId, room, settings, author, authorId, li
     setTimeout(() => sendChatToRoom(djId, `🔄 타이머가 재시작됐어요 (주기 ${min}분).`), 400)
     return
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🎟️ 복권 차등지급 — 방송에 입장한 순서대로 등수(1등, 2등, ...)를 매겨서, 등수별로 정해진
+// 수량의 복권을 차등 지급한다. 입장 즉시 "몇 등으로 오셨습니다" 안내만 나가고, 실제 지급은
+// delaySec(기본 60초) 후 그때까지 방송에 남아있는 경우에만 이뤄진다 (바로 들어왔다 나가는
+// 뜨내기 시청자에게 헛지급되는 걸 막기 위함). 애청지수(내정보)가 없는 유저는 지급 없이
+// 안내 멘트만 나간다.
+
+function getLottoRankSettings(djId, settings) {
+  if (!settings.lottoRankGive) {
+    settings.lottoRankGive = {
+      enabled: false,
+      ranks: [
+        { rank: 1, amount: 5 },
+        { rank: 2, amount: 3 },
+        { rank: 3, amount: 2 },
+        { rank: 4, amount: 1 },
+        { rank: 5, amount: 1 },
+      ],
+      delaySec: 60,
+      msgJoinRank: '👏 {nickname}님 {rank}등으로 오셨습니다! ({delay}초 후 복권 {amount}장 지급 예정)',
+      msgGive: '🎟️ {nickname}님 {rank}등 복권 {amount}장 지급 완료! (보유: {lotto}장)',
+      msgNoInfo: '⚠️ {nickname}님은 내정보가 없어서 복권이 지급되지 않았습니다.',
+    }
+    store.saveSettings(djId, { lottoRankGive: settings.lottoRankGive })
+  }
+  if (!Array.isArray(settings.lottoRankGive.ranks)) settings.lottoRankGive.ranks = []
+  return settings.lottoRankGive
+}
+
+function lottoRankFormat(tpl, data) {
+  const v = (val) => (val === undefined || val === null || val === '') ? '0' : String(val)
+  return String(tpl || '')
+    .replace(/{nickname}/g, data.nickname || '')
+    .replace(/{tag}/g, data.tag || '')
+    .replace(/{rank}/g, v(data.rank))
+    .replace(/{amount}/g, v(data.amount))
+    .replace(/{lotto}/g, v(data.lotto))
+    .replace(/{delay}/g, v(data.delay))
+}
+
+// 봇이 방송에 새로 연결될 때(ws open)마다 호출해서, "이번 방송에서 몇 번째로 들어왔는지"를
+// 처음부터 다시 센다.
+function resetLottoRankCounter(room) {
+  room._lottoRankCounter = 0
+}
+
+// 입장 이벤트(웹소켓 RoomJoin / 명단폴링 공용, sendJoinMessage에서 호출)마다 실행.
+// 등수 안내는 즉시, 실제 복권 지급은 delaySec 후 생존 여부를 확인하고 진행한다.
+function handleLottoRankJoin(djId, room, settings, author, tag) {
+  if (!isModuleOn(settings, 'lottorank', djId)) return
+  const cfg = getLottoRankSettings(djId, settings)
+  if (cfg.enabled === false) return
+  const ranks = (cfg.ranks || []).filter(r => r && Number(r.rank) > 0).sort((a, b) => Number(a.rank) - Number(b.rank))
+  if (!ranks.length) return
+
+  room._lottoRankCounter = (room._lottoRankCounter || 0) + 1
+  const rank = room._lottoRankCounter
+  const rankCfg = ranks.find(r => Number(r.rank) === rank)
+  if (!rankCfg) return // 설정해둔 등수 범위를 벗어나면 조용히 패스 (예: 5명까지만 설정했는데 6번째로 온 경우)
+
+  const amount = Math.max(1, Number(rankCfg.amount) || 1)
+  const delaySec = Math.max(5, Math.min(600, Number(cfg.delaySec) || 60))
+  const key = String(tag || author || '').trim().toLowerCase()
+
+  const announce = lottoRankFormat(cfg.msgJoinRank, { nickname: author, tag, rank, amount, delay: delaySec })
+  if (announce) setTimeout(() => sendChatToRoom(djId, announce), 300)
+
+  setTimeout(() => {
+    // 지급 시점에 아직 방송에 남아있는지 먼저 확인 — 바로 들어왔다 나간 사람은 조용히 건너뜀
+    if (key && room._lastLiveMembers && !room._lastLiveMembers.has(key)) return
+
+    const liveSettings = store.getSettings(djId) || {}
+    if (!isModuleOn(liveSettings, 'lottorank', djId)) return
+    if (!isModuleOn(liveSettings, 'loyalty', djId)) return
+    const act = getActivitySettings(djId, liveSettings)
+    const actKey = actResolveKey(act, author, tag)
+    if (!actKey) {
+      const noInfoMsg = lottoRankFormat(cfg.msgNoInfo, { nickname: author, tag, rank, amount })
+      if (noInfoMsg) sendChatToRoom(djId, noInfoMsg)
+      return
+    }
+    const d = act.users[actKey]
+    d.lotto = (d.lotto || 0) + amount
+    store.saveSettings(djId, { activity: act })
+    const giveMsg = lottoRankFormat(cfg.msgGive, { nickname: d.nickname || author, tag, rank, amount, lotto: d.lotto })
+    if (giveMsg) sendChatToRoom(djId, giveMsg)
+  }, delaySec * 1000)
 }
 
 // ══════════════════════════════════════════════════════
@@ -11559,6 +11648,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
 
   handleActAttendHook(djId, settings, author, tag)
+  handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
@@ -11745,6 +11835,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     notifyDiscordOnConnect(djId, room.watchingTag)
     // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
     startLeavePolling(djId, liveId)
+    // 🎟️ 복권 차등지급 등수 카운터도 이번 입장 시점부터 새로 센다
+    resetLottoRankCounter(room)
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
@@ -13189,6 +13281,32 @@ app.post('/lottoauto/resume', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { lottoAuto: cfg })
   const room = getRoom(req.djId)
   if (room.isConnected && room.autoJoinedFor) startLottoAutoTimer(req.djId, room.autoJoinedFor)
+  res.json({ success: true })
+})
+
+// 🎟️ 복권 차등지급 — 설정 조회/저장
+app.get('/lottorank/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoRankSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+
+app.post('/lottorank/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottorank', req.djId)) return res.json({ success: false, error: '복권 차등지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getLottoRankSettings(req.djId, settings)
+  const { enabled, ranks, delaySec, msgJoinRank, msgGive, msgNoInfo } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (Array.isArray(ranks)) {
+    cfg.ranks = ranks
+      .map(r => ({ rank: Math.max(1, Math.min(999, parseInt(r.rank, 10) || 0)), amount: Math.max(1, Math.min(1000, parseInt(r.amount, 10) || 1)) }))
+      .filter(r => r.rank > 0)
+  }
+  if (delaySec != null) cfg.delaySec = Math.max(5, Math.min(600, Number(delaySec) || 60))
+  if (msgJoinRank != null) cfg.msgJoinRank = msgJoinRank
+  if (msgGive != null) cfg.msgGive = msgGive
+  if (msgNoInfo != null) cfg.msgNoInfo = msgNoInfo
+  store.saveSettings(req.djId, { lottoRankGive: cfg })
   res.json({ success: true })
 })
 
