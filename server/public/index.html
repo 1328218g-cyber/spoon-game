@@ -1477,7 +1477,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div id="srListWrap"></div>
-          <p class="hint" style="margin-top:10px">· 🎧 재생 버튼은 iTunes 미리듣기(30초)로 바로 재생돼요. · 🎬 유튜브 버튼은 위 "현재 재생 중" 바에서 소리만 재생돼요 (팝업/영상 없음, 로컬봇과 동일).<br>· 소리는 서버가 아니라 <b>지금 이 화면을 열어둔 내 PC(브라우저)</b>에서 나요.</p>
+          <p class="hint" style="margin-top:10px">· ▶ 재생 버튼을 누르면 위 "현재 재생 중" 바에서 유튜브로 소리가 바로 나와요 (팝업/영상 없음, 로컬봇과 동일).<br>· 소리는 서버가 아니라 <b>지금 이 화면을 열어둔 내 PC(브라우저)</b>에서 나요.</p>
         </div>
 
         <div class="card">
@@ -5136,7 +5136,7 @@ async function loadDjSettings(){
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
-  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:true,appleMusic:true}});
+  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:false,appleMusic:false}});
   Object.assign(rouletteData,{list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'});
   rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
   document.getElementById('rouletteHistoryWrap').innerHTML='';
@@ -6156,7 +6156,7 @@ async function saveGreetGlobal(){
 }
 
 /* ── 신청곡 관리 ── */
-let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:true,appleMusic:true}};
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:false,appleMusic:false}};
 
 /* ── 애청지수 ── */
 const ACT_DEFAULT={
@@ -6525,9 +6525,9 @@ function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
-  const sites=srData.searchSites||{spotify:true,appleMusic:true};
-  document.getElementById('srSiteSpotify').checked = sites.spotify!==false;
-  document.getElementById('srSiteAppleMusic').checked = sites.appleMusic!==false;
+  const sites=srData.searchSites||{spotify:false,appleMusic:false};
+  document.getElementById('srSiteSpotify').checked = !!sites.spotify;
+  document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
   renderSrPerms();
 
   const wrap=document.getElementById('srListWrap');
@@ -6537,15 +6537,9 @@ function renderSrList(){
   }
   const rows=srData.items.map((it,i)=>{
     const badges=[
-      sites.spotify!==false?`<a href="${srSearchUrl('spotify',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🟢 Spotify</a>`:'',
-      sites.appleMusic!==false?`<a href="${srSearchUrl('appleMusic',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🍎 Apple Music</a>`:'',
+      sites.spotify?`<a href="${srSearchUrl('spotify',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🟢 Spotify</a>`:'',
+      sites.appleMusic?`<a href="${srSearchUrl('appleMusic',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🍎 Apple Music</a>`:'',
     ].join('');
-    const playBtn = it.previewUrl
-      ? `<button class="btn-shield-reset" style="padding:5px 12px;font-size:11.5px;background:#e5484d" onclick="playSrPreview('${it.id}')">▶ 재생</button>`
-      : `<button class="btn-gray" style="padding:5px 10px;font-size:11px" onclick="searchSrPreview('${it.id}',this)">🔍 검색중</button>`;
-    const ytBtn = it.youtubeId
-      ? `<button class="btn-shield-reset" style="padding:5px 12px;font-size:11.5px;background:#cc1a1a" onclick="playSrYoutube('${it.id}')">🎬 유튜브</button>`
-      : `<button class="btn-gray" style="padding:5px 10px;font-size:11px" onclick="searchSrYoutube('${it.id}',this)">🔍 검색중</button>`;
     return `
     <tr>
       <td style="white-space:nowrap">
@@ -6555,39 +6549,16 @@ function renderSrList(){
       <td>${i+1}</td>
       <td>
         <div style="font-weight:500">${escapeHtml(it.artist)} - ${escapeHtml(it.title)}</div>
-        <div style="display:flex;gap:6px;margin-top:4px">${badges}</div>
+        ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
       </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
-      <td style="white-space:nowrap;display:flex;gap:6px">${playBtn}${ytBtn}</td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `}).join('');
   wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th>재생</th><th>관리</th></tr></thead>
+    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th>관리</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
-}
-
-// 🎧 로컬봇처럼 미리듣기(30초)를 바로 재생. previewUrl이 없으면(검색 실패) 안내만 하고 끝.
-let srAudioPlayer=null;
-function playSrPreview(id){
-  const it=(srData.items||[]).find(x=>String(x.id)===String(id));
-  if(!it||!it.previewUrl){ showToast('아직 미리듣기를 못 찾았어요'); return; }
-  try{
-    if(srAudioPlayer){ srAudioPlayer.pause(); srAudioPlayer=null; }
-    srAudioPlayer=new Audio(it.previewUrl);
-    srAudioPlayer.play().catch(()=>{ showToast('🔊 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
-  }catch(e){}
-}
-// 자동 검색이 안 됐던 곡을 DJ가 수동으로 다시 검색
-async function searchSrPreview(id, btnEl){
-  if(btnEl) btnEl.disabled=true;
-  try{
-    const res=await fetch(SERVER+'/songrequest/search-preview',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
-    const d=await res.json();
-    if(!d.success){ showToast(d.error||'검색 실패'); if(btnEl) btnEl.disabled=false; return; }
-    showToast('미리듣기 찾는 중... 잠시 후 재생 버튼이 나타나요');
-  }catch(e){ showToast('오류: '+e.message); if(btnEl) btnEl.disabled=false; }
 }
 
 // 🎬 유튜브 완곡 재생 — 로컬봇(Electron)의 신청곡 탭 재생 로직과 100% 동일하게 맞춘 버전.
@@ -6700,18 +6671,32 @@ function renderSrCurrentSongSites(){
   wrap.innerHTML=btns;
   wrap.style.display=btns?'flex':'none';
 }
-function playSrYoutube(id){
-  const it=(srData.items||[]).find(x=>String(x.id)===String(id));
-  if(!it||!it.youtubeId){ showToast('아직 유튜브 영상을 못 찾았어요'); return; }
-  if(srAudioPlayer){ srAudioPlayer.pause(); srAudioPlayer=null; }
-  srYtCurrentInfo={artist:it.artist,title:it.title};
+function playSrYoutube(artist, title){
+  if(srYtCurrentInfo){} // no-op guard, kept for readability
+  srYtCurrentInfo={artist,title};
   const bar=document.getElementById('srPlayingStatusBar'); if(bar) bar.style.display='block';
-  const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${it.artist} - ${it.title} (검색 중...)`;
+  const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${artist} - ${title} (검색 중...)`;
   renderSrCurrentSongSites();
-  // 후보 목록(점수순 정렬됨)이 있으면 전부 큐에 담고, 없으면(예전 데이터) youtubeId 하나만 사용
-  const cands = Array.isArray(it.youtubeCandidates) && it.youtubeCandidates.length ? it.youtubeCandidates.map(c=>c.id) : [it.youtubeId];
-  srYtPlayQueue = cands.slice();
-  trySrYtPlayNext();
+  srYtPlayQueue=[];
+  playYoutubeSearchAndPlay(artist,title);
+}
+// 로컬봇의 playSongOnYoutube()와 동일 — 재생 버튼을 누른 순간 서버에 검색을 요청하고, 받은 후보를
+// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다.
+async function playYoutubeSearchAndPlay(artist,title){
+  try{
+    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const d=await res.json();
+    if(!d.success || !d.candidates || !d.candidates.length){
+      const statusEl=document.getElementById('srPlayerStatus');
+      if(statusEl) statusEl.textContent=`${artist} - ${title} (곡을 찾을 수 없음)`;
+      return;
+    }
+    srYtPlayQueue = d.candidates.map(c=>c.id);
+    trySrYtPlayNext();
+  }catch(e){
+    const statusEl=document.getElementById('srPlayerStatus');
+    if(statusEl) statusEl.textContent=`재생 오류: ${e.message}`;
+  }
 }
 function setSrYtVolume(v){
   if(!srYtPlayer||!srYtReady)return;
@@ -6770,15 +6755,6 @@ function startSrYtProgressTimer(){
 }
 function stopSrYtProgressTimer(){
   if(srYtProgressTimer){ clearInterval(srYtProgressTimer); srYtProgressTimer=null; }
-}
-async function searchSrYoutube(id, btnEl){
-  if(btnEl) btnEl.disabled=true;
-  try{
-    const res=await fetch(SERVER+'/songrequest/search-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
-    const d=await res.json();
-    if(!d.success){ showToast(d.error||'검색 실패'); if(btnEl) btnEl.disabled=false; return; }
-    showToast('유튜브 영상 찾는 중... 잠시 후 버튼이 나타나요');
-  }catch(e){ showToast('오류: '+e.message); if(btnEl) btnEl.disabled=false; }
 }
 function toggleSrSearchSite(){
   srData.searchSites = {

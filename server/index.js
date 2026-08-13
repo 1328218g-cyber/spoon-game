@@ -894,67 +894,21 @@ function getSongRequestSettings(djId, settings) {
       doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
       listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
       maxCharsPerMsg: 100, msgIntervalMs: 600, items: [],
-      searchSites: { spotify: true, appleMusic: true }, // 🎧 음원 사이트 빠른 검색 노출 여부
+      searchSites: { spotify: false, appleMusic: false }, // 🎧 음원 사이트 빠른 검색 노출 여부 (로컬봇 기본값과 동일하게 기본은 둘 다 꺼짐)
     }
     // 최초 1회는 실제로 저장해서, 이후 /settings 조회(웹 화면)에서도 같은 값이 보이도록 한다.
     store.saveSettings(djId, { songRequest: settings.songRequest })
   }
   if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
-  if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: true, appleMusic: true }
+  if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: false, appleMusic: false }
   return settings.songRequest
 }
 
-// 🎧 신청곡 미리듣기 자동 검색 — iTunes Search API(무료, 키 불필요)로 "가수 제목"을 검색해서
-// 30초 미리듣기 mp3 URL과 앨범아트를 찾아온다. 로컬봇(Electron)처럼 신청곡이 들어오자마자
-// 바로 재생 버튼을 누르면 소리가 나오게 하기 위한 용도. 스포티파이/애플뮤직 정식 재생은 아니고,
-// 두 서비스 모두 같은 유통사 음원을 쓰는 경우가 많아서 대부분의 최신 가요/팝은 미리듣기가 잡힌다.
-async function searchSongPreview(artist, title) {
-  const term = `${artist} ${title}`.trim()
-  if (!term) return null
-  try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1&country=KR`
-    const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
-    const data = await res.json()
-    const hit = data && Array.isArray(data.results) ? data.results[0] : null
-    if (!hit || !hit.previewUrl) return null
-    return {
-      previewUrl: hit.previewUrl,
-      artworkUrl: hit.artworkUrl100 ? hit.artworkUrl100.replace('100x100', '300x300') : '',
-      matchedName: `${hit.artistName || artist} - ${hit.trackName || title}`,
-    }
-  } catch (e) {
-    console.log('[신청곡 미리듣기 검색 실패]', term, e.message)
-    return null
-  }
-}
-
-// 신청곡 아이템 하나에 대해 미리듣기를 검색해서 채워 넣고, 성공하면 저장 + 실시간 브로드캐스트.
-// 채팅 명령/수동추가 양쪽 다 이 함수를 "기다리지 않고" 백그라운드로 호출해서, 신청 완료 안내가
-// 미리듣기 검색 때문에 늦어지지 않도록 한다.
-function attachSongPreviewAsync(djId, sr, item) {
-  searchSongPreview(item.artist, item.title).then(preview => {
-    if (!preview) return
-    const liveSettings = store.getSettings(djId) || {}
-    const liveSr = liveSettings.songRequest
-    if (!liveSr) return
-    const target = liveSr.items.find(x => x.id === item.id)
-    if (!target) return // 검색되는 동안 이미 제거/리셋됐으면 그냥 무시
-    target.previewUrl = preview.previewUrl
-    target.artworkUrl = preview.artworkUrl
-    store.saveSettings(djId, { songRequest: liveSr })
-    broadcast({ type: 'songrequest', djId, items: liveSr.items })
-  })
-}
-
-// 🎬 유튜브 완곡 재생 — 로그인/구독 없이도 완곡 재생이 가능한 유일한 무료 방법이라, iTunes 30초
-// 미리듣기와 별도로 함께 제공한다. 공식 Data API 키 없이, 유튜브 검색 결과 페이지에 내려오는
-// ytInitialData(페이지 내장 JSON)를 그대로 파싱해서 영상 후보들을 가져온다 (멜론 차트 긁어오는
-// 것과 동일한 방식). 실제 재생은 프론트에서 공식 유튜브 embed(iframe)로 하기 때문에, 여기서는
-// "영상 후보 목록을 찾아주는" 역할만 한다 — 오디오 파일 자체를 서버가 다운로드/중계하지 않는다.
-//
-// 후보를 하나만 주면, 그 영상이 임베드 재생 금지(저작권자가 막아둔 경우)일 때 그냥 끊겨버린다.
-// 그래서 로컬봇(Electron)과 동일하게 여러 후보를 점수순으로 정렬해서 배열로 돌려주고,
-// 프론트에서 재생 실패 시 다음 후보로 자동 넘어가도록 한다.
+// 🎬 유튜브 완곡 재생 — 로컬봇(Electron)이 신청곡 탭에서 쓰던 것과 100% 동일한 방식.
+// iTunes 미리듣기 같은 건 로컬봇에 없어서 여기서도 안 쓴다 — 오직 유튜브 한 가지.
+// 실제 재생은 프론트에서 공식 유튜브 IFrame Player API로 하기 때문에, 여기서는
+// "재생 버튼을 눌렀을 때 후보 영상 목록을 찾아주는" 역할만 한다 — 미리 검색해두지 않고,
+// 로컬봇과 동일하게 재생 버튼을 누른 그 순간에 검색한다.
 function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
   const videoTitle = String(title || '').toLowerCase()
   const channel = String(channelTitle || '').toLowerCase()
@@ -1032,22 +986,6 @@ async function searchYoutubeVideo(artist, title) {
   }
 }
 
-function attachYoutubeAsync(djId, sr, item) {
-  searchYoutubeVideo(item.artist, item.title).then(yt => {
-    if (!yt) return
-    const liveSettings = store.getSettings(djId) || {}
-    const liveSr = liveSettings.songRequest
-    if (!liveSr) return
-    const target = liveSr.items.find(x => x.id === item.id)
-    if (!target) return
-    target.youtubeId = yt.candidates[0].videoId
-    target.youtubeTitle = yt.matchedTitle
-    target.youtubeCandidates = yt.candidates.map(c => ({ id: c.videoId, title: c.title }))
-    store.saveSettings(djId, { songRequest: liveSr })
-    broadcast({ type: 'songrequest', djId, items: liveSr.items })
-  })
-}
-
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
 // 멜론은 페이지 HTML 구조라 정규식으로 제목/가수를 뽑는다 — 멜론이 마크업을 바꾸면 깨질 수 있다.
 let melonChartCache = { list: [], fetchedAt: 0 }
@@ -1122,8 +1060,6 @@ async function handleSongRequestCommand(djId, room, settings, author, authorId, 
     if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
-    attachSongPreviewAsync(djId, sr, item) // 🎧 백그라운드로 미리듣기 검색 후 도착하면 실시간 반영
-    attachYoutubeAsync(djId, sr, item) // 🎬 백그라운드로 유튜브 완곡 영상 검색 후 도착하면 실시간 반영
     const doneMsg = (sr.doneTemplate || '').replace(/{artist}/g, artist).replace(/{title}/g, title).replace(/{count}/g, sr.items.length)
     setTimeout(() => sendChatToRoom(djId, doneMsg), 400)
     return
@@ -15064,8 +15000,8 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 채팅 명령(!신청곡)과 동일하게
-// 서버에서 iTunes 미리듣기를 백그라운드로 검색해서 붙여준다 (로컬봇처럼 재생 버튼으로 바로 듣기 위함).
+// 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 로컬봇과 동일하게 검색은
+// 미리 해두지 않고, 나중에 재생 버튼을 누르는 순간에 한다.
 app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
@@ -15078,34 +15014,19 @@ app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
   if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
   store.saveSettings(djId, { songRequest: sr })
   broadcast({ type: 'songrequest', djId, items: sr.items })
-  attachSongPreviewAsync(djId, sr, item)
-  attachYoutubeAsync(djId, sr, item)
   res.json({ success: true, items: sr.items })
 })
 
-// 🎵 신청곡 미리듣기 다시 찾기 — 자동 검색이 실패했거나(음원이 특이한 표기 등) 예전에 추가된
-// 곡이라 미리듣기가 없는 항목을, DJ가 수동으로 다시 검색해볼 수 있게 해준다.
-app.post('/songrequest/search-preview', auth.requireAuth, (req, res) => {
-  const djId = req.djId
-  const settings = store.getSettings(djId) || {}
-  const sr = getSongRequestSettings(djId, settings)
-  const id = req.body && req.body.id
-  const target = sr.items.find(x => x.id === id)
-  if (!target) return res.json({ success: false, error: '해당 신청곡을 찾을 수 없어요.' })
-  attachSongPreviewAsync(djId, sr, target)
-  res.json({ success: true })
-})
-
-// 🎬 신청곡 유튜브 다시 찾기 — 위와 동일한 용도의 유튜브 버전.
-app.post('/songrequest/search-youtube', auth.requireAuth, (req, res) => {
-  const djId = req.djId
-  const settings = store.getSettings(djId) || {}
-  const sr = getSongRequestSettings(djId, settings)
-  const id = req.body && req.body.id
-  const target = sr.items.find(x => x.id === id)
-  if (!target) return res.json({ success: false, error: '해당 신청곡을 찾을 수 없어요.' })
-  attachYoutubeAsync(djId, sr, target)
-  res.json({ success: true })
+// 🎬 신청곡 유튜브 재생 후보 검색 — 로컬봇의 playSongOnYoutube()와 동일하게, DJ가 재생 버튼을
+// 누른 "그 순간"에 검색해서 점수순 후보 목록을 돌려준다. 재생 실패 시 프론트에서 다음 후보로
+// 자동 전환한다.
+app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목이 없어요.' })
+  const yt = await searchYoutubeVideo(artist, title)
+  if (!yt) return res.json({ success: false, error: '곡을 찾을 수 없어요.' })
+  res.json({ success: true, candidates: yt.candidates.map(c => ({ id: c.videoId, title: c.title })) })
 })
 
 // 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
