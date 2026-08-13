@@ -976,38 +976,58 @@ function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
   return score
 }
 
+// 🔑 로컬봇(Electron)이 쓰던 것과 동일한 유튜브 Data API v3 키. 로컬봇 코드에 이미 박혀있던
+// 단비님 소유의 키를 그대로 재사용한다 (검색 결과가 100% 동일하게 나오도록). 환경변수로
+// 덮어쓸 수 있게 해뒀다 — 나중에 키를 새로 발급받으면 Railway 환경변수만 바꾸면 된다.
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY'
+
+// 로컬봇과 100% 동일한 검색 로직:
+// 1) "가수 제목 audio" + "가수 제목" 두 쿼리를 병렬로 검색 (videoEmbeddable=true, videoCategoryId=10=음악)
+// 2) 결과 병합 + 중복 제거
+// 3) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
+// 4) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
 async function searchYoutubeVideo(artist, title) {
-  const term = `${artist} ${title}`.trim()
-  if (!term) return null
+  if (!artist && !title) return null
   try {
-    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(term)}`
-    const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA, 'Accept-Language': 'ko-KR,ko;q=0.9' } })
-    const html = await res.text()
-    const m = html.match(/var ytInitialData = (\{.*?\});<\/script>/)
-    if (!m) return null
-    const data = JSON.parse(m[1])
-    const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || []
-    const candidates = []
-    for (const section of contents) {
-      const items = section?.itemSectionRenderer?.contents || []
-      for (const it of items) {
-        const vr = it.videoRenderer
-        if (vr && vr.videoId) {
-          const vTitle = (vr.title?.runs || []).map(r => r.text).join('') || term
-          const channelTitle = (vr.ownerText?.runs || []).map(r => r.text).join('') || ''
-          candidates.push({ videoId: vr.videoId, title: vTitle, channelTitle })
-        }
-      }
-      if (candidates.length >= 12) break
+    const q1 = `${artist} ${title} audio`
+    const q2 = `${artist} ${title}`
+    const mkUrl = (q) => `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${YOUTUBE_API_KEY}`
+    const [r1, r2] = await Promise.all([
+      fetch(mkUrl(q1)).then(r => r.json()).catch(() => ({ items: [] })),
+      fetch(mkUrl(q2)).then(r => r.json()).catch(() => ({ items: [] })),
+    ])
+    if (r1.error && r2.error) {
+      console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
+      return null
     }
-    if (!candidates.length) return null
-    const scored = candidates
-      .map(c => ({ ...c, score: scoreYoutubeCandidate(c.title, c.channelTitle, artist, title) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
+    const seen = new Set()
+    const merged = []
+    ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
+      const vid = item.id && item.id.videoId
+      if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
+    })
+    if (!merged.length) return null
+
+    const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
+    const userSearchQuery = `${artist} ${title}`.toLowerCase()
+    const filtered = merged.filter(item => {
+      const vTitle = (item.snippet.title || '').toLowerCase()
+      const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
+      const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
+      return !(isInstInTitle && !isInstInQuery)
+    })
+    const finalCandidates = filtered.length > 0 ? filtered : merged
+
+    const scored = finalCandidates.map(item => ({
+      videoId: item.id.videoId,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
+    })).sort((a, b) => b.score - a.score)
+
     return { candidates: scored, matchedTitle: scored[0].title }
   } catch (e) {
-    console.log('[신청곡 유튜브 검색 실패]', term, e.message)
+    console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
     return null
   }
 }
