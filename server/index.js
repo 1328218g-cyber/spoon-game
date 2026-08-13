@@ -893,13 +893,105 @@ function getSongRequestSettings(djId, settings) {
       perms: [], // DJ 외에 리셋/마감/접수/우선온오프/이름온오프를 쓸 수 있는 고유닉 목록 (실드 관리와 동일한 방식)
       doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
       listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
-      maxCharsPerMsg: 100, msgIntervalMs: 600, items: []
+      maxCharsPerMsg: 100, msgIntervalMs: 600, items: [],
+      searchSites: { spotify: true, appleMusic: true }, // 🎧 음원 사이트 빠른 검색 노출 여부
     }
     // 최초 1회는 실제로 저장해서, 이후 /settings 조회(웹 화면)에서도 같은 값이 보이도록 한다.
     store.saveSettings(djId, { songRequest: settings.songRequest })
   }
   if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
+  if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: true, appleMusic: true }
   return settings.songRequest
+}
+
+// 🎧 신청곡 미리듣기 자동 검색 — iTunes Search API(무료, 키 불필요)로 "가수 제목"을 검색해서
+// 30초 미리듣기 mp3 URL과 앨범아트를 찾아온다. 로컬봇(Electron)처럼 신청곡이 들어오자마자
+// 바로 재생 버튼을 누르면 소리가 나오게 하기 위한 용도. 스포티파이/애플뮤직 정식 재생은 아니고,
+// 두 서비스 모두 같은 유통사 음원을 쓰는 경우가 많아서 대부분의 최신 가요/팝은 미리듣기가 잡힌다.
+async function searchSongPreview(artist, title) {
+  const term = `${artist} ${title}`.trim()
+  if (!term) return null
+  try {
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1&country=KR`
+    const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
+    const data = await res.json()
+    const hit = data && Array.isArray(data.results) ? data.results[0] : null
+    if (!hit || !hit.previewUrl) return null
+    return {
+      previewUrl: hit.previewUrl,
+      artworkUrl: hit.artworkUrl100 ? hit.artworkUrl100.replace('100x100', '300x300') : '',
+      matchedName: `${hit.artistName || artist} - ${hit.trackName || title}`,
+    }
+  } catch (e) {
+    console.log('[신청곡 미리듣기 검색 실패]', term, e.message)
+    return null
+  }
+}
+
+// 신청곡 아이템 하나에 대해 미리듣기를 검색해서 채워 넣고, 성공하면 저장 + 실시간 브로드캐스트.
+// 채팅 명령/수동추가 양쪽 다 이 함수를 "기다리지 않고" 백그라운드로 호출해서, 신청 완료 안내가
+// 미리듣기 검색 때문에 늦어지지 않도록 한다.
+function attachSongPreviewAsync(djId, sr, item) {
+  searchSongPreview(item.artist, item.title).then(preview => {
+    if (!preview) return
+    const liveSettings = store.getSettings(djId) || {}
+    const liveSr = liveSettings.songRequest
+    if (!liveSr) return
+    const target = liveSr.items.find(x => x.id === item.id)
+    if (!target) return // 검색되는 동안 이미 제거/리셋됐으면 그냥 무시
+    target.previewUrl = preview.previewUrl
+    target.artworkUrl = preview.artworkUrl
+    store.saveSettings(djId, { songRequest: liveSr })
+    broadcast({ type: 'songrequest', djId, items: liveSr.items })
+  })
+}
+
+// 🎬 유튜브 완곡 재생 — 로그인/구독 없이도 완곡 재생이 가능한 유일한 무료 방법이라, iTunes 30초
+// 미리듣기와 별도로 함께 제공한다. 공식 Data API 키 없이, 유튜브 검색 결과 페이지에 내려오는
+// ytInitialData(페이지 내장 JSON)를 그대로 파싱해서 첫 번째 영상 ID를 가져온다 (멜론 차트 긁어오는
+// 것과 동일한 방식). 실제 재생은 프론트에서 공식 유튜브 embed(iframe)로 하기 때문에, 여기서는
+// "영상 ID를 찾아주는" 역할만 한다 — 오디오 파일 자체를 서버가 다운로드/중계하지 않는다.
+async function searchYoutubeVideo(artist, title) {
+  const term = `${artist} ${title}`.trim()
+  if (!term) return null
+  try {
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(term)}`
+    const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA, 'Accept-Language': 'ko-KR,ko;q=0.9' } })
+    const html = await res.text()
+    const m = html.match(/var ytInitialData = (\{.*?\});<\/script>/)
+    if (!m) return null
+    const data = JSON.parse(m[1])
+    const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || []
+    for (const section of contents) {
+      const items = section?.itemSectionRenderer?.contents || []
+      for (const it of items) {
+        const vr = it.videoRenderer
+        if (vr && vr.videoId) {
+          const title2 = (vr.title?.runs || []).map(r => r.text).join('') || term
+          return { videoId: vr.videoId, matchedTitle: title2 }
+        }
+      }
+    }
+    return null
+  } catch (e) {
+    console.log('[신청곡 유튜브 검색 실패]', term, e.message)
+    return null
+  }
+}
+
+function attachYoutubeAsync(djId, sr, item) {
+  searchYoutubeVideo(item.artist, item.title).then(yt => {
+    if (!yt) return
+    const liveSettings = store.getSettings(djId) || {}
+    const liveSr = liveSettings.songRequest
+    if (!liveSr) return
+    const target = liveSr.items.find(x => x.id === item.id)
+    if (!target) return
+    target.youtubeId = yt.videoId
+    target.youtubeTitle = yt.matchedTitle
+    store.saveSettings(djId, { songRequest: liveSr })
+    broadcast({ type: 'songrequest', djId, items: liveSr.items })
+  })
 }
 
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
@@ -976,6 +1068,8 @@ async function handleSongRequestCommand(djId, room, settings, author, authorId, 
     if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
+    attachSongPreviewAsync(djId, sr, item) // 🎧 백그라운드로 미리듣기 검색 후 도착하면 실시간 반영
+    attachYoutubeAsync(djId, sr, item) // 🎬 백그라운드로 유튜브 완곡 영상 검색 후 도착하면 실시간 반영
     const doneMsg = (sr.doneTemplate || '').replace(/{artist}/g, artist).replace(/{title}/g, title).replace(/{count}/g, sr.items.length)
     setTimeout(() => sendChatToRoom(djId, doneMsg), 400)
     return
@@ -12627,6 +12721,17 @@ app.post('/status-banner', auth.requireAuth, (req, res) => {
   res.json(result.ok ? { success: true, banner: result.banner } : { success: false, error: result.error })
 })
 
+// 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
+app.get('/session/global-off', auth.requireAuth, (req, res) => {
+  res.json({ success: true, off: store.getSessionModuleGlobalOff() })
+})
+app.post('/session/global-off', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { off } = req.body || {}
+  const result = store.setSessionModuleGlobalOff(off)
+  res.json(result.ok ? { success: true, off: result.off } : { success: false, error: result.error })
+})
+
 // 📊 관리자 대시보드 요약 통계
 app.get('/admin/stats', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -14905,6 +15010,50 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 채팅 명령(!신청곡)과 동일하게
+// 서버에서 iTunes 미리듣기를 백그라운드로 검색해서 붙여준다 (로컬봇처럼 재생 버튼으로 바로 듣기 위함).
+app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'request', djId)) return res.json({ success: false, error: '신청곡 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const sr = getSongRequestSettings(djId, settings)
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목을 입력해주세요.' })
+  const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist: artist || title, title: title || artist, requester: '(직접추가)' }
+  if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
+  store.saveSettings(djId, { songRequest: sr })
+  broadcast({ type: 'songrequest', djId, items: sr.items })
+  attachSongPreviewAsync(djId, sr, item)
+  attachYoutubeAsync(djId, sr, item)
+  res.json({ success: true, items: sr.items })
+})
+
+// 🎵 신청곡 미리듣기 다시 찾기 — 자동 검색이 실패했거나(음원이 특이한 표기 등) 예전에 추가된
+// 곡이라 미리듣기가 없는 항목을, DJ가 수동으로 다시 검색해볼 수 있게 해준다.
+app.post('/songrequest/search-preview', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const sr = getSongRequestSettings(djId, settings)
+  const id = req.body && req.body.id
+  const target = sr.items.find(x => x.id === id)
+  if (!target) return res.json({ success: false, error: '해당 신청곡을 찾을 수 없어요.' })
+  attachSongPreviewAsync(djId, sr, target)
+  res.json({ success: true })
+})
+
+// 🎬 신청곡 유튜브 다시 찾기 — 위와 동일한 용도의 유튜브 버전.
+app.post('/songrequest/search-youtube', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const sr = getSongRequestSettings(djId, settings)
+  const id = req.body && req.body.id
+  const target = sr.items.find(x => x.id === id)
+  if (!target) return res.json({ success: false, error: '해당 신청곡을 찾을 수 없어요.' })
+  attachYoutubeAsync(djId, sr, target)
+  res.json({ success: true })
+})
+
 // 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
 // 각자 본인 계정을 연결해뒀으면 그 계정으로, 아니면 관리자(sum) 공용 계정으로 입장한다.
 async function checkAdminAutoJoin() {
@@ -15142,6 +15291,7 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
+  if (djId !== SHARED_TOKEN_DJID && store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
   if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
