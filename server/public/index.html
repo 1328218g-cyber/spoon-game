@@ -832,6 +832,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 세션 연결 -->
       <div class="panel active" data-panel="session">
+        <div class="card" id="sessionAdminGateCard" style="display:none">
+          <div class="card-title"><span>🔒 일반 디제이 노출 제어 (관리자 전용)</span></div>
+          <p class="hint" style="margin-bottom:10px">켜두면 일반 디제이들은 각자 개인 모듈 설정과 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보여요. 관리자(sum) 본인 화면에는 항상 그대로 보여요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="sessionGlobalOffToggle" onchange="saveSessionGlobalOff(this.checked)"> 일반 디제이에게 세션 연결 메뉴 숨기기</label>
+        </div>
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
           <p class="hint" id="sessionAccountHint" style="margin-top:0"></p>
@@ -1423,6 +1428,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title">
+            <span>🎧 음원 사이트 빠른 검색</span>
+            <span class="hint" style="margin:0">신청곡 옆/재생바에 선택한 사이트의 검색 버튼이 표시돼요</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <label class="check-opt" style="margin:0;border:0.5px solid var(--border);border-radius:999px;padding:6px 14px 6px 10px"><input type="checkbox" id="srSiteSpotify" checked onchange="toggleSrSearchSite()"> 🟢 Spotify</label>
+            <label class="check-opt" style="margin:0;border:0.5px solid var(--border);border-radius:999px;padding:6px 14px 6px 10px"><input type="checkbox" id="srSiteAppleMusic" checked onchange="toggleSrSearchSite()"> 🍎 Apple Music</label>
+          </div>
+        </div>
+
+        <div class="card">
           <label>직접 추가 (가수 곡제목)</label>
           <div class="chip-input-row">
             <input type="text" id="srManualInput" placeholder="가수 곡제목" onkeydown="if(event.key==='Enter')addSrManual()">
@@ -1430,8 +1446,38 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
 
+        <div class="card" style="padding:16px">
+          <!-- 백그라운드 유튜브 플레이어 (화면 밖에 숨김 - 로컬봇과 동일하게 영상은 안 보이고 소리만 남) -->
+          <div id="srYoutubePlayerContainer" style="position:fixed;left:-10000px;top:-10000px;width:320px;height:180px;pointer-events:none;opacity:0.01">
+            <div id="srYtPlayerBox"></div>
+          </div>
+
+          <!-- 재생 상태 표시 바 (로컬봇과 동일한 스타일) -->
+          <div id="srPlayingStatusBar" style="display:none;margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:700;color:#16a34a;font-size:13px;margin-bottom:2px">🎵 현재 재생 중</div>
+                <div id="srPlayerStatus" style="font-size:12px;color:#22c55e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">곡 정보</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <button id="srPlayPauseBtn" onclick="toggleSrYtPlayPause()" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;min-width:56px">⏸ 일시정지</button>
+                <button onclick="stopSrYtPlayer()" style="padding:6px 12px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">정지</button>
+              </div>
+            </div>
+            <div id="srCurrentSongSites" style="display:none;margin-top:8px;gap:5px;flex-wrap:wrap;align-items:center"></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <span id="srPlayerCur" style="font-size:11px;color:#166534;font-variant-numeric:tabular-nums;min-width:36px;text-align:right">0:00</span>
+              <div id="srPlayerProgressWrap" onclick="seekSrYtPlayer(event)" style="flex:1;height:8px;background:#dcfce7;border-radius:4px;cursor:pointer;position:relative;overflow:hidden"><div id="srPlayerProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#16a34a);border-radius:4px;transition:width .2s linear"></div></div>
+              <span id="srPlayerDur" style="font-size:11px;color:#166534;font-variant-numeric:tabular-nums;min-width:36px">0:00</span>
+              <span style="font-size:11px;color:#166534;margin-left:4px">🔊</span>
+              <input type="range" id="srPlayerVolume" min="0" max="100" value="100" oninput="setSrYtVolume(this.value)" style="width:80px;accent-color:#16a34a">
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div id="srListWrap"></div>
+          <p class="hint" style="margin-top:10px">· ▶ 재생 버튼을 누르면 위 "현재 재생 중" 바에서 유튜브로 소리가 바로 나와요 (팝업/영상 없음, 로컬봇과 동일).<br>· 소리는 서버가 아니라 <b>지금 이 화면을 열어둔 내 PC(브라우저)</b>에서 나요.</p>
         </div>
 
         <div class="card">
@@ -1767,6 +1813,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <div><label>@[닉네임] 조회 명령어 (DJ용)</label><input type="text" id="actCmdAt" value="@"></div>
               <div><label>!복권지급 명령어 (DJ + 지정 권한자)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
             </div>
+            <label>!복권양도 명령어 (누구나 자기 복권을 다른 유저에게)</label>
+            <input type="text" id="actCmdLottoTransfer" value="!복권양도" style="max-width:260px">
+            <div class="hint">사용법: [명령어] [고유닉] [수량] — 예: !복권양도 abc123 5. 본인이 보유한 복권만큼만 양도 가능하고, 대상은 애청지수에 이미 등록된 유저여야 해요.</div>
             <label>!상점 명령어 (DJ + 지정 권한자)</label>
             <input type="text" id="actCmdShop" value="!상점" style="max-width:260px">
 
@@ -3921,6 +3970,9 @@ function enterApp(){
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
   if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); }
   loadStatusBanner();
+  loadSessionGlobalOffStatus();
+  const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
+  if(sessionAdminGateCard) sessionAdminGateCard.style.display = isAdmin ? '' : 'none';
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
@@ -4156,6 +4208,7 @@ const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','fundi
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
+let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
 let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
 let expiryTimer=null;
@@ -4193,11 +4246,14 @@ function renderAllModuleBadges(){ MODULE_KEYS.forEach(renderModuleBadge); }
 // 모듈이 꺼져있거나(모듈 마켓 ON/OFF) "사이드바에 표시" 체크가 꺼져있으면 사이드바에서 숨긴다.
 // 표시만 꺼둔 경우엔 기능 자체는 계속 켜진 채로 동작하고, 화면 목록에서만 안 보이는 것뿐이다.
 // 세션연결/유저관리는 관리자 여부까지 같이 따진다.
+// "세션 연결"은 추가로, 관리자가 전역 강제 OFF(sessionModuleGlobalOff)를 켜두면 일반 디제이는
+// 본인이 개인적으로 모듈을 켜놨어도 사이드바에서 아예 안 보인다 (관리자 본인만 항상 보임).
 function renderNavVisibility(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
-  navItem.style.display=(adminGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
+  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?!sessionModuleGlobalOff:true;
+  navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
 }
 function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); updateMarketNewBadge(); }
 
@@ -5083,7 +5139,7 @@ async function loadDjSettings(){
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
-  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[]});
+  Object.assign(srData,{accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:false,appleMusic:false}});
   Object.assign(rouletteData,{list:[],resultHeaderTemplate:'[🎡{룰렛명}] {닉네임}님 당첨! 🎉',couponUseTemplate:'',couponLowTemplate:'🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.'});
   rlUserTags=[]; rlSelectedTag=''; rlSelectedId=null;
   document.getElementById('rouletteHistoryWrap').innerHTML='';
@@ -5475,6 +5531,33 @@ async function loadStatusBanner(){
       box.style.display='none';
     }
   }catch(e){}
+}
+
+// 🔑 세션 연결 전역 노출 제어 — 관리자 전용. 켜두면 일반 디제이 사이드바에서 메뉴가 통째로 숨겨진다.
+async function loadSessionGlobalOffStatus(){
+  try{
+    const res=await fetch(SERVER+'/session/global-off',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success) sessionModuleGlobalOff=!!d.off;
+  }catch(e){}
+  renderNavVisibility('session');
+  const toggle=document.getElementById('sessionGlobalOffToggle');
+  if(toggle) toggle.checked=sessionModuleGlobalOff;
+}
+async function saveSessionGlobalOff(off){
+  try{
+    const res=await fetch(SERVER+'/session/global-off',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({off})});
+    const d=await res.json();
+    if(d.success){
+      sessionModuleGlobalOff=!!d.off;
+      showToast(sessionModuleGlobalOff?'일반 디제이에게 세션 연결 메뉴를 숨겼어요 🔒':'일반 디제이에게 세션 연결 메뉴를 다시 보여줘요');
+      renderNavVisibility('session');
+    } else {
+      showToast(d.error||'저장 실패');
+      const toggle=document.getElementById('sessionGlobalOffToggle');
+      if(toggle) toggle.checked=sessionModuleGlobalOff;
+    }
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function openAnnouncementHistory(){
@@ -6076,14 +6159,14 @@ async function saveGreetGlobal(){
 }
 
 /* ── 신청곡 관리 ── */
-let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[]};
+let srData={accepting:true,priorityMode:false,showRequester:true,cmdRequest:'!신청곡',cmdRemove:'!제거',cmdReset:'리셋',cmdClose:'!마감',cmdOpen:'!접수',cmdPriorityOn:'!우선온',cmdPriorityOff:'!우선오프',cmdNameOn:'!이름온',cmdNameOff:'!이름오프',cmdRecommend:'!추천곡',doneTemplate:'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',listTitle:'🎵 현재 신청곡 목록 🎵',listItemTemplate:'{index}. {artist} - {title}',maxCharsPerMsg:100,msgIntervalMs:600,items:[],perms:[],searchSites:{spotify:false,appleMusic:false}};
 
 /* ── 애청지수 ── */
 const ACT_DEFAULT={
   enabled:true,
   cmdMyInfo:'!내정보',cmdCreate:'!내정보 생성',cmdDelete:'!내정보 삭제',
   cmdRank:'!랭킹',cmdLotto:'!복권',cmdAttend:'!출석',
-  cmdLottoGive:'!복권지급',cmdShop:'!상점',cmdAt:'@',
+  cmdLottoGive:'!복권지급',cmdLottoTransfer:'!복권양도',cmdShop:'!상점',cmdAt:'@',
   grantNicknames:[],
   lvBase:100,
   scoreHeart:1,scorePaidHeart:null,scoreChat:2,scoreAttend:10,scoreLottoPoint:5,
@@ -6117,6 +6200,7 @@ function renderActivitySettings(){
   document.getElementById('actCmdAttend').value=activityData.cmdAttend;
   document.getElementById('actCmdLotto').value=activityData.cmdLotto;
   document.getElementById('actCmdLottoGive').value=activityData.cmdLottoGive;
+  document.getElementById('actCmdLottoTransfer').value=activityData.cmdLottoTransfer;
   document.getElementById('actCmdShop').value=activityData.cmdShop;
   document.getElementById('actCmdAt').value=activityData.cmdAt;
   document.getElementById('actLvBase').value=activityData.lvBase;
@@ -6187,6 +6271,7 @@ function collectActivityFormValues(){
   activityData.cmdAttend=document.getElementById('actCmdAttend').value.trim()||'!출석';
   activityData.cmdLotto=document.getElementById('actCmdLotto').value.trim()||'!복권';
   activityData.cmdLottoGive=document.getElementById('actCmdLottoGive').value.trim()||'!복권지급';
+  activityData.cmdLottoTransfer=document.getElementById('actCmdLottoTransfer').value.trim()||'!복권양도';
   activityData.cmdShop=document.getElementById('actCmdShop').value.trim()||'!상점';
   activityData.cmdAt=document.getElementById('actCmdAt').value.trim()||'@';
   activityData.lvBase=Number(document.getElementById('actLvBase').value)||100;
@@ -6435,10 +6520,19 @@ function restoreActivityDefaults(){
   saveActivitySettings();
 }
 
+function srSearchUrl(site, artist, title){
+  const q=encodeURIComponent(`${artist} ${title}`.trim());
+  if(site==='spotify') return 'https://open.spotify.com/search/'+q;
+  if(site==='appleMusic') return 'https://music.apple.com/search?term='+q;
+  return '#';
+}
 function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+  const sites=srData.searchSites||{spotify:false,appleMusic:false};
+  document.getElementById('srSiteSpotify').checked = !!sites.spotify;
+  document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
   renderSrPerms();
 
   const wrap=document.getElementById('srListWrap');
@@ -6446,34 +6540,251 @@ function renderSrList(){
     wrap.innerHTML='<div class="flag-empty">신청곡이 없습니다.</div>';
     return;
   }
-  const rows=srData.items.map((it,i)=>`
+  const rows=srData.items.map((it,i)=>{
+    const badges=[
+      sites.spotify?`<a href="${srSearchUrl('spotify',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🟢 Spotify</a>`:'',
+      sites.appleMusic?`<a href="${srSearchUrl('appleMusic',it.artist,it.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🍎 Apple Music</a>`:'',
+    ].join('');
+    return `
     <tr>
       <td style="white-space:nowrap">
         <button class="icon-btn" onclick="moveSrItem(${i},-1)" ${i===0?'disabled':''}>▲</button>
         <button class="icon-btn" onclick="moveSrItem(${i},1)" ${i===srData.items.length-1?'disabled':''}>▼</button>
       </td>
       <td>${i+1}</td>
-      <td>${escapeHtml(it.artist)} - ${escapeHtml(it.title)}</td>
+      <td>
+        <div style="font-weight:500">${escapeHtml(it.artist)} - ${escapeHtml(it.title)}</div>
+        ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
+      </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
+      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}')">▶ 재생</button></td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
-  `).join('');
+  `}).join('');
   wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th></th></tr></thead>
+    <thead><tr><th>이동</th><th>번호</th><th>곡 정보</th><th>신청자</th><th>재생</th><th>관리</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
 
-function addSrManual(){
+// 🎬 유튜브 완곡 재생 — 로컬봇(Electron)의 신청곡 탭 재생 로직과 100% 동일하게 맞춘 버전.
+// 영상은 화면 밖에 숨겨두고(position:fixed, -10000px) 소리만 나오며, 팝업 없이 "현재 재생 중" 바에서
+// 재생/일시정지/정지/진행바/볼륨을 그대로 제어한다. 재생 실패(임베드 금지 등)는 점수순 후보 큐에서
+// 자동으로 다음 곡을 시도한다.
+let srYtPlayer=null, srYtReady=false, srYtProgressTimer=null;
+let srYtPlayQueue=[], srYtCurrentInfo=null;
+function ensureSrYoutubeApiLoaded(){
+  if(window.YT && window.YT.Player){ initSrYtPlayer(); return; }
+  if(document.getElementById('srYtApiScript'))return;
+  const s=document.createElement('script');
+  s.id='srYtApiScript'; s.src='https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+  window.onYouTubeIframeAPIReady=function(){ initSrYtPlayer(); };
+}
+function initSrYtPlayer(){
+  if(srYtPlayer)return;
+  const box=document.getElementById('srYtPlayerBox');
+  if(!box||typeof YT==='undefined'||!YT.Player)return;
+  srYtPlayer=new YT.Player(box,{
+    height:'180', width:'320',
+    host:'https://www.youtube-nocookie.com',
+    playerVars:{autoplay:0,controls:1,modestbranding:1,loop:0,fs:0,iv_load_policy:3,playsinline:1,rel:0},
+    events:{
+      onReady:function(){ srYtReady=true; },
+      onStateChange:srYtOnStateChange,
+      onError:function(e){ handleSrYtPlayerError(e.data); }
+    }
+  });
+}
+function srYtOnStateChange(event){
+  const btn=document.getElementById('srPlayPauseBtn');
+  if(event.data===YT.PlayerState.PLAYING){
+    try{
+      const vol=parseInt(document.getElementById('srPlayerVolume')?.value||'100',10);
+      event.target.unMute();
+      event.target.setVolume(vol);
+    }catch(e){}
+    if(btn) btn.innerHTML='⏸ 일시정지';
+    startSrYtProgressTimer();
+  } else if(event.data===YT.PlayerState.PAUSED){
+    if(btn) btn.innerHTML='▶ 재생';
+    stopSrYtProgressTimer();
+  } else if(event.data===YT.PlayerState.ENDED){
+    stopSrYtPlayer();
+  }
+}
+const SR_YT_ERROR_MSGS={2:'잘못된 비디오 ID',5:'HTML5 플레이어 오류',100:'비디오를 찾을 수 없음 (삭제되었거나 비공개)',101:'이 곡은 외부 재생이 금지됨',150:'이 곡은 외부 재생이 금지됨',152:'재생 불가 (YouTube 정책 또는 지역 제한)'};
+const SR_YT_RETRYABLE=[100,101,150,152];
+function handleSrYtPlayerError(code){
+  const msg=SR_YT_ERROR_MSGS[code]||('알 수 없는 오류 (code: '+code+')');
+  const statusEl=document.getElementById('srPlayerStatus');
+  if(SR_YT_RETRYABLE.includes(code) && srYtPlayQueue.length>0){
+    if(statusEl && srYtCurrentInfo) statusEl.textContent=`${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (${msg} → 다음 후보 시도)`;
+    setTimeout(trySrYtPlayNext,500);
+    return;
+  }
+  if(statusEl) statusEl.textContent = srYtCurrentInfo ? `${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (재생 가능한 영상을 찾지 못했습니다)` : `재생 오류: ${msg}`;
+}
+function trySrYtPlayNext(){
+  const statusEl=document.getElementById('srPlayerStatus');
+  if(!srYtPlayQueue.length){
+    if(statusEl && srYtCurrentInfo) statusEl.textContent=`${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (재생 가능한 영상을 찾지 못했습니다)`;
+    return;
+  }
+  const videoId=srYtPlayQueue.shift();
+  ensureSrYoutubeApiLoaded();
+  srYtTryPlay(videoId,0);
+}
+function srYtTryPlay(videoId, attempt){
+  const statusEl=document.getElementById('srPlayerStatus');
+  const maxAttempts=50;
+  if(srYtPlayer && srYtReady && typeof srYtPlayer.loadVideoById==='function'){
+    try{
+      srYtPlayer.loadVideoById(videoId);
+      setTimeout(()=>{
+        try{
+          const vol=parseInt(document.getElementById('srPlayerVolume')?.value||'100',10);
+          srYtPlayer.unMute();
+          srYtPlayer.setVolume(vol);
+          srYtPlayer.playVideo();
+        }catch(e){}
+      },300);
+      if(statusEl && srYtCurrentInfo) statusEl.textContent=`${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (재생 중)`;
+    }catch(e){
+      if(statusEl) statusEl.textContent='재생 시작 실패: '+e.message;
+    }
+  } else if(attempt<maxAttempts){
+    if(statusEl && srYtCurrentInfo) statusEl.textContent=`${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (플레이어 준비 중... ${Math.floor(attempt/5)}초)`;
+    setTimeout(()=>srYtTryPlay(videoId,attempt+1),200);
+  } else {
+    // 50번(약 10초) 시도해도 플레이어가 준비 안 되면 iframe src 방식으로 대체
+    const container=document.getElementById('srYoutubePlayerContainer');
+    if(container){
+      container.innerHTML=`<iframe id="srYtPlayerBox" width="320" height="180" src="https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=0" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+      if(statusEl && srYtCurrentInfo) statusEl.textContent=`${srYtCurrentInfo.artist} - ${srYtCurrentInfo.title} (재생 중 - fallback)`;
+    }
+  }
+}
+function renderSrCurrentSongSites(){
+  const wrap=document.getElementById('srCurrentSongSites');
+  if(!wrap)return;
+  if(!srYtCurrentInfo){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  const sites=srData.searchSites||{spotify:true,appleMusic:true};
+  const btns=[
+    sites.spotify!==false?`<a href="${srSearchUrl('spotify',srYtCurrentInfo.artist,srYtCurrentInfo.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🟢 Spotify</a>`:'',
+    sites.appleMusic!==false?`<a href="${srSearchUrl('appleMusic',srYtCurrentInfo.artist,srYtCurrentInfo.title)}" target="_blank" rel="noopener" class="chip" style="text-decoration:none;font-size:11px;padding:2px 8px">🍎 Apple Music</a>`:'',
+  ].join('');
+  wrap.innerHTML=btns;
+  wrap.style.display=btns?'flex':'none';
+}
+function playSrYoutube(artist, title){
+  if(srYtCurrentInfo){} // no-op guard, kept for readability
+  srYtCurrentInfo={artist,title};
+  const bar=document.getElementById('srPlayingStatusBar'); if(bar) bar.style.display='block';
+  const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${artist} - ${title} (검색 중...)`;
+  renderSrCurrentSongSites();
+  srYtPlayQueue=[];
+  playYoutubeSearchAndPlay(artist,title);
+}
+// 로컬봇의 playSongOnYoutube()와 동일 — 재생 버튼을 누른 순간 서버에 검색을 요청하고, 받은 후보를
+// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다.
+async function playYoutubeSearchAndPlay(artist,title){
+  try{
+    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const d=await res.json();
+    if(!d.success || !d.candidates || !d.candidates.length){
+      const statusEl=document.getElementById('srPlayerStatus');
+      if(statusEl) statusEl.textContent=`${artist} - ${title} (곡을 찾을 수 없음)`;
+      return;
+    }
+    srYtPlayQueue = d.candidates.map(c=>c.id);
+    trySrYtPlayNext();
+  }catch(e){
+    const statusEl=document.getElementById('srPlayerStatus');
+    if(statusEl) statusEl.textContent=`재생 오류: ${e.message}`;
+  }
+}
+function setSrYtVolume(v){
+  if(!srYtPlayer||!srYtReady)return;
+  try{
+    const vol=parseInt(v,10)||0;
+    if(vol===0) srYtPlayer.mute(); else srYtPlayer.unMute();
+    srYtPlayer.setVolume(vol);
+  }catch(e){}
+}
+function toggleSrYtPlayPause(){
+  if(!srYtPlayer||!srYtReady)return;
+  try{
+    const state=srYtPlayer.getPlayerState();
+    if(state===1) srYtPlayer.pauseVideo(); else srYtPlayer.playVideo();
+  }catch(e){}
+}
+function stopSrYtPlayer(){
+  const barEl=document.getElementById('srPlayingStatusBar'); if(barEl) barEl.style.display='none';
+  srYtPlayQueue=[]; srYtCurrentInfo=null;
+  stopSrYtProgressTimer();
+  const progBar=document.getElementById('srPlayerProgressBar'); if(progBar) progBar.style.width='0%';
+  const curEl=document.getElementById('srPlayerCur'); if(curEl) curEl.textContent='0:00';
+  const durEl=document.getElementById('srPlayerDur'); if(durEl) durEl.textContent='0:00';
+  renderSrCurrentSongSites();
+  try{ if(srYtPlayer && srYtReady && typeof srYtPlayer.stopVideo==='function') srYtPlayer.stopVideo(); }catch(e){}
+}
+function seekSrYtPlayer(ev){
+  if(!srYtPlayer||!srYtReady)return;
+  try{
+    const wrap=document.getElementById('srPlayerProgressWrap');
+    const dur=srYtPlayer.getDuration();
+    if(!dur)return;
+    const rect=wrap.getBoundingClientRect();
+    const ratio=(ev.clientX-rect.left)/rect.width;
+    srYtPlayer.seekTo(dur*Math.max(0,Math.min(1,ratio)),true);
+  }catch(e){}
+}
+function formatSrTime(sec){
+  if(!isFinite(sec)||sec<0)return '0:00';
+  const m=Math.floor(sec/60), s=Math.floor(sec%60);
+  return m+':'+(s<10?'0'+s:s);
+}
+function startSrYtProgressTimer(){
+  stopSrYtProgressTimer();
+  srYtProgressTimer=setInterval(()=>{
+    if(!srYtPlayer||!srYtReady)return;
+    try{
+      const cur=srYtPlayer.getCurrentTime()||0;
+      const dur=srYtPlayer.getDuration()||0;
+      const curEl=document.getElementById('srPlayerCur'); if(curEl) curEl.textContent=formatSrTime(cur);
+      const durEl=document.getElementById('srPlayerDur'); if(durEl) durEl.textContent=formatSrTime(dur);
+      const bar=document.getElementById('srPlayerProgressBar');
+      if(bar) bar.style.width=(dur>0?Math.min(100,cur/dur*100):0)+'%';
+    }catch(e){}
+  },500);
+}
+function stopSrYtProgressTimer(){
+  if(srYtProgressTimer){ clearInterval(srYtProgressTimer); srYtProgressTimer=null; }
+}
+function toggleSrSearchSite(){
+  srData.searchSites = {
+    spotify: document.getElementById('srSiteSpotify').checked,
+    appleMusic: document.getElementById('srSiteAppleMusic').checked,
+  };
+  renderSrList();
+  saveSrGlobal();
+}
+
+async function addSrManual(){
   const raw=document.getElementById('srManualInput').value.trim();
   if(!raw)return showToast('가수 곡제목을 입력해주세요');
   const parts=raw.split(/\s+/);
   const artist=parts.shift()||'';
   const title=parts.join(' ')||artist;
-  srData.items.push({id:'sr'+Date.now(),artist,title,requester:'(직접추가)'});
   document.getElementById('srManualInput').value='';
-  renderSrList();
-  saveSrGlobal();
+  try{
+    const res=await fetch(SERVER+'/songrequest/manual-add',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'추가 실패'); return; }
+    srData.items=d.items;
+    renderSrList();
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 function removeSrItem(i){

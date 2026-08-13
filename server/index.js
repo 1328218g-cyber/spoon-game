@@ -893,13 +893,97 @@ function getSongRequestSettings(djId, settings) {
       perms: [], // DJ 외에 리셋/마감/접수/우선온오프/이름온오프를 쓸 수 있는 고유닉 목록 (실드 관리와 동일한 방식)
       doneTemplate: '✅ [{artist} - {title}] 신청 완료! (대기: {count}번)',
       listTitle: '🎵 현재 신청곡 목록 🎵', listItemTemplate: '{index}. {artist} - {title}',
-      maxCharsPerMsg: 100, msgIntervalMs: 600, items: []
+      maxCharsPerMsg: 100, msgIntervalMs: 600, items: [],
+      searchSites: { spotify: false, appleMusic: false }, // 🎧 음원 사이트 빠른 검색 노출 여부 (로컬봇 기본값과 동일하게 기본은 둘 다 꺼짐)
     }
     // 최초 1회는 실제로 저장해서, 이후 /settings 조회(웹 화면)에서도 같은 값이 보이도록 한다.
     store.saveSettings(djId, { songRequest: settings.songRequest })
   }
   if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
+  if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: false, appleMusic: false }
   return settings.songRequest
+}
+
+// 🎬 유튜브 완곡 재생 — 로컬봇(Electron)이 신청곡 탭에서 쓰던 것과 100% 동일한 방식.
+// iTunes 미리듣기 같은 건 로컬봇에 없어서 여기서도 안 쓴다 — 오직 유튜브 한 가지.
+// 실제 재생은 프론트에서 공식 유튜브 IFrame Player API로 하기 때문에, 여기서는
+// "재생 버튼을 눌렀을 때 후보 영상 목록을 찾아주는" 역할만 한다 — 미리 검색해두지 않고,
+// 로컬봇과 동일하게 재생 버튼을 누른 그 순간에 검색한다.
+function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
+  const videoTitle = String(title || '').toLowerCase()
+  const channel = String(channelTitle || '').toLowerCase()
+  const artistL = String(artist || '').toLowerCase()
+  const titleL = String(songTitle || '').toLowerCase()
+  let score = 0
+  // "- Topic" 채널은 YouTube Music이 자동 생성하는 공식 오디오 채널 — 최우선
+  if (channel.endsWith(' - topic') || channel.includes('- topic')) score += 100
+  if (artistL && channel.includes(artistL)) score += 30
+  if (channel.includes('vevo') || channel.includes('official')) score += 25
+  if (/\b(official\s*audio|audio\s*only|official\s*sound|lyrics?|가사)\b/.test(videoTitle)) score += 40
+  const negativeKeywords = ['cover', '커버', 'remix', '리믹스', 'live', '라이브', 'lesson', '강의',
+    'reaction', '리액션', 'tutorial', 'karaoke', '노래방', 'mr', '반주',
+    'instrumental', 'piano', '피아노', 'acoustic', 'slowed', 'sped up',
+    'nightcore', 'mashup', '매쉬업', 'parody', '패러디']
+  for (const kw of negativeKeywords) { if (videoTitle.includes(kw)) score -= 40 }
+  if (/\b(m\/v|mv|official\s*(music\s*)?video)\b/.test(videoTitle)) score += 20
+  if (artistL && titleL && videoTitle.includes(artistL) && videoTitle.includes(titleL)) score += 15
+  return score
+}
+
+// 🔑 로컬봇(Electron)이 쓰던 것과 동일한 유튜브 Data API v3 키. 로컬봇 코드에 이미 박혀있던
+// 단비님 소유의 키를 그대로 재사용한다 (검색 결과가 100% 동일하게 나오도록). 환경변수로
+// 덮어쓸 수 있게 해뒀다 — 나중에 키를 새로 발급받으면 Railway 환경변수만 바꾸면 된다.
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY'
+
+// 로컬봇과 100% 동일한 검색 로직:
+// 1) "가수 제목 audio" + "가수 제목" 두 쿼리를 병렬로 검색 (videoEmbeddable=true, videoCategoryId=10=음악)
+// 2) 결과 병합 + 중복 제거
+// 3) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
+// 4) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
+async function searchYoutubeVideo(artist, title) {
+  if (!artist && !title) return null
+  try {
+    const q1 = `${artist} ${title} audio`
+    const q2 = `${artist} ${title}`
+    const mkUrl = (q) => `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${YOUTUBE_API_KEY}`
+    const [r1, r2] = await Promise.all([
+      fetch(mkUrl(q1)).then(r => r.json()).catch(() => ({ items: [] })),
+      fetch(mkUrl(q2)).then(r => r.json()).catch(() => ({ items: [] })),
+    ])
+    if (r1.error && r2.error) {
+      console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
+      return null
+    }
+    const seen = new Set()
+    const merged = []
+    ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
+      const vid = item.id && item.id.videoId
+      if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
+    })
+    if (!merged.length) return null
+
+    const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
+    const userSearchQuery = `${artist} ${title}`.toLowerCase()
+    const filtered = merged.filter(item => {
+      const vTitle = (item.snippet.title || '').toLowerCase()
+      const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
+      const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
+      return !(isInstInTitle && !isInstInQuery)
+    })
+    const finalCandidates = filtered.length > 0 ? filtered : merged
+
+    const scored = finalCandidates.map(item => ({
+      videoId: item.id.videoId,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
+    })).sort((a, b) => b.score - a.score)
+
+    return { candidates: scored, matchedTitle: scored[0].title }
+  } catch (e) {
+    console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
+    return null
+  }
 }
 
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
@@ -1055,7 +1139,7 @@ function getActivitySettings(djId, settings) {
       enabled: true,
       cmdMyInfo: '!내정보', cmdCreate: '!내정보 생성', cmdDelete: '!내정보 삭제',
       cmdRank: '!랭킹', cmdLotto: '!복권', cmdAttend: '!출석',
-      cmdLottoGive: '!복권지급', cmdShop: '!상점', cmdAt: '@',
+      cmdLottoGive: '!복권지급', cmdLottoTransfer: '!복권양도', cmdShop: '!상점', cmdAt: '@',
       grantNicknames: [], // DJ 외에 복권지급/상점 명령어를 쓸 수 있는 닉네임 목록
       lvBase: 100,
       scoreHeart: 1, scorePaidHeart: null, scoreChat: 2, scoreAttend: 10, scoreLottoPoint: 5,
@@ -1080,6 +1164,7 @@ function getActivitySettings(djId, settings) {
     store.saveSettings(djId, { activity: settings.activity })
   }
   if (!settings.activity.users) settings.activity.users = {}
+  if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
   return settings.activity
 }
 
@@ -1395,6 +1480,28 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
       '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
     setTimeout(() => sendChatToRoom(djId, top), 400)
     setTimeout(() => sendChatToRoom(djId, bottom), 900)
+    return
+  }
+
+  // 🎁 !복권양도 [고유닉] [수량] — DJ/매니저 권한과 무관하게, 본인이 갖고 있는 복권을 다른 등록된
+  // 애청지수 유저에게 나눠줄 수 있는 명령어. 대상은 반드시 이미 애청지수에 등록돼 있어야 한다
+  // (오타로 새 유저가 조용히 생기는 걸 막기 위해 !복권지급과 달리 자동 신규등록은 하지 않는다).
+  const cmdLottoTransfer = act.cmdLottoTransfer || '!복권양도'
+  if (first === cmdLottoTransfer) {
+    const d = act.users[key]
+    if (!d) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgNoInfo, { nickname: author })), 400); return }
+    const targetNick = parts[1]
+    const amount = parseInt(parts[2], 10)
+    if (!targetNick || isNaN(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoTransfer} [고유닉] [수량] (1장 이상)`), 400); return }
+    const targetKey = findActUserKey(act, targetNick)
+    if (!targetKey) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 님은 애청지수 정보가 없어요.`), 400); return }
+    if (targetKey === key) { setTimeout(() => sendChatToRoom(djId, `⚠️ 본인에게는 양도할 수 없어요.`), 400); return }
+    if ((d.lotto || 0) < amount) { setTimeout(() => sendChatToRoom(djId, `⚠️ 보유한 복권(${d.lotto || 0}장)보다 많이 양도할 수 없어요.`), 400); return }
+    const t = act.users[targetKey]
+    d.lotto -= amount
+    t.lotto = (t.lotto || 0) + amount
+    save()
+    setTimeout(() => sendChatToRoom(djId, `🎁 ${d.nickname || author}님이 ${t.nickname || targetNick}님에게 복권 ${amount}장을 양도했습니다! (${d.nickname || author}: ${d.lotto}장 / ${t.nickname || targetNick}: ${t.lotto}장)`), 400)
     return
   }
 
@@ -12627,6 +12734,17 @@ app.post('/status-banner', auth.requireAuth, (req, res) => {
   res.json(result.ok ? { success: true, banner: result.banner } : { success: false, error: result.error })
 })
 
+// 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
+app.get('/session/global-off', auth.requireAuth, (req, res) => {
+  res.json({ success: true, off: store.getSessionModuleGlobalOff() })
+})
+app.post('/session/global-off', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { off } = req.body || {}
+  const result = store.setSessionModuleGlobalOff(off)
+  res.json(result.ok ? { success: true, off: result.off } : { success: false, error: result.error })
+})
+
 // 📊 관리자 대시보드 요약 통계
 app.get('/admin/stats', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -14254,7 +14372,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       key: 'loyalty', icon: '⭐', label: '애청지수', items: [
         { cmd: act.cmdMyInfo, desc: '내 애청지수 조회' }, { cmd: act.cmdCreate, desc: '애청지수 데이터 생성' }, { cmd: act.cmdDelete, desc: '애청지수 데이터 삭제' },
         { cmd: act.cmdRank, desc: '랭킹 조회' }, { cmd: act.cmdLotto, desc: '복권 사용' }, { cmd: act.cmdAttend, desc: '출석 체크' },
-        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdShop, desc: '상점 조회' },
+        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdLottoTransfer, desc: '복권 양도 (내 복권을 다른 유저에게)' }, { cmd: act.cmdShop, desc: '상점 조회' },
       ].filter(x => x.cmd)
     })
   }
@@ -14905,6 +15023,35 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 로컬봇과 동일하게 검색은
+// 미리 해두지 않고, 나중에 재생 버튼을 누르는 순간에 한다.
+app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'request', djId)) return res.json({ success: false, error: '신청곡 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const sr = getSongRequestSettings(djId, settings)
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목을 입력해주세요.' })
+  const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist: artist || title, title: title || artist, requester: '(직접추가)' }
+  if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
+  store.saveSettings(djId, { songRequest: sr })
+  broadcast({ type: 'songrequest', djId, items: sr.items })
+  res.json({ success: true, items: sr.items })
+})
+
+// 🎬 신청곡 유튜브 재생 후보 검색 — 로컬봇의 playSongOnYoutube()와 동일하게, DJ가 재생 버튼을
+// 누른 "그 순간"에 검색해서 점수순 후보 목록을 돌려준다. 재생 실패 시 프론트에서 다음 후보로
+// 자동 전환한다.
+app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목이 없어요.' })
+  const yt = await searchYoutubeVideo(artist, title)
+  if (!yt) return res.json({ success: false, error: '곡을 찾을 수 없어요.' })
+  res.json({ success: true, candidates: yt.candidates.map(c => ({ id: c.videoId, title: c.title })) })
+})
+
 // 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
 // 각자 본인 계정을 연결해뒀으면 그 계정으로, 아니면 관리자(sum) 공용 계정으로 입장한다.
 async function checkAdminAutoJoin() {
@@ -15142,6 +15289,7 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
+  if (djId !== SHARED_TOKEN_DJID && store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
   if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {

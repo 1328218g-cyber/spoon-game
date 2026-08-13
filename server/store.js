@@ -337,6 +337,22 @@ function setStatusBanner(enabled, message, type) {
   return { ok: true, banner: djs['sum'].settings.statusBanner };
 }
 
+// 🔑 세션 연결 전역 강제 OFF — 관리자(sum)가 끄면, 일반 디제이는 각자 계정의 개인 모듈 설정과
+// 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보이게 된다. (관리자 본인은 항상 그대로 보임)
+// 상태 배너와 동일한 방식으로 관리자(sum) 계정의 settings에 중앙 저장한다.
+function getSessionModuleGlobalOff() {
+  const djs = loadDjs();
+  return !!(djs['sum'] && djs['sum'].settings && djs['sum'].settings.sessionModuleGlobalOff);
+}
+function setSessionModuleGlobalOff(off) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.sessionModuleGlobalOff = !!off;
+  saveDjs(djs);
+  return { ok: true, off: djs['sum'].settings.sessionModuleGlobalOff };
+}
+
 // 📊 관리자 대시보드용 요약 통계
 function getAdminStats() {
   const djs = loadDjs();
@@ -707,6 +723,8 @@ module.exports = {
   getAnnouncementHistory,
   getStatusBanner,
   setStatusBanner,
+  getSessionModuleGlobalOff,
+  setSessionModuleGlobalOff,
   getAdminStats,
   validEmail,
   DATA_DIR,
