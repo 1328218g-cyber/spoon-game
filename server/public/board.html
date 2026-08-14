@@ -133,6 +133,7 @@
   const gridEl = document.getElementById('grid');
   const stateEl = document.getElementById('stateMsg');
   let lastBgUrl = null;
+  let bgAspect = 1; // naturalWidth/naturalHeight — 칸을 정사각형으로 유지하기 위해 필요
 
   function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
@@ -153,6 +154,7 @@
     const img = new Image();
     img.onload = () => {
       frameEl.classList.remove('no-bg');
+      bgAspect = img.naturalWidth / img.naturalHeight;
       frameSpacerEl.style.paddingTop = (img.naturalHeight / img.naturalWidth * 100) + '%';
       frameEl.style.backgroundImage = `url('${url}')`;
       lastBgUrl = url;
@@ -177,7 +179,10 @@
       gridEl.style.left = gridLeft + '%';
       gridEl.style.top = gridTop + '%';
       gridEl.style.width = (columns * cellSize) + '%';
-      gridEl.style.height = (rows * cellSize) + '%';
+      // 세로 %는 프레임의 "높이" 기준이라, 가로 %(프레임 "너비" 기준)와 그대로 같은 값을 쓰면
+      // 이미지가 세로로 길어질수록 칸도 같이 길쭉해지는 버그가 생긴다. 이미지 가로세로 비율(bgAspect)을
+      // 곱해서 보정해야, 배경이 아무리 길어져도 칸이 항상 정사각형으로 유지된다.
+      gridEl.style.height = (rows * cellSize * bgAspect) + '%';
     } else {
       gridEl.style.left = '';
       gridEl.style.top = '';

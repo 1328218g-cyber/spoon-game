@@ -3230,7 +3230,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="trophyboard">
         <div class="card">
           <div class="card-title"><span>🏆 박제판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTrophyBoard()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때마다 자동으로 그 칸에 닉네임이 새겨져요(같은 칸에 또 보내면 최신 닉네임으로 교체). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
+          <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때 자동으로 그 칸에 닉네임이 새겨져요. <b>처음 보낸 사람으로 고정</b>돼서, 같은 선물을 또 보내도 이미 채워진 칸은 안 바뀌어요 (다시 비우려면 "초기화" 버튼을 눌러야 해요). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tbEnabled"> 박제판 공개 (켜야 링크가 열려요)</label>
           <label style="margin-top:10px">제목</label>
           <input type="text" id="tbTitle" value="박제판" style="max-width:300px">
@@ -8327,6 +8327,7 @@ function updateTbBgPreview(){
 // 🖼️ 관리 화면 안에서 배경+칸을 실제 배치대로 미리 보여주고, 드래그로 칸 위치(행/열)를 바로 조정.
 // 공개 페이지(board.html)와 완전히 동일한 자동배치 규칙 + 배경 원본 비율(잘림 없음)을 그대로 재현한다.
 let tbPreviewLastBgUrl=null;
+let tbPreviewBgAspect=1; // naturalWidth/naturalHeight — 칸을 정사각형으로 유지하기 위해 필요
 function renderTbPreview(){
   const box=document.getElementById('tbPreviewBox');
   const grid=document.getElementById('tbPreviewGrid');
@@ -8343,7 +8344,10 @@ function renderTbPreview(){
       grid.style.left=gridLeft+'%';
       grid.style.top=gridTop+'%';
       grid.style.width=(columns*cellSize)+'%';
-      grid.style.height=(rows*cellSize)+'%';
+      // 세로 %는 박스 "높이" 기준이라, 가로 %(박스 "너비" 기준)와 그대로 같은 값을 쓰면 배경
+      // 이미지가 세로로 길어질수록 칸도 같이 길쭉해지는 버그가 생긴다. 이미지 가로세로 비율을
+      // 곱해서 보정해야, 배경이 아무리 길어져도 칸이 항상 정사각형으로 유지된다.
+      grid.style.height=(rows*cellSize*tbPreviewBgAspect)+'%';
     } else {
       grid.style.left='0';
       grid.style.top='0';
@@ -8397,6 +8401,7 @@ function renderTbPreview(){
   const img=new Image();
   img.onload=()=>{
     box.style.aspectRatio=`${img.naturalWidth} / ${img.naturalHeight}`;
+    tbPreviewBgAspect=img.naturalWidth/img.naturalHeight;
     box.style.backgroundImage=`url('${tbBgUrl}')`;
     tbPreviewLastBgUrl=tbBgUrl;
     drawGridContents();
@@ -8667,6 +8672,7 @@ function mountTbAlbumVisual(album){
   const frame=document.getElementById('tbAlbumFrame_'+album.id);
   const spacer=document.getElementById('tbAlbumSpacer_'+album.id);
   const grid=document.getElementById('tbAlbumGrid_'+album.id);
+  let bgAspect=1;
 
   function drawSlots(){
     const columns=Math.max(1,album.columns||4);
@@ -8676,7 +8682,9 @@ function mountTbAlbumVisual(album){
       grid.style.left=(Number(album.gridLeft)||0)+'%';
       grid.style.top=(Number(album.gridTop)||0)+'%';
       grid.style.width=(columns*cellSize)+'%';
-      grid.style.height=(rows*cellSize)+'%';
+      // 세로 %는 프레임 "높이" 기준이라 가로 비율을 그대로 쓰면 이미지가 세로로 길어질수록
+      // 칸도 같이 길쭉해진다. 이미지 가로세로 비율로 보정해서 항상 정사각형 칸을 유지한다.
+      grid.style.height=(rows*cellSize*bgAspect)+'%';
     } else {
       grid.style.left='0'; grid.style.top='0'; grid.style.width='100%'; grid.style.height='100%';
     }
@@ -8704,6 +8712,7 @@ function mountTbAlbumVisual(album){
   }
   const img=new Image();
   img.onload=()=>{
+    bgAspect=img.naturalWidth/img.naturalHeight;
     spacer.style.paddingTop=(img.naturalHeight/img.naturalWidth*100)+'%';
     frame.style.backgroundImage=`url('${album.bgImageUrl}')`;
     drawSlots();

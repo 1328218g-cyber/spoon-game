@@ -4184,6 +4184,9 @@ function getTrophyBoardSettings(djId, settings) {
 
 // LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
 // holder를 이 사람으로 교체한다. (여러 칸에 같은 선물을 등록해뒀으면 전부 갱신됨)
+// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
+// holder를 채운다. 처음 보낸 사람으로 고정 — 이미 채워진 칸에 같은 선물이 또 들어와도 덮어쓰지
+// 않는다 (칸을 초기화하기 전까지는 최초 1명만 기록됨).
 function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
   if (!isModuleOn(settings, 'trophyboard', djId)) return
   const board = getTrophyBoardSettings(djId, settings)
@@ -4192,7 +4195,7 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
   if (!name || !board.slots.length) return
   let changed = false
   board.slots.forEach(slot => {
-    if (slot.giftName && String(slot.giftName).trim() === name) {
+    if (slot.giftName && String(slot.giftName).trim() === name && !slot.holderNickname) {
       slot.holderNickname = author
       slot.holderTag = tag || ''
       slot.holderAt = Date.now()
