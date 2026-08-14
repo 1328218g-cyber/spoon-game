@@ -3242,6 +3242,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" id="tbBgRemoveBtn" style="display:none" onclick="removeTbBgImage()">배경 제거</button>
           </div>
           <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요.</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div><label>가로 칸 수</label><input type="number" id="tbColumns" value="4" min="1" max="12" oninput="renderTbPreview()"></div>
+            <div><label>세로 칸 수</label><input type="number" id="tbRows" value="4" min="1" max="20" oninput="renderTbPreview()"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">공개 페이지에 보여줄 그리드 크기예요. 아래 미리보기에서 칸을 드래그해서 위치를 잡거나, 칸 관리에서 행/열을 직접 입력해도 돼요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🖼️ 미리보기 &amp; 위치 조정</span><span class="hint" style="margin:0">칸을 드래그해서 원하는 자리로 옮기세요</span></div>
+          <div id="tbPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:cover;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
+            <div id="tbPreviewGrid" style="position:absolute;inset:0;display:grid;gap:4px;padding:4px"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">실제 공개 페이지와 같은 배치로 미리 보여요. 배경/칸 개수/선물을 바꾸면 여기도 같이 갱신돼요.</div>
         </div>
 
         <div class="card">
@@ -3255,7 +3268,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🎁 칸 관리</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div>
-          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요.</p>
+          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요)</p>
           <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
         </div>
       </div>
@@ -8270,6 +8283,8 @@ async function loadTrophyBoard(){
     const s=d.settings;
     document.getElementById('tbEnabled').checked=!!s.enabled;
     document.getElementById('tbTitle').value=s.title||'박제판';
+    document.getElementById('tbColumns').value=s.columns||4;
+    document.getElementById('tbRows').value=s.rows||4;
     tbBgUrl=s.bgImageUrl||'';
     updateTbBgPreview();
     tbSlots=(s.slots||[]).map(x=>({...x}));
@@ -8289,6 +8304,59 @@ function updateTbBgPreview(){
     img.style.display='none';
     removeBtn.style.display='none';
   }
+  renderTbPreview();
+}
+
+// 🖼️ 관리 화면 안에서 배경+칸을 실제 배치대로 미리 보여주고, 드래그로 칸 위치(행/열)를 바로 조정.
+// 공개 페이지(board.html)와 완전히 동일한 자동배치 규칙을 여기서도 그대로 계산해서 보여준다.
+function renderTbPreview(){
+  const box=document.getElementById('tbPreviewBox');
+  const grid=document.getElementById('tbPreviewGrid');
+  if(!box||!grid)return;
+  box.style.backgroundImage = tbBgUrl ? `url('${tbBgUrl}')` : 'none';
+  const columns=Math.max(1,parseInt(document.getElementById('tbColumns').value,10)||4);
+  const rows=Math.max(1,parseInt(document.getElementById('tbRows').value,10)||4);
+  grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
+  grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
+
+  let autoIndex=0;
+  const cellOf=tbSlots.map(s=>{
+    if(s.row && s.col) return {row:s.row,col:s.col};
+    const r=Math.floor(autoIndex/columns)+1, c=(autoIndex%columns)+1;
+    autoIndex++;
+    return {row:r,col:c};
+  });
+
+  let html='';
+  for(let r=1;r<=rows;r++){
+    for(let c=1;c<=columns;c++){
+      html+=`<div class="tb-preview-cell" data-row="${r}" data-col="${c}" ondragover="event.preventDefault()" ondrop="onTbPreviewDrop(event,${r},${c})" style="border:1px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative"></div>`;
+    }
+  }
+  grid.innerHTML=html;
+
+  tbSlots.forEach((s,i)=>{
+    const pos=cellOf[i];
+    const cellEl=grid.querySelector(`.tb-preview-cell[data-row="${pos.row}"][data-col="${pos.col}"]`);
+    if(!cellEl)return;
+    const icon=document.createElement('div');
+    icon.draggable=true;
+    icon.title=s.giftName||'';
+    icon.style.cssText='width:80%;height:80%;display:flex;align-items:center;justify-content:center;cursor:grab';
+    icon.addEventListener('dragstart',(ev)=>{ ev.dataTransfer.setData('text/plain', String(i)); });
+    icon.innerHTML = s.giftImage
+      ? `<img src="${escapeAttr(s.giftImage)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))" onerror="this.style.display='none'">`
+      : `<span style="font-size:10px;color:rgba(255,255,255,.7);text-align:center">?</span>`;
+    cellEl.appendChild(icon);
+  });
+}
+function onTbPreviewDrop(ev,row,col){
+  ev.preventDefault();
+  const idx=Number(ev.dataTransfer.getData('text/plain'));
+  if(isNaN(idx)||!tbSlots[idx])return;
+  tbSlots[idx].row=row;
+  tbSlots[idx].col=col;
+  renderTbSlots();
 }
 
 async function uploadTbBgImage(file){
@@ -8316,6 +8384,7 @@ function renderTbSlots(){
   const wrap=document.getElementById('tbSlotsWrap');
   if(!tbSlots.length){
     wrap.innerHTML='<div class="hint" style="grid-column:1/-1">아직 등록된 칸이 없어요. "+ 칸 추가"로 시작하세요.</div>';
+    renderTbPreview();
     return;
   }
   wrap.innerHTML=tbSlots.map((s,i)=>`
@@ -8325,16 +8394,22 @@ function renderTbSlots(){
       <div style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px;border-radius:8px;background:var(--surface);border:1px solid var(--border);min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
         ${s.holderNickname?escapeHtml(s.holderNickname):'<span class="hint" style="margin:0">비어있음</span>'}
       </div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="hint" style="margin:0;font-size:10.5px;white-space:nowrap">위치</span>
+        <input type="number" min="1" placeholder="행" value="${s.row||''}" style="width:100%;padding:4px;font-size:11px" oninput="tbSlots[${i}].row=this.value?Number(this.value):null;renderTbPreview()">
+        <input type="number" min="1" placeholder="열" value="${s.col||''}" style="width:100%;padding:4px;font-size:11px" oninput="tbSlots[${i}].col=this.value?Number(this.value):null;renderTbPreview()">
+      </div>
       <div style="display:flex;gap:4px;width:100%">
         <button class="btn-gray" style="flex:1;font-size:11px;padding:4px" onclick="resetTbSlotHolder(${i})">초기화</button>
         <button class="btn-shield-reset" style="flex:1;font-size:11px;padding:4px" onclick="removeTbSlotAt(${i})">삭제</button>
       </div>
     </div>
   `).join('');
+  renderTbPreview();
 }
 
 function addTbSlot(){
-  tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now(),giftName:'',giftImage:'',holderNickname:''});
+  tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now(),giftName:'',giftImage:'',holderNickname:'',row:null,col:null});
   renderTbSlots();
 }
 function removeTbSlotAt(i){
@@ -8420,6 +8495,8 @@ async function saveTrophyBoard(){
     enabled:document.getElementById('tbEnabled').checked,
     title:document.getElementById('tbTitle').value,
     bgImageUrl:tbBgUrl,
+    columns:document.getElementById('tbColumns').value,
+    rows:document.getElementById('tbRows').value,
     slots:tbSlots,
   };
   try{

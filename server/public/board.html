@@ -30,41 +30,32 @@
   }
   #grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0,1fr));
     gap: 14px;
     width: 100%;
-    max-width: 680px;
+    max-width: 760px;
   }
-  @media (max-width: 520px) {
-    #grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  @media (max-width: 560px) {
+    #grid { max-width: 420px; }
   }
   .slot {
     background: rgba(20, 14, 46, 0.55);
     border: 1px solid rgba(255,255,255,0.28);
     border-radius: 16px;
-    padding: 12px 8px 10px;
+    padding: 14px 8px 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     backdrop-filter: blur(6px);
     box-shadow: 0 0 18px rgba(140,110,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
+    min-height: 92px;
   }
   .slot img {
-    width: 56px;
-    height: 56px;
+    width: 92px;
+    height: 92px;
     object-fit: contain;
-    filter: drop-shadow(0 0 8px rgba(255,255,255,.35));
-    margin-bottom: 8px;
-  }
-  .slot .giftname {
-    font-size: 11px;
-    color: rgba(255,255,255,.65);
-    margin-bottom: 6px;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+    filter: drop-shadow(0 0 10px rgba(255,255,255,.4));
+    margin-bottom: 10px;
   }
   .slot .holder {
     width: 100%;
@@ -129,18 +120,34 @@
     gridEl.style.display = 'grid';
     stateEl.style.display = 'none';
 
+    const columns = Math.max(1, parseInt(data.columns, 10) || 4);
+    const rows = Math.max(1, parseInt(data.rows, 10) || 4);
+    gridEl.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
+    gridEl.style.gridTemplateRows = `repeat(${rows}, minmax(0,1fr))`;
+
     const slots = Array.isArray(data.slots) ? data.slots : [];
     if (!slots.length) {
       gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,.5);padding:40px 0">아직 등록된 칸이 없어요.</div>';
       return;
     }
-    gridEl.innerHTML = slots.map(s => `
-      <div class="slot">
+    // row/col을 지정해둔 칸은 그 위치에 정확히, 지정 안 해둔 칸은 순서대로 빈 자리를 채운다.
+    let autoIndex = 0;
+    gridEl.innerHTML = slots.map(s => {
+      let placeStyle = '';
+      if (s.row && s.col) {
+        placeStyle = `grid-row:${s.row};grid-column:${s.col};`;
+      } else {
+        const r = Math.floor(autoIndex / columns) + 1;
+        const c = (autoIndex % columns) + 1;
+        placeStyle = `grid-row:${r};grid-column:${c};`;
+        autoIndex++;
+      }
+      return `
+      <div class="slot" style="${placeStyle}">
         ${s.giftImage ? `<img src="${escapeHtml(s.giftImage)}" onerror="this.style.visibility='hidden'">` : ''}
-        <div class="giftname">${escapeHtml(s.giftName || '')}</div>
         <div class="holder ${s.holderNickname ? 'filled' : 'empty'}">${s.holderNickname ? escapeHtml(s.holderNickname) : '\u00A0'}</div>
       </div>
-    `).join('');
+    `}).join('');
   }
 
   async function load(){
