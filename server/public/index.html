@@ -3240,8 +3240,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="file" id="tbBgFileInput" accept="image/*" style="display:none" onchange="uploadTbBgImage(this.files[0])">
             <button class="btn-gray" onclick="document.getElementById('tbBgFileInput').click()">🖼️ 이미지 업로드</button>
             <button class="btn-gray" id="tbBgRemoveBtn" style="display:none" onclick="removeTbBgImage()">배경 제거</button>
+            <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
           </div>
-          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요.</div>
+          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요. 새 배경으로 바꾸면 예전 이미지는 자동으로 정리돼요 — "사용 안 하는 이미지 정리"는 그 전에 이미 쌓여있던 파일들을 한 번에 청소할 때만 누르면 돼요.</div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
             <div><label>가로 칸 수</label><input type="number" id="tbColumns" value="4" min="1" max="12" oninput="renderTbPreview()"></div>
             <div><label>세로 칸 수</label><input type="number" id="tbRows" value="4" min="1" max="20" oninput="renderTbPreview()"></div>
@@ -8437,6 +8438,14 @@ async function uploadTbBgImage(file){
 function removeTbBgImage(){
   tbBgUrl='';
   updateTbBgPreview();
+}
+async function cleanupTbImages(){
+  try{
+    const res=await fetch(SERVER+'/images/cleanup',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'정리 실패'); return; }
+    showToast(d.deletedCount>0 ? `🧹 ${d.deletedCount}개 파일 삭제, ${d.freedMB}MB 확보했어요` : '정리할 파일이 없어요');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 function renderTbSlots(){

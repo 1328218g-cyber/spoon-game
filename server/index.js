@@ -12661,6 +12661,7 @@ app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const board = getTrophyBoardSettings(req.djId, settings)
+  const prevBgImageUrl = board.bgImageUrl
   const { enabled, title, bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
   if (enabled != null) board.enabled = !!enabled
   if (title != null) board.title = String(title).trim() || '박제판'
@@ -12689,8 +12690,49 @@ app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
     })
   }
   store.saveSettings(req.djId, { trophyBoard: board })
+  // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 디스크에 고아로 계속 쌓이는 걸 막기 위해
+  // 자동 삭제한다. 단, 앨범(과거 스냅샷)이 그 URL을 그대로 참조하고 있으면 지우지 않는다
+  // (그러면 앨범 상세보기에서 배경이 깨져 보이게 됨).
+  if (prevBgImageUrl && prevBgImageUrl !== board.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
+    const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+    const stillUsed = albums.some(a => a.bgImageUrl === prevBgImageUrl)
+    if (!stillUsed) {
+      const name = path.basename(prevBgImageUrl)
+      if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+    }
+  }
   broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   res.json({ success: true, settings: board })
+})
+// 🧹 지금까지 쌓인 고아 이미지 파일(더 이상 어디서도 안 쓰는 배경 이미지)을 한 번에 정리.
+// 오늘 이전에 이미 쌓여있던 예전 파일들을 청소할 때 쓴다 (이후로는 위 저장 로직이 자동으로 정리해줌).
+app.post('/images/cleanup', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const inUse = new Set()
+  const board = settings.trophyBoard
+  if (board && board.bgImageUrl) inUse.add(board.bgImageUrl)
+  const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+  albums.forEach(a => { if (a.bgImageUrl) inUse.add(a.bgImageUrl) })
+  let deletedCount = 0
+  let freedBytes = 0
+  try {
+    const files = fs.readdirSync(IMAGES_DIR).filter(f => f.startsWith(`${req.djId}_`))
+    files.forEach(f => {
+      const url = `/images/${f}`
+      if (!inUse.has(url)) {
+        try {
+          const full = path.join(IMAGES_DIR, f)
+          const stat = fs.statSync(full)
+          fs.unlinkSync(full)
+          deletedCount++
+          freedBytes += stat.size
+        } catch (e) { /* 개별 파일 실패는 건너뜀 */ }
+      }
+    })
+  } catch (e) {
+    return res.json({ success: false, error: e.message })
+  }
+  res.json({ success: true, deletedCount, freedMB: Math.round(freedBytes / 1024 / 1024 * 10) / 10 })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
