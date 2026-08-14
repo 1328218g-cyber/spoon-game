@@ -8613,7 +8613,9 @@ function formatTbAlbumDate(ts){
   const d=new Date(ts);
   return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
+let tbAlbumsCache=[];
 function renderTbAlbums(albums){
+  tbAlbumsCache=albums||[];
   const wrap=document.getElementById('tbAlbumsWrap');
   if(!albums.length){
     wrap.innerHTML='<p class="hint">아직 저장된 앨범이 없어요. 이벤트가 끝나면(또는 언제든) "지금 상태 앨범에 저장"을 눌러보세요.</p>';
@@ -8642,13 +8644,76 @@ function renderTbAlbums(albums){
           <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteTbAlbum('${a.id}')">삭제</button>
         </div>
       </div>
-      ${isOpen?`<div style="overflow-x:auto;margin-top:10px"><table class="user-table"><thead><tr><th>선물</th><th>받은 사람</th><th>받은 시각</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
+      ${isOpen?`<div id="tbAlbumVisual_${a.id}" style="margin-top:10px"></div><div style="overflow-x:auto;margin-top:10px"><table class="user-table"><thead><tr><th>선물</th><th>받은 사람</th><th>받은 시각</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
     </div>
   `}).join('');
+  if(tbAlbumOpenId){
+    const openAlbum=tbAlbumsCache.find(a=>a.id===tbAlbumOpenId);
+    if(openAlbum) mountTbAlbumVisual(openAlbum);
+  }
+}
+
+// 📸 앨범 상세보기에서, 그때 실제로 어떻게 생겼었는지(배경+칸 배치+선물 이미지+닉네임)를
+// 표로만 보여주지 않고 그 당시 화면을 그대로 다시 그려서 보여준다.
+function mountTbAlbumVisual(album){
+  const holder=document.getElementById('tbAlbumVisual_'+album.id);
+  if(!holder)return;
+  holder.innerHTML=`
+    <div id="tbAlbumFrame_${album.id}" style="position:relative;width:100%;max-width:480px;margin:0 auto;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
+      <div id="tbAlbumSpacer_${album.id}" style="width:100%"></div>
+      <div id="tbAlbumGrid_${album.id}" style="position:absolute"></div>
+    </div>
+  `;
+  const frame=document.getElementById('tbAlbumFrame_'+album.id);
+  const spacer=document.getElementById('tbAlbumSpacer_'+album.id);
+  const grid=document.getElementById('tbAlbumGrid_'+album.id);
+
+  function drawSlots(){
+    const columns=Math.max(1,album.columns||4);
+    const rows=Math.max(1,album.rows||4);
+    if(album.bgImageUrl){
+      const cellSize=Math.max(2,Number(album.cellSize)||12);
+      grid.style.left=(Number(album.gridLeft)||0)+'%';
+      grid.style.top=(Number(album.gridTop)||0)+'%';
+      grid.style.width=(columns*cellSize)+'%';
+      grid.style.height=(rows*cellSize)+'%';
+    } else {
+      grid.style.left='0'; grid.style.top='0'; grid.style.width='100%'; grid.style.height='100%';
+    }
+    grid.style.display='grid';
+    grid.style.gap='4px';
+    grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
+    grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
+
+    let autoIndex=0;
+    grid.innerHTML=(album.slots||[]).map(s=>{
+      let r,c;
+      if(s.row && s.col){ r=s.row; c=s.col; } else { r=Math.floor(autoIndex/columns)+1; c=(autoIndex%columns)+1; autoIndex++; }
+      return `
+      <div style="grid-row:${r};grid-column:${c};border:1px solid rgba(255,255,255,0.45);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4%">
+        ${s.giftImage?`<img src="${escapeAttr(s.giftImage)}" style="width:80%;height:80%;object-fit:contain" onerror="this.style.display='none'">`:''}
+        <div style="width:100%;text-align:center;font-size:9px;font-weight:700;padding:1px 3px;border-radius:999px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:${s.holderNickname?'linear-gradient(90deg,rgba(255,214,240,.85),rgba(214,224,255,.85))':'rgba(255,255,255,0.14)'};color:${s.holderNickname?'#2a2450':'rgba(255,255,255,.55)'}">${s.holderNickname?escapeHtml(s.holderNickname):'&nbsp;'}</div>
+      </div>
+    `}).join('');
+  }
+
+  if(!album.bgImageUrl){
+    spacer.style.paddingTop='60%';
+    drawSlots();
+    return;
+  }
+  const img=new Image();
+  img.onload=()=>{
+    spacer.style.paddingTop=(img.naturalHeight/img.naturalWidth*100)+'%';
+    frame.style.backgroundImage=`url('${album.bgImageUrl}')`;
+    drawSlots();
+  };
+  img.onerror=()=>{ spacer.style.paddingTop='60%'; drawSlots(); };
+  img.src=album.bgImageUrl;
 }
 function toggleTbAlbumDetail(id){
   tbAlbumOpenId = tbAlbumOpenId===id ? null : id;
-  loadTbAlbums();
+  renderTbAlbums(tbAlbumsCache);
 }
 async function saveTbAlbum(){
   const label=prompt('앨범 이름을 입력해주세요 (예: 칠월칠석 이벤트)', document.getElementById('tbTitle').value||'박제판');

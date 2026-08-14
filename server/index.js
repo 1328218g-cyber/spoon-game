@@ -12717,9 +12717,12 @@ app.post('/trophyboard/albums/save', auth.requireAuth, (req, res) => {
     bgImageUrl: board.bgImageUrl,
     columns: board.columns,
     rows: board.rows,
-    // 필요한 정보만 얼려서 저장 (누가/무슨 선물/언제 받았는지까지 전부 포함)
+    cellSize: board.cellSize,
+    gridLeft: board.gridLeft,
+    gridTop: board.gridTop,
+    // 필요한 정보만 얼려서 저장 (누가/무슨 선물/언제 받았는지 + 실제 배치까지 전부 포함해야 나중에 그대로 다시 그려볼 수 있음)
     slots: board.slots.map(s => ({
-      giftName: s.giftName, giftImage: s.giftImage,
+      giftName: s.giftName, giftImage: s.giftImage, row: s.row || null, col: s.col || null,
       holderNickname: s.holderNickname || '', holderTag: s.holderTag || '', holderAt: s.holderAt || null,
     })),
   }
