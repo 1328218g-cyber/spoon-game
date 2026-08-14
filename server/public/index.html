@@ -649,6 +649,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="pickboard"><span class="ic">🎯</span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="trophyboard"><span class="ic">🏆</span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic">⚔️</span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
@@ -3225,6 +3226,55 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🏆 박제판 -->
+      <div class="panel" data-panel="trophyboard">
+        <div class="card">
+          <div class="card-title"><span>🏆 박제판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTrophyBoard()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때마다 자동으로 그 칸에 닉네임이 새겨져요(같은 칸에 또 보내면 최신 닉네임으로 교체). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tbEnabled"> 박제판 공개 (켜야 링크가 열려요)</label>
+          <label style="margin-top:10px">제목</label>
+          <input type="text" id="tbTitle" value="박제판" style="max-width:300px">
+          <label style="margin-top:10px">배경 이미지</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="tbBgPreview" src="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="tbBgFileInput" accept="image/*" style="display:none" onchange="uploadTbBgImage(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('tbBgFileInput').click()">🖼️ 이미지 업로드</button>
+            <button class="btn-gray" id="tbBgRemoveBtn" style="display:none" onclick="removeTbBgImage()">배경 제거</button>
+          </div>
+          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔗 공개 링크</div>
+          <p class="hint" style="margin-bottom:8px">이 링크를 시청자한테 공유하면, 로그인 없이 실시간으로 박제판을 볼 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="tbPublicLink" readonly style="flex:1;background:var(--surface2)">
+            <button class="btn-gray" onclick="copyTbLink()">📋 복사</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎁 칸 관리</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요.</p>
+          <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
+        </div>
+      </div>
+
+      <!-- 스티커 선택 모달 (박제판 전용, 룰렛과 같은 스티커 데이터 재사용) -->
+      <div id="tbStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTbStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 선물 선택</span><button class="icon-btn" onclick="closeTbStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="tbStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderTbStickerPicker()" style="flex:1">
+            <select id="tbStickerPickerCategory" onchange="renderTbStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div class="hint" id="tbStickerPickerCount" style="margin:0 0 8px">0개</div>
+          <div class="sticker-grid" id="tbStickerPickerGrid"></div>
+        </div>
+      </div>
+
       <!-- ⚔️ 검키우기 -->
       <div class="panel" data-panel="swordgame">
         <div class="card">
@@ -4096,6 +4146,7 @@ const PANEL_META={
   auction:['🔨 경매','!경매 참여로 등록한 시청자의 선물이 자동 누적되고, 누적 비율만큼 확률 추첨하는 래플형 경매입니다'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
+  trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
@@ -4204,7 +4255,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4217,7 +4268,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -5232,6 +5283,7 @@ async function loadDjSettings(){
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
+      if(document.getElementById('tbSlotsWrap')) loadTrophyBoard();
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
@@ -8202,6 +8254,180 @@ function renderSfxStickerPicker(){
     });
     grid.appendChild(card);
   });
+}
+
+/* ── 🏆 박제판 ── */
+let tbSlots=[];
+let tbBgUrl='';
+let tbEditingSlotIndex=null;
+let tbIdSeq=1;
+
+async function loadTrophyBoard(){
+  try{
+    const res=await fetch(SERVER+'/trophyboard/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('tbEnabled').checked=!!s.enabled;
+    document.getElementById('tbTitle').value=s.title||'박제판';
+    tbBgUrl=s.bgImageUrl||'';
+    updateTbBgPreview();
+    tbSlots=(s.slots||[]).map(x=>({...x}));
+    renderTbSlots();
+    const link=window.location.origin+'/board/'+encodeURIComponent(djId);
+    document.getElementById('tbPublicLink').value=link;
+  }catch(e){}
+}
+
+function updateTbBgPreview(){
+  const img=document.getElementById('tbBgPreview');
+  const removeBtn=document.getElementById('tbBgRemoveBtn');
+  if(tbBgUrl){
+    img.src=tbBgUrl; img.style.display='block';
+    removeBtn.style.display='inline-block';
+  } else {
+    img.style.display='none';
+    removeBtn.style.display='none';
+  }
+}
+
+async function uploadTbBgImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      tbBgUrl=d.url;
+      updateTbBgPreview();
+      showToast('배경 이미지 업로드 완료 (저장 버튼을 눌러야 반영돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeTbBgImage(){
+  tbBgUrl='';
+  updateTbBgPreview();
+}
+
+function renderTbSlots(){
+  const wrap=document.getElementById('tbSlotsWrap');
+  if(!tbSlots.length){
+    wrap.innerHTML='<div class="hint" style="grid-column:1/-1">아직 등록된 칸이 없어요. "+ 칸 추가"로 시작하세요.</div>';
+    return;
+  }
+  wrap.innerHTML=tbSlots.map((s,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2)">
+      <img src="${escapeAttr(s.giftImage||'')}" style="width:48px;height:48px;object-fit:contain;${s.giftImage?'':'display:none'}" onerror="this.style.display='none'">
+      <button class="btn-gray" style="width:100%;font-size:11.5px;padding:5px 6px" onclick="openTbStickerPicker(${i})">${s.giftName?escapeHtml(s.giftName):'🎁 선물 선택'}</button>
+      <div style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px;border-radius:8px;background:var(--surface);border:1px solid var(--border);min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${s.holderNickname?escapeHtml(s.holderNickname):'<span class="hint" style="margin:0">비어있음</span>'}
+      </div>
+      <div style="display:flex;gap:4px;width:100%">
+        <button class="btn-gray" style="flex:1;font-size:11px;padding:4px" onclick="resetTbSlotHolder(${i})">초기화</button>
+        <button class="btn-shield-reset" style="flex:1;font-size:11px;padding:4px" onclick="removeTbSlotAt(${i})">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addTbSlot(){
+  tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now(),giftName:'',giftImage:'',holderNickname:''});
+  renderTbSlots();
+}
+function removeTbSlotAt(i){
+  tbSlots.splice(i,1);
+  renderTbSlots();
+}
+async function resetTbSlotHolder(i){
+  const slot=tbSlots[i];
+  if(!slot)return;
+  if(slot.id && !String(slot.id).startsWith('new')){
+    try{
+      await fetch(SERVER+'/trophyboard/reset-slot',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id})});
+    }catch(e){}
+  }
+  slot.holderNickname=''; slot.holderTag=''; slot.holderAt=null;
+  renderTbSlots();
+}
+
+async function openTbStickerPicker(i){
+  tbEditingSlotIndex=i;
+  document.getElementById('tbStickerModalOverlay').style.display='flex';
+  document.getElementById('tbStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('tbStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderTbStickerPicker();
+}
+function closeTbStickerPicker(){
+  document.getElementById('tbStickerModalOverlay').style.display='none';
+  tbEditingSlotIndex=null;
+}
+function selectTbSticker(s){
+  if(tbEditingSlotIndex==null)return;
+  tbSlots[tbEditingSlotIndex].giftName=s.name;
+  tbSlots[tbEditingSlotIndex].giftImage=s.image||'';
+  renderTbSlots();
+  closeTbStickerPicker();
+}
+function renderTbStickerPicker(){
+  const grid=document.getElementById('tbStickerPickerGrid');
+  const countEl=document.getElementById('tbStickerPickerCount');
+  const keyword=(document.getElementById('tbStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('tbStickerPickerCategory').value;
+
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const card=document.createElement('div');
+    card.className='sticker-card';
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>selectTbSticker(s));
+    grid.appendChild(card);
+  });
+}
+
+function copyTbLink(){
+  const input=document.getElementById('tbPublicLink');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=>showToast('링크 복사 완료 ✓')).catch(()=>{
+    document.execCommand('copy'); showToast('링크 복사 완료 ✓');
+  });
+}
+
+async function saveTrophyBoard(){
+  const body={
+    enabled:document.getElementById('tbEnabled').checked,
+    title:document.getElementById('tbTitle').value,
+    bgImageUrl:tbBgUrl,
+    slots:tbSlots,
+  };
+  try{
+    const res=await fetch(SERVER+'/trophyboard/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadTrophyBoard();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function loadSoundFxData(){

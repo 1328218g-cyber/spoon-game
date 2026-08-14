@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>박제판</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+    background: radial-gradient(circle at 50% 0%, #241a4a 0%, #0d0a20 60%, #05040f 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 56px;
+  }
+  #title {
+    font-size: 26px;
+    font-weight: 800;
+    text-align: center;
+    margin: 8px 0 28px;
+    text-shadow: 0 0 18px rgba(255,255,255,.55), 0 2px 6px rgba(0,0,0,.5);
+    letter-spacing: .5px;
+  }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 14px;
+    width: 100%;
+    max-width: 680px;
+  }
+  @media (max-width: 520px) {
+    #grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  }
+  .slot {
+    background: rgba(20, 14, 46, 0.55);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 16px;
+    padding: 12px 8px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 0 18px rgba(140,110,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .slot img {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,.35));
+    margin-bottom: 8px;
+  }
+  .slot .giftname {
+    font-size: 11px;
+    color: rgba(255,255,255,.65);
+    margin-bottom: 6px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .slot .holder {
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.22);
+    min-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .slot .holder.filled {
+    background: linear-gradient(90deg, rgba(255,196,242,.35), rgba(196,208,255,.35));
+    border-color: rgba(255,255,255,.5);
+    color: #fff;
+    text-shadow: 0 0 6px rgba(255,255,255,.6);
+  }
+  .slot .holder.empty {
+    color: rgba(255,255,255,.35);
+    font-weight: 500;
+  }
+  #footer {
+    margin-top: 32px;
+    font-size: 12px;
+    color: rgba(255,255,255,.4);
+    text-align: center;
+  }
+  #stateMsg {
+    margin-top: 80px;
+    font-size: 15px;
+    color: rgba(255,255,255,.7);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div id="title" style="display:none"></div>
+  <div id="grid" style="display:none"></div>
+  <div id="stateMsg">불러오는 중...</div>
+  <div id="footer">에디봇 박제판</div>
+
+<script>
+(function(){
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  const djId = parts[parts.length - 1];
+  const titleEl = document.getElementById('title');
+  const gridEl = document.getElementById('grid');
+  const stateEl = document.getElementById('stateMsg');
+
+  function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+  function render(data){
+    if (data.bgImageUrl) {
+      document.body.style.backgroundImage = `url('${data.bgImageUrl}')`;
+    }
+    titleEl.textContent = data.title || '박제판';
+    titleEl.style.display = 'block';
+    gridEl.style.display = 'grid';
+    stateEl.style.display = 'none';
+
+    const slots = Array.isArray(data.slots) ? data.slots : [];
+    if (!slots.length) {
+      gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,.5);padding:40px 0">아직 등록된 칸이 없어요.</div>';
+      return;
+    }
+    gridEl.innerHTML = slots.map(s => `
+      <div class="slot">
+        ${s.giftImage ? `<img src="${escapeHtml(s.giftImage)}" onerror="this.style.visibility='hidden'">` : ''}
+        <div class="giftname">${escapeHtml(s.giftName || '')}</div>
+        <div class="holder ${s.holderNickname ? 'filled' : 'empty'}">${s.holderNickname ? escapeHtml(s.holderNickname) : '\u00A0'}</div>
+      </div>
+    `).join('');
+  }
+
+  async function load(){
+    try {
+      const res = await fetch('/board-data/' + encodeURIComponent(djId));
+      const d = await res.json();
+      if (!d.success) {
+        stateEl.textContent = d.error || '박제판을 찾을 수 없어요.';
+        return;
+      }
+      render(d);
+    } catch(e) {
+      stateEl.textContent = '불러오는 중 오류가 발생했어요.';
+    }
+  }
+
+  function connectSSE(){
+    try {
+      const es = new EventSource('/events');
+      es.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'trophyboard' && msg.djId === djId) {
+            render(msg);
+          }
+        } catch(e){}
+      };
+      es.onerror = () => { /* 브라우저가 알아서 재연결 시도함 */ };
+    } catch(e){}
+  }
+
+  load();
+  connectSSE();
+})();
+</script>
+</body>
+</html>

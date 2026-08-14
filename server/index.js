@@ -31,6 +31,12 @@ const SOUNDS_DIR = path.join(store.DATA_DIR, 'sounds')
 if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true })
 app.use('/sounds', require('express').static(SOUNDS_DIR, { maxAge: '30d' }))
 
+// 🖼️ 박제판 배경 이미지 등, base64를 djs.json에 직접 안 넣기 위한 이미지 전용 저장소.
+// sounds와 완전히 같은 이유/같은 방식 — Volume에 실제 파일로 저장하고 URL만 설정에 남긴다.
+const IMAGES_DIR = path.join(store.DATA_DIR, 'images')
+if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true })
+app.use('/images', require('express').static(IMAGES_DIR, { maxAge: '30d' }))
+
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
@@ -575,7 +581,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4144,6 +4150,48 @@ function pbRecalcBoard(pb) {
         used.add(number); item.assignedNumbers.push(number)
       }
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🏆 박제판 — 선물 아이템별로 칸을 만들어두고, 시청자가 그 선물을 보내면 자동으로 그 칸에
+// 닉네임이 새겨지는(박제되는) 전시판. 같은 칸에 여러 명이 보내면 가장 최근 보낸 사람으로 교체된다.
+// 배경 이미지를 올려서 꾸밀 수 있고, 공개 링크(/board/:djId)로 누구나(로그인 없이) 실시간으로
+// 볼 수 있다. 실시간 갱신은 이미 서버에 떠 있는 공개 SSE(/events)를 그대로 재사용한다.
+function getTrophyBoardSettings(djId, settings) {
+  if (!settings.trophyBoard) {
+    settings.trophyBoard = {
+      enabled: false,
+      title: '박제판',
+      bgImageUrl: '',
+      slots: [], // { id, giftName, giftImage, holderNickname, holderTag, holderAt }
+    }
+    store.saveSettings(djId, { trophyBoard: settings.trophyBoard })
+  }
+  if (!Array.isArray(settings.trophyBoard.slots)) settings.trophyBoard.slots = []
+  return settings.trophyBoard
+}
+
+// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
+// holder를 이 사람으로 교체한다. (여러 칸에 같은 선물을 등록해뒀으면 전부 갱신됨)
+function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
+  if (!isModuleOn(settings, 'trophyboard', djId)) return
+  const board = getTrophyBoardSettings(djId, settings)
+  if (!board.enabled) return
+  const name = String(sticker || '').trim()
+  if (!name || !board.slots.length) return
+  let changed = false
+  board.slots.forEach(slot => {
+    if (slot.giftName && String(slot.giftName).trim() === name) {
+      slot.holderNickname = author
+      slot.holderTag = tag || ''
+      slot.holderAt = Date.now()
+      changed = true
+    }
+  })
+  if (changed) {
+    store.saveSettings(djId, { trophyBoard: board })
+    broadcast({ type: 'trophyboard', djId, title: board.title, bgImageUrl: board.bgImageUrl, slots: board.slots })
   }
 }
 
@@ -12316,6 +12364,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
+          handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -12554,6 +12603,93 @@ app.post('/sounds/delete', auth.requireAuth, (req, res) => {
   if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true }) // 남의 파일은 조용히 무시
   try { fs.unlinkSync(path.join(SOUNDS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
   res.json({ success: true })
+})
+
+// 🖼️ 박제판 배경 등에 쓰는 이미지 업로드 (base64 → Volume 파일 저장, sounds/upload와 동일한 방식)
+app.post('/images/upload', auth.requireAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  if (!m[1].startsWith('image/')) return res.json({ success: false, error: '이미지 파일만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 이미지만 업로드할 수 있어요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1] : 'png'
+  const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(IMAGES_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/images/${name}`, filename: String(filename || name) })
+})
+app.post('/images/delete', auth.requireAuth, (req, res) => {
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/images/')) return res.json({ success: true })
+  const name = path.basename(url)
+  if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true })
+  try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// 🏆 박제판 — 설정 조회/저장 + 칸 초기화
+app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getTrophyBoardSettings(req.djId, settings) })
+})
+app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const { enabled, title, bgImageUrl, slots } = req.body || {}
+  if (enabled != null) board.enabled = !!enabled
+  if (title != null) board.title = String(title).trim() || '박제판'
+  if (bgImageUrl != null) board.bgImageUrl = String(bgImageUrl)
+  if (Array.isArray(slots)) {
+    // 기존 칸의 holder(닉네임 기록)는 그대로 보존하고, 이름/이미지/id만 클라이언트 값으로 갱신한다.
+    const prevById = {}
+    board.slots.forEach(s => { prevById[s.id] = s })
+    board.slots = slots.map(s => {
+      const prev = s.id ? prevById[s.id] : null
+      return {
+        id: s.id || ('slot' + Date.now() + Math.floor(Math.random() * 1000)),
+        giftName: String(s.giftName || '').trim(),
+        giftImage: String(s.giftImage || ''),
+        holderNickname: prev ? prev.holderNickname || '' : '',
+        holderTag: prev ? prev.holderTag || '' : '',
+        holderAt: prev ? prev.holderAt || null : null,
+      }
+    })
+  }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, slots: board.slots })
+  res.json({ success: true, settings: board })
+})
+app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = ''; slot.holderTag = ''; slot.holderAt = null
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, slots: board.slots })
+  res.json({ success: true })
+})
+
+// 🏆 박제판 공개 링크 — 로그인 없이 누구나 볼 수 있는 데이터 API + 페이지.
+// 시청자가 방송 소개글이나 채팅으로 공유받은 링크를 열면, 서버 SSE(/events)를 그대로 구독해서
+// 관리자가 화면에서 무언가 바꾸는 즉시(선물 들어와서 닉네임 채워지는 것 포함) 새로고침 없이 갱신된다.
+app.get('/board-data/:djId', (req, res) => {
+  const settings = store.getSettings(req.params.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.params.djId)) return res.status(404).json({ success: false, error: '박제판을 찾을 수 없어요.' })
+  const board = getTrophyBoardSettings(req.params.djId, settings)
+  if (!board.enabled) return res.json({ success: false, error: '아직 박제판이 공개되지 않았어요.' })
+  res.json({ success: true, title: board.title, bgImageUrl: board.bgImageUrl, slots: board.slots })
+})
+app.get('/board/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/board.html')
 })
 
 // 🎵 예전에 djs.json 안에 base64로 직접 저장돼있던 음원들을 실제 파일로 옮기는 1회성 마이그레이션.
