@@ -31,6 +31,12 @@ const SOUNDS_DIR = path.join(store.DATA_DIR, 'sounds')
 if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true })
 app.use('/sounds', require('express').static(SOUNDS_DIR, { maxAge: '30d' }))
 
+// 🖼️ 박제판 배경 이미지 등, base64를 djs.json에 직접 안 넣기 위한 이미지 전용 저장소.
+// sounds와 완전히 같은 이유/같은 방식 — Volume에 실제 파일로 저장하고 URL만 설정에 남긴다.
+const IMAGES_DIR = path.join(store.DATA_DIR, 'images')
+if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true })
+app.use('/images', require('express').static(IMAGES_DIR, { maxAge: '30d' }))
+
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
@@ -575,7 +581,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2011,6 +2017,107 @@ function handleSajuCommand(djId, room, settings, author, authorId, text) {
   if (!hasHour) lines.push(`(태어난 시각까지 알면 시주까지 봐드려요: ${cmd} ${dateStr} 14)`)
 
   sendChatSplit(djId, lines.join('\n'), 150, 600)
+}
+
+// ══════════════════════════════════════════════════════
+// 🌦️ 날씨 조회 — "!날씨 [지역]"으로 현재 날씨(온도/체감/습도/바람/하늘상태)를 채팅에 알려준다.
+// API 키가 필요 없는 Open-Meteo(무료, 상업적 이용도 가능)를 쓴다:
+//  1) 지오코딩 API로 지역명 → 위경도 변환 (한국어 지명 검색 지원)
+//  2) 날씨 API로 그 위경도의 현재 날씨 조회
+// 같은 지역을 반복 조회할 때 API를 매번 두 번씩 때리지 않도록 10분 캐시를 둔다.
+const WEATHER_CODE_MAP = {
+  0: '☀️ 맑음', 1: '🌤️ 대체로 맑음', 2: '⛅ 구름 조금', 3: '☁️ 흐림',
+  45: '🌫️ 안개', 48: '🌫️ 서리 안개',
+  51: '🌦️ 이슬비(약)', 53: '🌦️ 이슬비', 55: '🌦️ 이슬비(강)',
+  56: '🌧️❄️ 언 이슬비(약)', 57: '🌧️❄️ 언 이슬비(강)',
+  61: '🌧️ 비(약)', 63: '🌧️ 비', 65: '🌧️ 비(강)',
+  66: '🌧️❄️ 언 비(약)', 67: '🌧️❄️ 언 비(강)',
+  71: '🌨️ 눈(약)', 73: '🌨️ 눈', 75: '🌨️ 눈(강)', 77: '🌨️ 싸락눈',
+  80: '🌦️ 소나기(약)', 81: '🌦️ 소나기', 82: '🌦️ 소나기(강)',
+  85: '🌨️ 눈소나기(약)', 86: '🌨️ 눈소나기(강)',
+  95: '⛈️ 뇌우', 96: '⛈️ 뇌우(우박 약)', 99: '⛈️ 뇌우(우박 강)',
+}
+const weatherCache = new Map() // key: 정규화된 지역명 → { data, expiresAt }
+
+function getWeatherSettings(djId, settings) {
+  if (!settings.weather) {
+    settings.weather = {
+      cmd: '!날씨',
+      defaultLocation: '서울',
+      template: '{emoji} [{location}]\n현재 {temp}°C (체감 {feels}°C)\n· 습도 {humidity}% · 바람 {wind}m/s\n· {condition}',
+      notFoundMsg: '⚠️ \'{query}\' 지역을 찾을 수 없어요. 다른 지명으로 다시 시도해주세요. (예: {cmd} 서울, {cmd} 부산, {cmd} 제주)',
+    }
+    store.saveSettings(djId, { weather: settings.weather })
+  }
+  return settings.weather
+}
+
+async function geocodeLocation(query) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=ko&format=json`
+  const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
+  const data = await res.json()
+  const hit = data && Array.isArray(data.results) ? data.results[0] : null
+  if (!hit) return null
+  const nameParts = [hit.name]
+  if (hit.admin1 && hit.admin1 !== hit.name) nameParts.push(hit.admin1)
+  return { latitude: hit.latitude, longitude: hit.longitude, displayName: nameParts.join(' ') }
+}
+
+async function fetchCurrentWeather(latitude, longitude) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Asia%2FSeoul`
+  const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
+  const data = await res.json()
+  return data && data.current ? data.current : null
+}
+
+async function getWeatherForQuery(query) {
+  const key = String(query || '').trim().toLowerCase()
+  const cached = weatherCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+  const geo = await geocodeLocation(query)
+  if (!geo) { weatherCache.delete(key); return null }
+  const cur = await fetchCurrentWeather(geo.latitude, geo.longitude)
+  if (!cur) return null
+  const result = {
+    location: geo.displayName,
+    temp: Math.round(cur.temperature_2m),
+    feels: Math.round(cur.apparent_temperature),
+    humidity: Math.round(cur.relative_humidity_2m),
+    wind: cur.wind_speed_10m,
+    condition: WEATHER_CODE_MAP[cur.weather_code] || `날씨코드 ${cur.weather_code}`,
+  }
+  weatherCache.set(key, { data: result, expiresAt: Date.now() + 10 * 60 * 1000 })
+  return result
+}
+
+function handleWeatherCommand(djId, room, settings, author, authorId, text) {
+  const cfg = getWeatherSettings(djId, settings)
+  const cmd = cfg.cmd || '!날씨'
+  const msg = String(text || '').trim()
+  if (msg !== cmd && !msg.startsWith(cmd + ' ')) return
+
+  const query = msg.slice(cmd.length).trim() || cfg.defaultLocation || '서울'
+  getWeatherForQuery(query).then(w => {
+    if (!w) {
+      const notFound = (cfg.notFoundMsg || '').replace(/{query}/g, query).replace(/{cmd}/g, cmd)
+      if (notFound) sendChatToRoom(djId, notFound)
+      return
+    }
+    const wind = typeof w.wind === 'number' ? w.wind.toFixed(1) : w.wind
+    const emoji = (w.condition || '').split(' ')[0] || '🌤️'
+    const line = (cfg.template || '')
+      .replace(/{emoji}/g, emoji)
+      .replace(/{location}/g, w.location)
+      .replace(/{temp}/g, w.temp)
+      .replace(/{feels}/g, w.feels)
+      .replace(/{humidity}/g, w.humidity)
+      .replace(/{wind}/g, wind)
+      .replace(/{condition}/g, w.condition)
+    sendChatToRoom(djId, line)
+  }).catch(e => {
+    console.log('[날씨 조회 실패]', query, e.message)
+    sendChatToRoom(djId, `⚠️ 날씨 조회 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.`)
+  })
 }
 
 // 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
@@ -4046,6 +4153,61 @@ function pbRecalcBoard(pb) {
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 🏆 박제판 — 선물 아이템별로 칸을 만들어두고, 시청자가 그 선물을 보내면 자동으로 그 칸에
+// 닉네임이 새겨지는(박제되는) 전시판. 같은 칸에 여러 명이 보내면 가장 최근 보낸 사람으로 교체된다.
+// 배경 이미지를 올려서 꾸밀 수 있고, 공개 링크(/board/:djId)로 누구나(로그인 없이) 실시간으로
+// 볼 수 있다. 실시간 갱신은 이미 서버에 떠 있는 공개 SSE(/events)를 그대로 재사용한다.
+function getTrophyBoardSettings(djId, settings) {
+  if (!settings.trophyBoard) {
+    settings.trophyBoard = {
+      enabled: false,
+      title: '박제판',
+      bgImageUrl: '',
+      columns: 4, // 가로 칸 수
+      rows: 4, // 세로 칸 수
+      cellSize: 12, // 칸 하나 크기 — 배경 이미지 가로폭 대비 % (기본 12% ≈ 4칸이면 대략 절반 폭)
+      gridLeft: 5, // 그리드 전체 덩어리의 가로 시작 위치 (배경 이미지 대비 %)
+      gridTop: 8, // 그리드 전체 덩어리의 세로 시작 위치 (배경 이미지 대비 %)
+      slots: [], // { id, giftName, giftImage, holderNickname, holderTag, holderAt, row, col }
+    }
+    store.saveSettings(djId, { trophyBoard: settings.trophyBoard })
+  }
+  if (!Array.isArray(settings.trophyBoard.slots)) settings.trophyBoard.slots = []
+  if (!settings.trophyBoard.columns) settings.trophyBoard.columns = 4
+  if (!settings.trophyBoard.rows) settings.trophyBoard.rows = 4
+  if (!settings.trophyBoard.cellSize) settings.trophyBoard.cellSize = 12
+  if (settings.trophyBoard.gridLeft == null) settings.trophyBoard.gridLeft = 5
+  if (settings.trophyBoard.gridTop == null) settings.trophyBoard.gridTop = 8
+  return settings.trophyBoard
+}
+
+// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
+// holder를 이 사람으로 교체한다. (여러 칸에 같은 선물을 등록해뒀으면 전부 갱신됨)
+// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
+// holder를 채운다. 처음 보낸 사람으로 고정 — 이미 채워진 칸에 같은 선물이 또 들어와도 덮어쓰지
+// 않는다 (칸을 초기화하기 전까지는 최초 1명만 기록됨).
+function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
+  if (!isModuleOn(settings, 'trophyboard', djId)) return
+  const board = getTrophyBoardSettings(djId, settings)
+  if (!board.enabled) return
+  const name = String(sticker || '').trim()
+  if (!name || !board.slots.length) return
+  let changed = false
+  board.slots.forEach(slot => {
+    if (slot.giftName && String(slot.giftName).trim() === name && !slot.holderNickname) {
+      slot.holderNickname = author
+      slot.holderTag = tag || ''
+      slot.holderAt = Date.now()
+      changed = true
+    }
+  })
+  if (changed) {
+    store.saveSettings(djId, { trophyBoard: board })
+    broadcast({ type: 'trophyboard', djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  }
+}
+
 function getPickboardSettings(djId, settings) {
   if (!settings.pickboard) {
     const config = pbDefaultConfig()
@@ -4384,7 +4546,8 @@ function _ftParseRouletteTable(text) {
     if (chance <= 0) return null
     let keepIdx = parseInt(p[3], 10)
     if (!keepIdx || keepIdx < 1 || keepIdx > FT_KEEP_SLOTS) keepIdx = 1
-    return { content: p[0], score, chance, keepIdx }
+    const note = p[4] || ''
+    return { content: p[0], score, chance, keepIdx, note }
   }).filter(Boolean)
 }
 // baits는 새 버전부터 배열(cfg.baits)로 저장된다. 과거 텍스트(cfg.baitList) 데이터가 남아있으면 그걸로 폴백한다.
@@ -4411,7 +4574,7 @@ function _ftGetRouletteTable(cfg, idx) {
   if (Array.isArray(val)) {
     return val.map(r => {
       const keepIdx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1))
-      return { content: String(r.content || '').trim(), score: parseInt(r.score, 10) || 0, chance: parseFloat(r.chance) || 0, keepIdx }
+      return { content: String(r.content || '').trim(), score: parseInt(r.score, 10) || 0, chance: parseFloat(r.chance) || 0, keepIdx, note: String(r.note || '').trim() }
     }).filter(r => r.content && r.chance > 0)
   }
   return _ftParseRouletteTable(val)
@@ -4608,7 +4771,7 @@ async function _ftHandleBaitSpin(djId, ft, author, tag, isDj, bait, parts) {
   for (let i = 0; i < spins; i++) {
     const caught = _ftSpinRoulette(table)
     if (!caught) break
-    if (!results[caught.content]) results[caught.content] = { score: caught.score, qty: 0, keepIdx: caught.keepIdx || 1 }
+    if (!results[caught.content]) results[caught.content] = { score: caught.score, qty: 0, keepIdx: caught.keepIdx || 1, note: caught.note || '' }
     results[caught.content].qty += 1
     const keepIdx = caught.keepIdx || 1
     const tank = _ftEnsureTank(user, keepIdx)
@@ -4631,13 +4794,18 @@ async function _ftHandleBaitSpin(djId, ft, author, tag, isDj, bait, parts) {
     const r = results[only]
     const keepLabel = ft.config['keep' + r.keepIdx + 'Name'] || ('어항' + r.keepIdx)
     const tank = user.tanks[String(r.keepIdx)]
-    let msg = `🎣 ${author}님이 [${bait.name}]로 낚시를 해서 "${only}"을(를) 낚았습니다! (+${r.score}점)\n📦 ${keepLabel} 누적 총점수: ${tank.total}점`
+    let msg = `🎣 ${author}님이 [${bait.name}]로 낚시를 해서 "${only}"을(를) 낚았습니다! (+${r.score}점)`
+    if (r.note) msg += `\n🌟 ${r.note}`
+    msg += `\n📦 ${keepLabel} 누적 총점수: ${tank.total}점`
     msg += usedFreebie ? ' (관리자 체험, 미끼 소모 없음)' : ` (남은 [${bait.name}] 미끼: ${remain}개)`
     ftReply(djId, msg)
     return
   }
   const lines = Object.keys(results).map(c => `${c} x${results[c].qty}(${results[c].score}점)`).join(', ')
-  let msg = `🎣 ${author}님이 [${bait.name}]로 ${consumed}회 낚시! → ${lines}\n💎 총 획득: +${totalScore}점`
+  const noteLines = Object.keys(results).filter(c => results[c].note).map(c => `🌟 ${c}: ${results[c].note}`).join('\n')
+  let msg = `🎣 ${author}님이 [${bait.name}]로 ${consumed}회 낚시! → ${lines}`
+  if (noteLines) msg += `\n${noteLines}`
+  msg += `\n💎 총 획득: +${totalScore}점`
   msg += usedFreebie ? ' (관리자 체험, 미끼 소모 없음)' : ` (남은 [${bait.name}] 미끼: ${remain}개)`
   ftReply(djId, msg)
 }
@@ -12049,6 +12217,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
+          handleWeatherCommand(djId, room, settings, author, authorId, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
@@ -12214,6 +12383,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
+          handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -12452,6 +12622,173 @@ app.post('/sounds/delete', auth.requireAuth, (req, res) => {
   if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true }) // 남의 파일은 조용히 무시
   try { fs.unlinkSync(path.join(SOUNDS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
   res.json({ success: true })
+})
+
+// 🖼️ 박제판 배경 등에 쓰는 이미지 업로드 (base64 → Volume 파일 저장, sounds/upload와 동일한 방식)
+app.post('/images/upload', auth.requireAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  if (!m[1].startsWith('image/')) return res.json({ success: false, error: '이미지 파일만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 이미지만 업로드할 수 있어요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1] : 'png'
+  const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(IMAGES_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/images/${name}`, filename: String(filename || name) })
+})
+app.post('/images/delete', auth.requireAuth, (req, res) => {
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/images/')) return res.json({ success: true })
+  const name = path.basename(url)
+  if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true })
+  try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// 🏆 박제판 — 설정 조회/저장 + 칸 초기화
+app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getTrophyBoardSettings(req.djId, settings) })
+})
+app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const prevBgImageUrl = board.bgImageUrl
+  const { enabled, title, bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
+  if (enabled != null) board.enabled = !!enabled
+  if (title != null) board.title = String(title).trim() || '박제판'
+  if (bgImageUrl != null) board.bgImageUrl = String(bgImageUrl)
+  if (columns != null) board.columns = Math.max(1, Math.min(12, parseInt(columns, 10) || 4))
+  if (rows != null) board.rows = Math.max(1, Math.min(20, parseInt(rows, 10) || 4))
+  if (cellSize != null) board.cellSize = Math.max(2, Math.min(50, Number(cellSize) || 12))
+  if (gridLeft != null) board.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
+  if (gridTop != null) board.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
+  if (Array.isArray(slots)) {
+    // 기존 칸(이미 서버에 저장된 적 있는 칸)의 holder(닉네임 기록)는 실시간 선물 이벤트로
+    // 방금 채워졌을 수도 있으니 보존한다. 반면 이번에 "처음" 생기는 칸은 서버에 보존할 값이
+    // 없으므로, DJ가 그 자리에서 직접 입력해둔 닉네임(있다면)을 그대로 살려서 저장한다.
+    const prevById = {}
+    board.slots.forEach(s => { prevById[s.id] = s })
+    board.slots = slots.map((s, i) => {
+      // 프론트에서 새 칸에 임시로 붙이는 id는 'new'로 시작한다 — 그 상태로 영구 저장되면
+      // 다음 요청부터 "이미 저장된 칸"인지 프론트가 구분을 못 해서 닉네임 수정이 계속 씹힌다.
+      // 그래서 저장 시점에 진짜 서버 id로 한 번 바꿔준다.
+      const isNew = !s.id || String(s.id).startsWith('new')
+      const prev = !isNew ? prevById[s.id] : null
+      return {
+        id: isNew ? ('slot' + Date.now() + Math.floor(Math.random() * 1000) + i) : s.id,
+        giftName: String(s.giftName || '').trim(),
+        giftImage: String(s.giftImage || ''),
+        row: s.row != null ? Math.max(1, parseInt(s.row, 10) || 1) : null,
+        col: s.col != null ? Math.max(1, parseInt(s.col, 10) || 1) : null,
+        holderNickname: prev ? (prev.holderNickname || '') : String(s.holderNickname || '').trim(),
+        holderTag: prev ? (prev.holderTag || '') : '',
+        holderAt: prev ? (prev.holderAt || null) : (String(s.holderNickname || '').trim() ? Date.now() : null),
+      }
+    })
+  }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 디스크에 고아로 계속 쌓이는 걸 막기 위해 자동 삭제한다.
+  if (prevBgImageUrl && prevBgImageUrl !== board.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
+    const name = path.basename(prevBgImageUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true, settings: board })
+})
+// 🧹 지금까지 쌓인 고아 이미지 파일(더 이상 어디서도 안 쓰는 배경 이미지)을 한 번에 정리.
+// 오늘 이전에 이미 쌓여있던 예전 파일들을 청소할 때 쓴다 (이후로는 위 저장 로직이 자동으로 정리해줌).
+app.post('/images/cleanup', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const inUse = new Set()
+  const board = settings.trophyBoard
+  if (board && board.bgImageUrl) inUse.add(board.bgImageUrl)
+  let deletedCount = 0
+  let freedBytes = 0
+  try {
+    const files = fs.readdirSync(IMAGES_DIR).filter(f => f.startsWith(`${req.djId}_`))
+    files.forEach(f => {
+      const url = `/images/${f}`
+      if (!inUse.has(url)) {
+        try {
+          const full = path.join(IMAGES_DIR, f)
+          const stat = fs.statSync(full)
+          fs.unlinkSync(full)
+          deletedCount++
+          freedBytes += stat.size
+        } catch (e) { /* 개별 파일 실패는 건너뜀 */ }
+      }
+    })
+  } catch (e) {
+    return res.json({ success: false, error: e.message })
+  }
+  res.json({ success: true, deletedCount, freedMB: Math.round(freedBytes / 1024 / 1024 * 10) / 10 })
+})
+app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = ''; slot.holderTag = ''; slot.holderAt = null
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true })
+})
+// ✏️ 닉네임에 특수문자가 섞여서 이상하게 보이는 경우 등, DJ가 칸에 기록된 닉네임을 직접
+// 고쳐 쓸 수 있게 해준다. (누가 보냈는지 자체를 바꾸는 게 아니라 표시용 닉네임 텍스트만 수정)
+app.post('/trophyboard/edit-holder', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const nickname = String((req.body && req.body.nickname) || '').trim()
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = nickname
+  if (!nickname) { slot.holderTag = ''; slot.holderAt = null }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true })
+})
+
+// 📁 (제거됨) 박제판 앨범 — 저장 용량 문제로 기능 자체를 뺐다. 예전에 앨범으로 저장해뒀던
+// 배경 이미지들이 디스크에 고아로 남아있을 수 있어서, 여기서 한 번에 정리하고 기록도 비운다.
+app.post('/trophyboard/albums/purge', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+  let deletedFiles = 0
+  albums.forEach(a => {
+    if (a.bgImageUrl && a.bgImageUrl.startsWith('/images/')) {
+      const name = path.basename(a.bgImageUrl)
+      if (name.startsWith(`${req.djId}_`)) {
+        try { fs.unlinkSync(path.join(IMAGES_DIR, name)); deletedFiles++ } catch (e) { /* 이미 없으면 무시 */ }
+      }
+    }
+  })
+  store.saveSettings(req.djId, { trophyBoardAlbums: [] })
+  res.json({ success: true, deletedFiles })
+})
+
+// 🏆 박제판 공개 링크 — 로그인 없이 누구나 볼 수 있는 데이터 API + 페이지.
+// 시청자가 방송 소개글이나 채팅으로 공유받은 링크를 열면, 서버 SSE(/events)를 그대로 구독해서
+// 관리자가 화면에서 무언가 바꾸는 즉시(선물 들어와서 닉네임 채워지는 것 포함) 새로고침 없이 갱신된다.
+app.get('/board-data/:djId', (req, res) => {
+  const settings = store.getSettings(req.params.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.params.djId)) return res.status(404).json({ success: false, error: '박제판을 찾을 수 없어요.' })
+  const board = getTrophyBoardSettings(req.params.djId, settings)
+  if (!board.enabled) return res.json({ success: false, error: '아직 박제판이 공개되지 않았어요.' })
+  res.json({ success: true, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+})
+app.get('/board/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/board.html')
 })
 
 // 🎵 예전에 djs.json 안에 base64로 직접 저장돼있던 음원들을 실제 파일로 옮기는 1회성 마이그레이션.
@@ -14838,6 +15175,7 @@ app.post('/fishtournament/settings', auth.requireAuth, requireRequestModuleAcces
         score: parseInt(r.score, 10) || 0,
         chance: parseFloat(r.chance) || 0,
         keepIdx: Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1)),
+        note: String(r.note || '').slice(0, 200),
       })).filter(r => r.content)
     }
   }

@@ -649,6 +649,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="pickboard"><span class="ic">🎯</span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="trophyboard"><span class="ic">🏆</span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic">⚔️</span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
@@ -2788,12 +2789,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <div class="card-title">미끼별 룰렛</div>
               <p class="hint">선택한 룰렛 번호에 물고기/상품을 등록합니다. 위 미끼목록에서 지정한 룰렛번호와 연결됩니다.</p>
               <div class="ft-num-tab-bar" id="ftRouletteTabBar"></div>
-              <div style="overflow-x:auto"><table class="user-table" id="ftRouletteTable" style="min-width:560px">
-                <thead><tr><th>내용</th><th>점수</th><th>확률(상대값)</th><th>기록될 어항</th><th></th></tr></thead>
+              <div style="overflow-x:auto"><table class="user-table" id="ftRouletteTable" style="min-width:760px">
+                <thead><tr><th>내용</th><th>점수</th><th>확률(상대값)</th><th>기록될 어항</th><th>추가 출력 문구 (이벤트용, 선택)</th><th></th></tr></thead>
                 <tbody id="ftRouletteBody"></tbody>
               </table></div>
               <button class="btn-gray" style="width:100%;margin-top:10px" onclick="ftAddRouletteRow()">+ 항목 추가</button>
-              <div class="hint" style="margin-top:10px">확률은 상대값이라 합계가 100이 아니어도 됩니다 (예: 50/30/20 이든 5/3/2는 비율이 같으면 같은 결과입니다). 점수 0은 "꽝" 등 빈 결과를 만들 때 사용하세요. 각 항목마다 결과가 기록될 어항을 다르게 지정할 수 있습니다 (예: 흔한 상품은 1번 어항, 고급 상품은 4번 어항).</div>
+              <div class="hint" style="margin-top:10px">확률은 상대값이라 합계가 100이 아니어도 됩니다 (예: 50/30/20 이든 5/3/2는 비율이 같으면 같은 결과입니다). 점수 0은 "꽝" 등 빈 결과를 만들 때 사용하세요. 각 항목마다 결과가 기록될 어항을 다르게 지정할 수 있습니다 (예: 흔한 상품은 1번 어항, 고급 상품은 4번 어항). "추가 출력 문구"를 입력해두면, 그 항목이 낚였을 때 결과 멘트에 🌟 문구가 한 줄 더 붙어요 (아기오징어먹물처럼 수동 처리가 필요한 이벤트 효과 안내용). 비워두면 지금처럼 그냥 물고기로만 나가요.</div>
               <div class="fish-tab-footer">
                 <button class="btn-connect" onclick="saveFtSettings()">저장</button>
               </div>
@@ -3222,6 +3223,77 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <div id="pbWinnersWrap"><p class="hint">불러오는 중...</p></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 🏆 박제판 -->
+      <div class="panel" data-panel="trophyboard">
+        <div class="card">
+          <div class="card-title"><span>🏆 박제판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTrophyBoard()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때 자동으로 그 칸에 닉네임이 새겨져요. <b>처음 보낸 사람으로 고정</b>돼서, 같은 선물을 또 보내도 이미 채워진 칸은 안 바뀌어요 (다시 비우려면 "초기화" 버튼을 눌러야 해요). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tbEnabled"> 박제판 공개 (켜야 링크가 열려요)</label>
+          <label style="margin-top:10px">제목</label>
+          <input type="text" id="tbTitle" value="박제판" style="max-width:300px">
+          <label style="margin-top:10px">배경 이미지</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="tbBgPreview" src="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="tbBgFileInput" accept="image/*" style="display:none" onchange="uploadTbBgImage(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('tbBgFileInput').click()">🖼️ 이미지 업로드</button>
+            <button class="btn-gray" id="tbBgRemoveBtn" style="display:none" onclick="removeTbBgImage()">배경 제거</button>
+            <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
+          </div>
+          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요. 새 배경으로 바꾸면 예전 이미지는 자동으로 정리돼요 — "사용 안 하는 이미지 정리"는 그 전에 이미 쌓여있던 파일들을 한 번에 청소할 때만 누르면 돼요.</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div><label>가로 칸 수</label><input type="number" id="tbColumns" value="4" min="1" max="12" oninput="renderTbPreview()"></div>
+            <div><label>세로 칸 수</label><input type="number" id="tbRows" value="4" min="1" max="20" oninput="renderTbPreview()"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>칸 크기 (%)</label><input type="number" id="tbCellSize" value="12" min="2" max="50" step="0.5" oninput="renderTbPreview()"></div>
+            <div><label>가로 위치 (%)</label><input type="number" id="tbGridLeft" value="5" min="0" max="95" step="0.5" oninput="renderTbPreview()"></div>
+            <div><label>세로 위치 (%)</label><input type="number" id="tbGridTop" value="8" min="0" max="95" step="0.5" oninput="renderTbPreview()"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">칸 크기/위치는 배경 이미지 크기에 대한 비율(%)이에요 — 화면 크기가 달라져도 항상 같은 자리에 나와요. 배경이 없을 때는 이 설정이 적용 안 되고 전체 폭에 맞춰 자동 배치돼요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🖼️ 미리보기 &amp; 위치 조정</span><span class="hint" style="margin:0">칸을 드래그해서 원하는 자리로 옮기세요</span></div>
+          <div id="tbPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
+            <div id="tbPreviewGrid" style="position:absolute;display:grid;gap:4px"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">실제 공개 페이지와 같은 배치로 미리 보여요. 배경/칸 개수/칸 크기/위치/선물을 바꾸면 여기도 같이 갱신돼요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔗 공개 링크</div>
+          <p class="hint" style="margin-bottom:8px">이 링크를 시청자한테 공유하면, 로그인 없이 실시간으로 박제판을 볼 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="tbPublicLink" readonly style="flex:1;background:var(--surface2)">
+            <button class="btn-gray" onclick="copyTbLink()">📋 복사</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎁 칸 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openTbBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div></div>
+          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요) 닉네임 칸은 입력 후 클릭 밖으로 나가면 바로 자동저장돼요 — 새로 추가한 칸이어도 "저장" 버튼을 따로 안 눌러도 돼요.</p>
+          <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
+        </div>
+      </div>
+
+      <!-- 스티커 선택 모달 (박제판 전용, 룰렛과 같은 스티커 데이터 재사용) -->
+      <div id="tbStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeTbStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 선물 선택</span><button class="icon-btn" onclick="closeTbStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="tbStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderTbStickerPicker()" style="flex:1">
+            <select id="tbStickerPickerCategory" onchange="renderTbStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 8px">
+            <span class="hint" id="tbStickerPickerCount" style="margin:0">0개</span>
+            <button class="btn-gray" style="font-size:11.5px;padding:5px 10px" onclick="bulkAddFilteredTbStickers()">📦 이 목록 전체를 칸으로 추가</button>
+          </div>
+          <div class="sticker-grid" id="tbStickerPickerGrid"></div>
         </div>
       </div>
 
@@ -4096,6 +4168,7 @@ const PANEL_META={
   auction:['🔨 경매','!경매 참여로 등록한 시청자의 선물이 자동 누적되고, 누적 비율만큼 확률 추첨하는 래플형 경매입니다'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
+  trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
 };
@@ -4204,7 +4277,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4217,7 +4290,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -5232,6 +5305,7 @@ async function loadDjSettings(){
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
+      if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
@@ -8204,6 +8278,355 @@ function renderSfxStickerPicker(){
   });
 }
 
+/* ── 🏆 박제판 ── */
+let tbSlots=[];
+let tbBgUrl='';
+let tbEditingSlotIndex=null;
+let tbIdSeq=1;
+
+async function loadTrophyBoard(){
+  try{
+    const res=await fetch(SERVER+'/trophyboard/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('tbEnabled').checked=!!s.enabled;
+    document.getElementById('tbTitle').value=s.title||'박제판';
+    document.getElementById('tbColumns').value=s.columns||4;
+    document.getElementById('tbRows').value=s.rows||4;
+    document.getElementById('tbCellSize').value=s.cellSize||12;
+    document.getElementById('tbGridLeft').value=s.gridLeft!=null?s.gridLeft:5;
+    document.getElementById('tbGridTop').value=s.gridTop!=null?s.gridTop:8;
+    tbBgUrl=s.bgImageUrl||'';
+    updateTbBgPreview();
+    tbSlots=(s.slots||[]).map(x=>({...x}));
+    renderTbSlots();
+    const link=window.location.origin+'/board/'+encodeURIComponent(djId);
+    document.getElementById('tbPublicLink').value=link;
+  }catch(e){}
+}
+
+function updateTbBgPreview(){
+  const img=document.getElementById('tbBgPreview');
+  const removeBtn=document.getElementById('tbBgRemoveBtn');
+  if(tbBgUrl){
+    img.src=tbBgUrl; img.style.display='block';
+    removeBtn.style.display='inline-block';
+  } else {
+    img.style.display='none';
+    removeBtn.style.display='none';
+  }
+  renderTbPreview();
+}
+
+// 🖼️ 관리 화면 안에서 배경+칸을 실제 배치대로 미리 보여주고, 드래그로 칸 위치(행/열)를 바로 조정.
+// 공개 페이지(board.html)와 완전히 동일한 자동배치 규칙 + 배경 원본 비율(잘림 없음)을 그대로 재현한다.
+let tbPreviewLastBgUrl=null;
+let tbPreviewBgAspect=1; // naturalWidth/naturalHeight — 칸을 정사각형으로 유지하기 위해 필요
+function renderTbPreview(){
+  const box=document.getElementById('tbPreviewBox');
+  const grid=document.getElementById('tbPreviewGrid');
+  if(!box||!grid)return;
+
+  function drawGridContents(){
+    const columns=Math.max(1,parseInt(document.getElementById('tbColumns').value,10)||4);
+    const rows=Math.max(1,parseInt(document.getElementById('tbRows').value,10)||4);
+
+    if(tbBgUrl){
+      const cellSize=Math.max(2,Number(document.getElementById('tbCellSize').value)||12);
+      const gridLeft=Math.max(0,Number(document.getElementById('tbGridLeft').value)||0);
+      const gridTop=Math.max(0,Number(document.getElementById('tbGridTop').value)||0);
+      grid.style.left=gridLeft+'%';
+      grid.style.top=gridTop+'%';
+      grid.style.width=(columns*cellSize)+'%';
+      // 세로 %는 박스 "높이" 기준이라, 가로 %(박스 "너비" 기준)와 그대로 같은 값을 쓰면 배경
+      // 이미지가 세로로 길어질수록 칸도 같이 길쭉해지는 버그가 생긴다. 이미지 가로세로 비율을
+      // 곱해서 보정해야, 배경이 아무리 길어져도 칸이 항상 정사각형으로 유지된다.
+      grid.style.height=(rows*cellSize*tbPreviewBgAspect)+'%';
+    } else {
+      grid.style.left='0';
+      grid.style.top='0';
+      grid.style.width='100%';
+      grid.style.height='100%';
+    }
+    grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
+    grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
+
+    let autoIndex=0;
+    const cellOf=tbSlots.map(s=>{
+      if(s.row && s.col) return {row:s.row,col:s.col};
+      const r=Math.floor(autoIndex/columns)+1, c=(autoIndex%columns)+1;
+      autoIndex++;
+      return {row:r,col:c};
+    });
+
+    let html='';
+    for(let r=1;r<=rows;r++){
+      for(let c=1;c<=columns;c++){
+        html+=`<div class="tb-preview-cell" data-row="${r}" data-col="${c}" ondragover="event.preventDefault()" ondrop="onTbPreviewDrop(event,${r},${c})" style="border:1px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative"></div>`;
+      }
+    }
+    grid.innerHTML=html;
+
+    tbSlots.forEach((s,i)=>{
+      const pos=cellOf[i];
+      const cellEl=grid.querySelector(`.tb-preview-cell[data-row="${pos.row}"][data-col="${pos.col}"]`);
+      if(!cellEl)return;
+      const icon=document.createElement('div');
+      icon.draggable=true;
+      icon.title=s.giftName||'';
+      icon.style.cssText='width:80%;height:80%;display:flex;align-items:center;justify-content:center;cursor:grab';
+      icon.addEventListener('dragstart',(ev)=>{ ev.dataTransfer.setData('text/plain', String(i)); });
+      icon.innerHTML = s.giftImage
+        ? `<img src="${escapeAttr(s.giftImage)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))" onerror="this.style.display='none'">`
+        : `<span style="font-size:10px;color:rgba(255,255,255,.7);text-align:center">?</span>`;
+      cellEl.appendChild(icon);
+    });
+  }
+
+  // 배경 원본 비율 그대로(잘림 없이) 담기 위해 실제 이미지를 먼저 로드해서 aspect-ratio를 맞춘다.
+  if(!tbBgUrl){
+    box.style.aspectRatio='4/3';
+    box.style.backgroundImage='none';
+    tbPreviewLastBgUrl=null;
+    drawGridContents();
+    return;
+  }
+  if(tbBgUrl===tbPreviewLastBgUrl){ drawGridContents(); return; }
+  const img=new Image();
+  img.onload=()=>{
+    box.style.aspectRatio=`${img.naturalWidth} / ${img.naturalHeight}`;
+    tbPreviewBgAspect=img.naturalWidth/img.naturalHeight;
+    box.style.backgroundImage=`url('${tbBgUrl}')`;
+    tbPreviewLastBgUrl=tbBgUrl;
+    drawGridContents();
+  };
+  img.onerror=()=>{ drawGridContents(); };
+  img.src=tbBgUrl;
+}
+function onTbPreviewDrop(ev,row,col){
+  ev.preventDefault();
+  const idx=Number(ev.dataTransfer.getData('text/plain'));
+  if(isNaN(idx)||!tbSlots[idx])return;
+  tbSlots[idx].row=row;
+  tbSlots[idx].col=col;
+  renderTbSlots();
+}
+
+async function uploadTbBgImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      tbBgUrl=d.url;
+      updateTbBgPreview();
+      showToast('배경 이미지 업로드 완료 (저장 버튼을 눌러야 반영돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeTbBgImage(){
+  tbBgUrl='';
+  updateTbBgPreview();
+}
+async function cleanupTbImages(){
+  try{
+    // 예전 앨범 기능이 참조하던 이미지도 같이 정리 + 앨범 기록 자체도 비움 (더 이상 안 쓰는 기능)
+    await fetch(SERVER+'/trophyboard/albums/purge',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}}).catch(()=>{});
+    const res=await fetch(SERVER+'/images/cleanup',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'정리 실패'); return; }
+    showToast(d.deletedCount>0 ? `🧹 ${d.deletedCount}개 파일 삭제, ${d.freedMB}MB 확보했어요` : '정리할 파일이 없어요');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function renderTbSlots(){
+  const wrap=document.getElementById('tbSlotsWrap');
+  if(!tbSlots.length){
+    wrap.innerHTML='<div class="hint" style="grid-column:1/-1">아직 등록된 칸이 없어요. "+ 칸 추가"로 시작하세요.</div>';
+    renderTbPreview();
+    return;
+  }
+  wrap.innerHTML=tbSlots.map((s,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2)">
+      <img src="${escapeAttr(s.giftImage||'')}" style="width:48px;height:48px;object-fit:contain;${s.giftImage?'':'display:none'}" onerror="this.style.display='none'">
+      <button class="btn-gray" style="width:100%;font-size:11.5px;padding:5px 6px" onclick="openTbStickerPicker(${i})">${s.giftName?escapeHtml(s.giftName):'🎁 선물 선택'}</button>
+      <input type="text" value="${escapeAttr(s.holderNickname||'')}" placeholder="비어있음" title="닉네임이 특수문자로 이상하게 보이면 여기서 직접 고칠 수 있어요" style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px;border-radius:8px" onchange="saveTbSlotHolder(${i},this.value)">
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="hint" style="margin:0;font-size:10.5px;white-space:nowrap">위치</span>
+        <input type="number" min="1" placeholder="행" value="${s.row||''}" style="width:100%;padding:4px;font-size:11px" oninput="tbSlots[${i}].row=this.value?Number(this.value):null;renderTbPreview()">
+        <input type="number" min="1" placeholder="열" value="${s.col||''}" style="width:100%;padding:4px;font-size:11px" oninput="tbSlots[${i}].col=this.value?Number(this.value):null;renderTbPreview()">
+      </div>
+      <div style="display:flex;gap:4px;width:100%">
+        <button class="btn-gray" style="flex:1;font-size:11px;padding:4px" onclick="resetTbSlotHolder(${i})">초기화</button>
+        <button class="btn-shield-reset" style="flex:1;font-size:11px;padding:4px" onclick="removeTbSlotAt(${i})">삭제</button>
+      </div>
+    </div>
+  `).join('');
+  renderTbPreview();
+}
+
+// ✏️ 닉네임 특수문자로 이상하게 보일 때 등, DJ가 직접 닉네임 텍스트를 고쳐 쓸 수 있게.
+// (이미 서버에 저장돼있는 칸만 즉시 반영되고, 아직 저장 안 한 새 칸은 로컬에서만 바뀜)
+async function saveTbSlotHolder(i, value){
+  const slot=tbSlots[i];
+  if(!slot)return;
+  const nickname=(value||'').trim();
+  slot.holderNickname=nickname;
+  if(!nickname){ slot.holderTag=''; slot.holderAt=null; }
+  if(slot.id && !String(slot.id).startsWith('new')){
+    // 이미 서버에 있는 칸 — 이 칸만 가볍게 수정
+    try{
+      const res=await fetch(SERVER+'/trophyboard/edit-holder',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id,nickname})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'수정 실패'); renderTbSlots(); return; }
+      showToast('닉네임 수정 완료 ✓');
+    }catch(e){ showToast('오류: '+e.message); renderTbSlots(); return; }
+  } else {
+    // 아직 저장 전이라 서버에 없는 새 칸 — 저장 버튼을 따로 안 눌러도 되게, 이 칸을 포함해서
+    // 박제판 전체를 그 자리에서 통째로 저장한다 (그래야 임시 id가 진짜 id로 바뀌면서 확정됨).
+    await saveTrophyBoard();
+  }
+}
+
+function addTbSlot(){
+  tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now(),giftName:'',giftImage:'',holderNickname:'',row:null,col:null});
+  renderTbSlots();
+}
+function removeTbSlotAt(i){
+  tbSlots.splice(i,1);
+  renderTbSlots();
+}
+async function resetTbSlotHolder(i){
+  const slot=tbSlots[i];
+  if(!slot)return;
+  if(slot.id && !String(slot.id).startsWith('new')){
+    try{
+      await fetch(SERVER+'/trophyboard/reset-slot',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id})});
+    }catch(e){}
+  }
+  slot.holderNickname=''; slot.holderTag=''; slot.holderAt=null;
+  renderTbSlots();
+}
+
+async function openTbStickerPicker(i){
+  tbEditingSlotIndex=i;
+  await openTbStickerPickerCommon();
+}
+// 특정 칸이 아니라 "카테고리 통째로" 새 칸들을 만들 때 쓰는 진입점. 개별 클릭 선택은 막고,
+// 상단 "이 목록 전체를 칸으로 추가" 버튼으로만 담기게 한다.
+async function openTbBulkStickerPicker(){
+  tbEditingSlotIndex=null;
+  await openTbStickerPickerCommon();
+}
+async function openTbStickerPickerCommon(){
+  document.getElementById('tbStickerModalOverlay').style.display='flex';
+  document.getElementById('tbStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('tbStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderTbStickerPicker();
+}
+function closeTbStickerPicker(){
+  document.getElementById('tbStickerModalOverlay').style.display='none';
+  tbEditingSlotIndex=null;
+}
+function selectTbSticker(s){
+  if(tbEditingSlotIndex==null)return;
+  tbSlots[tbEditingSlotIndex].giftName=s.name;
+  tbSlots[tbEditingSlotIndex].giftImage=s.image||'';
+  renderTbSlots();
+  closeTbStickerPicker();
+}
+function getFilteredTbStickers(){
+  const keyword=(document.getElementById('tbStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('tbStickerPickerCategory').value;
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+  return list;
+}
+
+function renderTbStickerPicker(){
+  const grid=document.getElementById('tbStickerPickerGrid');
+  const countEl=document.getElementById('tbStickerPickerCount');
+  const list=getFilteredTbStickers();
+
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const card=document.createElement('div');
+    card.className='sticker-card';
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>selectTbSticker(s));
+    grid.appendChild(card);
+  });
+}
+
+// 📦 카테고리(또는 검색어)로 걸러진 스티커 전부를, 각각 새 칸으로 한 번에 추가.
+// 편집 중이던 칸이 비어있었으면 그 칸부터 채우고, 나머지는 새 칸으로 이어서 추가한다.
+function bulkAddFilteredTbStickers(){
+  const list=getFilteredTbStickers();
+  if(!list.length){ showToast('추가할 스티커가 없어요'); return; }
+  let idx=0;
+  if(tbEditingSlotIndex!=null && tbSlots[tbEditingSlotIndex] && !tbSlots[tbEditingSlotIndex].giftName){
+    tbSlots[tbEditingSlotIndex].giftName=list[0].name;
+    tbSlots[tbEditingSlotIndex].giftImage=list[0].image||'';
+    idx=1;
+  }
+  for(;idx<list.length;idx++){
+    tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now()+'_'+idx,giftName:list[idx].name,giftImage:list[idx].image||'',holderNickname:'',row:null,col:null});
+  }
+  renderTbSlots();
+  closeTbStickerPicker();
+  showToast(`${list.length}개 칸에 스티커를 채웠어요. 저장을 눌러야 반영돼요.`);
+}
+
+function copyTbLink(){
+  const input=document.getElementById('tbPublicLink');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=>showToast('링크 복사 완료 ✓')).catch(()=>{
+    document.execCommand('copy'); showToast('링크 복사 완료 ✓');
+  });
+}
+
+async function saveTrophyBoard(){
+  const body={
+    enabled:document.getElementById('tbEnabled').checked,
+    title:document.getElementById('tbTitle').value,
+    bgImageUrl:tbBgUrl,
+    columns:document.getElementById('tbColumns').value,
+    rows:document.getElementById('tbRows').value,
+    cellSize:document.getElementById('tbCellSize').value,
+    gridLeft:document.getElementById('tbGridLeft').value,
+    gridTop:document.getElementById('tbGridTop').value,
+    slots:tbSlots,
+  };
+  try{
+    const res=await fetch(SERVER+'/trophyboard/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadTrophyBoard();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function loadSoundFxData(){
   try{
     const res=await fetch(SERVER+'/soundfx/settings',{headers:authHeaders()});
@@ -10482,19 +10905,20 @@ function ftKeepOptions(sel){
 function ftRenderRouletteTable(){
   const rows=ftRouletteTables[ftCurRoulette]||[];
   const body=document.getElementById('ftRouletteBody');
-  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="5">등록된 항목이 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="6">등록된 항목이 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
   body.innerHTML=rows.map((r,i)=>`
     <tr>
       <td><input type="text" placeholder="예: 붕어" value="${escapeAttr(r.content)}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].content=this.value"></td>
       <td><input type="number" value="${r.score}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].score=Number(this.value)||0"></td>
       <td><input type="number" value="${r.chance}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].chance=Number(this.value)||0"></td>
       <td><select onchange="ftRouletteTables[${ftCurRoulette}][${i}].keepIdx=Number(this.value)">${ftKeepOptions(r.keepIdx)}</select></td>
+      <td><input type="text" placeholder="예: 지정 참가자의 최대 10점치 물고기를 제거합니다." value="${escapeAttr(r.note||'')}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].note=this.value" style="min-width:260px"></td>
       <td><button class="icon-btn danger" onclick="ftRemoveRouletteRow(${i})">✕</button></td>
     </tr>`).join('');
 }
 function ftAddRouletteRow(){
   if(!ftRouletteTables[ftCurRoulette])ftRouletteTables[ftCurRoulette]=[];
-  ftRouletteTables[ftCurRoulette].push({content:'',score:10,chance:50,keepIdx:1});
+  ftRouletteTables[ftCurRoulette].push({content:'',score:10,chance:50,keepIdx:1,note:''});
   ftRenderRouletteTable();
 }
 function ftRemoveRouletteRow(i){
