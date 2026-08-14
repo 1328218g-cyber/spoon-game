@@ -3274,14 +3274,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🎁 칸 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openTbBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div></div>
-          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요)</p>
+          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요) 닉네임 칸은 입력 후 클릭 밖으로 나가면 바로 자동저장돼요 — 새로 추가한 칸이어도 "저장" 버튼을 따로 안 눌러도 돼요.</p>
           <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><span>📁 박제판 앨범</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTbAlbum()">💾 지금 상태 앨범에 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">지금 박제판 상태(누가 뭘 보냈는지 전부 포함)를 통째로 얼려서 저장해요. 나중에 칸을 초기화하거나 배경을 바꿔도, 앨범에 저장해둔 기록은 그대로 남아서 언제든 다시 볼 수 있어요.</p>
-          <div id="tbAlbumsWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -5311,7 +5305,7 @@ async function loadDjSettings(){
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
-      if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); loadTbAlbums(); }
+      if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
@@ -8441,6 +8435,8 @@ function removeTbBgImage(){
 }
 async function cleanupTbImages(){
   try{
+    // 예전 앨범 기능이 참조하던 이미지도 같이 정리 + 앨범 기록 자체도 비움 (더 이상 안 쓰는 기능)
+    await fetch(SERVER+'/trophyboard/albums/purge',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}}).catch(()=>{});
     const res=await fetch(SERVER+'/images/cleanup',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
     const d=await res.json();
     if(!d.success){ showToast(d.error||'정리 실패'); return; }
@@ -8480,16 +8476,21 @@ async function saveTbSlotHolder(i, value){
   const slot=tbSlots[i];
   if(!slot)return;
   const nickname=(value||'').trim();
+  slot.holderNickname=nickname;
+  if(!nickname){ slot.holderTag=''; slot.holderAt=null; }
   if(slot.id && !String(slot.id).startsWith('new')){
+    // 이미 서버에 있는 칸 — 이 칸만 가볍게 수정
     try{
       const res=await fetch(SERVER+'/trophyboard/edit-holder',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id,nickname})});
       const d=await res.json();
       if(!d.success){ showToast(d.error||'수정 실패'); renderTbSlots(); return; }
+      showToast('닉네임 수정 완료 ✓');
     }catch(e){ showToast('오류: '+e.message); renderTbSlots(); return; }
+  } else {
+    // 아직 저장 전이라 서버에 없는 새 칸 — 저장 버튼을 따로 안 눌러도 되게, 이 칸을 포함해서
+    // 박제판 전체를 그 자리에서 통째로 저장한다 (그래야 임시 id가 진짜 id로 바뀌면서 확정됨).
+    await saveTrophyBoard();
   }
-  slot.holderNickname=nickname;
-  if(!nickname){ slot.holderTag=''; slot.holderAt=null; }
-  showToast('닉네임 수정 완료 ✓');
 }
 
 function addTbSlot(){
@@ -8624,151 +8625,6 @@ async function saveTrophyBoard(){
     if(d.success){showToast('설정 저장 완료 ✓');loadTrophyBoard();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
-}
-
-/* ── 📁 박제판 앨범 (누가 뭘 줬는지 통째로 얼려서 저장, 나중에 다시 보기) ── */
-let tbAlbumOpenId=null;
-async function loadTbAlbums(){
-  const wrap=document.getElementById('tbAlbumsWrap');
-  if(!wrap)return;
-  try{
-    const res=await fetch(SERVER+'/trophyboard/albums',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ wrap.innerHTML='<p class="hint">불러오지 못했어요.</p>'; return; }
-    renderTbAlbums(d.albums||[]);
-  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
-}
-function formatTbAlbumDate(ts){
-  if(!ts)return '';
-  const d=new Date(ts);
-  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
-let tbAlbumsCache=[];
-function renderTbAlbums(albums){
-  tbAlbumsCache=albums||[];
-  const wrap=document.getElementById('tbAlbumsWrap');
-  if(!albums.length){
-    wrap.innerHTML='<p class="hint">아직 저장된 앨범이 없어요. 이벤트가 끝나면(또는 언제든) "지금 상태 앨범에 저장"을 눌러보세요.</p>';
-    return;
-  }
-  wrap.innerHTML=albums.map(a=>{
-    const filled=(a.slots||[]).filter(s=>s.holderNickname).length;
-    const total=(a.slots||[]).length;
-    const isOpen=tbAlbumOpenId===a.id;
-    const rows=(a.slots||[]).map(s=>`
-      <tr>
-        <td style="padding:6px 8px;display:flex;align-items:center;gap:6px">${s.giftImage?`<img src="${escapeAttr(s.giftImage)}" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display='none'">`:''}<span>${escapeHtml(s.giftName||'')}</span></td>
-        <td style="padding:6px 8px">${s.holderNickname?escapeHtml(s.holderNickname):'<span class="hint" style="margin:0">-</span>'}</td>
-        <td style="padding:6px 8px;color:var(--muted);font-size:11.5px">${s.holderAt?formatTbAlbumDate(s.holderAt):''}</td>
-      </tr>
-    `).join('');
-    return `
-    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--surface2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div>
-          <div style="font-weight:600">${escapeHtml(a.label||'박제판')}</div>
-          <div class="hint" style="margin:2px 0 0">${formatTbAlbumDate(a.savedAt)} · ${filled}/${total}칸 채워짐</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleTbAlbumDetail('${a.id}')">${isOpen?'접기':'상세보기'}</button>
-          <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteTbAlbum('${a.id}')">삭제</button>
-        </div>
-      </div>
-      ${isOpen?`<div id="tbAlbumVisual_${a.id}" style="margin-top:10px"></div><div style="overflow-x:auto;margin-top:10px"><table class="user-table"><thead><tr><th>선물</th><th>받은 사람</th><th>받은 시각</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
-    </div>
-  `}).join('');
-  if(tbAlbumOpenId){
-    const openAlbum=tbAlbumsCache.find(a=>a.id===tbAlbumOpenId);
-    if(openAlbum) mountTbAlbumVisual(openAlbum);
-  }
-}
-
-// 📸 앨범 상세보기에서, 그때 실제로 어떻게 생겼었는지(배경+칸 배치+선물 이미지+닉네임)를
-// 표로만 보여주지 않고 그 당시 화면을 그대로 다시 그려서 보여준다.
-function mountTbAlbumVisual(album){
-  const holder=document.getElementById('tbAlbumVisual_'+album.id);
-  if(!holder)return;
-  holder.innerHTML=`
-    <div id="tbAlbumFrame_${album.id}" style="position:relative;width:100%;max-width:480px;margin:0 auto;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
-      <div id="tbAlbumSpacer_${album.id}" style="width:100%"></div>
-      <div id="tbAlbumGrid_${album.id}" style="position:absolute"></div>
-    </div>
-  `;
-  const frame=document.getElementById('tbAlbumFrame_'+album.id);
-  const spacer=document.getElementById('tbAlbumSpacer_'+album.id);
-  const grid=document.getElementById('tbAlbumGrid_'+album.id);
-  let bgAspect=1;
-
-  function drawSlots(){
-    const columns=Math.max(1,album.columns||4);
-    const rows=Math.max(1,album.rows||4);
-    if(album.bgImageUrl){
-      const cellSize=Math.max(2,Number(album.cellSize)||12);
-      grid.style.left=(Number(album.gridLeft)||0)+'%';
-      grid.style.top=(Number(album.gridTop)||0)+'%';
-      grid.style.width=(columns*cellSize)+'%';
-      // 세로 %는 프레임 "높이" 기준이라 가로 비율을 그대로 쓰면 이미지가 세로로 길어질수록
-      // 칸도 같이 길쭉해진다. 이미지 가로세로 비율로 보정해서 항상 정사각형 칸을 유지한다.
-      grid.style.height=(rows*cellSize*bgAspect)+'%';
-    } else {
-      grid.style.left='0'; grid.style.top='0'; grid.style.width='100%'; grid.style.height='100%';
-    }
-    grid.style.display='grid';
-    grid.style.gap='4px';
-    grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
-    grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
-
-    let autoIndex=0;
-    grid.innerHTML=(album.slots||[]).map(s=>{
-      let r,c;
-      if(s.row && s.col){ r=s.row; c=s.col; } else { r=Math.floor(autoIndex/columns)+1; c=(autoIndex%columns)+1; autoIndex++; }
-      return `
-      <div style="grid-row:${r};grid-column:${c};border:1px solid rgba(255,255,255,0.45);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4%">
-        ${s.giftImage?`<img src="${escapeAttr(s.giftImage)}" style="width:80%;height:80%;object-fit:contain" onerror="this.style.display='none'">`:''}
-        <div style="width:100%;text-align:center;font-size:9px;font-weight:700;padding:1px 3px;border-radius:999px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:${s.holderNickname?'linear-gradient(90deg,rgba(255,214,240,.85),rgba(214,224,255,.85))':'rgba(255,255,255,0.14)'};color:${s.holderNickname?'#2a2450':'rgba(255,255,255,.55)'}">${s.holderNickname?escapeHtml(s.holderNickname):'&nbsp;'}</div>
-      </div>
-    `}).join('');
-  }
-
-  if(!album.bgImageUrl){
-    spacer.style.paddingTop='60%';
-    drawSlots();
-    return;
-  }
-  const img=new Image();
-  img.onload=()=>{
-    bgAspect=img.naturalWidth/img.naturalHeight;
-    spacer.style.paddingTop=(img.naturalHeight/img.naturalWidth*100)+'%';
-    frame.style.backgroundImage=`url('${album.bgImageUrl}')`;
-    drawSlots();
-  };
-  img.onerror=()=>{ spacer.style.paddingTop='60%'; drawSlots(); };
-  img.src=album.bgImageUrl;
-}
-function toggleTbAlbumDetail(id){
-  tbAlbumOpenId = tbAlbumOpenId===id ? null : id;
-  renderTbAlbums(tbAlbumsCache);
-}
-async function saveTbAlbum(){
-  const label=prompt('앨범 이름을 입력해주세요 (예: 칠월칠석 이벤트)', document.getElementById('tbTitle').value||'박제판');
-  if(label===null)return; // 취소
-  try{
-    const res=await fetch(SERVER+'/trophyboard/albums/save',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({label})});
-    const d=await res.json();
-    if(!d.success){ showToast(d.error||'저장 실패'); return; }
-    showToast('앨범에 저장했어요 ✓');
-    loadTbAlbums();
-  }catch(e){ showToast('오류: '+e.message); }
-}
-async function deleteTbAlbum(id){
-  if(!confirm('이 앨범 기록을 삭제할까요? 되돌릴 수 없어요.'))return;
-  try{
-    const res=await fetch(SERVER+'/trophyboard/albums/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
-    const d=await res.json();
-    if(!d.success){ showToast(d.error||'삭제 실패'); return; }
-    showToast('삭제했어요');
-    loadTbAlbums();
-  }catch(e){ showToast('오류: '+e.message); }
 }
 
 async function loadSoundFxData(){
