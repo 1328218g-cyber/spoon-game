@@ -4166,6 +4166,9 @@ function getTrophyBoardSettings(djId, settings) {
       bgImageUrl: '',
       columns: 4, // 가로 칸 수
       rows: 4, // 세로 칸 수
+      cellSize: 12, // 칸 하나 크기 — 배경 이미지 가로폭 대비 % (기본 12% ≈ 4칸이면 대략 절반 폭)
+      gridLeft: 5, // 그리드 전체 덩어리의 가로 시작 위치 (배경 이미지 대비 %)
+      gridTop: 8, // 그리드 전체 덩어리의 세로 시작 위치 (배경 이미지 대비 %)
       slots: [], // { id, giftName, giftImage, holderNickname, holderTag, holderAt, row, col }
     }
     store.saveSettings(djId, { trophyBoard: settings.trophyBoard })
@@ -4173,6 +4176,9 @@ function getTrophyBoardSettings(djId, settings) {
   if (!Array.isArray(settings.trophyBoard.slots)) settings.trophyBoard.slots = []
   if (!settings.trophyBoard.columns) settings.trophyBoard.columns = 4
   if (!settings.trophyBoard.rows) settings.trophyBoard.rows = 4
+  if (!settings.trophyBoard.cellSize) settings.trophyBoard.cellSize = 12
+  if (settings.trophyBoard.gridLeft == null) settings.trophyBoard.gridLeft = 5
+  if (settings.trophyBoard.gridTop == null) settings.trophyBoard.gridTop = 8
   return settings.trophyBoard
 }
 
@@ -4195,7 +4201,7 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
   })
   if (changed) {
     store.saveSettings(djId, { trophyBoard: board })
-    broadcast({ type: 'trophyboard', djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, slots: board.slots })
+    broadcast({ type: 'trophyboard', djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   }
 }
 
@@ -12646,12 +12652,15 @@ app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const board = getTrophyBoardSettings(req.djId, settings)
-  const { enabled, title, bgImageUrl, columns, rows, slots } = req.body || {}
+  const { enabled, title, bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
   if (enabled != null) board.enabled = !!enabled
   if (title != null) board.title = String(title).trim() || '박제판'
   if (bgImageUrl != null) board.bgImageUrl = String(bgImageUrl)
   if (columns != null) board.columns = Math.max(1, Math.min(12, parseInt(columns, 10) || 4))
   if (rows != null) board.rows = Math.max(1, Math.min(20, parseInt(rows, 10) || 4))
+  if (cellSize != null) board.cellSize = Math.max(2, Math.min(50, Number(cellSize) || 12))
+  if (gridLeft != null) board.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
+  if (gridTop != null) board.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
   if (Array.isArray(slots)) {
     // 기존 칸의 holder(닉네임 기록)는 그대로 보존하고, 이름/이미지/id/위치만 클라이언트 값으로 갱신한다.
     const prevById = {}
@@ -12671,7 +12680,7 @@ app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
     })
   }
   store.saveSettings(req.djId, { trophyBoard: board })
-  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, slots: board.slots })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   res.json({ success: true, settings: board })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
@@ -12682,7 +12691,7 @@ app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
   slot.holderNickname = ''; slot.holderTag = ''; slot.holderAt = null
   store.saveSettings(req.djId, { trophyBoard: board })
-  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, slots: board.slots })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   res.json({ success: true })
 })
 
@@ -12694,7 +12703,7 @@ app.get('/board-data/:djId', (req, res) => {
   if (!isModuleOn(settings, 'trophyboard', req.params.djId)) return res.status(404).json({ success: false, error: '박제판을 찾을 수 없어요.' })
   const board = getTrophyBoardSettings(req.params.djId, settings)
   if (!board.enabled) return res.json({ success: false, error: '아직 박제판이 공개되지 않았어요.' })
-  res.json({ success: true, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, slots: board.slots })
+  res.json({ success: true, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
 })
 app.get('/board/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/board.html')

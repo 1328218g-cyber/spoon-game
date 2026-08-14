@@ -37,46 +37,46 @@
   }
   #grid {
     display: grid;
-    gap: 14px;
-    width: 100%;
-    height: 100%;
-    padding: 24px;
+    gap: 10px;
+    position: absolute;
   }
   #frame.no-bg #grid {
-    padding: 0;
+    position: static;
+    width: 100%;
     max-width: 760px;
     margin: 0 auto;
   }
   .slot {
+    width: 100%;
+    height: 100%;
     background: rgba(20, 14, 46, 0.55);
     border: 1px solid rgba(255,255,255,0.28);
-    border-radius: 16px;
-    padding: 14px 8px 12px;
+    border-radius: 12px;
+    padding: 6%;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     backdrop-filter: blur(6px);
-    box-shadow: 0 0 18px rgba(140,110,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
-    min-height: 92px;
+    box-shadow: 0 0 14px rgba(140,110,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
   }
   .slot img {
-    width: 72px;
-    height: 72px;
+    width: 62%;
+    height: 62%;
     object-fit: contain;
-    filter: drop-shadow(0 0 10px rgba(255,255,255,.4));
-    margin-bottom: 10px;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,.4));
+    margin-bottom: 6%;
   }
   .slot .holder {
     width: 100%;
     text-align: center;
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 700;
-    padding: 5px 6px;
+    padding: 3px 5px;
     border-radius: 999px;
     background: rgba(255,255,255,0.10);
     border: 1px solid rgba(255,255,255,0.22);
-    min-height: 16px;
+    min-height: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -155,6 +155,22 @@
 
     const columns = Math.max(1, parseInt(data.columns, 10) || 4);
     const rows = Math.max(1, parseInt(data.rows, 10) || 4);
+    const hasBg = !frameEl.classList.contains('no-bg');
+
+    if (hasBg) {
+      const cellSize = Math.max(2, Number(data.cellSize) || 12); // 프레임 가로폭 대비 %
+      const gridLeft = Math.max(0, Number(data.gridLeft) || 0);
+      const gridTop = Math.max(0, Number(data.gridTop) || 0);
+      gridEl.style.left = gridLeft + '%';
+      gridEl.style.top = gridTop + '%';
+      gridEl.style.width = (columns * cellSize) + '%';
+      gridEl.style.height = (rows * cellSize) + '%';
+    } else {
+      gridEl.style.left = '';
+      gridEl.style.top = '';
+      gridEl.style.width = '';
+      gridEl.style.height = '';
+    }
     gridEl.style.gridTemplateColumns = `repeat(${columns}, minmax(0,1fr))`;
     gridEl.style.gridTemplateRows = `repeat(${rows}, minmax(0,1fr))`;
 

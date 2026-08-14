@@ -3246,15 +3246,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>가로 칸 수</label><input type="number" id="tbColumns" value="4" min="1" max="12" oninput="renderTbPreview()"></div>
             <div><label>세로 칸 수</label><input type="number" id="tbRows" value="4" min="1" max="20" oninput="renderTbPreview()"></div>
           </div>
-          <div class="hint" style="margin-top:6px">공개 페이지에 보여줄 그리드 크기예요. 아래 미리보기에서 칸을 드래그해서 위치를 잡거나, 칸 관리에서 행/열을 직접 입력해도 돼요.</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>칸 크기 (%)</label><input type="number" id="tbCellSize" value="12" min="2" max="50" step="0.5" oninput="renderTbPreview()"></div>
+            <div><label>가로 위치 (%)</label><input type="number" id="tbGridLeft" value="5" min="0" max="95" step="0.5" oninput="renderTbPreview()"></div>
+            <div><label>세로 위치 (%)</label><input type="number" id="tbGridTop" value="8" min="0" max="95" step="0.5" oninput="renderTbPreview()"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">칸 크기/위치는 배경 이미지 크기에 대한 비율(%)이에요 — 화면 크기가 달라져도 항상 같은 자리에 나와요. 배경이 없을 때는 이 설정이 적용 안 되고 전체 폭에 맞춰 자동 배치돼요.</div>
         </div>
 
         <div class="card">
           <div class="card-title"><span>🖼️ 미리보기 &amp; 위치 조정</span><span class="hint" style="margin:0">칸을 드래그해서 원하는 자리로 옮기세요</span></div>
           <div id="tbPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
-            <div id="tbPreviewGrid" style="position:absolute;inset:0;display:grid;gap:4px;padding:4px"></div>
+            <div id="tbPreviewGrid" style="position:absolute;display:grid;gap:4px"></div>
           </div>
-          <div class="hint" style="margin-top:6px">실제 공개 페이지와 같은 배치로 미리 보여요. 배경/칸 개수/선물을 바꾸면 여기도 같이 갱신돼요.</div>
+          <div class="hint" style="margin-top:6px">실제 공개 페이지와 같은 배치로 미리 보여요. 배경/칸 개수/칸 크기/위치/선물을 바꾸면 여기도 같이 갱신돼요.</div>
         </div>
 
         <div class="card">
@@ -3267,7 +3272,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>🎁 칸 관리</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div>
+          <div class="card-title"><span>🎁 칸 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openTbBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addTbSlot()">+ 칸 추가</button></div></div>
           <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요)</p>
           <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
         </div>
@@ -3283,7 +3288,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <option value="">전체 카테고리</option>
             </select>
           </div>
-          <div class="hint" id="tbStickerPickerCount" style="margin:0 0 8px">0개</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 8px">
+            <span class="hint" id="tbStickerPickerCount" style="margin:0">0개</span>
+            <button class="btn-gray" style="font-size:11.5px;padding:5px 10px" onclick="bulkAddFilteredTbStickers()">📦 이 목록 전체를 칸으로 추가</button>
+          </div>
           <div class="sticker-grid" id="tbStickerPickerGrid"></div>
         </div>
       </div>
@@ -8285,6 +8293,9 @@ async function loadTrophyBoard(){
     document.getElementById('tbTitle').value=s.title||'박제판';
     document.getElementById('tbColumns').value=s.columns||4;
     document.getElementById('tbRows').value=s.rows||4;
+    document.getElementById('tbCellSize').value=s.cellSize||12;
+    document.getElementById('tbGridLeft').value=s.gridLeft!=null?s.gridLeft:5;
+    document.getElementById('tbGridTop').value=s.gridTop!=null?s.gridTop:8;
     tbBgUrl=s.bgImageUrl||'';
     updateTbBgPreview();
     tbSlots=(s.slots||[]).map(x=>({...x}));
@@ -8318,6 +8329,21 @@ function renderTbPreview(){
   function drawGridContents(){
     const columns=Math.max(1,parseInt(document.getElementById('tbColumns').value,10)||4);
     const rows=Math.max(1,parseInt(document.getElementById('tbRows').value,10)||4);
+
+    if(tbBgUrl){
+      const cellSize=Math.max(2,Number(document.getElementById('tbCellSize').value)||12);
+      const gridLeft=Math.max(0,Number(document.getElementById('tbGridLeft').value)||0);
+      const gridTop=Math.max(0,Number(document.getElementById('tbGridTop').value)||0);
+      grid.style.left=gridLeft+'%';
+      grid.style.top=gridTop+'%';
+      grid.style.width=(columns*cellSize)+'%';
+      grid.style.height=(rows*cellSize)+'%';
+    } else {
+      grid.style.left='0';
+      grid.style.top='0';
+      grid.style.width='100%';
+      grid.style.height='100%';
+    }
     grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
     grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
 
@@ -8452,6 +8478,15 @@ async function resetTbSlotHolder(i){
 
 async function openTbStickerPicker(i){
   tbEditingSlotIndex=i;
+  await openTbStickerPickerCommon();
+}
+// 특정 칸이 아니라 "카테고리 통째로" 새 칸들을 만들 때 쓰는 진입점. 개별 클릭 선택은 막고,
+// 상단 "이 목록 전체를 칸으로 추가" 버튼으로만 담기게 한다.
+async function openTbBulkStickerPicker(){
+  tbEditingSlotIndex=null;
+  await openTbStickerPickerCommon();
+}
+async function openTbStickerPickerCommon(){
   document.getElementById('tbStickerModalOverlay').style.display='flex';
   document.getElementById('tbStickerPickerSearch').value='';
   await loadRlStickerData();
@@ -8474,16 +8509,20 @@ function selectTbSticker(s){
   renderTbSlots();
   closeTbStickerPicker();
 }
-function renderTbStickerPicker(){
-  const grid=document.getElementById('tbStickerPickerGrid');
-  const countEl=document.getElementById('tbStickerPickerCount');
+function getFilteredTbStickers(){
   const keyword=(document.getElementById('tbStickerPickerSearch').value||'').toLowerCase().trim();
   const catFilter=document.getElementById('tbStickerPickerCategory').value;
-
   let list=rlStickerData.slice();
   if(catFilter) list=list.filter(s=>s.category===catFilter);
   if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
   list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+  return list;
+}
+
+function renderTbStickerPicker(){
+  const grid=document.getElementById('tbStickerPickerGrid');
+  const countEl=document.getElementById('tbStickerPickerCount');
+  const list=getFilteredTbStickers();
 
   countEl.textContent=list.length+'개';
   if(!list.length){
@@ -8504,6 +8543,25 @@ function renderTbStickerPicker(){
   });
 }
 
+// 📦 카테고리(또는 검색어)로 걸러진 스티커 전부를, 각각 새 칸으로 한 번에 추가.
+// 편집 중이던 칸이 비어있었으면 그 칸부터 채우고, 나머지는 새 칸으로 이어서 추가한다.
+function bulkAddFilteredTbStickers(){
+  const list=getFilteredTbStickers();
+  if(!list.length){ showToast('추가할 스티커가 없어요'); return; }
+  let idx=0;
+  if(tbEditingSlotIndex!=null && tbSlots[tbEditingSlotIndex] && !tbSlots[tbEditingSlotIndex].giftName){
+    tbSlots[tbEditingSlotIndex].giftName=list[0].name;
+    tbSlots[tbEditingSlotIndex].giftImage=list[0].image||'';
+    idx=1;
+  }
+  for(;idx<list.length;idx++){
+    tbSlots.push({id:'new'+(tbIdSeq++)+'_'+Date.now()+'_'+idx,giftName:list[idx].name,giftImage:list[idx].image||'',holderNickname:'',row:null,col:null});
+  }
+  renderTbSlots();
+  closeTbStickerPicker();
+  showToast(`${list.length}개 칸에 스티커를 채웠어요. 저장을 눌러야 반영돼요.`);
+}
+
 function copyTbLink(){
   const input=document.getElementById('tbPublicLink');
   input.select();
@@ -8519,6 +8577,9 @@ async function saveTrophyBoard(){
     bgImageUrl:tbBgUrl,
     columns:document.getElementById('tbColumns').value,
     rows:document.getElementById('tbRows').value,
+    cellSize:document.getElementById('tbCellSize').value,
+    gridLeft:document.getElementById('tbGridLeft').value,
+    gridTop:document.getElementById('tbGridTop').value,
     slots:tbSlots,
   };
   try{
