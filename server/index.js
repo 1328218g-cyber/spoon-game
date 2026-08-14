@@ -2013,6 +2013,107 @@ function handleSajuCommand(djId, room, settings, author, authorId, text) {
   sendChatSplit(djId, lines.join('\n'), 150, 600)
 }
 
+// ══════════════════════════════════════════════════════
+// 🌦️ 날씨 조회 — "!날씨 [지역]"으로 현재 날씨(온도/체감/습도/바람/하늘상태)를 채팅에 알려준다.
+// API 키가 필요 없는 Open-Meteo(무료, 상업적 이용도 가능)를 쓴다:
+//  1) 지오코딩 API로 지역명 → 위경도 변환 (한국어 지명 검색 지원)
+//  2) 날씨 API로 그 위경도의 현재 날씨 조회
+// 같은 지역을 반복 조회할 때 API를 매번 두 번씩 때리지 않도록 10분 캐시를 둔다.
+const WEATHER_CODE_MAP = {
+  0: '☀️ 맑음', 1: '🌤️ 대체로 맑음', 2: '⛅ 구름 조금', 3: '☁️ 흐림',
+  45: '🌫️ 안개', 48: '🌫️ 서리 안개',
+  51: '🌦️ 이슬비(약)', 53: '🌦️ 이슬비', 55: '🌦️ 이슬비(강)',
+  56: '🌧️❄️ 언 이슬비(약)', 57: '🌧️❄️ 언 이슬비(강)',
+  61: '🌧️ 비(약)', 63: '🌧️ 비', 65: '🌧️ 비(강)',
+  66: '🌧️❄️ 언 비(약)', 67: '🌧️❄️ 언 비(강)',
+  71: '🌨️ 눈(약)', 73: '🌨️ 눈', 75: '🌨️ 눈(강)', 77: '🌨️ 싸락눈',
+  80: '🌦️ 소나기(약)', 81: '🌦️ 소나기', 82: '🌦️ 소나기(강)',
+  85: '🌨️ 눈소나기(약)', 86: '🌨️ 눈소나기(강)',
+  95: '⛈️ 뇌우', 96: '⛈️ 뇌우(우박 약)', 99: '⛈️ 뇌우(우박 강)',
+}
+const weatherCache = new Map() // key: 정규화된 지역명 → { data, expiresAt }
+
+function getWeatherSettings(djId, settings) {
+  if (!settings.weather) {
+    settings.weather = {
+      cmd: '!날씨',
+      defaultLocation: '서울',
+      template: '{emoji} [{location}]\n현재 {temp}°C (체감 {feels}°C)\n· 습도 {humidity}% · 바람 {wind}m/s\n· {condition}',
+      notFoundMsg: '⚠️ \'{query}\' 지역을 찾을 수 없어요. 다른 지명으로 다시 시도해주세요. (예: {cmd} 서울, {cmd} 부산, {cmd} 제주)',
+    }
+    store.saveSettings(djId, { weather: settings.weather })
+  }
+  return settings.weather
+}
+
+async function geocodeLocation(query) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=ko&format=json`
+  const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
+  const data = await res.json()
+  const hit = data && Array.isArray(data.results) ? data.results[0] : null
+  if (!hit) return null
+  const nameParts = [hit.name]
+  if (hit.admin1 && hit.admin1 !== hit.name) nameParts.push(hit.admin1)
+  return { latitude: hit.latitude, longitude: hit.longitude, displayName: nameParts.join(' ') }
+}
+
+async function fetchCurrentWeather(latitude, longitude) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Asia%2FSeoul`
+  const res = await fetch(url, { headers: { 'User-Agent': CHROME_UA } })
+  const data = await res.json()
+  return data && data.current ? data.current : null
+}
+
+async function getWeatherForQuery(query) {
+  const key = String(query || '').trim().toLowerCase()
+  const cached = weatherCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+  const geo = await geocodeLocation(query)
+  if (!geo) { weatherCache.delete(key); return null }
+  const cur = await fetchCurrentWeather(geo.latitude, geo.longitude)
+  if (!cur) return null
+  const result = {
+    location: geo.displayName,
+    temp: Math.round(cur.temperature_2m),
+    feels: Math.round(cur.apparent_temperature),
+    humidity: Math.round(cur.relative_humidity_2m),
+    wind: cur.wind_speed_10m,
+    condition: WEATHER_CODE_MAP[cur.weather_code] || `날씨코드 ${cur.weather_code}`,
+  }
+  weatherCache.set(key, { data: result, expiresAt: Date.now() + 10 * 60 * 1000 })
+  return result
+}
+
+function handleWeatherCommand(djId, room, settings, author, authorId, text) {
+  const cfg = getWeatherSettings(djId, settings)
+  const cmd = cfg.cmd || '!날씨'
+  const msg = String(text || '').trim()
+  if (msg !== cmd && !msg.startsWith(cmd + ' ')) return
+
+  const query = msg.slice(cmd.length).trim() || cfg.defaultLocation || '서울'
+  getWeatherForQuery(query).then(w => {
+    if (!w) {
+      const notFound = (cfg.notFoundMsg || '').replace(/{query}/g, query).replace(/{cmd}/g, cmd)
+      if (notFound) sendChatToRoom(djId, notFound)
+      return
+    }
+    const wind = typeof w.wind === 'number' ? w.wind.toFixed(1) : w.wind
+    const emoji = (w.condition || '').split(' ')[0] || '🌤️'
+    const line = (cfg.template || '')
+      .replace(/{emoji}/g, emoji)
+      .replace(/{location}/g, w.location)
+      .replace(/{temp}/g, w.temp)
+      .replace(/{feels}/g, w.feels)
+      .replace(/{humidity}/g, w.humidity)
+      .replace(/{wind}/g, wind)
+      .replace(/{condition}/g, w.condition)
+    sendChatToRoom(djId, line)
+  }).catch(e => {
+    console.log('[날씨 조회 실패]', query, e.message)
+    sendChatToRoom(djId, `⚠️ 날씨 조회 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.`)
+  })
+}
+
 // 📅 디데이 — "[명령어] [MM-DD] [내용]"으로 등록(DJ 전용)하면, 명령어만 입력했을 때
 // 등록된 디데이 목록과 남은/지난 일수를 보여준다. MM-DD는 매년 반복되는 날짜로 계산하고,
 // YYYY.MM.DD / YYYY-MM-DD 처럼 연도까지 입력하면 그 해 그 날짜 딱 한 번만 기준으로 계산한다.
@@ -12049,6 +12150,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleReminderCommand(djId, room, settings, author, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
+          handleWeatherCommand(djId, room, settings, author, authorId, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
