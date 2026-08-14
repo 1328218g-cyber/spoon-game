@@ -3251,7 +3251,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🖼️ 미리보기 &amp; 위치 조정</span><span class="hint" style="margin:0">칸을 드래그해서 원하는 자리로 옮기세요</span></div>
-          <div id="tbPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:cover;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
+          <div id="tbPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
             <div id="tbPreviewGrid" style="position:absolute;inset:0;display:grid;gap:4px;padding:4px"></div>
           </div>
           <div class="hint" style="margin-top:6px">실제 공개 페이지와 같은 배치로 미리 보여요. 배경/칸 개수/선물을 바꾸면 여기도 같이 갱신돼요.</div>
@@ -8308,47 +8308,69 @@ function updateTbBgPreview(){
 }
 
 // 🖼️ 관리 화면 안에서 배경+칸을 실제 배치대로 미리 보여주고, 드래그로 칸 위치(행/열)를 바로 조정.
-// 공개 페이지(board.html)와 완전히 동일한 자동배치 규칙을 여기서도 그대로 계산해서 보여준다.
+// 공개 페이지(board.html)와 완전히 동일한 자동배치 규칙 + 배경 원본 비율(잘림 없음)을 그대로 재현한다.
+let tbPreviewLastBgUrl=null;
 function renderTbPreview(){
   const box=document.getElementById('tbPreviewBox');
   const grid=document.getElementById('tbPreviewGrid');
   if(!box||!grid)return;
-  box.style.backgroundImage = tbBgUrl ? `url('${tbBgUrl}')` : 'none';
-  const columns=Math.max(1,parseInt(document.getElementById('tbColumns').value,10)||4);
-  const rows=Math.max(1,parseInt(document.getElementById('tbRows').value,10)||4);
-  grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
-  grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
 
-  let autoIndex=0;
-  const cellOf=tbSlots.map(s=>{
-    if(s.row && s.col) return {row:s.row,col:s.col};
-    const r=Math.floor(autoIndex/columns)+1, c=(autoIndex%columns)+1;
-    autoIndex++;
-    return {row:r,col:c};
-  });
+  function drawGridContents(){
+    const columns=Math.max(1,parseInt(document.getElementById('tbColumns').value,10)||4);
+    const rows=Math.max(1,parseInt(document.getElementById('tbRows').value,10)||4);
+    grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
+    grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
 
-  let html='';
-  for(let r=1;r<=rows;r++){
-    for(let c=1;c<=columns;c++){
-      html+=`<div class="tb-preview-cell" data-row="${r}" data-col="${c}" ondragover="event.preventDefault()" ondrop="onTbPreviewDrop(event,${r},${c})" style="border:1px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative"></div>`;
+    let autoIndex=0;
+    const cellOf=tbSlots.map(s=>{
+      if(s.row && s.col) return {row:s.row,col:s.col};
+      const r=Math.floor(autoIndex/columns)+1, c=(autoIndex%columns)+1;
+      autoIndex++;
+      return {row:r,col:c};
+    });
+
+    let html='';
+    for(let r=1;r<=rows;r++){
+      for(let c=1;c<=columns;c++){
+        html+=`<div class="tb-preview-cell" data-row="${r}" data-col="${c}" ondragover="event.preventDefault()" ondrop="onTbPreviewDrop(event,${r},${c})" style="border:1px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative"></div>`;
+      }
     }
-  }
-  grid.innerHTML=html;
+    grid.innerHTML=html;
 
-  tbSlots.forEach((s,i)=>{
-    const pos=cellOf[i];
-    const cellEl=grid.querySelector(`.tb-preview-cell[data-row="${pos.row}"][data-col="${pos.col}"]`);
-    if(!cellEl)return;
-    const icon=document.createElement('div');
-    icon.draggable=true;
-    icon.title=s.giftName||'';
-    icon.style.cssText='width:80%;height:80%;display:flex;align-items:center;justify-content:center;cursor:grab';
-    icon.addEventListener('dragstart',(ev)=>{ ev.dataTransfer.setData('text/plain', String(i)); });
-    icon.innerHTML = s.giftImage
-      ? `<img src="${escapeAttr(s.giftImage)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))" onerror="this.style.display='none'">`
-      : `<span style="font-size:10px;color:rgba(255,255,255,.7);text-align:center">?</span>`;
-    cellEl.appendChild(icon);
-  });
+    tbSlots.forEach((s,i)=>{
+      const pos=cellOf[i];
+      const cellEl=grid.querySelector(`.tb-preview-cell[data-row="${pos.row}"][data-col="${pos.col}"]`);
+      if(!cellEl)return;
+      const icon=document.createElement('div');
+      icon.draggable=true;
+      icon.title=s.giftName||'';
+      icon.style.cssText='width:80%;height:80%;display:flex;align-items:center;justify-content:center;cursor:grab';
+      icon.addEventListener('dragstart',(ev)=>{ ev.dataTransfer.setData('text/plain', String(i)); });
+      icon.innerHTML = s.giftImage
+        ? `<img src="${escapeAttr(s.giftImage)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))" onerror="this.style.display='none'">`
+        : `<span style="font-size:10px;color:rgba(255,255,255,.7);text-align:center">?</span>`;
+      cellEl.appendChild(icon);
+    });
+  }
+
+  // 배경 원본 비율 그대로(잘림 없이) 담기 위해 실제 이미지를 먼저 로드해서 aspect-ratio를 맞춘다.
+  if(!tbBgUrl){
+    box.style.aspectRatio='4/3';
+    box.style.backgroundImage='none';
+    tbPreviewLastBgUrl=null;
+    drawGridContents();
+    return;
+  }
+  if(tbBgUrl===tbPreviewLastBgUrl){ drawGridContents(); return; }
+  const img=new Image();
+  img.onload=()=>{
+    box.style.aspectRatio=`${img.naturalWidth} / ${img.naturalHeight}`;
+    box.style.backgroundImage=`url('${tbBgUrl}')`;
+    tbPreviewLastBgUrl=tbBgUrl;
+    drawGridContents();
+  };
+  img.onerror=()=>{ drawGridContents(); };
+  img.src=tbBgUrl;
 }
 function onTbPreviewDrop(ev,row,col){
   ev.preventDefault();

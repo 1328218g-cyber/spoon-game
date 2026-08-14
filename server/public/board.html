@@ -11,9 +11,6 @@
     min-height: 100vh;
     font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
     background: radial-gradient(circle at 50% 0%, #241a4a 0%, #0d0a20 60%, #05040f 100%);
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
     color: #fff;
     display: flex;
     flex-direction: column;
@@ -24,18 +21,31 @@
     font-size: 26px;
     font-weight: 800;
     text-align: center;
-    margin: 8px 0 28px;
+    margin: 8px 0 24px;
     text-shadow: 0 0 18px rgba(255,255,255,.55), 0 2px 6px rgba(0,0,0,.5);
     letter-spacing: .5px;
+  }
+  #frame {
+    position: relative;
+    width: 100%;
+    max-width: 900px;
+    background-size: 100% 100%;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 16px;
+    overflow: hidden;
   }
   #grid {
     display: grid;
     gap: 14px;
     width: 100%;
-    max-width: 760px;
+    height: 100%;
+    padding: 24px;
   }
-  @media (max-width: 560px) {
-    #grid { max-width: 420px; }
+  #frame.no-bg #grid {
+    padding: 0;
+    max-width: 760px;
+    margin: 0 auto;
   }
   .slot {
     background: rgba(20, 14, 46, 0.55);
@@ -51,8 +61,8 @@
     min-height: 92px;
   }
   .slot img {
-    width: 92px;
-    height: 92px;
+    width: 72px;
+    height: 72px;
     object-fit: contain;
     filter: drop-shadow(0 0 10px rgba(255,255,255,.4));
     margin-bottom: 10px;
@@ -97,7 +107,9 @@
 </head>
 <body>
   <div id="title" style="display:none"></div>
-  <div id="grid" style="display:none"></div>
+  <div id="frame" class="no-bg" style="display:none">
+    <div id="grid"></div>
+  </div>
   <div id="stateMsg">불러오는 중...</div>
   <div id="footer">에디봇 박제판</div>
 
@@ -106,18 +118,39 @@
   const parts = window.location.pathname.split('/').filter(Boolean);
   const djId = parts[parts.length - 1];
   const titleEl = document.getElementById('title');
+  const frameEl = document.getElementById('frame');
   const gridEl = document.getElementById('grid');
   const stateEl = document.getElementById('stateMsg');
+  let lastBgUrl = null;
 
   function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
-  function render(data){
-    if (data.bgImageUrl) {
-      document.body.style.backgroundImage = `url('${data.bgImageUrl}')`;
+  // 배경 이미지를 원본 비율 그대로(잘림 없이) 담기 위해, 실제 이미지를 먼저 로드해서
+  // naturalWidth/naturalHeight로 프레임의 aspect-ratio를 그 비율에 정확히 맞춘다.
+  function applyBackground(url, cb){
+    if (!url) {
+      frameEl.classList.add('no-bg');
+      frameEl.style.aspectRatio = '';
+      frameEl.style.backgroundImage = 'none';
+      lastBgUrl = null;
+      cb();
+      return;
     }
-    titleEl.textContent = data.title || '박제판';
-    titleEl.style.display = 'block';
-    gridEl.style.display = 'grid';
+    if (url === lastBgUrl) { cb(); return; }
+    const img = new Image();
+    img.onload = () => {
+      frameEl.classList.remove('no-bg');
+      frameEl.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+      frameEl.style.backgroundImage = `url('${url}')`;
+      lastBgUrl = url;
+      cb();
+    };
+    img.onerror = () => { cb(); };
+    img.src = url;
+  }
+
+  function renderGrid(data){
+    frameEl.style.display = 'block';
     stateEl.style.display = 'none';
 
     const columns = Math.max(1, parseInt(data.columns, 10) || 4);
@@ -130,7 +163,6 @@
       gridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,.5);padding:40px 0">아직 등록된 칸이 없어요.</div>';
       return;
     }
-    // row/col을 지정해둔 칸은 그 위치에 정확히, 지정 안 해둔 칸은 순서대로 빈 자리를 채운다.
     let autoIndex = 0;
     gridEl.innerHTML = slots.map(s => {
       let placeStyle = '';
@@ -148,6 +180,12 @@
         <div class="holder ${s.holderNickname ? 'filled' : 'empty'}">${s.holderNickname ? escapeHtml(s.holderNickname) : '\u00A0'}</div>
       </div>
     `}).join('');
+  }
+
+  function render(data){
+    titleEl.textContent = data.title || '박제판';
+    titleEl.style.display = 'block';
+    applyBackground(data.bgImageUrl, () => renderGrid(data));
   }
 
   async function load(){
