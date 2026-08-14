@@ -12745,6 +12745,21 @@ app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   res.json({ success: true })
 })
+// ✏️ 닉네임에 특수문자가 섞여서 이상하게 보이는 경우 등, DJ가 칸에 기록된 닉네임을 직접
+// 고쳐 쓸 수 있게 해준다. (누가 보냈는지 자체를 바꾸는 게 아니라 표시용 닉네임 텍스트만 수정)
+app.post('/trophyboard/edit-holder', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const nickname = String((req.body && req.body.nickname) || '').trim()
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = nickname
+  if (!nickname) { slot.holderTag = ''; slot.holderAt = null }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true })
+})
 
 // 📁 박제판 앨범 — 지금 박제판 상태(누가 뭘 보냈는지 전부 포함)를 그대로 통째로 저장해두는 기록 보관함.
 // 이벤트가 끝날 때마다(혹은 언제든) 저장해두면, 나중에 시간이 지나도 "그때 누가 뭘 줬는지"를

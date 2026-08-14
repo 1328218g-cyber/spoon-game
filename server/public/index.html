@@ -8459,9 +8459,7 @@ function renderTbSlots(){
     <div style="border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2)">
       <img src="${escapeAttr(s.giftImage||'')}" style="width:48px;height:48px;object-fit:contain;${s.giftImage?'':'display:none'}" onerror="this.style.display='none'">
       <button class="btn-gray" style="width:100%;font-size:11.5px;padding:5px 6px" onclick="openTbStickerPicker(${i})">${s.giftName?escapeHtml(s.giftName):'🎁 선물 선택'}</button>
-      <div style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px;border-radius:8px;background:var(--surface);border:1px solid var(--border);min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        ${s.holderNickname?escapeHtml(s.holderNickname):'<span class="hint" style="margin:0">비어있음</span>'}
-      </div>
+      <input type="text" value="${escapeAttr(s.holderNickname||'')}" placeholder="비어있음" title="닉네임이 특수문자로 이상하게 보이면 여기서 직접 고칠 수 있어요" style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px;border-radius:8px" onchange="saveTbSlotHolder(${i},this.value)">
       <div style="display:flex;gap:4px;width:100%;align-items:center">
         <span class="hint" style="margin:0;font-size:10.5px;white-space:nowrap">위치</span>
         <input type="number" min="1" placeholder="행" value="${s.row||''}" style="width:100%;padding:4px;font-size:11px" oninput="tbSlots[${i}].row=this.value?Number(this.value):null;renderTbPreview()">
@@ -8474,6 +8472,24 @@ function renderTbSlots(){
     </div>
   `).join('');
   renderTbPreview();
+}
+
+// ✏️ 닉네임 특수문자로 이상하게 보일 때 등, DJ가 직접 닉네임 텍스트를 고쳐 쓸 수 있게.
+// (이미 서버에 저장돼있는 칸만 즉시 반영되고, 아직 저장 안 한 새 칸은 로컬에서만 바뀜)
+async function saveTbSlotHolder(i, value){
+  const slot=tbSlots[i];
+  if(!slot)return;
+  const nickname=(value||'').trim();
+  if(slot.id && !String(slot.id).startsWith('new')){
+    try{
+      const res=await fetch(SERVER+'/trophyboard/edit-holder',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id,nickname})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'수정 실패'); renderTbSlots(); return; }
+    }catch(e){ showToast('오류: '+e.message); renderTbSlots(); return; }
+  }
+  slot.holderNickname=nickname;
+  if(!nickname){ slot.holderTag=''; slot.holderAt=null; }
+  showToast('닉네임 수정 완료 ✓');
 }
 
 function addTbSlot(){
