@@ -35,9 +35,16 @@
     border-radius: 16px;
     overflow: hidden;
   }
+  #frameSpacer {
+    width: 100%;
+    padding-top: 75%;
+  }
+  #frame.no-bg #frameSpacer {
+    padding-top: 0;
+  }
   #grid {
     display: grid;
-    gap: 10px;
+    gap: 1.5%;
     position: absolute;
   }
   #frame.no-bg #grid {
@@ -45,20 +52,21 @@
     width: 100%;
     max-width: 760px;
     margin: 0 auto;
+    gap: 14px;
   }
   .slot {
     width: 100%;
     height: 100%;
-    background: rgba(20, 14, 46, 0.55);
-    border: 1px solid rgba(255,255,255,0.28);
+    background: linear-gradient(160deg, rgba(255,255,255,0.32), rgba(210,230,255,0.14));
+    border: 1px solid rgba(255,255,255,0.65);
     border-radius: 12px;
     padding: 6%;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(6px);
-    box-shadow: 0 0 14px rgba(140,110,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 0 12px rgba(255,255,255,0.25), inset 0 0 0 1px rgba(255,255,255,0.25);
   }
   .slot img {
     width: 62%;
@@ -74,21 +82,23 @@
     font-weight: 700;
     padding: 3px 5px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.10);
-    border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.28);
+    border: 1px solid rgba(255,255,255,0.55);
     min-height: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: #1a1a2e;
   }
   .slot .holder.filled {
-    background: linear-gradient(90deg, rgba(255,196,242,.35), rgba(196,208,255,.35));
-    border-color: rgba(255,255,255,.5);
-    color: #fff;
-    text-shadow: 0 0 6px rgba(255,255,255,.6);
+    background: linear-gradient(90deg, rgba(255,214,240,.75), rgba(214,224,255,.75));
+    border-color: rgba(255,255,255,.85);
+    color: #2a2450;
+    text-shadow: none;
   }
   .slot .holder.empty {
-    color: rgba(255,255,255,.35);
+    color: rgba(255,255,255,.55);
+    background: rgba(255,255,255,0.14);
     font-weight: 500;
   }
   #footer {
@@ -108,6 +118,7 @@
 <body>
   <div id="title" style="display:none"></div>
   <div id="frame" class="no-bg" style="display:none">
+    <div id="frameSpacer"></div>
     <div id="grid"></div>
   </div>
   <div id="stateMsg">불러오는 중...</div>
@@ -119,6 +130,7 @@
   const djId = parts[parts.length - 1];
   const titleEl = document.getElementById('title');
   const frameEl = document.getElementById('frame');
+  const frameSpacerEl = document.getElementById('frameSpacer');
   const gridEl = document.getElementById('grid');
   const stateEl = document.getElementById('stateMsg');
   let lastBgUrl = null;
@@ -126,11 +138,13 @@
   function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
   // 배경 이미지를 원본 비율 그대로(잘림 없이) 담기 위해, 실제 이미지를 먼저 로드해서
-  // naturalWidth/naturalHeight로 프레임의 aspect-ratio를 그 비율에 정확히 맞춘다.
+  // naturalWidth/naturalHeight 비율만큼 프레임의 높이를 만든다.
+  // CSS aspect-ratio 대신 옛날부터 쓰던 "padding-top 퍼센트" 트릭을 쓴다 — 카카오톡 인앱브라우저나
+  // 구형 안드로이드 웹뷰처럼 aspect-ratio 지원이 불안정한 곳에서도 100% 동일하게 동작한다.
   function applyBackground(url, cb){
     if (!url) {
       frameEl.classList.add('no-bg');
-      frameEl.style.aspectRatio = '';
+      frameSpacerEl.style.paddingTop = '0';
       frameEl.style.backgroundImage = 'none';
       lastBgUrl = null;
       cb();
@@ -140,7 +154,7 @@
     const img = new Image();
     img.onload = () => {
       frameEl.classList.remove('no-bg');
-      frameEl.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+      frameSpacerEl.style.paddingTop = (img.naturalHeight / img.naturalWidth * 100) + '%';
       frameEl.style.backgroundImage = `url('${url}')`;
       lastBgUrl = url;
       cb();
