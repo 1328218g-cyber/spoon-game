@@ -3276,6 +3276,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 보낸 사람 닉네임이 채워져요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요. (공개 페이지에는 선물 이름이 안 보이고 이미지+닉네임만 커다랗게 나가요)</p>
           <div id="tbSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
         </div>
+
+        <div class="card">
+          <div class="card-title"><span>📁 박제판 앨범</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTbAlbum()">💾 지금 상태 앨범에 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">지금 박제판 상태(누가 뭘 보냈는지 전부 포함)를 통째로 얼려서 저장해요. 나중에 칸을 초기화하거나 배경을 바꿔도, 앨범에 저장해둔 기록은 그대로 남아서 언제든 다시 볼 수 있어요.</p>
+          <div id="tbAlbumsWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
       </div>
 
       <!-- 스티커 선택 모달 (박제판 전용, 룰렛과 같은 스티커 데이터 재사용) -->
@@ -5304,7 +5310,7 @@ async function loadDjSettings(){
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
-      if(document.getElementById('tbSlotsWrap')) loadTrophyBoard();
+      if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); loadTbAlbums(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
@@ -8588,6 +8594,82 @@ async function saveTrophyBoard(){
     if(d.success){showToast('설정 저장 완료 ✓');loadTrophyBoard();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📁 박제판 앨범 (누가 뭘 줬는지 통째로 얼려서 저장, 나중에 다시 보기) ── */
+let tbAlbumOpenId=null;
+async function loadTbAlbums(){
+  const wrap=document.getElementById('tbAlbumsWrap');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/trophyboard/albums',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ wrap.innerHTML='<p class="hint">불러오지 못했어요.</p>'; return; }
+    renderTbAlbums(d.albums||[]);
+  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+function formatTbAlbumDate(ts){
+  if(!ts)return '';
+  const d=new Date(ts);
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function renderTbAlbums(albums){
+  const wrap=document.getElementById('tbAlbumsWrap');
+  if(!albums.length){
+    wrap.innerHTML='<p class="hint">아직 저장된 앨범이 없어요. 이벤트가 끝나면(또는 언제든) "지금 상태 앨범에 저장"을 눌러보세요.</p>';
+    return;
+  }
+  wrap.innerHTML=albums.map(a=>{
+    const filled=(a.slots||[]).filter(s=>s.holderNickname).length;
+    const total=(a.slots||[]).length;
+    const isOpen=tbAlbumOpenId===a.id;
+    const rows=(a.slots||[]).map(s=>`
+      <tr>
+        <td style="padding:6px 8px;display:flex;align-items:center;gap:6px">${s.giftImage?`<img src="${escapeAttr(s.giftImage)}" style="width:22px;height:22px;object-fit:contain" onerror="this.style.display='none'">`:''}<span>${escapeHtml(s.giftName||'')}</span></td>
+        <td style="padding:6px 8px">${s.holderNickname?escapeHtml(s.holderNickname):'<span class="hint" style="margin:0">-</span>'}</td>
+        <td style="padding:6px 8px;color:var(--muted);font-size:11.5px">${s.holderAt?formatTbAlbumDate(s.holderAt):''}</td>
+      </tr>
+    `).join('');
+    return `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--surface2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:600">${escapeHtml(a.label||'박제판')}</div>
+          <div class="hint" style="margin:2px 0 0">${formatTbAlbumDate(a.savedAt)} · ${filled}/${total}칸 채워짐</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="toggleTbAlbumDetail('${a.id}')">${isOpen?'접기':'상세보기'}</button>
+          <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteTbAlbum('${a.id}')">삭제</button>
+        </div>
+      </div>
+      ${isOpen?`<div style="overflow-x:auto;margin-top:10px"><table class="user-table"><thead><tr><th>선물</th><th>받은 사람</th><th>받은 시각</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
+    </div>
+  `}).join('');
+}
+function toggleTbAlbumDetail(id){
+  tbAlbumOpenId = tbAlbumOpenId===id ? null : id;
+  loadTbAlbums();
+}
+async function saveTbAlbum(){
+  const label=prompt('앨범 이름을 입력해주세요 (예: 칠월칠석 이벤트)', document.getElementById('tbTitle').value||'박제판');
+  if(label===null)return; // 취소
+  try{
+    const res=await fetch(SERVER+'/trophyboard/albums/save',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({label})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('앨범에 저장했어요 ✓');
+    loadTbAlbums();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function deleteTbAlbum(id){
+  if(!confirm('이 앨범 기록을 삭제할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/trophyboard/albums/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'삭제 실패'); return; }
+    showToast('삭제했어요');
+    loadTbAlbums();
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 async function loadSoundFxData(){

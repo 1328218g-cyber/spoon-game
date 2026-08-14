@@ -12695,6 +12695,48 @@ app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 📁 박제판 앨범 — 지금 박제판 상태(누가 뭘 보냈는지 전부 포함)를 그대로 통째로 저장해두는 기록 보관함.
+// 이벤트가 끝날 때마다(혹은 언제든) 저장해두면, 나중에 시간이 지나도 "그때 누가 뭘 줬는지"를
+// 그대로 다시 볼 수 있다. 실시간 박제판(trophyBoard)과는 별개로 완전히 얼려둔(snapshot) 기록이라,
+// 그 뒤에 칸을 초기화하거나 리셋해도 앨범에 저장된 기록은 그대로 남는다.
+app.get('/trophyboard/albums', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+  res.json({ success: true, albums })
+})
+app.post('/trophyboard/albums/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const label = String((req.body && req.body.label) || board.title || '박제판').trim() || '박제판'
+  if (!Array.isArray(settings.trophyBoardAlbums)) settings.trophyBoardAlbums = []
+  const snapshot = {
+    id: 'album' + Date.now() + Math.floor(Math.random() * 1000),
+    label,
+    savedAt: Date.now(),
+    bgImageUrl: board.bgImageUrl,
+    columns: board.columns,
+    rows: board.rows,
+    // 필요한 정보만 얼려서 저장 (누가/무슨 선물/언제 받았는지까지 전부 포함)
+    slots: board.slots.map(s => ({
+      giftName: s.giftName, giftImage: s.giftImage,
+      holderNickname: s.holderNickname || '', holderTag: s.holderTag || '', holderAt: s.holderAt || null,
+    })),
+  }
+  settings.trophyBoardAlbums.unshift(snapshot)
+  if (settings.trophyBoardAlbums.length > 50) settings.trophyBoardAlbums.length = 50 // 너무 쌓이는 것 방지, 최근 50개까지
+  store.saveSettings(req.djId, { trophyBoardAlbums: settings.trophyBoardAlbums })
+  res.json({ success: true, album: snapshot })
+})
+app.post('/trophyboard/albums/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+  const id = req.body && req.body.id
+  const next = albums.filter(a => a.id !== id)
+  store.saveSettings(req.djId, { trophyBoardAlbums: next })
+  res.json({ success: true })
+})
+
 // 🏆 박제판 공개 링크 — 로그인 없이 누구나 볼 수 있는 데이터 API + 페이지.
 // 시청자가 방송 소개글이나 채팅으로 공유받은 링크를 열면, 서버 SSE(/events)를 그대로 구독해서
 // 관리자가 화면에서 무언가 바꾸는 즉시(선물 들어와서 닉네임 채워지는 것 포함) 새로고침 없이 갱신된다.
