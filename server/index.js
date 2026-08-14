@@ -12672,20 +12672,26 @@ app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
   if (gridLeft != null) board.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
   if (gridTop != null) board.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
   if (Array.isArray(slots)) {
-    // 기존 칸의 holder(닉네임 기록)는 그대로 보존하고, 이름/이미지/id/위치만 클라이언트 값으로 갱신한다.
+    // 기존 칸(이미 서버에 저장된 적 있는 칸)의 holder(닉네임 기록)는 실시간 선물 이벤트로
+    // 방금 채워졌을 수도 있으니 보존한다. 반면 이번에 "처음" 생기는 칸은 서버에 보존할 값이
+    // 없으므로, DJ가 그 자리에서 직접 입력해둔 닉네임(있다면)을 그대로 살려서 저장한다.
     const prevById = {}
     board.slots.forEach(s => { prevById[s.id] = s })
-    board.slots = slots.map(s => {
-      const prev = s.id ? prevById[s.id] : null
+    board.slots = slots.map((s, i) => {
+      // 프론트에서 새 칸에 임시로 붙이는 id는 'new'로 시작한다 — 그 상태로 영구 저장되면
+      // 다음 요청부터 "이미 저장된 칸"인지 프론트가 구분을 못 해서 닉네임 수정이 계속 씹힌다.
+      // 그래서 저장 시점에 진짜 서버 id로 한 번 바꿔준다.
+      const isNew = !s.id || String(s.id).startsWith('new')
+      const prev = !isNew ? prevById[s.id] : null
       return {
-        id: s.id || ('slot' + Date.now() + Math.floor(Math.random() * 1000)),
+        id: isNew ? ('slot' + Date.now() + Math.floor(Math.random() * 1000) + i) : s.id,
         giftName: String(s.giftName || '').trim(),
         giftImage: String(s.giftImage || ''),
         row: s.row != null ? Math.max(1, parseInt(s.row, 10) || 1) : null,
         col: s.col != null ? Math.max(1, parseInt(s.col, 10) || 1) : null,
-        holderNickname: prev ? prev.holderNickname || '' : '',
-        holderTag: prev ? prev.holderTag || '' : '',
-        holderAt: prev ? prev.holderAt || null : null,
+        holderNickname: prev ? (prev.holderNickname || '') : String(s.holderNickname || '').trim(),
+        holderTag: prev ? (prev.holderTag || '') : '',
+        holderAt: prev ? (prev.holderAt || null) : (String(s.holderNickname || '').trim() ? Date.now() : null),
       }
     })
   }
