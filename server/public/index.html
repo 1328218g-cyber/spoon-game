@@ -2789,12 +2789,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <div class="card-title">미끼별 룰렛</div>
               <p class="hint">선택한 룰렛 번호에 물고기/상품을 등록합니다. 위 미끼목록에서 지정한 룰렛번호와 연결됩니다.</p>
               <div class="ft-num-tab-bar" id="ftRouletteTabBar"></div>
-              <div style="overflow-x:auto"><table class="user-table" id="ftRouletteTable" style="min-width:560px">
-                <thead><tr><th>내용</th><th>점수</th><th>확률(상대값)</th><th>기록될 어항</th><th></th></tr></thead>
+              <div style="overflow-x:auto"><table class="user-table" id="ftRouletteTable" style="min-width:760px">
+                <thead><tr><th>내용</th><th>점수</th><th>확률(상대값)</th><th>기록될 어항</th><th>추가 출력 문구 (이벤트용, 선택)</th><th></th></tr></thead>
                 <tbody id="ftRouletteBody"></tbody>
               </table></div>
               <button class="btn-gray" style="width:100%;margin-top:10px" onclick="ftAddRouletteRow()">+ 항목 추가</button>
-              <div class="hint" style="margin-top:10px">확률은 상대값이라 합계가 100이 아니어도 됩니다 (예: 50/30/20 이든 5/3/2는 비율이 같으면 같은 결과입니다). 점수 0은 "꽝" 등 빈 결과를 만들 때 사용하세요. 각 항목마다 결과가 기록될 어항을 다르게 지정할 수 있습니다 (예: 흔한 상품은 1번 어항, 고급 상품은 4번 어항).</div>
+              <div class="hint" style="margin-top:10px">확률은 상대값이라 합계가 100이 아니어도 됩니다 (예: 50/30/20 이든 5/3/2는 비율이 같으면 같은 결과입니다). 점수 0은 "꽝" 등 빈 결과를 만들 때 사용하세요. 각 항목마다 결과가 기록될 어항을 다르게 지정할 수 있습니다 (예: 흔한 상품은 1번 어항, 고급 상품은 4번 어항). "추가 출력 문구"를 입력해두면, 그 항목이 낚였을 때 결과 멘트에 🌟 문구가 한 줄 더 붙어요 (아기오징어먹물처럼 수동 처리가 필요한 이벤트 효과 안내용). 비워두면 지금처럼 그냥 물고기로만 나가요.</div>
               <div class="fish-tab-footer">
                 <button class="btn-connect" onclick="saveFtSettings()">저장</button>
               </div>
@@ -11015,19 +11015,20 @@ function ftKeepOptions(sel){
 function ftRenderRouletteTable(){
   const rows=ftRouletteTables[ftCurRoulette]||[];
   const body=document.getElementById('ftRouletteBody');
-  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="5">등록된 항목이 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML='<tr class="fish-empty-row"><td colspan="6">등록된 항목이 없어요. 아래에서 추가해주세요.</td></tr>'; return; }
   body.innerHTML=rows.map((r,i)=>`
     <tr>
       <td><input type="text" placeholder="예: 붕어" value="${escapeAttr(r.content)}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].content=this.value"></td>
       <td><input type="number" value="${r.score}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].score=Number(this.value)||0"></td>
       <td><input type="number" value="${r.chance}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].chance=Number(this.value)||0"></td>
       <td><select onchange="ftRouletteTables[${ftCurRoulette}][${i}].keepIdx=Number(this.value)">${ftKeepOptions(r.keepIdx)}</select></td>
+      <td><input type="text" placeholder="예: 지정 참가자의 최대 10점치 물고기를 제거합니다." value="${escapeAttr(r.note||'')}" oninput="ftRouletteTables[${ftCurRoulette}][${i}].note=this.value" style="min-width:260px"></td>
       <td><button class="icon-btn danger" onclick="ftRemoveRouletteRow(${i})">✕</button></td>
     </tr>`).join('');
 }
 function ftAddRouletteRow(){
   if(!ftRouletteTables[ftCurRoulette])ftRouletteTables[ftCurRoulette]=[];
-  ftRouletteTables[ftCurRoulette].push({content:'',score:10,chance:50,keepIdx:1});
+  ftRouletteTables[ftCurRoulette].push({content:'',score:10,chance:50,keepIdx:1,note:''});
   ftRenderRouletteTable();
 }
 function ftRemoveRouletteRow(i){

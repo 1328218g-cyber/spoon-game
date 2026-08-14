@@ -4543,7 +4543,8 @@ function _ftParseRouletteTable(text) {
     if (chance <= 0) return null
     let keepIdx = parseInt(p[3], 10)
     if (!keepIdx || keepIdx < 1 || keepIdx > FT_KEEP_SLOTS) keepIdx = 1
-    return { content: p[0], score, chance, keepIdx }
+    const note = p[4] || ''
+    return { content: p[0], score, chance, keepIdx, note }
   }).filter(Boolean)
 }
 // baits는 새 버전부터 배열(cfg.baits)로 저장된다. 과거 텍스트(cfg.baitList) 데이터가 남아있으면 그걸로 폴백한다.
@@ -4570,7 +4571,7 @@ function _ftGetRouletteTable(cfg, idx) {
   if (Array.isArray(val)) {
     return val.map(r => {
       const keepIdx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1))
-      return { content: String(r.content || '').trim(), score: parseInt(r.score, 10) || 0, chance: parseFloat(r.chance) || 0, keepIdx }
+      return { content: String(r.content || '').trim(), score: parseInt(r.score, 10) || 0, chance: parseFloat(r.chance) || 0, keepIdx, note: String(r.note || '').trim() }
     }).filter(r => r.content && r.chance > 0)
   }
   return _ftParseRouletteTable(val)
@@ -4767,7 +4768,7 @@ async function _ftHandleBaitSpin(djId, ft, author, tag, isDj, bait, parts) {
   for (let i = 0; i < spins; i++) {
     const caught = _ftSpinRoulette(table)
     if (!caught) break
-    if (!results[caught.content]) results[caught.content] = { score: caught.score, qty: 0, keepIdx: caught.keepIdx || 1 }
+    if (!results[caught.content]) results[caught.content] = { score: caught.score, qty: 0, keepIdx: caught.keepIdx || 1, note: caught.note || '' }
     results[caught.content].qty += 1
     const keepIdx = caught.keepIdx || 1
     const tank = _ftEnsureTank(user, keepIdx)
@@ -4790,13 +4791,18 @@ async function _ftHandleBaitSpin(djId, ft, author, tag, isDj, bait, parts) {
     const r = results[only]
     const keepLabel = ft.config['keep' + r.keepIdx + 'Name'] || ('어항' + r.keepIdx)
     const tank = user.tanks[String(r.keepIdx)]
-    let msg = `🎣 ${author}님이 [${bait.name}]로 낚시를 해서 "${only}"을(를) 낚았습니다! (+${r.score}점)\n📦 ${keepLabel} 누적 총점수: ${tank.total}점`
+    let msg = `🎣 ${author}님이 [${bait.name}]로 낚시를 해서 "${only}"을(를) 낚았습니다! (+${r.score}점)`
+    if (r.note) msg += `\n🌟 ${r.note}`
+    msg += `\n📦 ${keepLabel} 누적 총점수: ${tank.total}점`
     msg += usedFreebie ? ' (관리자 체험, 미끼 소모 없음)' : ` (남은 [${bait.name}] 미끼: ${remain}개)`
     ftReply(djId, msg)
     return
   }
   const lines = Object.keys(results).map(c => `${c} x${results[c].qty}(${results[c].score}점)`).join(', ')
-  let msg = `🎣 ${author}님이 [${bait.name}]로 ${consumed}회 낚시! → ${lines}\n💎 총 획득: +${totalScore}점`
+  const noteLines = Object.keys(results).filter(c => results[c].note).map(c => `🌟 ${c}: ${results[c].note}`).join('\n')
+  let msg = `🎣 ${author}님이 [${bait.name}]로 ${consumed}회 낚시! → ${lines}`
+  if (noteLines) msg += `\n${noteLines}`
+  msg += `\n💎 총 획득: +${totalScore}점`
   msg += usedFreebie ? ' (관리자 체험, 미끼 소모 없음)' : ` (남은 [${bait.name}] 미끼: ${remain}개)`
   ftReply(djId, msg)
 }
@@ -15138,6 +15144,7 @@ app.post('/fishtournament/settings', auth.requireAuth, requireRequestModuleAcces
         score: parseInt(r.score, 10) || 0,
         chance: parseFloat(r.chance) || 0,
         keepIdx: Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1)),
+        note: String(r.note || '').slice(0, 200),
       })).filter(r => r.content)
     }
   }
