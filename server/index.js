@@ -581,7 +581,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1780,6 +1780,402 @@ async function handleLottoAutoCommand(djId, room, settings, author, authorId, li
     setTimeout(() => sendChatToRoom(djId, `🔄 타이머가 재시작됐어요 (주기 ${min}분).`), 400)
     return
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🐾 몬스터 잡기 — DJ가 설정한 시간마다 채팅에 랜덤 몬스터(스푼 공식 스티커 기반)가 나타나고,
+// 시청자가 명령어로 잡으면 각자 도감에 기록되는 수집형 미니게임. 잡기 방식은 "선착순 1명"
+// 또는 "등장 시간 동안 각자 확률판정" 중 설정에서 고를 수 있다.
+// 잡으려면 "포획볼"이 있어야 한다 — !모험시작으로 기본 지급받고, 그 뒤로는 상점 구매(복권 소모)
+// / 채팅 중 랜덤 획득 / 스푼(선물) 보낼 때 랜덤 획득, 세 가지 방법으로 더 모을 수 있다.
+function getMonsterCatchSettings(djId, settings) {
+  if (!settings.monsterCatch) {
+    settings.monsterCatch = {
+      enabled: false,
+      spawnIntervalMin: 5,
+      catchWindowSec: 60,
+      catchMode: 'first', // 'first' | 'all'
+      cmdCatch: '!잡기',
+      cmdDex: '!도감',
+      spawnMsg: '🐾 야생의 [{monster}]이(가) 나타났습니다! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
+      catchSuccessMsg: '🎉 {nickname}님이 [{monster}]을(를) 잡았습니다! (도감 {count}번째 · 남은 포획볼 {balls}개)',
+      catchFailMsg: '💨 {nickname}님, [{monster}]을(를) 놓쳤어요... (남은 포획볼 {balls}개)',
+      despawnMsg: '💨 [{monster}]이(가) 도망가버렸어요...',
+      monsters: [], // { id, name, image, weight, catchRate }
+      collections: {}, // key: 고유닉(또는 닉네임) → { [monsterId]: count }
+
+      // 🎒 포획볼 경제
+      cmdStart: '!모험시작',
+      cmdBag: '!포획볼',
+      cmdBuyBall: '!포획볼구매',
+      startBalls: 5,
+      buyPrice: 10, // 복권 몇 장당 포획볼 1개
+      chatBallChance: 2, // 채팅 한 번당 % 확률로 포획볼 1개 획득
+      giftBallChance: 30, // 선물(스푼) 보낼 때 % 확률로 포획볼 획득
+      giftBallCount: 1,
+      bags: {}, // key: 고유닉 → 보유 포획볼 수 (등록 안 했으면 키 자체가 없음)
+      msgStart: '🎒 {nickname}님, 모험을 시작했어요! 포획볼 {balls}개를 받았어요. {cmdCatch}로 몬스터를 잡아보세요!',
+      msgAlreadyStarted: '🎒 {nickname}님은 이미 모험 중이에요! (보유 포획볼: {balls}개)',
+      msgBag: '🎒 {nickname}님의 포획볼: {balls}개',
+      msgNoBalls: '⚠️ {nickname}님, 포획볼이 없어요! {cmdBuyBall}로 구매하거나 채팅/선물로 획득해보세요.',
+      msgNoAdventure: '⚠️ {nickname}님, 아직 모험을 시작 안 했어요! {cmdStart}로 먼저 시작해주세요.',
+      msgBuySuccess: '🎒 {nickname}님이 복권 {cost}장으로 포획볼 {amount}개를 구매했어요! (보유: {balls}개)',
+      msgBuyFail: '⚠️ {nickname}님, 복권이 부족해요! (보유 복권: {lotto}장, 필요: {cost}장)',
+      msgChatBall: '🎁 {nickname}님이 채팅 중 포획볼을 주웠어요! (보유: {balls}개)',
+      msgGiftBall: '🎁 {nickname}님이 선물과 함께 포획볼 {amount}개를 발견했어요! (보유: {balls}개)',
+
+      // ⚔️ 대결(PvP) — 각자 보유 몬스터 중 가장 강한 걸로 자동 대결. 공격기/특성은 전부 DJ가
+      // 직접 짓는 오리지널 설정이다 (실제 게임 데이터 아님).
+      cmdBattle: '!대결',
+      msgBattleUsage: '⚠️ 사용법: {cmdBattle} [고유닉]',
+      msgBattleSelfError: '⚠️ 본인과는 대결할 수 없어요!',
+      msgBattleNoMonsters: '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.',
+      msgBattleTargetNoMonsters: '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!',
+      msgBattleResult: '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!',
+
+      // 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다. evolvesTo/evolveCount는
+      // 몬스터 하나하나에 개별로 붙는 값(monsters 배열 각 항목)이라 여기 기본값에는 없다.
+      cmdEvolve: '!진화',
+      autoEvolve: false, // 켜두면 잡는 순간 조건 충족 시 자동으로 진화, 꺼두면 !진화 명령어로 직접
+      msgEvolveUsage: '⚠️ 사용법: {cmdEvolve} [몬스터이름]',
+      msgEvolveNotFound: '⚠️ [{monster}]은(는) 도감에 없는 몬스터예요.',
+      msgEvolveNoTarget: '⚠️ [{monster}]은(는) 진화할 수 없는 몬스터예요.',
+      msgEvolveFail: '⚠️ [{monster}] {need}마리가 필요해요! (현재 {owned}마리 보유)',
+      msgEvolveSuccess: '✨ {nickname}님의 [{monster}] {need}마리가 진화해서 [{targetMonster}]이(가) 되었습니다!',
+      msgAutoEvolve: '✨ {nickname}님의 [{monster}]이(가) 자동으로 진화해서 [{targetMonster}]이(가) 되었습니다!',
+    }
+    store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
+  }
+  const mc = settings.monsterCatch
+  if (!Array.isArray(mc.monsters)) mc.monsters = []
+  if (!mc.collections || typeof mc.collections !== 'object') mc.collections = {}
+  if (!mc.bags || typeof mc.bags !== 'object') mc.bags = {}
+  if (mc.cmdStart == null) mc.cmdStart = '!모험시작'
+  if (mc.cmdBag == null) mc.cmdBag = '!포획볼'
+  if (mc.cmdBuyBall == null) mc.cmdBuyBall = '!포획볼구매'
+  if (mc.startBalls == null) mc.startBalls = 5
+  if (mc.buyPrice == null) mc.buyPrice = 10
+  if (mc.chatBallChance == null) mc.chatBallChance = 2
+  if (mc.giftBallChance == null) mc.giftBallChance = 30
+  if (mc.giftBallCount == null) mc.giftBallCount = 1
+  if (mc.cmdBattle == null) mc.cmdBattle = '!대결'
+  if (mc.msgBattleUsage == null) mc.msgBattleUsage = '⚠️ 사용법: {cmdBattle} [고유닉]'
+  if (mc.msgBattleSelfError == null) mc.msgBattleSelfError = '⚠️ 본인과는 대결할 수 없어요!'
+  if (mc.msgBattleNoMonsters == null) mc.msgBattleNoMonsters = '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.'
+  if (mc.msgBattleTargetNoMonsters == null) mc.msgBattleTargetNoMonsters = '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!'
+  if (mc.msgBattleResult == null) mc.msgBattleResult = '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!'
+  if (mc.cmdEvolve == null) mc.cmdEvolve = '!진화'
+  if (mc.autoEvolve == null) mc.autoEvolve = false
+  if (mc.msgEvolveUsage == null) mc.msgEvolveUsage = '⚠️ 사용법: {cmdEvolve} [몬스터이름]'
+  if (mc.msgEvolveNotFound == null) mc.msgEvolveNotFound = '⚠️ [{monster}]은(는) 도감에 없는 몬스터예요.'
+  if (mc.msgEvolveNoTarget == null) mc.msgEvolveNoTarget = '⚠️ [{monster}]은(는) 진화할 수 없는 몬스터예요.'
+  if (mc.msgEvolveFail == null) mc.msgEvolveFail = '⚠️ [{monster}] {need}마리가 필요해요! (현재 {owned}마리 보유)'
+  if (mc.msgEvolveSuccess == null) mc.msgEvolveSuccess = '✨ {nickname}님의 [{monster}] {need}마리가 진화해서 [{targetMonster}]이(가) 되었습니다!'
+  if (mc.msgAutoEvolve == null) mc.msgAutoEvolve = '✨ {nickname}님의 [{monster}]이(가) 자동으로 진화해서 [{targetMonster}]이(가) 되었습니다!'
+  return mc
+}
+
+function mcFormat(tpl, data) {
+  const v = (val) => (val === undefined || val === null || val === '') ? '0' : String(val)
+  return String(tpl || '')
+    .replace(/{nickname}/g, data.nickname || '')
+    .replace(/{monster}/g, data.monster || '')
+    .replace(/{cmd}/g, data.cmd || '')
+    .replace(/{sec}/g, v(data.sec))
+    .replace(/{count}/g, v(data.count))
+    .replace(/{balls}/g, v(data.balls))
+    .replace(/{cost}/g, v(data.cost))
+    .replace(/{amount}/g, v(data.amount))
+    .replace(/{lotto}/g, v(data.lotto))
+    .replace(/{cmdBuyBall}/g, data.cmdBuyBall || '')
+    .replace(/{cmdStart}/g, data.cmdStart || '')
+    .replace(/{cmdBattle}/g, data.cmdBattle || '')
+    .replace(/{target}/g, data.target || '')
+    .replace(/{myMonster}/g, data.myMonster || '')
+    .replace(/{targetMonster}/g, data.targetMonster || '')
+    .replace(/{winner}/g, data.winner || '')
+    .replace(/{winnerMonster}/g, data.winnerMonster || '')
+    .replace(/{loserMonster}/g, data.loserMonster || '')
+    .replace(/{move}/g, data.move || '')
+    .replace(/{need}/g, v(data.need))
+    .replace(/{owned}/g, v(data.owned))
+    .replace(/{cmdEvolve}/g, data.cmdEvolve || '')
+}
+
+function mcPickMonster(mc) {
+  const list = (mc.monsters || []).filter(m => m.name && Number(m.weight) > 0)
+  if (!list.length) return null
+  const total = list.reduce((s, m) => s + Number(m.weight), 0)
+  let r = Math.random() * total
+  for (const m of list) {
+    r -= Number(m.weight)
+    if (r <= 0) return m
+  }
+  return list[list.length - 1]
+}
+
+// 대결에 쓸 "가장 강한 보유 몬스터"를 골라준다 (공격력 기준). 잡은 게 없으면 null.
+function mcPickStrongest(collection, monsters) {
+  const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
+  if (!owned.length) return null
+  let best = null
+  owned.forEach(id => {
+    const m = monsters.find(mm => mm.id === id)
+    if (!m) return
+    const power = Number(m.power) || 10
+    if (!best || power > best.power) best = { m, power }
+  })
+  return best ? best.m : null
+}
+
+// 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
+function startMonsterCatchTimer(djId) {
+  const room = getRoom(djId)
+  if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.enabled || !mc.monsters.length) return
+  const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
+  room.monsterCatchTimer = setInterval(() => spawnMonster(djId), min * 60 * 1000)
+}
+
+function spawnMonster(djId) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.enabled) return
+  if (room._activeMonster) return // 이미 등장 중이면 중복 스폰 방지
+  const picked = mcPickMonster(mc)
+  if (!picked) return
+  const sec = Math.max(5, Math.min(600, parseInt(mc.catchWindowSec, 10) || 60))
+  room._activeMonster = { id: picked.id, name: picked.name, catchRate: picked.catchRate, caught: false, attempted: new Set() }
+  const msg = mcFormat(mc.spawnMsg, { monster: picked.name, cmd: mc.cmdCatch || '!잡기', sec })
+  if (msg) sendChatToRoom(djId, msg)
+  room._activeMonsterTimeout = setTimeout(() => {
+    const active = room._activeMonster
+    if (active && !active.caught) {
+      const despawn = mcFormat(mc.despawnMsg, { monster: active.name })
+      if (despawn) sendChatToRoom(djId, despawn)
+    }
+    room._activeMonster = null
+  }, sec * 1000)
+}
+
+function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const key = String(tag || author || '').trim().toLowerCase()
+
+  // 🎒 !모험시작 — 최초 1회, 기본 포획볼 지급
+  if (msg === (mc.cmdStart || '!모험시작')) {
+    if (mc.bags[key] != null) {
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAlreadyStarted, { nickname: author, balls: mc.bags[key] })), 400)
+      return
+    }
+    const start = Math.max(0, parseInt(mc.startBalls, 10) || 5)
+    mc.bags[key] = start
+    store.saveSettings(djId, { monsterCatch: mc })
+    setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgStart, { nickname: author, balls: start, cmdCatch: mc.cmdCatch || '!잡기' })), 400)
+    return
+  }
+
+  // 🎒 !포획볼 — 보유 수량 확인
+  if (msg === (mc.cmdBag || '!포획볼')) {
+    if (mc.bags[key] == null) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgNoAdventure, { nickname: author, cmdStart: mc.cmdStart || '!모험시작' })), 400); return }
+    setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBag, { nickname: author, balls: mc.bags[key] })), 400)
+    return
+  }
+
+  // 🎒 !포획볼구매 [수량] — 복권으로 구매 (기본 1개)
+  const cmdBuyBall = mc.cmdBuyBall || '!포획볼구매'
+  if (msg === cmdBuyBall || msg.startsWith(cmdBuyBall + ' ')) {
+    if (mc.bags[key] == null) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgNoAdventure, { nickname: author, cmdStart: mc.cmdStart || '!모험시작' })), 400); return }
+    const amount = Math.max(1, Math.min(999, parseInt(msg.slice(cmdBuyBall.length).trim(), 10) || 1))
+    const price = Math.max(1, parseInt(mc.buyPrice, 10) || 10)
+    const cost = amount * price
+    const act = getActivitySettings(djId, settings)
+    const actKey = findActUserKey(act, tag || author)
+    const lotto = actKey ? (act.users[actKey].lotto || 0) : 0
+    if (!actKey || lotto < cost) {
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBuyFail, { nickname: author, cost, lotto })), 400)
+      return
+    }
+    act.users[actKey].lotto = lotto - cost
+    mc.bags[key] = (mc.bags[key] || 0) + amount
+    store.saveSettings(djId, { activity: act, monsterCatch: mc })
+    setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBuySuccess, { nickname: author, cost, amount, balls: mc.bags[key] })), 400)
+    return
+  }
+
+  if (msg === (mc.cmdDex || '!도감')) {
+    const owned = mc.collections[key] || {}
+    const total = Object.values(owned).reduce((s, n) => s + n, 0)
+    if (!total) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
+    const typesCount = Object.keys(owned).filter(id => owned[id] > 0).length
+    const totalTypes = mc.monsters.length
+    const lines = mc.monsters
+      .filter(m => owned[m.id] > 0)
+      .map(m => `${m.name} x${owned[m.id]}`)
+      .join(', ')
+    setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)\n${lines}`), 400)
+    return
+  }
+
+  if (msg !== (mc.cmdCatch || '!잡기')) return
+  const active = room._activeMonster
+  if (!active) return // 등장한 몬스터가 없으면 조용히 무시
+
+  // 🎒 포획볼이 있어야 시도할 수 있다 — 모험 시작 안 했거나 볼이 없으면 안내만 하고 끝 (시도로 안 침)
+  if (mc.bags[key] == null) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgNoAdventure, { nickname: author, cmdStart: mc.cmdStart || '!모험시작' })), 300); return }
+  if ((mc.bags[key] || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgNoBalls, { nickname: author, cmdBuyBall: mc.cmdBuyBall || '!포획볼구매' })), 300); return }
+
+  if (mc.catchMode === 'all') {
+    if (active.attempted.has(key)) return // 같은 스폰에 중복 시도 방지
+    active.attempted.add(key)
+    mc.bags[key] -= 1 // 포획볼은 성공/실패 상관없이 시도하는 순간 소모
+    const rate = Math.max(0, Math.min(100, Number(active.catchRate) || 50))
+    const success = Math.random() * 100 < rate
+    if (success) {
+      if (!mc.collections[key]) mc.collections[key] = {}
+      mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
+      store.saveSettings(djId, { monsterCatch: mc })
+      const count = mc.collections[key][active.id]
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key] })), 300)
+      mcCheckAutoEvolve(djId, mc, key, active.id, author)
+    } else {
+      store.saveSettings(djId, { monsterCatch: mc })
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchFailMsg, { nickname: author, monster: active.name, balls: mc.bags[key] })), 300)
+    }
+    return
+  }
+
+  // 선착순 1명
+  if (active.caught) return // 이미 잡혔으면 조용히 무시 (도배 방지)
+  active.caught = true
+  mc.bags[key] -= 1
+  if (room._activeMonsterTimeout) { clearTimeout(room._activeMonsterTimeout); room._activeMonsterTimeout = null }
+  if (!mc.collections[key]) mc.collections[key] = {}
+  mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
+  store.saveSettings(djId, { monsterCatch: mc })
+  const count = mc.collections[key][active.id]
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key] })), 300)
+  room._activeMonster = null
+  mcCheckAutoEvolve(djId, mc, key, active.id, author)
+}
+
+// 채팅 한 번 칠 때마다 소소한 확률로 포획볼 1개 획득 (모험을 시작한 유저만 대상)
+// 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다 (수동: !진화 [이름]).
+function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const cmdEvolve = mc.cmdEvolve || '!진화'
+  const msg = String(text || '').trim()
+  if (msg !== cmdEvolve && !msg.startsWith(cmdEvolve + ' ')) return
+
+  const monsterName = msg.slice(cmdEvolve.length).trim()
+  if (!monsterName) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveUsage, { cmdEvolve })), 400); return }
+
+  const mon = mc.monsters.find(m => m.name === monsterName)
+  if (!mon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: monsterName })), 400); return }
+  if (!mon.evolvesTo) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
+  const target = mc.monsters.find(m => m.id === mon.evolvesTo)
+  if (!target) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
+
+  const key = String(tag || author || '').trim().toLowerCase()
+  const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
+  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
+  if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: mon.name, need, owned })), 400); return }
+
+  mc.collections[key][mon.id] -= need
+  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  store.saveSettings(djId, { monsterCatch: mc })
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: mon.name, need, targetMonster: target.name })), 400)
+}
+
+// 잡기 성공 직후에 호출 — "자동 진화"가 켜져있고 조건이 채워졌으면 조용히 즉시 진화시킨다.
+function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
+  if (!mc.autoEvolve) return
+  const mon = mc.monsters.find(m => m.id === monsterId)
+  if (!mon || !mon.evolvesTo) return
+  const target = mc.monsters.find(m => m.id === mon.evolvesTo)
+  if (!target) return
+  const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
+  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
+  if (owned < need) return
+  mc.collections[key][mon.id] -= need
+  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  store.saveSettings(djId, { monsterCatch: mc })
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: mon.name, targetMonster: target.name })), 500)
+}
+
+function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.enabled) return
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
+  const chance = Math.max(0, Math.min(100, Number(mc.chatBallChance) || 0))
+  if (chance <= 0 || Math.random() * 100 >= chance) return
+  mc.bags[key] += 1
+  store.saveSettings(djId, { monsterCatch: mc })
+  sendChatToRoom(djId, mcFormat(mc.msgChatBall, { nickname: author, balls: mc.bags[key] }))
+}
+
+// 선물(스푼) 보낼 때마다 소소한 확률로 포획볼 획득 (모험을 시작한 유저만 대상)
+function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.enabled) return
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (mc.bags[key] == null) return
+  const chance = Math.max(0, Math.min(100, Number(mc.giftBallChance) || 0))
+  if (chance <= 0 || Math.random() * 100 >= chance) return
+  const amount = Math.max(1, parseInt(mc.giftBallCount, 10) || 1)
+  mc.bags[key] += amount
+  store.saveSettings(djId, { monsterCatch: mc })
+  sendChatToRoom(djId, mcFormat(mc.msgGiftBall, { nickname: author, amount, balls: mc.bags[key] }))
+}
+
+// ⚔️ !대결 [고유닉] — 각자 보유 몬스터 중 가장 강한 걸(공격력 기준)로 자동 대결. 승률은 두
+// 공격력의 비율로 계산해서, 약한 쪽도 이길 가능성은 있지만 강한 쪽이 유리하게 설계했다.
+function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const cmdBattle = mc.cmdBattle || '!대결'
+  const msg = String(text || '').trim()
+  if (msg !== cmdBattle && !msg.startsWith(cmdBattle + ' ')) return
+
+  const targetNick = msg.slice(cmdBattle.length).trim()
+  if (!targetNick) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleUsage, { cmdBattle })), 400); return }
+
+  const key = String(tag || author || '').trim().toLowerCase()
+  const targetKey = targetNick.toLowerCase()
+  if (key === targetKey) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleSelfError, { nickname: author })), 400); return }
+
+  const myMon = mcPickStrongest(mc.collections[key], mc.monsters)
+  if (!myMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleNoMonsters, { nickname: author, cmdCatch: mc.cmdCatch || '!잡기' })), 400); return }
+  const targetMon = mcPickStrongest(mc.collections[targetKey], mc.monsters)
+  if (!targetMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleTargetNoMonsters, { nickname: author, target: targetNick })), 400); return }
+
+  const myPower = Math.max(1, Number(myMon.power) || 10)
+  const targetPower = Math.max(1, Number(targetMon.power) || 10)
+  const iWin = Math.random() < myPower / (myPower + targetPower)
+  const winnerMonster = iWin ? myMon : targetMon
+  const loserMonster = iWin ? targetMon : myMon
+  const winnerName = iWin ? author : targetNick
+  const moveList = (winnerMonster.moves && winnerMonster.moves.length) ? winnerMonster.moves : ['공격']
+  const move = moveList[Math.floor(Math.random() * moveList.length)]
+
+  const line = mcFormat(mc.msgBattleResult, {
+    nickname: author, target: targetNick,
+    myMonster: myMon.name, targetMonster: targetMon.name,
+    winner: winnerName, winnerMonster: winnerMonster.name, loserMonster: loserMonster.name,
+    move,
+  })
+  setTimeout(() => sendChatToRoom(djId, line), 400)
 }
 
 // ══════════════════════════════════════════════════════
@@ -12133,6 +12529,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     startLottoAutoTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
     startStockTimers(djId, liveId)
+    // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
+    startMonsterCatchTimer(djId)
     // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
     try {
       const s = store.getSettings(djId) || {}
@@ -12218,6 +12616,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
           handleWeatherCommand(djId, room, settings, author, authorId, text)
+          handleMonsterCatchCommand(djId, room, settings, author, actTag, text)
+          handleMonsterCatchChatBallHook(djId, settings, author, actTag)
+          handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
+          handleMonsterEvolveCommand(djId, room, settings, author, actTag, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
@@ -12384,6 +12786,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
+          handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -12731,6 +13134,81 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
     return res.json({ success: false, error: e.message })
   }
   res.json({ success: true, deletedCount, freedMB: Math.round(freedBytes / 1024 / 1024 * 10) / 10 })
+})
+
+// 🐾 몬스터 잡기 — 설정 조회/저장 + 도감(수집 현황) 조회
+app.get('/monstercatch/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getMonsterCatchSettings(req.djId, settings) })
+})
+app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', req.djId)) return res.json({ success: false, error: '몬스터 잡기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mc = getMonsterCatchSettings(req.djId, settings)
+  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
+    cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount,
+    msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgGiftBall,
+    cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve } = req.body || {}
+  if (enabled != null) mc.enabled = !!enabled
+  if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
+  if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
+  if (catchMode === 'first' || catchMode === 'all') mc.catchMode = catchMode
+  if (cmdCatch != null) mc.cmdCatch = String(cmdCatch).trim() || '!잡기'
+  if (cmdDex != null) mc.cmdDex = String(cmdDex).trim() || '!도감'
+  if (spawnMsg != null) mc.spawnMsg = spawnMsg
+  if (catchSuccessMsg != null) mc.catchSuccessMsg = catchSuccessMsg
+  if (catchFailMsg != null) mc.catchFailMsg = catchFailMsg
+  if (despawnMsg != null) mc.despawnMsg = despawnMsg
+  if (cmdStart != null) mc.cmdStart = String(cmdStart).trim() || '!모험시작'
+  if (cmdBag != null) mc.cmdBag = String(cmdBag).trim() || '!포획볼'
+  if (cmdBuyBall != null) mc.cmdBuyBall = String(cmdBuyBall).trim() || '!포획볼구매'
+  if (startBalls != null) mc.startBalls = Math.max(0, Math.min(999, parseInt(startBalls, 10) || 5))
+  if (buyPrice != null) mc.buyPrice = Math.max(1, Math.min(9999, parseInt(buyPrice, 10) || 10))
+  if (chatBallChance != null) mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+  if (giftBallChance != null) mc.giftBallChance = Math.max(0, Math.min(100, Number(giftBallChance) || 0))
+  if (giftBallCount != null) mc.giftBallCount = Math.max(1, Math.min(99, parseInt(giftBallCount, 10) || 1))
+  if (msgStart != null) mc.msgStart = msgStart
+  if (msgAlreadyStarted != null) mc.msgAlreadyStarted = msgAlreadyStarted
+  if (msgBag != null) mc.msgBag = msgBag
+  if (msgNoBalls != null) mc.msgNoBalls = msgNoBalls
+  if (msgNoAdventure != null) mc.msgNoAdventure = msgNoAdventure
+  if (msgBuySuccess != null) mc.msgBuySuccess = msgBuySuccess
+  if (msgBuyFail != null) mc.msgBuyFail = msgBuyFail
+  if (msgChatBall != null) mc.msgChatBall = msgChatBall
+  if (msgGiftBall != null) mc.msgGiftBall = msgGiftBall
+  if (req.body && req.body.cmdBattle != null) mc.cmdBattle = String(req.body.cmdBattle).trim() || '!대결'
+  if (req.body && req.body.msgBattleUsage != null) mc.msgBattleUsage = req.body.msgBattleUsage
+  if (req.body && req.body.msgBattleSelfError != null) mc.msgBattleSelfError = req.body.msgBattleSelfError
+  if (req.body && req.body.msgBattleNoMonsters != null) mc.msgBattleNoMonsters = req.body.msgBattleNoMonsters
+  if (req.body && req.body.msgBattleTargetNoMonsters != null) mc.msgBattleTargetNoMonsters = req.body.msgBattleTargetNoMonsters
+  if (req.body && req.body.msgBattleResult != null) mc.msgBattleResult = req.body.msgBattleResult
+  if (cmdEvolve != null) mc.cmdEvolve = String(cmdEvolve).trim() || '!진화'
+  if (autoEvolve != null) mc.autoEvolve = !!autoEvolve
+  if (msgEvolveUsage != null) mc.msgEvolveUsage = msgEvolveUsage
+  if (msgEvolveNotFound != null) mc.msgEvolveNotFound = msgEvolveNotFound
+  if (msgEvolveNoTarget != null) mc.msgEvolveNoTarget = msgEvolveNoTarget
+  if (msgEvolveFail != null) mc.msgEvolveFail = msgEvolveFail
+  if (msgEvolveSuccess != null) mc.msgEvolveSuccess = msgEvolveSuccess
+  if (msgAutoEvolve != null) mc.msgAutoEvolve = msgAutoEvolve
+  if (Array.isArray(monsters)) {
+    mc.monsters = monsters.map((m, i) => ({
+      id: m.id && !String(m.id).startsWith('new') ? m.id : ('mon' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      name: String(m.name || '').trim().slice(0, 40),
+      image: String(m.image || ''),
+      weight: Math.max(1, Math.min(1000, parseInt(m.weight, 10) || 10)),
+      catchRate: Math.max(1, Math.min(100, parseInt(m.catchRate, 10) || 50)),
+      power: Math.max(1, Math.min(9999, parseInt(m.power, 10) || 10)),
+      trait: String(m.trait || '').trim().slice(0, 60),
+      moves: Array.isArray(m.moves)
+        ? m.moves.map(x => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
+        : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
+      evolvesTo: String(m.evolvesTo || '').trim(),
+      evolveCount: Math.max(1, Math.min(999, parseInt(m.evolveCount, 10) || 10)),
+    })).filter(m => m.name)
+  }
+  store.saveSettings(req.djId, { monsterCatch: mc })
+  startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
+  res.json({ success: true, settings: mc })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
