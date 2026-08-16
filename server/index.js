@@ -1848,6 +1848,14 @@ function getMonsterCatchSettings(djId, settings) {
       msgEvolveFail: '⚠️ [{monster}] {need}마리가 필요해요! (현재 {owned}마리 보유)',
       msgEvolveSuccess: '✨ {nickname}님의 [{monster}] {need}마리가 진화해서 [{targetMonster}]이(가) 되었습니다!',
       msgAutoEvolve: '✨ {nickname}님의 [{monster}]이(가) 자동으로 진화해서 [{targetMonster}]이(가) 되었습니다!',
+
+      // 🗑️ 유저 정보 리셋 — DJ/매니저 전용. 고유닉을 지정해서 그 사람의 몬스터잡기 정보(포획볼/
+      // 고급볼/도감/채팅카운트)만 초기화한다. 전역 공용 데이터라 어느 디제이 방에서 써도 동일하게 반영됨.
+      cmdUserReset: '!리셋',
+      msgUserResetUsage: '⚠️ 사용법: {cmdUserReset} [고유닉]',
+      msgUserResetNoAuth: '⚠️ DJ 또는 매니저만 사용할 수 있어요.',
+      msgUserResetNotFound: "⚠️ '{target}'님의 몬스터잡기 정보가 없어요.",
+      msgUserResetSuccess: '🗑️ {target}님의 몬스터잡기 정보를 초기화했어요.',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
   }
@@ -1899,6 +1907,11 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgEvolveFail == null) mc.msgEvolveFail = '⚠️ [{monster}] {need}마리가 필요해요! (현재 {owned}마리 보유)'
   if (mc.msgEvolveSuccess == null) mc.msgEvolveSuccess = '✨ {nickname}님의 [{monster}] {need}마리가 진화해서 [{targetMonster}]이(가) 되었습니다!'
   if (mc.msgAutoEvolve == null) mc.msgAutoEvolve = '✨ {nickname}님의 [{monster}]이(가) 자동으로 진화해서 [{targetMonster}]이(가) 되었습니다!'
+  if (mc.cmdUserReset == null) mc.cmdUserReset = '!리셋'
+  if (mc.msgUserResetUsage == null) mc.msgUserResetUsage = '⚠️ 사용법: {cmdUserReset} [고유닉]'
+  if (mc.msgUserResetNoAuth == null) mc.msgUserResetNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
+  if (mc.msgUserResetNotFound == null) mc.msgUserResetNotFound = "⚠️ '{target}'님의 몬스터잡기 정보가 없어요."
+  if (mc.msgUserResetSuccess == null) mc.msgUserResetSuccess = '🗑️ {target}님의 몬스터잡기 정보를 초기화했어요.'
 
   // 🌐 포획볼/고급볼/도감(잡은 몬스터)/채팅카운트는 디제이별로 따로 두지 않고, 전체 플랫폼
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
@@ -1975,6 +1988,7 @@ function mcFormat(tpl, data) {
     .replace(/{need}/g, v(data.need))
     .replace(/{owned}/g, v(data.owned))
     .replace(/{cmdEvolve}/g, data.cmdEvolve || '')
+    .replace(/{cmdUserReset}/g, data.cmdUserReset || '')
 }
 
 function mcPickMonster(mc) {
@@ -2044,11 +2058,34 @@ function spawnMonster(djId) {
   }, sec * 1000)
 }
 
-function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
+function handleMonsterCatchCommand(djId, room, settings, author, tag, text, authorId) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   const msg = String(text || '').trim()
   const key = String(tag || '').trim().toLowerCase()
+
+  // 🗑️ !리셋 [고유닉] — DJ/매니저 전용. 고유닉 조회가 실패해서(key가 비어있어도) 관리자가
+  // 다른 유저를 지정해서 리셋할 수 있어야 하므로, 아래는 key(자기 자신의 고유닉) 확인보다 먼저 처리한다.
+  const cmdUserReset = mc.cmdUserReset || '!리셋'
+  if (msg === cmdUserReset || msg.startsWith(cmdUserReset + ' ')) {
+    const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    const act = getActivitySettings(djId, settings)
+    const isManager = !isDj && (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+    if (!isDj && !isManager) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgUserResetNoAuth, {})), 400); return }
+    const targetRaw = msg.slice(cmdUserReset.length).trim()
+    if (!targetRaw) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgUserResetUsage, { cmdUserReset })), 400); return }
+    const targetKey = targetRaw.replace('@', '').trim().toLowerCase()
+    const existed = mc.bags[targetKey] != null || mc.collections[targetKey] != null || mc.greatBags[targetKey] != null || mc.chatCounts[targetKey] != null
+    if (!existed) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgUserResetNotFound, { target: targetRaw })), 400); return }
+    delete mc.bags[targetKey]
+    delete mc.greatBags[targetKey]
+    delete mc.collections[targetKey]
+    delete mc.chatCounts[targetKey]
+    mcSaveUserData()
+    setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgUserResetSuccess, { target: targetRaw })), 400)
+    return
+  }
+
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
 
   // 🎒 !모험시작 — 최초 1회, 기본 포획볼 지급
@@ -12841,7 +12878,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
           handleWeatherCommand(djId, room, settings, author, authorId, text)
-          handleMonsterCatchCommand(djId, room, settings, author, actTag, text)
+          handleMonsterCatchCommand(djId, room, settings, author, actTag, text, authorId)
           handleMonsterCatchShopCommand(djId, settings, author, text)
           handleMonsterCatchHelpCommand(djId, settings, text)
           handleMonsterCatchChatBallHook(djId, settings, author, actTag)
