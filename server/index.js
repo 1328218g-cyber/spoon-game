@@ -16062,6 +16062,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (moduleVisible) patch.moduleVisible = moduleVisible
   if (typeof useDefaultEntryMessages === 'boolean') patch.useDefaultEntryMessages = useDefaultEntryMessages
   store.saveSettings(req.djId, patch)
+  // 🐾 사이드바에서 "몬스터 잡기" 모듈을 껐다/켰다 하면, 몬스터잡기 설정 페이지에 따로 안
+  // 들어가도 바로 스폰 타이머가 다시 계산되도록 여기서도 재시작해준다. (끄면 알아서 멈추고,
+  // 켜면 그 즉시 설정값 그대로 다시 돈다 — 방송 이미 켜진 상태에서 모듈만 켜도 동작해야 함)
+  if (moduleEnabled && Object.prototype.hasOwnProperty.call(moduleEnabled, 'monstercatch')) {
+    startMonsterCatchTimer(req.djId)
+  }
   res.json({ success: true })
 })
 
