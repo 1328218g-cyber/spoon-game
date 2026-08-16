@@ -2285,6 +2285,44 @@ function handleMonsterCatchShopCommand(djId, settings, author, text) {
   setTimeout(() => sendChatToRoom(djId, text2), 400)
 }
 
+// 🐾 !몬스터도움말 / !몬스터명령어 — 이 방에서 실제로 쓰이는(디제이가 커스텀했으면 그 값 그대로)
+// 몬스터 잡기 관련 명령어를 전부 정리해서 안내한다. 다른 모듈의 *도움말 패턴과 동일한 방식.
+function handleMonsterCatchHelpCommand(djId, settings, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const msg = String(text || '').trim()
+  if (msg !== '!몬스터도움말' && msg !== '!몬스터명령어') return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const cmdCatch = mc.cmdCatch || '!잡기'
+  const cmdDex = mc.cmdDex || '!도감'
+  const cmdStart = mc.cmdStart || '!모험시작'
+  const cmdBag = mc.cmdBag || '!포획볼'
+  const cmdBuyBall = mc.cmdBuyBall || '!포획볼구매'
+  const cmdBattle = mc.cmdBattle || '!대결'
+  const cmdEvolve = mc.cmdEvolve || '!진화'
+  const cmdShop = (mc.shop && mc.shop.cmdShop) || '!상점'
+  const modeLabel = mc.catchMode === 'all' ? '각자 확률판정 (콤보로 여러 명 동시 시도 가능)' : '선착순 1명 (첫 시도자 무조건 성공)'
+  const spawnMin = mc.spawnIntervalMin || 5
+  const catchSec = mc.catchWindowSec || 60
+
+  const lines = [
+    '🐾 몬스터 잡기 명령어',
+    '',
+    `📢 채팅에 랜덤 몬스터가 ${spawnMin}분마다 등장해요 (${catchSec}초 안에 ${cmdCatch}로 잡아야 해요) · 현재 방식: ${modeLabel}`,
+    '',
+    `${cmdStart} — 처음 한 번, 모험 시작 + 기본 포획볼 지급 (이거 먼저 해야 아래 명령어들 사용 가능)`,
+    `${cmdCatch} — 지금 등장한 몬스터 잡기 시도 (포획볼 1개 소모, 고급몬스터볼 있으면 그거 먼저 사용)`,
+    `${cmdBag} — 내 포획볼/고급몬스터볼 보유 개수 확인`,
+    `${cmdBuyBall} [수량] — 복권으로 포획볼 구매 (예: ${cmdBuyBall} 3)`,
+    `${cmdDex} — 내가 잡은 몬스터 도감 확인`,
+    `${cmdEvolve} [몬스터이름] — 같은 몬스터를 정해진 마리 수만큼 모아서 진화${mc.autoEvolve ? ' (자동진화 켜져있어서 조건 채우면 자동으로도 진화돼요)' : ''}`,
+    `${cmdBattle} [상대 고유닉] — 서로 가장 강한 몬스터로 대결`,
+    `${cmdShop} — 상점 목록 확인 (지정 스티커 선물하거나 지정 스푼 후원하면 포획볼/고급몬스터볼/희귀상자 자동 지급)`,
+    '',
+    '💡 채팅을 치거나 선물을 보내면 확률적으로/일정 횟수마다 포획볼을 추가로 얻을 수도 있어요.',
+  ]
+  sendChatSplit(djId, lines.join('\n'), 150, 600)
+}
+
 // ⚔️ !대결 [고유닉] — 각자 보유 몬스터 중 가장 강한 걸(공격력 기준)로 자동 대결. 승률은 두
 // 공격력의 비율로 계산해서, 약한 쪽도 이길 가능성은 있지만 강한 쪽이 유리하게 설계했다.
 function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
@@ -12764,6 +12802,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleWeatherCommand(djId, room, settings, author, authorId, text)
           handleMonsterCatchCommand(djId, room, settings, author, actTag, text)
           handleMonsterCatchShopCommand(djId, settings, author, text)
+          handleMonsterCatchHelpCommand(djId, settings, text)
           handleMonsterCatchChatBallHook(djId, settings, author, actTag)
           handleMonsterCatchChatCountHook(djId, settings, author, actTag)
           handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
