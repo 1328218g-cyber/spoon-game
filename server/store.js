@@ -615,7 +615,7 @@ function loadGlobalMonsterDex() {
     // 전부 합쳐서 하나의 전역 저장소로 옮긴다. 포획볼/고급볼/도감 보유수는 합산(SUM), 채팅
         // 카운트는 최대값(MAX)으로 합쳐서, 이미 모아둔 걸 잃어버리지 않게 한다. 파일이 한 번
     // 만들어진 뒤로는 이 마이그레이션이 다시 실행되지 않는다.
-    const merged = { bags: {}, greatBags: {}, collections: {}, chatCounts: {} };
+    const merged = { bags: {}, greatBags: {}, collections: {}, chatCounts: {}, catalog: {} };
     try {
       const djs = loadDjs();
       Object.values(djs).forEach(dj => {
@@ -630,6 +630,11 @@ function loadGlobalMonsterDex() {
             merged.collections[k][monId] = (merged.collections[k][monId] || 0) + (Number(cnt) || 0);
           });
         });
+        // 🐾 이름/이미지 도감(카탈로그)도 디제이들이 그동안 등록해둔 몬스터 목록에서 합쳐온다 —
+        // 그래야 다른 디제이 방에 가서 !도감을 쳐도 그 몬스터 이름이 뜬다 (그 방에 등록 안 돼있어도).
+        (mc.monsters || []).forEach(m => {
+          if (m && m.id && m.name) merged.catalog[m.id] = { name: m.name, image: m.image || '', legendary: !!m.legendary };
+        });
       });
       if (Object.keys(merged.bags).length) console.log(`[store] 🌐 몬스터 잡기 유저 데이터 ${Object.keys(merged.bags).length}명분을 전역 저장소로 1회 마이그레이션했어요.`);
     } catch (e) {
@@ -642,7 +647,42 @@ function loadGlobalMonsterDex() {
   if (!_globalMcCache.greatBags) _globalMcCache.greatBags = {};
   if (!_globalMcCache.collections) _globalMcCache.collections = {};
   if (!_globalMcCache.chatCounts) _globalMcCache.chatCounts = {};
+  if (!_globalMcCache.catalog) {
+    // 이미 예전 버전으로 globalMonsterDex.json이 만들어져 있던 서버라면 위 마이그레이션 블록을
+    // 안 타고 여기로 오는데, 그 경우에도 카탈로그(몬스터 이름/이미지)만큼은 지금 등록돼 있는
+    // 디제이들 목록에서 즉시 한 번 채워준다 — 그래야 다들 다시 저장 누를 필요 없이 바로 반영됨.
+    _globalMcCache.catalog = {};
+    try {
+      const djs = loadDjs();
+      Object.values(djs).forEach(dj => {
+        const mc = dj && dj.settings && dj.settings.monsterCatch;
+        (mc && mc.monsters || []).forEach(m => {
+          if (m && m.id && m.name) _globalMcCache.catalog[m.id] = { name: m.name, image: m.image || '', legendary: !!m.legendary };
+        });
+      });
+      if (Object.keys(_globalMcCache.catalog).length) {
+        console.log(`[store] 🐾 몬스터 카탈로그 ${Object.keys(_globalMcCache.catalog).length}종을 기존 디제이 목록에서 즉시 채워넣었어요.`);
+        saveGlobalMonsterDex();
+      }
+    } catch (e) {
+      console.log('[store] 몬스터 카탈로그 백필 중 오류:', e.message);
+    }
+  }
   return _globalMcCache;
+}
+
+// 디제이가 몬스터 목록을 저장할 때마다 호출 — 그 몬스터들의 id/이름/이미지를 전역 카탈로그에
+// 업서트한다. 다른 디제이 방에서 !도감 쳤을 때 이름을 찾는 용도(이 디제이가 "정답" 소스는 아니고,
+// 그냥 마지막으로 저장한 값으로 갱신됨 — 같은 id를 여러 디제이가 다르게 쓰면 마지막 저장이 이김).
+function upsertMonsterCatalog(monsters) {
+  const dex = loadGlobalMonsterDex();
+  let changed = false;
+  (monsters || []).forEach(m => {
+    if (!m || !m.id || !m.name) return;
+    dex.catalog[m.id] = { name: m.name, image: m.image || '', legendary: !!m.legendary };
+    changed = true;
+  });
+  if (changed) saveGlobalMonsterDex();
 }
 
 // 원자적 저장 — djs.json과 동일한 tmp파일 후 rename 방식.
@@ -811,4 +851,5 @@ module.exports = {
   mergeDjBackupSubset,
   loadGlobalMonsterDex,
   saveGlobalMonsterDex,
+  upsertMonsterCatalog,
 };
