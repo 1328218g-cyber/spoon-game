@@ -1904,11 +1904,28 @@ function getMonsterCatchSettings(djId, settings) {
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
   // 방에 가서도 이어서 쓸 수 있게 하기 위함. mc.bags 등은 이제부터 이 공용 객체의 참조라서,
   // 여기서 값을 바꾸면 바로 다른 디제이의 mc에도 똑같이 반영된다 (같은 객체를 보고 있으므로).
-  const globalDex = store.loadGlobalMonsterDex()
+  let globalDex
+  try {
+    globalDex = store.loadGlobalMonsterDex()
+  } catch (e) {
+    console.log('[몬스터잡기] 전역 유저 데이터 로드 실패, 임시 빈 데이터로 대체:', e && e.message)
+    globalDex = { bags: {}, greatBags: {}, collections: {}, chatCounts: {} }
+  }
   mc.bags = globalDex.bags
   mc.greatBags = globalDex.greatBags
   mc.collections = globalDex.collections
   mc.chatCounts = globalDex.chatCounts
+
+  // 🐾 자동 카탈로그 동기화(self-heal) — 예전엔 "저장" 버튼을 눌러야만 이 디제이의 몬스터
+  // 목록이 전역 카탈로그(globalMonsterDex.json)에 반영됐다. 그래서 저장이 누락된 경우
+  // (예: 일괄등록 후 저장을 안 누른 경우) 다른 디제이 방에서 !도감을 치면 이 디제이가
+  // 등록해둔 몬스터 이름을 못 찾아서 "(알 수 없는 몬스터 #id)"로 깨지는 문제가 있었다.
+  // 설정을 불러올 때마다(=이 함수가 호출될 때마다) 가볍게 동기화해서 이런 누락을 스스로
+  // 고치도록 한다. upsertMonsterCatalog는 실제로 값이 달라질 때만 저장하므로 대부분의
+  // 호출에서는 비교만 하고 끝나 비용이 거의 없다.
+  if (mc.monsters && mc.monsters.length) {
+    try { store.upsertMonsterCatalog(mc.monsters) } catch (e) {}
+  }
   return mc
 }
 
@@ -1991,11 +2008,15 @@ function startMonsterCatchTimer(djId) {
   const room = getRoom(djId)
   if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled || !mc.monsters.length) return
+  if (!mc.enabled) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — "몬스터 잡기 활성화" 체크가 꺼져있어요`); return }
+  if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
-  room.monsterCatchTimer = setInterval(() => spawnMonster(djId), min * 60 * 1000)
+  room.monsterCatchTimer = setInterval(() => {
+    try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 스폰 중 오류:`, e && e.stack || e) }
+  }, min * 60 * 1000)
+  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
 }
 
 function spawnMonster(djId) {
@@ -2004,14 +2025,15 @@ function spawnMonster(djId) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  if (room._activeMonster) return // 이미 등장 중이면 중복 스폰 방지
+  if (room._activeMonster) { console.log(`[몬스터잡기][${djId}] 스폰 건너뜀 — 이미 [${room._activeMonster.name}]이(가) 등장 중`); return }
   const picked = mcPickMonster(mc)
-  if (!picked) return
+  if (!picked) { console.log(`[몬스터잡기][${djId}] 스폰 실패 — 등장 가능한(가중치>0) 몬스터가 없어요`); return }
   const sec = Math.max(5, Math.min(600, parseInt(mc.catchWindowSec, 10) || 60))
   room._activeMonster = { id: picked.id, name: picked.name, catchRate: picked.catchRate, caught: false, attempted: new Set() }
   const tpl = picked.legendary ? (mc.legendarySpawnMsg || mc.spawnMsg) : mc.spawnMsg
   const msg = mcFormat(tpl, { monster: picked.name, cmd: mc.cmdCatch || '!잡기', sec })
   if (msg) sendChatToRoom(djId, msg)
+  console.log(`[몬스터잡기][${djId}] [${picked.name}] 등장${picked.legendary ? ' (전설)' : ''}`)
   room._activeMonsterTimeout = setTimeout(() => {
     const active = room._activeMonster
     if (active && !active.caught) {
@@ -2026,7 +2048,8 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   const msg = String(text || '').trim()
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
 
   // 🎒 !모험시작 — 최초 1회, 기본 포획볼 지급
   if (msg === (mc.cmdStart || '!모험시작')) {
@@ -2075,11 +2098,22 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
     const owned = mc.collections[key] || {}
     const total = Object.values(owned).reduce((s, n) => s + n, 0)
     if (!total) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
+    // 🐾 이름 조회는 이 방의 몬스터 목록을 먼저 보고, 없으면 전역 카탈로그(다른 디제이가 등록해둔 것)에서 찾는다.
+    // 그래야 이 방에 그 몬스터가 등록 안 돼있어도(=이 방의 mc.monsters에 없어도) 잡은 몬스터 이름이 제대로 보인다.
+    let catalog = {}
+    try { catalog = store.loadGlobalMonsterDex().catalog || {} } catch (e) {}
+    const localById = {}
+    mc.monsters.forEach(m => { localById[m.id] = m })
+    const nameOf = id => (localById[id] && localById[id].name) || (catalog[id] && catalog[id].name) || `(알 수 없는 몬스터 #${id})`
     const typesCount = Object.keys(owned).filter(id => owned[id] > 0).length
-    const totalTypes = mc.monsters.length
-    const lines = mc.monsters
-      .filter(m => owned[m.id] > 0)
-      .map(m => `${m.name} x${owned[m.id]}`)
+    // 🐾 이 방의 로컬 몬스터 목록과 전역 카탈로그를 합집합으로 계산한다. Math.max로는 둘 중
+    // 한쪽이 비어있을 때(예: 이 방엔 몬스터가 등록 안 돼있고 카탈로그도 아직 안 채워진 경우)
+    // 실제보다 훨씬 작은 값(심하면 0)이 나와서 "9/0종"처럼 이상하게 보이는 문제가 있었다.
+    const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
+    const totalTypes = allKnownIds.size
+    const lines = Object.keys(owned)
+      .filter(id => owned[id] > 0)
+      .map(id => `${nameOf(id)} x${owned[id]}`)
       .join(', ')
     setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)\n${lines}`), 400)
     return
@@ -2152,7 +2186,8 @@ function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
   const target = mc.monsters.find(m => m.id === mon.evolvesTo)
   if (!target) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
 
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
   const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
   if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: mon.name, need, owned })), 400); return }
@@ -2183,9 +2218,11 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
   const chance = Math.max(0, Math.min(100, Number(mc.chatBallChance) || 0))
+  console.log(`[몬스터잡기][${djId}] 채팅확률 체크 — author=${author} chatBallChance(저장값)=${mc.chatBallChance} 계산된chance=${chance}`)
   if (chance <= 0 || Math.random() * 100 >= chance) return
   mc.bags[key] += 1
   mcSaveUserData()
@@ -2197,7 +2234,8 @@ function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
   const threshold = Math.max(1, parseInt(mc.chatCountThreshold, 10) || 5)
   const reward = Math.max(1, parseInt(mc.chatCountReward, 10) || 1)
@@ -2214,7 +2252,8 @@ function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return
   const chance = Math.max(0, Math.min(100, Number(mc.giftBallChance) || 0))
   if (chance <= 0 || Math.random() * 100 >= chance) return
@@ -2231,7 +2270,8 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 상점 이용 대상 아님
   const items = (mc.shop && Array.isArray(mc.shop.items)) ? mc.shop.items : []
   if (!items.length) return
@@ -2335,7 +2375,8 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
   const targetNick = msg.slice(cmdBattle.length).trim()
   if (!targetNick) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleUsage, { cmdBattle })), 400); return }
 
-  const key = String(tag || author || '').trim().toLowerCase()
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   const targetKey = targetNick.toLowerCase()
   if (key === targetKey) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleSelfError, { nickname: author })), 400); return }
 
@@ -13353,7 +13394,10 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (cmdBuyBall != null) mc.cmdBuyBall = String(cmdBuyBall).trim() || '!포획볼구매'
   if (startBalls != null) mc.startBalls = Math.max(0, Math.min(999, parseInt(startBalls, 10) || 5))
   if (buyPrice != null) mc.buyPrice = Math.max(1, Math.min(9999, parseInt(buyPrice, 10) || 10))
-  if (chatBallChance != null) mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+  if (chatBallChance != null) {
+    mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+    console.log(`[몬스터잡기][${req.djId}] 저장 요청 받은 chatBallChance=${JSON.stringify(chatBallChance)} → 실제 저장값=${mc.chatBallChance}`)
+  }
   if (giftBallChance != null) mc.giftBallChance = Math.max(0, Math.min(100, Number(giftBallChance) || 0))
   if (giftBallCount != null) mc.giftBallCount = Math.max(1, Math.min(99, parseInt(giftBallCount, 10) || 1))
   if (chatCountThreshold != null) mc.chatCountThreshold = Math.max(1, Math.min(999, parseInt(chatCountThreshold, 10) || 5))
@@ -13420,6 +13464,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
       evolveCount: Math.max(1, Math.min(999, parseInt(m.evolveCount, 10) || 10)),
       legendary: !!m.legendary,
     })).filter(m => m.name)
+    store.upsertMonsterCatalog(mc.monsters) // 🐾 다른 디제이 방에서도 이름/이미지가 뜨도록 전역 카탈로그에 반영
   }
   mcSaveConfig(req.djId, mc)
   startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
@@ -16051,6 +16096,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (moduleVisible) patch.moduleVisible = moduleVisible
   if (typeof useDefaultEntryMessages === 'boolean') patch.useDefaultEntryMessages = useDefaultEntryMessages
   store.saveSettings(req.djId, patch)
+  // 🐾 사이드바에서 "몬스터 잡기" 모듈을 껐다/켰다 하면, 몬스터잡기 설정 페이지에 따로 안
+  // 들어가도 바로 스폰 타이머가 다시 계산되도록 여기서도 재시작해준다. (끄면 알아서 멈추고,
+  // 켜면 그 즉시 설정값 그대로 다시 돈다 — 방송 이미 켜진 상태에서 모듈만 켜도 동작해야 함)
+  if (moduleEnabled && Object.prototype.hasOwnProperty.call(moduleEnabled, 'monstercatch')) {
+    startMonsterCatchTimer(req.djId)
+  }
   res.json({ success: true })
 })
 
