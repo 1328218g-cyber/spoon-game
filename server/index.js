@@ -1904,7 +1904,13 @@ function getMonsterCatchSettings(djId, settings) {
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
   // 방에 가서도 이어서 쓸 수 있게 하기 위함. mc.bags 등은 이제부터 이 공용 객체의 참조라서,
   // 여기서 값을 바꾸면 바로 다른 디제이의 mc에도 똑같이 반영된다 (같은 객체를 보고 있으므로).
-  const globalDex = store.loadGlobalMonsterDex()
+  let globalDex
+  try {
+    globalDex = store.loadGlobalMonsterDex()
+  } catch (e) {
+    console.log('[몬스터잡기] 전역 유저 데이터 로드 실패, 임시 빈 데이터로 대체:', e && e.message)
+    globalDex = { bags: {}, greatBags: {}, collections: {}, chatCounts: {} }
+  }
   mc.bags = globalDex.bags
   mc.greatBags = globalDex.greatBags
   mc.collections = globalDex.collections
@@ -1991,11 +1997,15 @@ function startMonsterCatchTimer(djId) {
   const room = getRoom(djId)
   if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled || !mc.monsters.length) return
+  if (!mc.enabled) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — "몬스터 잡기 활성화" 체크가 꺼져있어요`); return }
+  if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
-  room.monsterCatchTimer = setInterval(() => spawnMonster(djId), min * 60 * 1000)
+  room.monsterCatchTimer = setInterval(() => {
+    try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 스폰 중 오류:`, e && e.stack || e) }
+  }, min * 60 * 1000)
+  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
 }
 
 function spawnMonster(djId) {
@@ -2004,14 +2014,15 @@ function spawnMonster(djId) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.enabled) return
-  if (room._activeMonster) return // 이미 등장 중이면 중복 스폰 방지
+  if (room._activeMonster) { console.log(`[몬스터잡기][${djId}] 스폰 건너뜀 — 이미 [${room._activeMonster.name}]이(가) 등장 중`); return }
   const picked = mcPickMonster(mc)
-  if (!picked) return
+  if (!picked) { console.log(`[몬스터잡기][${djId}] 스폰 실패 — 등장 가능한(가중치>0) 몬스터가 없어요`); return }
   const sec = Math.max(5, Math.min(600, parseInt(mc.catchWindowSec, 10) || 60))
   room._activeMonster = { id: picked.id, name: picked.name, catchRate: picked.catchRate, caught: false, attempted: new Set() }
   const tpl = picked.legendary ? (mc.legendarySpawnMsg || mc.spawnMsg) : mc.spawnMsg
   const msg = mcFormat(tpl, { monster: picked.name, cmd: mc.cmdCatch || '!잡기', sec })
   if (msg) sendChatToRoom(djId, msg)
+  console.log(`[몬스터잡기][${djId}] [${picked.name}] 등장${picked.legendary ? ' (전설)' : ''}`)
   room._activeMonsterTimeout = setTimeout(() => {
     const active = room._activeMonster
     if (active && !active.caught) {
