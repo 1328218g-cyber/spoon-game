@@ -3388,6 +3388,33 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>🏪 상점</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addMcShopItem()">+ 아이템 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">시청자가 지정한 스티커를 선물하거나 지정 스푼을 후원하면 자동으로 아이템이 지급돼요. 모험을 시작한(!모험시작을 친 적 있는) 유저에게만 적용돼요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>상점 목록 조회 명령어</label><input type="text" id="mcCmdShop" value="!상점"></div>
+            <div><label>고급몬스터볼 잡기확률 보너스 (%p)</label><input type="number" id="mcGreatBallBonus" value="5" min="0" max="100"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">고급몬스터볼 보너스는 "각자 확률판정" 모드에서만 적용돼요. "선착순" 모드는 첫 시도자가 항상 성공해서 보너스가 의미 없어요.</div>
+          <div id="mcShopItemsWrap" style="display:flex;flex-direction:column;gap:12px;margin-top:14px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">💬 상점 안내 멘트 커스텀</div>
+          <label style="margin-top:0">!상점 목록 안내</label>
+          <textarea id="mcMsgShopList" style="height:64px">🏪 상점 목록
+{목록}
+💡 스티커를 선물하거나 지정된 스푼을 후원하면 자동으로 지급돼요!</textarea>
+          <div class="hint" style="margin-top:4px">변수: {목록} (등록된 아이템 목록이 자동으로 들어가요)</div>
+          <label style="margin-top:10px">몬스터볼 구매 완료</label>
+          <textarea id="mcMsgBuyBall" style="height:56px">🎾 {nickname}님이 몬스터볼 {amount}개를 구매했어요! (보유: {balls}개)</textarea>
+          <label style="margin-top:10px">고급몬스터볼 구매 완료</label>
+          <textarea id="mcMsgBuyGreatBall" style="height:56px">🌟 {nickname}님이 고급몬스터볼 {amount}개를 구매했어요! (보유: {greatBalls}개)</textarea>
+          <label style="margin-top:10px">희귀상자 개봉 결과</label>
+          <textarea id="mcMsgBuyBox" style="height:56px">🎁 {nickname}님이 희귀상자를 열어 [{monster}]을(를) 획득했어요!</textarea>
+          <div class="hint" style="margin-top:8px">변수: {nickname}, {amount}, {balls}, {greatBalls}, {monster}</div>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>👾 몬스터 도감 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="bulkAddPokemonGen1()">🔴 포켓몬 1세대 등록</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openMcBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addMcMonster()">+ 몬스터 추가</button></div></div>
           <p class="hint" style="margin-bottom:12px">등장시킬 몬스터를 스티커로 골라주세요. 등장 가중치가 높을수록 자주 나오고, 잡기 확률은 "각자 확률판정" 모드일 때만 사용돼요. 공격력/특성/필살기는 아래 ⚔️ 대결(PvP)에서 쓰여요 — 전부 자유롭게 직접 지어주시면 돼요.</p>
           <div id="mcMonstersWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
@@ -8787,8 +8814,10 @@ async function saveTrophyBoard(){
 
 /* ── 🐾 몬스터 잡기 ── */
 let mcMonsters=[];
+let mcShopItems=[];
 let mcEditingIndex=null;
 let mcIdSeq=1;
+let mcShopIdSeq=1;
 
 async function loadMonsterCatch(){
   try{
@@ -8817,6 +8846,7 @@ async function loadMonsterCatch(){
     document.getElementById('mcGiftBallCount').value=s.giftBallCount||1;
     document.getElementById('mcChatCountThreshold').value=s.chatCountThreshold!=null?s.chatCountThreshold:5;
     document.getElementById('mcChatCountReward').value=s.chatCountReward!=null?s.chatCountReward:3;
+    document.getElementById('mcGreatBallBonus').value=s.greatBallBonus!=null?s.greatBallBonus:5;
     document.getElementById('mcMsgStart').value=s.msgStart||'';
     document.getElementById('mcMsgAlreadyStarted').value=s.msgAlreadyStarted||'';
     document.getElementById('mcMsgBag').value=s.msgBag||'';
@@ -8841,9 +8871,77 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgEvolveNoTarget').value=s.msgEvolveNoTarget||'';
     document.getElementById('mcMsgEvolveNotFound').value=s.msgEvolveNotFound||'';
     document.getElementById('mcMsgEvolveUsage').value=s.msgEvolveUsage||'';
+    const shop=s.shop||{};
+    document.getElementById('mcCmdShop').value=shop.cmdShop||'!상점';
+    document.getElementById('mcMsgShopList').value=shop.msgShopList||'';
+    document.getElementById('mcMsgBuyBall').value=shop.msgBuyBall||'';
+    document.getElementById('mcMsgBuyGreatBall').value=shop.msgBuyGreatBall||'';
+    document.getElementById('mcMsgBuyBox').value=shop.msgBuyBox||'';
+    mcShopItems=(shop.items||[]).map(x=>({...x}));
+    renderMcShopItems();
     mcMonsters=(s.monsters||[]).map(x=>({...x}));
     renderMcMonsters();
   }catch(e){}
+}
+
+/* ── 🏪 상점 ── */
+const MC_SHOP_KIND_LABEL={ball:'몬스터볼',greatball:'고급몬스터볼',box:'희귀상자'};
+
+function renderMcShopItems(){
+  const wrap=document.getElementById('mcShopItemsWrap');
+  if(!mcShopItems.length){
+    wrap.innerHTML='<div class="hint">등록된 상점 아이템이 없어요. "+ 아이템 추가"로 만들어보세요.</div>';
+    return;
+  }
+  wrap.innerHTML=mcShopItems.map((it,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <input type="text" value="${escapeAttr(it.name||'')}" placeholder="아이템 이름" style="flex:1;font-weight:600" oninput="mcShopItems[${i}].name=this.value">
+        <button class="icon-btn danger" onclick="removeMcShopItemAt(${i})" title="삭제">🗑</button>
+      </div>
+      <div class="btn-row" style="grid-template-columns:1fr 1fr">
+        <div><label>종류</label>
+          <select onchange="mcShopItems[${i}].kind=this.value">
+            <option value="ball" ${it.kind==='ball'?'selected':''}>몬스터볼 (일반)</option>
+            <option value="greatball" ${it.kind==='greatball'?'selected':''}>고급몬스터볼 (+보너스%)</option>
+            <option value="box" ${it.kind==='box'?'selected':''}>희귀상자 (랜덤 몬스터 즉시 지급)</option>
+          </select>
+        </div>
+        <div><label>지급 개수</label><input type="number" min="1" value="${it.grantCount!=null?it.grantCount:1}" oninput="mcShopItems[${i}].grantCount=Number(this.value)||1"></div>
+      </div>
+      <label style="margin-top:8px">구매 방식</label>
+      <select onchange="mcShopItems[${i}].triggerMode=this.value;renderMcShopItems()">
+        <option value="sticker" ${it.triggerMode!=='amount'?'selected':''}>지정 스티커 선물</option>
+        <option value="amount" ${it.triggerMode==='amount'?'selected':''}>지정 스푼 후원</option>
+      </select>
+      ${it.triggerMode==='amount' ? `
+      <label style="margin-top:8px">기준 스푼</label>
+      <input type="number" min="0" value="${it.triggerAmount||0}" oninput="mcShopItems[${i}].triggerAmount=Number(this.value)||0">
+      ` : `
+      <label style="margin-top:8px">대상 스티커 이름</label>
+      <input type="text" value="${escapeAttr(it.triggerSticker||'')}" placeholder="스티커 이름 입력" oninput="mcShopItems[${i}].triggerSticker=this.value">
+      `}
+      <label style="margin-top:8px">지급 방식</label>
+      <select onchange="mcShopItems[${i}].payout=this.value;renderMcShopItems()">
+        <option value="combo" ${it.payout==='combo'||!it.payout?'selected':''}>콤보/개수만큼 그대로 반복</option>
+        <option value="exact" ${it.payout==='exact'?'selected':''}>정확히 1개(1콤보)일 때만</option>
+        <option value="distribute" ${it.payout==='distribute'?'selected':''}>기준 개수당 1회 (배분)</option>
+      </select>
+      ${it.payout==='distribute' ? `
+      <label style="margin-top:8px">배분 기준 개수</label>
+      <input type="number" min="1" value="${it.thresholdCount||1}" oninput="mcShopItems[${i}].thresholdCount=Number(this.value)||1">
+      ` : ``}
+    </div>
+  `).join('');
+}
+
+function addMcShopItem(){
+  mcShopItems.push({id:'new'+(mcShopIdSeq++)+'_'+Date.now(),name:'',kind:'ball',triggerMode:'sticker',triggerSticker:'',triggerAmount:0,payout:'combo',thresholdCount:1,grantCount:1});
+  renderMcShopItems();
+}
+function removeMcShopItemAt(i){
+  mcShopItems.splice(i,1);
+  renderMcShopItems();
 }
 
 function renderMcMonsters(){
@@ -9035,6 +9133,15 @@ async function saveMonsterCatch(){
     msgEvolveNotFound:document.getElementById('mcMsgEvolveNotFound').value,
     msgEvolveUsage:document.getElementById('mcMsgEvolveUsage').value,
     monsters:mcMonsters,
+    greatBallBonus:document.getElementById('mcGreatBallBonus').value,
+    shop:{
+      cmdShop:document.getElementById('mcCmdShop').value,
+      msgShopList:document.getElementById('mcMsgShopList').value,
+      msgBuyBall:document.getElementById('mcMsgBuyBall').value,
+      msgBuyGreatBall:document.getElementById('mcMsgBuyGreatBall').value,
+      msgBuyBox:document.getElementById('mcMsgBuyBox').value,
+      items:mcShopItems,
+    },
   };
   try{
     const res=await fetch(SERVER+'/monstercatch/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
