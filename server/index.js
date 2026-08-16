@@ -1899,7 +1899,35 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgEvolveFail == null) mc.msgEvolveFail = '⚠️ [{monster}] {need}마리가 필요해요! (현재 {owned}마리 보유)'
   if (mc.msgEvolveSuccess == null) mc.msgEvolveSuccess = '✨ {nickname}님의 [{monster}] {need}마리가 진화해서 [{targetMonster}]이(가) 되었습니다!'
   if (mc.msgAutoEvolve == null) mc.msgAutoEvolve = '✨ {nickname}님의 [{monster}]이(가) 자동으로 진화해서 [{targetMonster}]이(가) 되었습니다!'
+
+  // 🌐 포획볼/고급볼/도감(잡은 몬스터)/채팅카운트는 디제이별로 따로 두지 않고, 전체 플랫폼
+  // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
+  // 방에 가서도 이어서 쓸 수 있게 하기 위함. mc.bags 등은 이제부터 이 공용 객체의 참조라서,
+  // 여기서 값을 바꾸면 바로 다른 디제이의 mc에도 똑같이 반영된다 (같은 객체를 보고 있으므로).
+  const globalDex = store.loadGlobalMonsterDex()
+  mc.bags = globalDex.bags
+  mc.greatBags = globalDex.greatBags
+  mc.collections = globalDex.collections
+  mc.chatCounts = globalDex.chatCounts
   return mc
+}
+
+// 🌐 포획볼/도감 등 "유저 공용 데이터"가 바뀌었을 때 저장 — 디제이별 settings 파일이 아니라
+// globalMonsterDex.json 하나에만 반영한다 (mc.bags 등은 이미 그 공용 객체를 직접 참조하고
+// 있으므로, 여기선 디스크에 내려쓰기만 하면 된다).
+function mcSaveUserData() {
+  store.saveGlobalMonsterDex()
+}
+
+// 디제이별 커스텀 설정(멘트/명령어/몬스터 목록/상점 구성 등)만 그 디제이의 settings 파일에 저장한다.
+// mc 안의 bags/greatBags/collections/chatCounts(전역 공용 데이터)는 통째로 노출/중복저장되지
+// 않도록 mcConfigOnly()로 제외한 뒤 저장한다.
+function mcConfigOnly(mc) {
+  const { bags, greatBags, collections, chatCounts, ...configOnly } = mc
+  return configOnly
+}
+function mcSaveConfig(djId, mc) {
+  store.saveSettings(djId, { monsterCatch: mcConfigOnly(mc) })
 }
 
 function mcFormat(tpl, data) {
@@ -2009,7 +2037,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
     const start = Math.max(0, parseInt(mc.startBalls, 10) || 5)
     mc.bags[key] = start
     mc.greatBags[key] = 0
-    store.saveSettings(djId, { monsterCatch: mc })
+    mcSaveUserData()
     setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgStart, { nickname: author, balls: start, cmdCatch: mc.cmdCatch || '!잡기' })), 400)
     return
   }
@@ -2037,7 +2065,8 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
     }
     act.users[actKey].lotto = lotto - cost
     mc.bags[key] = (mc.bags[key] || 0) + amount
-    store.saveSettings(djId, { activity: act, monsterCatch: mc })
+    store.saveSettings(djId, { activity: act }) // 복권은 이 디제이 방 전용 재화라 그대로 djId 범위에 저장
+    mcSaveUserData() // 포획볼은 전역 공용 데이터라 별도 저장
     setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBuySuccess, { nickname: author, cost, amount, balls: mc.bags[key] })), 400)
     return
   }
@@ -2080,12 +2109,12 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
     if (success) {
       if (!mc.collections[key]) mc.collections[key] = {}
       mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
-      store.saveSettings(djId, { monsterCatch: mc })
+      mcSaveUserData()
       const count = mc.collections[key][active.id]
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
       mcCheckAutoEvolve(djId, mc, key, active.id, author)
     } else {
-      store.saveSettings(djId, { monsterCatch: mc })
+      mcSaveUserData()
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchFailMsg, { nickname: author, monster: active.name, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
     }
     return
@@ -2098,7 +2127,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
   if (room._activeMonsterTimeout) { clearTimeout(room._activeMonsterTimeout); room._activeMonsterTimeout = null }
   if (!mc.collections[key]) mc.collections[key] = {}
   mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   const count = mc.collections[key][active.id]
   setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
   room._activeMonster = null
@@ -2130,7 +2159,7 @@ function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
 
   mc.collections[key][mon.id] -= need
   mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: mon.name, need, targetMonster: target.name })), 400)
 }
 
@@ -2146,7 +2175,7 @@ function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
   if (owned < need) return
   mc.collections[key][mon.id] -= need
   mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: mon.name, targetMonster: target.name })), 500)
 }
 
@@ -2159,7 +2188,7 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   const chance = Math.max(0, Math.min(100, Number(mc.chatBallChance) || 0))
   if (chance <= 0 || Math.random() * 100 >= chance) return
   mc.bags[key] += 1
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   sendChatToRoom(djId, mcFormat(mc.msgChatBall, { nickname: author, balls: mc.bags[key] }))
 }
 
@@ -2173,10 +2202,10 @@ function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
   const threshold = Math.max(1, parseInt(mc.chatCountThreshold, 10) || 5)
   const reward = Math.max(1, parseInt(mc.chatCountReward, 10) || 1)
   mc.chatCounts[key] = (mc.chatCounts[key] || 0) + 1
-  if (mc.chatCounts[key] < threshold) { store.saveSettings(djId, { monsterCatch: mc }); return }
+  if (mc.chatCounts[key] < threshold) { mcSaveUserData(); return }
   mc.chatCounts[key] = 0 // 다음 N번을 위해 리셋
   mc.bags[key] += reward
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   sendChatToRoom(djId, mcFormat(mc.msgChatCountBall, { nickname: author, count: threshold, reward, balls: mc.bags[key] }))
 }
 
@@ -2191,7 +2220,7 @@ function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
   if (chance <= 0 || Math.random() * 100 >= chance) return
   const amount = Math.max(1, parseInt(mc.giftBallCount, 10) || 1)
   mc.bags[key] += amount
-  store.saveSettings(djId, { monsterCatch: mc })
+  mcSaveUserData()
   sendChatToRoom(djId, mcFormat(mc.msgGiftBall, { nickname: author, amount, balls: mc.bags[key] }))
 }
 
@@ -2217,7 +2246,7 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
 
     if (item.kind === 'greatball') {
       mc.greatBags[key] = (mc.greatBags[key] || 0) + totalGrant
-      store.saveSettings(djId, { monsterCatch: mc })
+      mcSaveUserData()
       sendChatToRoom(djId, mcFormat(mc.shop.msgBuyGreatBall, { nickname: author, amount: totalGrant, balls: mc.bags[key], greatBalls: mc.greatBags[key] }))
     } else if (item.kind === 'box') {
       if (!mc.collections[key]) mc.collections[key] = {}
@@ -2228,10 +2257,10 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
         sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBox, { nickname: author, monster: picked.name }))
         mcCheckAutoEvolve(djId, mc, key, picked.id, author)
       }
-      store.saveSettings(djId, { monsterCatch: mc })
+      mcSaveUserData()
     } else {
       mc.bags[key] = (mc.bags[key] || 0) + totalGrant
-      store.saveSettings(djId, { monsterCatch: mc })
+      mcSaveUserData()
       sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBall, { nickname: author, amount: totalGrant, balls: mc.bags[key], greatBalls: mc.greatBags[key] || 0 }))
     }
   }
@@ -13259,7 +13288,7 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
 // 🐾 몬스터 잡기 — 설정 조회/저장 + 도감(수집 현황) 조회
 app.get('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  res.json({ success: true, settings: getMonsterCatchSettings(req.djId, settings) })
+  res.json({ success: true, settings: mcConfigOnly(getMonsterCatchSettings(req.djId, settings)) })
 })
 app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -13353,9 +13382,9 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
       legendary: !!m.legendary,
     })).filter(m => m.name)
   }
-  store.saveSettings(req.djId, { monsterCatch: mc })
+  mcSaveConfig(req.djId, mc)
   startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
-  res.json({ success: true, settings: mc })
+  res.json({ success: true, settings: mcConfigOnly(mc) })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
