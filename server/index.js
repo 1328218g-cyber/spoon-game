@@ -1856,6 +1856,13 @@ function getMonsterCatchSettings(djId, settings) {
       msgUserResetNoAuth: '⚠️ DJ 또는 매니저만 사용할 수 있어요.',
       msgUserResetNotFound: "⚠️ '{target}'님의 몬스터잡기 정보가 없어요.",
       msgUserResetSuccess: '🗑️ {target}님의 몬스터잡기 정보를 초기화했어요.',
+
+      // 🎾 포획볼 지급 — DJ/매니저 전용. 고유닉을 지정해서 포획볼(일반)을 지급/차감한다.
+      // 대상이 아직 !모험시작을 안 했어도 자동으로 등록하며 지급한다 (음수 입력 시 차감).
+      cmdBallGive: '!볼지급',
+      msgBallGiveUsage: '⚠️ 사용법: {cmdBallGive} [고유닉] [수량] (음수 입력 시 차감)',
+      msgBallGiveNoAuth: '⚠️ DJ 또는 매니저만 사용할 수 있어요.',
+      msgBallGiveSuccess: '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
   }
@@ -1912,6 +1919,10 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgUserResetNoAuth == null) mc.msgUserResetNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
   if (mc.msgUserResetNotFound == null) mc.msgUserResetNotFound = "⚠️ '{target}'님의 몬스터잡기 정보가 없어요."
   if (mc.msgUserResetSuccess == null) mc.msgUserResetSuccess = '🗑️ {target}님의 몬스터잡기 정보를 초기화했어요.'
+  if (mc.cmdBallGive == null) mc.cmdBallGive = '!볼지급'
+  if (mc.msgBallGiveUsage == null) mc.msgBallGiveUsage = '⚠️ 사용법: {cmdBallGive} [고유닉] [수량] (음수 입력 시 차감)'
+  if (mc.msgBallGiveNoAuth == null) mc.msgBallGiveNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
+  if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
 
   // 🌐 포획볼/고급볼/도감(잡은 몬스터)/채팅카운트는 디제이별로 따로 두지 않고, 전체 플랫폼
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
@@ -1989,6 +2000,8 @@ function mcFormat(tpl, data) {
     .replace(/{owned}/g, v(data.owned))
     .replace(/{cmdEvolve}/g, data.cmdEvolve || '')
     .replace(/{cmdUserReset}/g, data.cmdUserReset || '')
+    .replace(/{action}/g, data.action || '')
+    .replace(/{cmdBallGive}/g, data.cmdBallGive || '')
 }
 
 function mcPickMonster(mc) {
@@ -2083,6 +2096,26 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     delete mc.chatCounts[targetKey]
     mcSaveUserData()
     setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgUserResetSuccess, { target: targetRaw })), 400)
+    return
+  }
+
+  // 🎾 !볼지급 [고유닉] [수량] — DJ/매니저 전용. 대상이 !모험시작 전이어도 자동으로 등록하며 지급한다.
+  const cmdBallGive = mc.cmdBallGive || '!볼지급'
+  if (msg === cmdBallGive || msg.startsWith(cmdBallGive + ' ')) {
+    const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    const act = getActivitySettings(djId, settings)
+    const isManager = !isDj && (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+    if (!isDj && !isManager) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBallGiveNoAuth, {})), 400); return }
+    const parts = msg.slice(cmdBallGive.length).trim().split(/\s+/)
+    const targetRaw = parts[0] || ''
+    const amount = parseInt(parts[1], 10)
+    if (!targetRaw || isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBallGiveUsage, { cmdBallGive })), 400); return }
+    const targetKey = targetRaw.replace('@', '').trim().toLowerCase()
+    if (mc.bags[targetKey] == null) mc.bags[targetKey] = 0 // 모험 시작 전이어도 지급 시점에 자동 등록
+    mc.bags[targetKey] = Math.max(0, mc.bags[targetKey] + amount)
+    mcSaveUserData()
+    const action = amount > 0 ? '지급' : '차감'
+    setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBallGiveSuccess, { target: targetRaw, amount: Math.abs(amount), action, balls: mc.bags[targetKey] })), 400)
     return
   }
 
