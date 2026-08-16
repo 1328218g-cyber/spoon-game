@@ -2197,6 +2197,7 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   const key = String(tag || author || '').trim().toLowerCase()
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
   const chance = Math.max(0, Math.min(100, Number(mc.chatBallChance) || 0))
+  console.log(`[몬스터잡기][${djId}] 채팅확률 체크 — author=${author} chatBallChance(저장값)=${mc.chatBallChance} 계산된chance=${chance}`)
   if (chance <= 0 || Math.random() * 100 >= chance) return
   mc.bags[key] += 1
   mcSaveUserData()
@@ -13364,7 +13365,10 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (cmdBuyBall != null) mc.cmdBuyBall = String(cmdBuyBall).trim() || '!포획볼구매'
   if (startBalls != null) mc.startBalls = Math.max(0, Math.min(999, parseInt(startBalls, 10) || 5))
   if (buyPrice != null) mc.buyPrice = Math.max(1, Math.min(9999, parseInt(buyPrice, 10) || 10))
-  if (chatBallChance != null) mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+  if (chatBallChance != null) {
+    mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+    console.log(`[몬스터잡기][${req.djId}] 저장 요청 받은 chatBallChance=${JSON.stringify(chatBallChance)} → 실제 저장값=${mc.chatBallChance}`)
+  }
   if (giftBallChance != null) mc.giftBallChance = Math.max(0, Math.min(100, Number(giftBallChance) || 0))
   if (giftBallCount != null) mc.giftBallCount = Math.max(1, Math.min(99, parseInt(giftBallCount, 10) || 1))
   if (chatCountThreshold != null) mc.chatCountThreshold = Math.max(1, Math.min(999, parseInt(chatCountThreshold, 10) || 5))
