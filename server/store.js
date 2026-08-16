@@ -28,6 +28,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DJ_FILE = path.join(DATA_DIR, 'djs.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP_COUNT = 20; // 최근 20개까지만 보관 (그 이상 오래된 건 자동 삭제)
+const GLOBAL_MC_FILE = path.join(DATA_DIR, 'globalMonsterDex.json'); // 🌐 몬스터 잡기 유저 데이터(포획볼/도감/채팅카운트) — 디제이 구분 없이 전체 플랫폼 공용
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -87,6 +88,8 @@ function saveDjs(djs) {
 }
 
 // 🗂️ 주기적 백업 — 타임스탬프 붙여서 backups/ 폴더에 스냅샷을 남긴다.
+// djs.json뿐 아니라 globalMonsterDex.json(몬스터 잡기 전역 유저 데이터)도 같은 방식으로
+// 같이 백업한다 — 전부 Railway Volume(DATA_DIR) 안에서만 처리되고 외부 서비스는 안 쓴다.
 function createBackupSnapshot() {
   try {
     if (!_cache) return
@@ -98,6 +101,15 @@ function createBackupSnapshot() {
     while (files.length > BACKUP_KEEP_COUNT) {
       const oldest = files.shift()
       try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)) } catch (e) {}
+    }
+    if (_globalMcCache) {
+      const mcBackupFile = path.join(BACKUP_DIR, `globalMonsterDex-${stamp}.json`)
+      fs.writeFileSync(mcBackupFile, JSON.stringify(_globalMcCache, null, 2), 'utf-8')
+      const mcFiles = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('globalMonsterDex-')).sort()
+      while (mcFiles.length > BACKUP_KEEP_COUNT) {
+        const oldest = mcFiles.shift()
+        try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)) } catch (e) {}
+      }
     }
   } catch (e) {
     console.log('[store] 백업 생성 실패:', e.message)
@@ -581,6 +593,68 @@ function listDjIds() {
   return Object.keys(loadDjs());
 }
 
+// 🌐 몬스터 잡기 — 유저(고유닉) 기준 포획볼/고급볼/도감/채팅카운트를 디제이 구분 없이 전체
+// 플랫폼 공용으로 관리한다. A디제이 방에서 모험을 시작하고 몬스터를 모았으면, B디제이 방에
+// 가서도 그대로 이어서 쓸 수 있게 하기 위함. djs.json과 별도 파일에 저장하고, djId별 settings와는
+// 완전히 분리해서 관리한다 (그래야 디제이 수·유저 수가 늘어도 각 디제이 설정 파일이 비대해지지 않음).
+let _globalMcCache = null;
+
+function loadGlobalMonsterDex() {
+  if (_globalMcCache) return _globalMcCache;
+  ensureDir();
+  if (fs.existsSync(GLOBAL_MC_FILE)) {
+    try {
+      const raw = fs.readFileSync(GLOBAL_MC_FILE, 'utf-8');
+      if (raw && raw.trim()) _globalMcCache = JSON.parse(raw);
+    } catch (e) {
+      console.log('[store] globalMonsterDex.json 읽기 실패:', e.message);
+    }
+  }
+  if (!_globalMcCache) {
+    // 최초 1회 — 예전에 디제이별 settings.monsterCatch 안에 따로따로 흩어져 있던 유저 데이터를
+    // 전부 합쳐서 하나의 전역 저장소로 옮긴다. 포획볼/고급볼/도감 보유수는 합산(SUM), 채팅
+        // 카운트는 최대값(MAX)으로 합쳐서, 이미 모아둔 걸 잃어버리지 않게 한다. 파일이 한 번
+    // 만들어진 뒤로는 이 마이그레이션이 다시 실행되지 않는다.
+    const merged = { bags: {}, greatBags: {}, collections: {}, chatCounts: {} };
+    try {
+      const djs = loadDjs();
+      Object.values(djs).forEach(dj => {
+        const mc = dj && dj.settings && dj.settings.monsterCatch;
+        if (!mc) return;
+        Object.entries(mc.bags || {}).forEach(([k, v]) => { merged.bags[k] = (merged.bags[k] || 0) + (Number(v) || 0); });
+        Object.entries(mc.greatBags || {}).forEach(([k, v]) => { merged.greatBags[k] = (merged.greatBags[k] || 0) + (Number(v) || 0); });
+        Object.entries(mc.chatCounts || {}).forEach(([k, v]) => { merged.chatCounts[k] = Math.max(merged.chatCounts[k] || 0, Number(v) || 0); });
+        Object.entries(mc.collections || {}).forEach(([k, owned]) => {
+          if (!merged.collections[k]) merged.collections[k] = {};
+          Object.entries(owned || {}).forEach(([monId, cnt]) => {
+            merged.collections[k][monId] = (merged.collections[k][monId] || 0) + (Number(cnt) || 0);
+          });
+        });
+      });
+      if (Object.keys(merged.bags).length) console.log(`[store] 🌐 몬스터 잡기 유저 데이터 ${Object.keys(merged.bags).length}명분을 전역 저장소로 1회 마이그레이션했어요.`);
+    } catch (e) {
+      console.log('[store] 몬스터 잡기 마이그레이션 중 오류:', e.message);
+    }
+    _globalMcCache = merged;
+    saveGlobalMonsterDex();
+  }
+  if (!_globalMcCache.bags) _globalMcCache.bags = {};
+  if (!_globalMcCache.greatBags) _globalMcCache.greatBags = {};
+  if (!_globalMcCache.collections) _globalMcCache.collections = {};
+  if (!_globalMcCache.chatCounts) _globalMcCache.chatCounts = {};
+  return _globalMcCache;
+}
+
+// 원자적 저장 — djs.json과 동일한 tmp파일 후 rename 방식.
+function saveGlobalMonsterDex() {
+  if (!_globalMcCache) return;
+  ensureDir();
+  const json = JSON.stringify(_globalMcCache, null, 2);
+  const tmpFile = GLOBAL_MC_FILE + '.tmp';
+  fs.writeFileSync(tmpFile, json, 'utf-8');
+  fs.renameSync(tmpFile, GLOBAL_MC_FILE);
+}
+
 // 🌐 외부 백업(Base44)용 — 전체 계정 데이터를 그대로 반환한다 (비밀번호 해시 포함, 백업 목적이라 그대로 둠).
 function getRawSnapshot() {
   return loadDjs();
@@ -735,4 +809,6 @@ module.exports = {
   getDjRecord,
   restoreDjRecord,
   mergeDjBackupSubset,
+  loadGlobalMonsterDex,
+  saveGlobalMonsterDex,
 };
