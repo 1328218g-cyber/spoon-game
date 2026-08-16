@@ -2303,7 +2303,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>⚙️ TTS 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTtsSettings()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">지정한 스푼 개수 이상 선물을 받으면, 그 유저의 <b>다음 채팅 1개</b>를 내 PC(브라우저)에서 음성으로 읽어줘요. (명령어로 시작하는 채팅은 제외) 읽고 나면 권한은 바로 소진돼요.<br>
-          ※ <b>구글 보이스</b>는 관리자가 미리 설정해둔 걸 바로 쓸 수 있어요. <b>타입캐스트</b>는 각자 본인 API 키가 필요하고, 그 키는 이 브라우저에만 저장되고 서버로는 전송되지 않아요.</p>
+          ※ <b>구글 보이스</b>는 관리자가 미리 설정해둔 걸 바로 쓸 수 있어요. <b>타입캐스트</b>는 각자 본인 API 키가 필요하고, 그 키는 이 브라우저에만 저장되고 서버로는 전송되지 않아요.<br>
+          📱 모바일에서 화면 꺼짐/다른 앱 전환 중에도 TTS가 계속 재생되게 하려면, <b>🔊 효과음 메뉴 → "모바일 백그라운드 재생"</b> 체크박스를 켜두세요 (이 페이지 전체에 적용돼서 TTS에도 같이 도움 돼요).</p>
           <label>음성 엔진</label>
           <select id="ttsEngine" onchange="onTtsEngineChange()">
             <option value="browser">브라우저 내장 (무료)</option>
@@ -9683,6 +9684,12 @@ async function ttsPlayNext(){
   const item=ttsQueue.shift();
   const afterPlay=()=>{ ttsPlaying=false; setTimeout(ttsPlayNext,150); };
   const preset=ttsResolvePreset(item.nickname);
+  if('mediaSession' in navigator){
+    try{
+      navigator.mediaSession.metadata=new MediaMetadata({title:'🎙️ '+(item.nickname||'익명')+'님 후원 읽는 중',artist:'에디봇 TTS'});
+      navigator.mediaSession.playbackState='playing';
+    }catch(e){}
+  }
 
   const playViaBrowser=()=>{
     if(!window.speechSynthesis){ afterPlay(); return; }
