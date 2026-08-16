@@ -1915,6 +1915,17 @@ function getMonsterCatchSettings(djId, settings) {
   mc.greatBags = globalDex.greatBags
   mc.collections = globalDex.collections
   mc.chatCounts = globalDex.chatCounts
+
+  // 🐾 자동 카탈로그 동기화(self-heal) — 예전엔 "저장" 버튼을 눌러야만 이 디제이의 몬스터
+  // 목록이 전역 카탈로그(globalMonsterDex.json)에 반영됐다. 그래서 저장이 누락된 경우
+  // (예: 일괄등록 후 저장을 안 누른 경우) 다른 디제이 방에서 !도감을 치면 이 디제이가
+  // 등록해둔 몬스터 이름을 못 찾아서 "(알 수 없는 몬스터 #id)"로 깨지는 문제가 있었다.
+  // 설정을 불러올 때마다(=이 함수가 호출될 때마다) 가볍게 동기화해서 이런 누락을 스스로
+  // 고치도록 한다. upsertMonsterCatalog는 실제로 값이 달라질 때만 저장하므로 대부분의
+  // 호출에서는 비교만 하고 끝나 비용이 거의 없다.
+  if (mc.monsters && mc.monsters.length) {
+    try { store.upsertMonsterCatalog(mc.monsters) } catch (e) {}
+  }
   return mc
 }
 
@@ -2095,7 +2106,11 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text) {
     mc.monsters.forEach(m => { localById[m.id] = m })
     const nameOf = id => (localById[id] && localById[id].name) || (catalog[id] && catalog[id].name) || `(알 수 없는 몬스터 #${id})`
     const typesCount = Object.keys(owned).filter(id => owned[id] > 0).length
-    const totalTypes = Math.max(mc.monsters.length, Object.keys(catalog).length)
+    // 🐾 이 방의 로컬 몬스터 목록과 전역 카탈로그를 합집합으로 계산한다. Math.max로는 둘 중
+    // 한쪽이 비어있을 때(예: 이 방엔 몬스터가 등록 안 돼있고 카탈로그도 아직 안 채워진 경우)
+    // 실제보다 훨씬 작은 값(심하면 0)이 나와서 "9/0종"처럼 이상하게 보이는 문제가 있었다.
+    const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
+    const totalTypes = allKnownIds.size
     const lines = Object.keys(owned)
       .filter(id => owned[id] > 0)
       .map(id => `${nameOf(id)} x${owned[id]}`)

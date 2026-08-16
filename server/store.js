@@ -679,8 +679,15 @@ function upsertMonsterCatalog(monsters) {
   let changed = false;
   (monsters || []).forEach(m => {
     if (!m || !m.id || !m.name) return;
-    dex.catalog[m.id] = { name: m.name, image: m.image || '', legendary: !!m.legendary };
-    changed = true;
+    const next = { name: m.name, image: m.image || '', legendary: !!m.legendary };
+    const prev = dex.catalog[m.id];
+    // ⚡ 실제로 값이 달라질 때만 changed=true로 표시한다. 매번 무조건 changed 처리하면
+    // (예전 방식) 설정을 "불러올 때마다" 이 함수를 호출해서 자동 동기화하는 용도로 쓸 때
+    // 매 호출마다 디스크에 파일을 새로 써버려서(fs.writeFileSync+rename) 매우 비효율적이다.
+    if (!prev || prev.name !== next.name || prev.image !== next.image || prev.legendary !== next.legendary) {
+      dex.catalog[m.id] = next;
+      changed = true;
+    }
   });
   if (changed) saveGlobalMonsterDex();
 }
