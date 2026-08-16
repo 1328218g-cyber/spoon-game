@@ -1798,6 +1798,7 @@ function getMonsterCatchSettings(djId, settings) {
       cmdCatch: '!잡기',
       cmdDex: '!도감',
       spawnMsg: '🐾 야생의 [{monster}]이(가) 나타났습니다! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
+      legendarySpawnMsg: '✨전설 등장✨ 전설의 [{monster}]이(가) 나타났습니다!! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
       catchSuccessMsg: '🎉 {nickname}님이 [{monster}]을(를) 잡았습니다! (도감 {count}번째 · 남은 포획볼 {balls}개)',
       catchFailMsg: '💨 {nickname}님, [{monster}]을(를) 놓쳤어요... (남은 포획볼 {balls}개)',
       despawnMsg: '💨 [{monster}]이(가) 도망가버렸어요...',
@@ -1813,7 +1814,10 @@ function getMonsterCatchSettings(djId, settings) {
       chatBallChance: 2, // 채팅 한 번당 % 확률로 포획볼 1개 획득
       giftBallChance: 30, // 선물(스푼) 보낼 때 % 확률로 포획볼 획득
       giftBallCount: 1,
+      chatCountThreshold: 5, // 채팅 N번마다 (확률과 별개로) 확정 지급
+      chatCountReward: 3, // 위 N번 채웠을 때 지급되는 포획볼 개수
       bags: {}, // key: 고유닉 → 보유 포획볼 수 (등록 안 했으면 키 자체가 없음)
+      chatCounts: {}, // key: 고유닉 → 누적 채팅 횟수(N번마다 지급 카운터용)
       msgStart: '🎒 {nickname}님, 모험을 시작했어요! 포획볼 {balls}개를 받았어요. {cmdCatch}로 몬스터를 잡아보세요!',
       msgAlreadyStarted: '🎒 {nickname}님은 이미 모험 중이에요! (보유 포획볼: {balls}개)',
       msgBag: '🎒 {nickname}님의 포획볼: {balls}개',
@@ -1822,6 +1826,7 @@ function getMonsterCatchSettings(djId, settings) {
       msgBuySuccess: '🎒 {nickname}님이 복권 {cost}장으로 포획볼 {amount}개를 구매했어요! (보유: {balls}개)',
       msgBuyFail: '⚠️ {nickname}님, 복권이 부족해요! (보유 복권: {lotto}장, 필요: {cost}장)',
       msgChatBall: '🎁 {nickname}님이 채팅 중 포획볼을 주웠어요! (보유: {balls}개)',
+      msgChatCountBall: '🎁 {nickname}님이 채팅 {count}번 달성! 포획볼 {reward}개를 받았어요! (보유: {balls}개)',
       msgGiftBall: '🎁 {nickname}님이 선물과 함께 포획볼 {amount}개를 발견했어요! (보유: {balls}개)',
 
       // ⚔️ 대결(PvP) — 각자 보유 몬스터 중 가장 강한 걸로 자동 대결. 공격기/특성은 전부 DJ가
@@ -1858,6 +1863,11 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.chatBallChance == null) mc.chatBallChance = 2
   if (mc.giftBallChance == null) mc.giftBallChance = 30
   if (mc.giftBallCount == null) mc.giftBallCount = 1
+  if (mc.chatCountThreshold == null) mc.chatCountThreshold = 5
+  if (mc.chatCountReward == null) mc.chatCountReward = 3
+  if (!mc.chatCounts || typeof mc.chatCounts !== 'object') mc.chatCounts = {}
+  if (mc.msgChatCountBall == null) mc.msgChatCountBall = '🎁 {nickname}님이 채팅 {count}번 달성! 포획볼 {reward}개를 받았어요! (보유: {balls}개)'
+  if (mc.legendarySpawnMsg == null) mc.legendarySpawnMsg = '✨전설 등장✨ 전설의 [{monster}]이(가) 나타났습니다!! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)'
   if (mc.cmdBattle == null) mc.cmdBattle = '!대결'
   if (mc.msgBattleUsage == null) mc.msgBattleUsage = '⚠️ 사용법: {cmdBattle} [고유닉]'
   if (mc.msgBattleSelfError == null) mc.msgBattleSelfError = '⚠️ 본인과는 대결할 수 없어요!'
@@ -1887,6 +1897,7 @@ function mcFormat(tpl, data) {
     .replace(/{balls}/g, v(data.balls))
     .replace(/{cost}/g, v(data.cost))
     .replace(/{amount}/g, v(data.amount))
+    .replace(/{reward}/g, v(data.reward))
     .replace(/{lotto}/g, v(data.lotto))
     .replace(/{cmdBuyBall}/g, data.cmdBuyBall || '')
     .replace(/{cmdStart}/g, data.cmdStart || '')
@@ -1952,7 +1963,8 @@ function spawnMonster(djId) {
   if (!picked) return
   const sec = Math.max(5, Math.min(600, parseInt(mc.catchWindowSec, 10) || 60))
   room._activeMonster = { id: picked.id, name: picked.name, catchRate: picked.catchRate, caught: false, attempted: new Set() }
-  const msg = mcFormat(mc.spawnMsg, { monster: picked.name, cmd: mc.cmdCatch || '!잡기', sec })
+  const tpl = picked.legendary ? (mc.legendarySpawnMsg || mc.spawnMsg) : mc.spawnMsg
+  const msg = mcFormat(tpl, { monster: picked.name, cmd: mc.cmdCatch || '!잡기', sec })
   if (msg) sendChatToRoom(djId, msg)
   room._activeMonsterTimeout = setTimeout(() => {
     const active = room._activeMonster
@@ -2123,6 +2135,23 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   mc.bags[key] += 1
   store.saveSettings(djId, { monsterCatch: mc })
   sendChatToRoom(djId, mcFormat(mc.msgChatBall, { nickname: author, balls: mc.bags[key] }))
+}
+
+// 💬 채팅 N번마다 (확률과 무관하게) 포획볼 M개를 확정 지급. chatBallChance(확률)와는 별개로 동시에 동작한다.
+function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.enabled) return
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
+  const threshold = Math.max(1, parseInt(mc.chatCountThreshold, 10) || 5)
+  const reward = Math.max(1, parseInt(mc.chatCountReward, 10) || 1)
+  mc.chatCounts[key] = (mc.chatCounts[key] || 0) + 1
+  if (mc.chatCounts[key] < threshold) { store.saveSettings(djId, { monsterCatch: mc }); return }
+  mc.chatCounts[key] = 0 // 다음 N번을 위해 리셋
+  mc.bags[key] += reward
+  store.saveSettings(djId, { monsterCatch: mc })
+  sendChatToRoom(djId, mcFormat(mc.msgChatCountBall, { nickname: author, count: threshold, reward, balls: mc.bags[key] }))
 }
 
 // 선물(스푼) 보낼 때마다 소소한 확률로 포획볼 획득 (모험을 시작한 유저만 대상)
@@ -12619,6 +12648,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleWeatherCommand(djId, room, settings, author, authorId, text)
           handleMonsterCatchCommand(djId, room, settings, author, actTag, text)
           handleMonsterCatchChatBallHook(djId, settings, author, actTag)
+          handleMonsterCatchChatCountHook(djId, settings, author, actTag)
           handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
           handleMonsterEvolveCommand(djId, room, settings, author, actTag, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
@@ -13146,9 +13176,9 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'monstercatch', req.djId)) return res.json({ success: false, error: '몬스터 잡기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const mc = getMonsterCatchSettings(req.djId, settings)
-  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
-    cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount,
-    msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgGiftBall,
+  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
+    cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward,
+    msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve } = req.body || {}
   if (enabled != null) mc.enabled = !!enabled
   if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
@@ -13157,6 +13187,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (cmdCatch != null) mc.cmdCatch = String(cmdCatch).trim() || '!잡기'
   if (cmdDex != null) mc.cmdDex = String(cmdDex).trim() || '!도감'
   if (spawnMsg != null) mc.spawnMsg = spawnMsg
+  if (legendarySpawnMsg != null) mc.legendarySpawnMsg = legendarySpawnMsg
   if (catchSuccessMsg != null) mc.catchSuccessMsg = catchSuccessMsg
   if (catchFailMsg != null) mc.catchFailMsg = catchFailMsg
   if (despawnMsg != null) mc.despawnMsg = despawnMsg
@@ -13168,6 +13199,8 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (chatBallChance != null) mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
   if (giftBallChance != null) mc.giftBallChance = Math.max(0, Math.min(100, Number(giftBallChance) || 0))
   if (giftBallCount != null) mc.giftBallCount = Math.max(1, Math.min(99, parseInt(giftBallCount, 10) || 1))
+  if (chatCountThreshold != null) mc.chatCountThreshold = Math.max(1, Math.min(999, parseInt(chatCountThreshold, 10) || 5))
+  if (chatCountReward != null) mc.chatCountReward = Math.max(1, Math.min(999, parseInt(chatCountReward, 10) || 1))
   if (msgStart != null) mc.msgStart = msgStart
   if (msgAlreadyStarted != null) mc.msgAlreadyStarted = msgAlreadyStarted
   if (msgBag != null) mc.msgBag = msgBag
@@ -13176,6 +13209,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgBuySuccess != null) mc.msgBuySuccess = msgBuySuccess
   if (msgBuyFail != null) mc.msgBuyFail = msgBuyFail
   if (msgChatBall != null) mc.msgChatBall = msgChatBall
+  if (msgChatCountBall != null) mc.msgChatCountBall = msgChatCountBall
   if (msgGiftBall != null) mc.msgGiftBall = msgGiftBall
   if (req.body && req.body.cmdBattle != null) mc.cmdBattle = String(req.body.cmdBattle).trim() || '!대결'
   if (req.body && req.body.msgBattleUsage != null) mc.msgBattleUsage = req.body.msgBattleUsage
@@ -13205,6 +13239,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
         : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
       evolvesTo: String(m.evolvesTo || '').trim(),
       evolveCount: Math.max(1, Math.min(999, parseInt(m.evolveCount, 10) || 10)),
+      legendary: !!m.legendary,
     })).filter(m => m.name)
   }
   store.saveSettings(req.djId, { monsterCatch: mc })
