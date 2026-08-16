@@ -1881,6 +1881,7 @@ function mcFormat(tpl, data) {
     .replace(/{nickname}/g, data.nickname || '')
     .replace(/{monster}/g, data.monster || '')
     .replace(/{cmd}/g, data.cmd || '')
+    .replace(/{cmdCatch}/g, data.cmdCatch || '')
     .replace(/{sec}/g, v(data.sec))
     .replace(/{count}/g, v(data.count))
     .replace(/{balls}/g, v(data.balls))
