@@ -2164,7 +2164,12 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     return
   }
 
-  if (msg === (mc.cmdDex || '!도감')) {
+  // 📖 !도감, !도감1, !도감2 ... — 잡은 몬스터가 많아지면 한 메시지에 다 담다가 스푼 채팅 글자수
+  // 제한에 걸려서 목록이 잘리는 문제가 있었다. 그래서 13마리씩 페이지로 잘라서 보여주고,
+  // 숫자를 붙여서(예: !도감2) 원하는 페이지를 바로 조회할 수 있게 한다. (킵목록 확인N과 같은 방식)
+  const cmdDex = mc.cmdDex || '!도감'
+  const dexMatch = msg.match(new RegExp(`^${escapeRegExp(cmdDex)}(\\d*)$`))
+  if (dexMatch) {
     const owned = mc.collections[key] || {}
     const total = Object.values(owned).reduce((s, n) => s + n, 0)
     if (!total) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
@@ -2175,17 +2180,41 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     const localById = {}
     mc.monsters.forEach(m => { localById[m.id] = m })
     const nameOf = id => (localById[id] && localById[id].name) || (catalog[id] && catalog[id].name) || `(알 수 없는 몬스터 #${id})`
-    const typesCount = Object.keys(owned).filter(id => owned[id] > 0).length
+    const ownedIds = Object.keys(owned).filter(id => owned[id] > 0)
+    const typesCount = ownedIds.length
     // 🐾 이 방의 로컬 몬스터 목록과 전역 카탈로그를 합집합으로 계산한다. Math.max로는 둘 중
     // 한쪽이 비어있을 때(예: 이 방엔 몬스터가 등록 안 돼있고 카탈로그도 아직 안 채워진 경우)
     // 실제보다 훨씬 작은 값(심하면 0)이 나와서 "9/0종"처럼 이상하게 보이는 문제가 있었다.
     const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
     const totalTypes = allKnownIds.size
-    const lines = Object.keys(owned)
-      .filter(id => owned[id] > 0)
-      .map(id => `${nameOf(id)} x${owned[id]}`)
-      .join(', ')
-    setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)\n${lines}`), 400)
+
+    const pageSize = 13
+    const totalPages = Math.max(1, Math.ceil(ownedIds.length / pageSize))
+    const reqPage = dexMatch[1] ? parseInt(dexMatch[1], 10) : 1
+    const cur = Math.max(1, Math.min(reqPage || 1, totalPages))
+    const startIdx = (cur - 1) * pageSize
+    const pageIds = ownedIds.slice(startIdx, startIdx + pageSize)
+    // 🧬 모든 몬스터를 "이름 (보유/필요)" 형태로 통일하게 보여준다. 진화 가능한 몬스터(evolvesTo가 설정된 경우)는 evolveCount를 필요수량으로 쓰고 채웠으면 "진화가능"을 붙인다. 진화 대상이 아니거나(다른 방에서 조회해서) evolveCount를 모를 때는 보유수량/보유수량으로 뜨을 채운 것처럼 보여준다.
+    const lines = pageIds.map(id => {
+      const mon = localById[id]
+      const name = nameOf(id)
+      const count = owned[id]
+      const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
+      const canEvolve = !!(mon && mon.evolvesTo) && count >= need
+      return `${name} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
+    }).join('\n')
+
+    let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
+    if (totalPages > 1) out += ` [${cur}/${totalPages}페이지]`
+    out += `\n${lines}`
+    if (totalPages > 1) {
+      const next = cur < totalPages ? cur + 1 : 1
+      out += `\n💡 ${cmdDex}${next} 로 다음 페이지 확인 가능`
+    }
+    // 📏 채팅 글자수 제한 때문에 한 번에 다 못 보내는 문제가 있어서, sendChatSplit으로 글자수
+    // 기준(150자)으로 자동으로 여러 메시지로 잘라서 순차 전송한다. (13마리씩 페이지로 나눈 것과
+    // 별개로, 한 페이지 자체가 길면 이 단계에서 또 한번 안전하게 잘라줌)
+    sendChatSplit(djId, out, 150, 500)
     return
   }
 
@@ -2423,7 +2452,7 @@ function handleMonsterCatchHelpCommand(djId, settings, text) {
     `${cmdCatch} — 지금 등장한 몬스터 잡기 시도 (포획볼 1개 소모, 고급몬스터볼 있으면 그거 먼저 사용)`,
     `${cmdBag} — 내 포획볼/고급몬스터볼 보유 개수 확인`,
     `${cmdBuyBall} [수량] — 복권으로 포획볼 구매 (예: ${cmdBuyBall} 3)`,
-    `${cmdDex} — 내가 잡은 몬스터 도감 확인`,
+    `${cmdDex} — 내가 잡은 몬스터 도감 확인 (13마리 넘으면 ${cmdDex}2, ${cmdDex}3...으로 다음 페이지)`,
     `${cmdEvolve} [몬스터이름] — 같은 몬스터를 정해진 마리 수만큼 모아서 진화${mc.autoEvolve ? ' (자동진화 켜져있어서 조건 채우면 자동으로도 진화돼요)' : ''}`,
     `${cmdBattle} [상대 고유닉] — 서로 가장 강한 몬스터로 대결`,
     `${cmdShop} — 상점 목록 확인 (지정 스티커 선물하거나 지정 스푼 후원하면 포획볼/고급몬스터볼/희귀상자 자동 지급)`,
