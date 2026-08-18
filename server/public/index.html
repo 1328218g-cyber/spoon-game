@@ -8694,9 +8694,7 @@ async function drawGgCardCanvas(it, opts){
   ctx.imageSmoothingEnabled=true
   ctx.imageSmoothingQuality='high'
 
-  // 배경(카드 뒤 살짝 톤 있는 바탕 — 흰 카드가 흰 배경에 묻히지 않게)
-  ctx.fillStyle='#eef2f7'
-  ctx.fillRect(0,0,cardWidth,cardHeight)
+  // 🖼️ 카드 뒤 배경은 다운로드 시 투명 처리 — 캔버스를 그냥 비워두면 기본이 투명이라 별도 처리 불필요.
 
   if(cardShape!=='none'){
     const r=cardShape==='rect'?10*SCALE:cardHeight/2
