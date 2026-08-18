@@ -600,6 +600,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
+    <div class="nav-item" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic">🎨</span><span class="lbl">박제 하기</span></div>
     <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic">🔐</span><span class="lbl">요청 모듈</span></div>
 
     <div class="nav-group-label">연결</div>
@@ -1181,7 +1182,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="funding">
         <div class="card">
           <div class="card-title"><span>💰 펀딩 관리</span></div>
-          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 적립합니다.</p>
+          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 수동 적립하거나, 펀딩 추가 시 "자동 적립"을 선택하면 스푼을 받을 때마다 자동으로 누적돼요.</p>
           <button class="btn-connect" style="width:100%" onclick="showFundingModal()">+ 새 펀딩 추가하기</button>
         </div>
 
@@ -1228,6 +1229,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="text" id="fundingTitleInput" placeholder="예: 오이먹방🥒, 신곡 연습 등">
           <label>목표 금액 (스푼)</label>
           <input type="number" id="fundingGoalInput" placeholder="목표 금액을 입력하세요" min="0">
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="fundingMode" value="manual" checked> 수동 적립</label>
+            <label class="radio-opt"><input type="radio" name="fundingMode" value="auto"> 자동 적립</label>
+          </div>
+          <p class="hint" style="margin:4px 0 10px">자동 적립 선택 시, 스푼을 받으면(선물 종류 상관없이) 받은 수량만큼 이 펀딩에 자동으로 누적돼요.</p>
           <label>종료 날짜 (선택)</label>
           <input type="date" id="fundingEndDateInput">
           <div class="btn-row">
@@ -3244,6 +3250,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card">
+          <div class="card-title"><span>🎨 박제 직접 만들기</span></div>
+          <p class="hint" style="margin-bottom:12px">스티커·이모지·텍스트를 직접 배치해서 나만의 박제 이미지를 만들 수 있는 별도 에디터예요. 완성한 이미지는 그 자리에서 바로 다운로드할 수 있어요.</p>
+          <button class="btn-connect" onclick="window.open('/trophy-editor','_blank')">🎨 박제 에디터 열기 (새 탭)</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🏆 박제판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTrophyBoard()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때 자동으로 그 칸에 닉네임이 새겨져요. <b>처음 보낸 사람으로 고정</b>돼서, 같은 선물을 또 보내도 이미 채워진 칸은 안 바뀌어요 (다시 비우려면 "초기화" 버튼을 눌러야 해요). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tbEnabled"> 박제판 공개 (켜야 링크가 열려요)</label>
@@ -5146,6 +5157,7 @@ function renderFunding(){
       </div>
       <div style="margin-bottom:10px">
         <span class="status-pill ${ended?'ended':'ongoing'}">${ended?'종료':'진행중'}</span>
+        <span class="status-pill ${it.mode==='auto'?'ongoing':''}" style="${it.mode==='auto'?'':'background:var(--surface2);color:var(--muted)'}">${it.mode==='auto'?'🔗 자동 적립':'수동 적립'}</span>
         ${dday && fundingData.showDday ? `<span class="status-pill dday">${dday}</span>` : ''}
       </div>
       <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
@@ -5182,6 +5194,7 @@ function showFundingModal(id){
   document.getElementById('fundingTitleInput').value=it?it.title:'';
   document.getElementById('fundingGoalInput').value=it?it.goal:'';
   document.getElementById('fundingEndDateInput').value=it?(it.endDate||''):'';
+  document.querySelectorAll('input[name="fundingMode"]').forEach(r=>r.checked=(r.value===(it?it.mode:'manual')||(!it&&r.value==='manual')));
   document.getElementById('fundingModalOverlay').style.display='flex';
 }
 
@@ -5194,13 +5207,14 @@ function saveFundingModal(){
   const title=document.getElementById('fundingTitleInput').value.trim();
   const goal=Number(document.getElementById('fundingGoalInput').value)||0;
   const endDate=document.getElementById('fundingEndDateInput').value||'';
+  const mode=document.querySelector('input[name="fundingMode"]:checked').value;
   if(!title)return showToast('펀딩 제목을 입력해주세요');
 
   if(fundingEditingId){
     const it=fundingData.items.find(x=>x.id===fundingEditingId);
-    Object.assign(it,{title,goal,endDate});
+    Object.assign(it,{title,goal,endDate,mode});
   } else {
-    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate});
+    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate,mode});
   }
   hideFundingModal();
   renderFunding();

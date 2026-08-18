@@ -750,6 +750,22 @@ function handleFlagAutoDonation(djId, settings, amount) {
   }
 }
 
+// 💰 펀딩 — 깃발의 "자동 적립(mode==='auto')"과 동일한 방식. 항목별로 자동 적립을 켜두면
+// 선물(스푼) 받을 때마다 그 항목의 current에 자동으로 더해진다.
+function handleFundingAutoDonation(djId, settings, amount) {
+  if (!isModuleOn(settings, 'funding', djId)) return
+  const funding = settings.funding
+  if (!funding || !funding.items || !funding.items.length || !amount) return
+  let changed = false
+  funding.items.forEach(it => {
+    if (it.mode === 'auto') { it.current = (it.current || 0) + amount; changed = true }
+  })
+  if (changed) {
+    store.saveSettings(djId, { funding })
+    broadcast({ type: 'funding', djId, items: funding.items })
+  }
+}
+
 function calcDday(endDate) {
   if (!endDate) return ''
   const end = new Date(endDate + 'T23:59:59')
@@ -13044,6 +13060,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
+          handleFundingAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           await handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
@@ -13380,7 +13397,70 @@ app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings: gallery })
 })
 
-// 🏆 박제판 — 설정 조회/저장 + 칸 초기화
+// 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게
+// 정적 화면만 내려주고, 완성본은 서버에 저장하지 않고 그 자리에서 바로 다운로드한다.
+app.get('/trophy-editor', (req, res) => {
+  res.sendFile(__dirname + '/public/trophy-editor.html')
+})
+
+// 🎨 박제 하기 — 스티커 원본 목록(카테고리 트리 그대로). 브라우저에서 스푼 CDN으로 직접
+// fetch하면 CORS로 막히기 때문에(기존 /stickers 프록시가 이미 이 문제 때문에 존재함), 이 페이지
+// 전용으로 원본 구조를 그대로 캐시해서 내려주는 프록시를 하나 더 둔다 (카테고리/lottie_url/
+// image_url_web 등 원본 필드가 그대로 필요해서 기존 /stickers의 단순화된 목록으로는 부족함).
+let trophyEditorStickerCache = { data: null, fetchedAt: 0 }
+app.get('/trophy-editor/stickers', async (req, res) => {
+  try {
+    const now = Date.now()
+    if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+      return res.json(trophyEditorStickerCache.data)
+    }
+    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+      headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+    })
+    if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+    const raw = await upstream.json()
+    // 🎯 룰렛 스티커 선택창과 동일한 기준으로, 지금 실제 판매 중인 스티커만 남긴다
+    // (개별 스티커의 is_used=false 제외 + start_date~end_date 판매기간 벗어난 것 제외).
+    const nowDate = new Date(now)
+    const filtered = {
+      ...raw,
+      categories: (raw.categories || []).map(cat => ({
+        ...cat,
+        stickers: (cat.stickers || []).filter(s => {
+          if (s.is_used === false) return false
+          if (s.start_date) { const d = new Date(s.start_date); if (!isNaN(d) && d > nowDate) return false }
+          if (s.end_date) { const d = new Date(s.end_date); if (!isNaN(d) && d < nowDate) return false }
+          return true
+        })
+      })).filter(cat => cat.stickers.length > 0)
+    }
+    trophyEditorStickerCache = { data: filtered, fetchedAt: now }
+    res.json(filtered)
+  } catch (e) {
+    if (trophyEditorStickerCache.data) return res.json(trophyEditorStickerCache.data)
+    res.status(502).json({ categories: [] })
+  }
+})
+
+// 🎨 박제 하기 — 스티커 이미지 프록시. 브라우저가 스푼 CDN 이미지를 직접 fetch(mode:'cors')하면
+// 막히는 경우가 있어서, 우리 서버를 거치게 한다. *.spooncast.net 서브도메인만 허용.
+app.get('/trophy-editor/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA } })
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
+})
+
 app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, settings: getTrophyBoardSettings(req.djId, settings) })
