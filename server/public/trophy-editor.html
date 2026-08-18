@@ -257,23 +257,30 @@ function encodeUrl(url) {
   } catch { return url; }
 }
 
+function proxyImg(url){
+  return url ? '/trophy-editor/image-proxy?url=' + encodeURIComponent(url) : '';
+}
 async function fetchStickers() {
   try {
-    const res = await fetch("https://static.spooncast.net/kr/stickers/index.json");
+    // 🌐 [수정] 브라우저에서 스푼 CDN으로 직접 fetch하면 CORS로 막혀서 항상 실패했다.
+    // 우리 서버의 프록시(/trophy-editor/stickers)를 거치도록 바꾼다.
+    const res = await fetch("/trophy-editor/stickers");
     if (!res.ok) throw new Error("fetch failed");
     const data = await res.json();
     const result = [];
     for (const cat of data.categories) {
-      if (cat.is_used !== true) continue;
-      const stickers = cat.stickers.filter(s => s.is_used === true);
+      // ⚠️ [수정] cat.is_used는 스푼 API에서 실제 노출 여부와 무관하게 거의 항상 false로 내려온다.
+      // 이 값으로 카테고리 전체를 거르면 목록이 통째로 비어버린다 — 개별 스티커의 is_used만 본다.
+      const stickers = (cat.stickers || []).filter(s => s.is_used === true);
       if (stickers.length > 0) {
         result.push({
           id: cat.id, name: cat.name, title: cat.title,
           stickers: stickers.map(s => ({
             ...s,
-            image_url_web: encodeUrl(s.image_url_web),
-            image_thumbnail: encodeUrl(s.image_thumbnail),
-            image_thumbnail_web: encodeUrl(s.image_thumbnail_web),
+            // 🌐 이미지 URL도 전부 우리 프록시를 거치게 감싼다 (CORS + urlToDataUrl 모두 해결).
+            image_url_web: proxyImg(encodeUrl(s.image_url_web)),
+            image_thumbnail: proxyImg(encodeUrl(s.image_thumbnail)),
+            image_thumbnail_web: proxyImg(encodeUrl(s.image_thumbnail_web)),
           }))
         });
       }

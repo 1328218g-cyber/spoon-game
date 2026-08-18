@@ -13380,12 +13380,53 @@ app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings: gallery })
 })
 
-// 🏆 박제판 — 설정 조회/저장 + 칸 초기화
 // 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게
-// 정적 화면만 내려주고(브라우저에서 스푼 스티커 API를 직접 불러와 클라이언트에서만 동작),
-// 완성본은 서버에 저장하지 않고 그 자리에서 바로 다운로드한다.
+// 정적 화면만 내려주고, 완성본은 서버에 저장하지 않고 그 자리에서 바로 다운로드한다.
 app.get('/trophy-editor', (req, res) => {
   res.sendFile(__dirname + '/public/trophy-editor.html')
+})
+
+// 🎨 박제 하기 — 스티커 원본 목록(카테고리 트리 그대로). 브라우저에서 스푼 CDN으로 직접
+// fetch하면 CORS로 막히기 때문에(기존 /stickers 프록시가 이미 이 문제 때문에 존재함), 이 페이지
+// 전용으로 원본 구조를 그대로 캐시해서 내려주는 프록시를 하나 더 둔다 (카테고리/lottie_url/
+// image_url_web 등 원본 필드가 그대로 필요해서 기존 /stickers의 단순화된 목록으로는 부족함).
+let trophyEditorStickerCache = { data: null, fetchedAt: 0 }
+app.get('/trophy-editor/stickers', async (req, res) => {
+  try {
+    const now = Date.now()
+    if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+      return res.json(trophyEditorStickerCache.data)
+    }
+    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+      headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+    })
+    if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+    const raw = await upstream.json()
+    trophyEditorStickerCache = { data: raw, fetchedAt: now }
+    res.json(raw)
+  } catch (e) {
+    if (trophyEditorStickerCache.data) return res.json(trophyEditorStickerCache.data)
+    res.status(502).json({ categories: [] })
+  }
+})
+
+// 🎨 박제 하기 — 스티커 이미지 프록시. 브라우저가 스푼 CDN 이미지를 직접 fetch(mode:'cors')하면
+// 막히는 경우가 있어서, 우리 서버를 거치게 한다. *.spooncast.net 서브도메인만 허용.
+app.get('/trophy-editor/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA } })
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
 })
 
 app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
