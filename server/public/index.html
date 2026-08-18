@@ -8639,8 +8639,19 @@ function ggPreloadBgImages(el){
 // 문제가 있었다. 그래서 화면에 이미 정상적으로 보이는 실제 카드 DOM을 그대로 SVG의
 // <foreignObject>에 넣어서 이미지화한다 — 이러면 브라우저의 진짜 텍스트 레이아웃 엔진(완전한
 // 폰트 대체 체인 포함)을 그대로 쓰게 되어, 화면에 보이는 것과 100% 동일하게 캡처된다.
+async function ggImageUrlToDataUri(url){
+  try{
+    const res=await fetch(url);
+    const blob=await res.blob();
+    return await new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>resolve(reader.result);
+      reader.onerror=reject;
+      reader.readAsDataURL(blob);
+    });
+  }catch(e){ return null; }
+}
 async function ggCardToCanvas(cardEl, scale){
-  await ggPreloadBgImages(cardEl); // 배경이미지 로딩 경쟁 상태 방지
   const PAD=10 // 카드 그림자가 잘리지 않도록 여백을 살짝 둔다
   const rect=cardEl.getBoundingClientRect();
   const w=Math.ceil(rect.width)+PAD*2, h=Math.ceil(rect.height)+PAD*2;
@@ -8648,6 +8659,16 @@ async function ggCardToCanvas(cardEl, scale){
   clone.querySelectorAll('button').forEach(b=>b.remove()); // 다운로드/삭제 버튼은 결과물에서 제외
   clone.style.position='static';
   clone.style.margin=`${PAD}px`;
+  // 🖼️ [업데이트] SVG 안에 외부(우리 프록시 포함) 이미지 URL이 그대로 남아있으면, 브라우저가
+  // 안전상 캔버스를 "오염됨(tainted)"으로 처리해서 toDataURL()이 막혀버리는 문제가 있었다.
+  // 이미지를 아예 base64로 통째로 내장(inline)시켜서 외부 참조를 완전히 없애면 이 문제가 해결된다.
+  const bgNodes=Array.from(clone.querySelectorAll('[style*="background-image"]'));
+  await Promise.all(bgNodes.map(async node=>{
+    const m=node.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+    if(!m||!m[1])return;
+    const dataUri=await ggImageUrlToDataUri(m[1]);
+    if(dataUri) node.style.backgroundImage=`url('${dataUri}')`;
+  }));
   const xml=new XMLSerializer().serializeToString(clone);
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
     <foreignObject width="100%" height="100%">
