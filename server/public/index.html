@@ -495,6 +495,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -3296,7 +3297,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="giftgallery">
         <div class="card">
           <div class="card-title"><span>🎁 선물카드 갤러리 설정</span></div>
-          <p class="hint" style="margin-bottom:12px">스푼을 후원받으면 자동으로 앨범에 저장돼요. 디제이 프로필 + 후원자 프로필 + 닉네임 + 후원 스푼 수를 한 줄짜리 카드로 보여드려요. 이미지 파일을 직접 저장하지 않고 프로필 사진은 스푼 원본 링크만 참조해서 저장 용량 걱정 없어요.</p>
+          <p class="hint" style="margin-bottom:12px">스푼을 후원받으면 자동으로 앨범에 저장돼요. 디제이 프로필 + 후원자 프로필 + 닉네임 + 후원 스푼 수를 한 줄짜리 카드로 보여드려요. 날짜별로 묶어서 보여주고, 카드에 마우스를 올리면 이미지로 다운로드(⬇)하거나 삭제(✕)할 수 있어요. 이미지 파일을 직접 저장하지 않고 프로필 사진은 스푼 원본 링크만 참조해서 저장 용량 걱정 없어요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="ggEnabled" onchange="saveGgSettings()"> 선물카드 자동 저장 켜기</label>
           <label style="margin-top:14px">아바타 모양</label>
           <div style="display:flex;gap:16px;margin-top:6px">
@@ -3306,7 +3307,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div>
-          <div id="ggGrid" style="display:flex;flex-direction:column;gap:10px;margin-top:8px"></div>
+          <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
       </div>
@@ -8541,21 +8542,54 @@ function renderGgGrid(){
   count.textContent=ggData.items.length;
   emptyHint.style.display=ggData.items.length?'none':'block';
   const shape=ggData.avatarShape==='square'?'square':'circle';
-  wrap.innerHTML=ggData.items.map(it=>{
+  let html='';
+  let lastDateKey=null;
+  ggData.items.forEach(it=>{
+    const d=new Date(it.ts);
+    const dateKey=d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',weekday:'short'});
+    if(dateKey!==lastDateKey){
+      html+=`<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:${lastDateKey?'14px':'0'} 0 2px">${dateKey}</div>`;
+      lastDateKey=dateKey;
+    }
     const userAvatar=ggAvatarHtml(it.profileUrl,it.author,'linear-gradient(135deg,#f6c453,#f08a3c)','#3a1e00','',shape);
     const djAvatar=ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px',shape);
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
     const btnId='ggDel_'+it.id;
-    return `<div style="display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:24px;padding:6px 14px 6px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);position:relative"
-        onmouseenter="document.getElementById('${btnId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none'">
+    const dlId='ggDl_'+it.id;
+    const cardId='ggCard_'+it.id;
+    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:24px;padding:6px 14px 6px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);position:relative"
+        onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
         <span style="color:#3b82f6;font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
+      <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
       <button id="${btnId}" onclick="deleteGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#333;color:#fff;border:none;cursor:pointer;font-size:11px">✕</button>
     </div>`;
-  }).join('');
+  });
+  wrap.innerHTML=html;
+}
+async function downloadGgItem(id){
+  const cardEl=document.getElementById('ggCard_'+id);
+  if(!cardEl||typeof html2canvas==='undefined'){showToast('다운로드 기능을 불러오지 못했어요');return;}
+  const delBtn=document.getElementById('ggDel_'+id);
+  const dlBtn=document.getElementById('ggDl_'+id);
+  const prevDel=delBtn?delBtn.style.display:'';
+  const prevDl=dlBtn?dlBtn.style.display:'';
+  if(delBtn)delBtn.style.display='none';
+  if(dlBtn)dlBtn.style.display='none';
+  try{
+    const canvas=await html2canvas(cardEl,{backgroundColor:null,useCORS:true,scale:3});
+    const link=document.createElement('a');
+    link.download='선물카드_'+id+'.png';
+    link.href=canvas.toDataURL('image/png');
+    link.click();
+  }catch(e){
+    showToast('이미지 다운로드 실패 (프로필 이미지 접근 제한일 수 있어요)');
+  }
+  if(delBtn)delBtn.style.display=prevDel;
+  if(dlBtn)dlBtn.style.display=prevDl;
 }
 async function deleteGgItem(id){
   ggData.items=ggData.items.filter(it=>it.id!==id);

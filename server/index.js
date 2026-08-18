@@ -13029,11 +13029,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id)
           : (eventPayload.userId != null ? Number(eventPayload.userId)
             : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
+        // ⚠️ profileUrl도 authorId와 같은 문제였다 — LiveDonation 이벤트는 generator 없이
+        // eventPayload 최상위에 profileUrl이 바로 오는 경우가 있는데, gen.profileUrl만 보고 있어서
+        // 이 경우 항상 빈 값이었다 (선물카드 갤러리에서 후원자 프로필사진이 안 나오던 원인).
+        const donorProfileUrl = gen.profileUrl || eventPayload.profileUrl || eventPayload.profile_url || ''
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: gen.profileUrl || '' })
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
@@ -13041,13 +13045,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, donationTag, author)
-          rememberProfileUrl(room, donationTag, author, gen.profileUrl)
+          rememberProfileUrl(room, donationTag, author, donorProfileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
-          handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, gen.profileUrl, room.djProfileUrl)
+          handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
