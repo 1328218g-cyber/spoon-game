@@ -168,6 +168,10 @@
       <button class="btn btn-accent" style="width:100%; margin-bottom:12px;" onclick="document.getElementById('localImgInput').click()">📁 내 이미지 추가</button>
       <input type="file" id="localImgInput" accept="image/*" multiple style="display:none" onchange="handleLocalUpload(event)">
       <p style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">이미지를 선택하면 캔버스에 추가됩니다.</p>
+      <div class="sep"></div>
+      <div class="section-label">🎁 선물카드 갤러리</div>
+      <div id="ggImportGrid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:8px;"></div>
+      <p id="ggImportHint" style="font-size:12px; color:var(--muted); text-align:center; margin-top:12px;">불러오는 중...</p>
     </div>
     <div id="tab-text" class="scroll" style="display:none; padding: 16px;">
       <div style="margin-bottom:16px;">
@@ -549,6 +553,182 @@ function handleLocalUpload(e) {
     reader.readAsDataURL(file);
   });
   e.target.value = '';
+}
+
+// ════════════════════════════════════════════════
+// 🎁 선물카드 갤러리 불러오기 — 에디봇 웹 로그인(localStorage/sessionStorage의 djToken)을
+// 그대로 재사용해서 내 선물카드 갤러리 데이터를 가져오고, 같은 방식(Canvas 2D)으로 다시
+// 그려서 썸네일로 보여준다. 클릭하면 그 카드가 캔버스에 스티커로 추가된다.
+// ════════════════════════════════════════════════
+const ggDjToken = localStorage.getItem('djToken') || sessionStorage.getItem('djToken') || '';
+function ggAuthHeaders() {
+  return ggDjToken ? { 'Authorization': 'Bearer ' + ggDjToken } : {};
+}
+function ggProxyImg2(url) {
+  return url ? '/giftgallery/image-proxy?url=' + encodeURIComponent(url) : '';
+}
+function ggLoadImage2(url) {
+  return new Promise(res => {
+    if (!url) { res(null); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = url;
+  });
+}
+function ggRoundRectPath2(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function ggDrawCoverImage2(ctx, img, cx, cy, d) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const side = Math.min(iw, ih);
+  const sx = (iw - side) / 2, sy = (ih - side) / 2;
+  ctx.drawImage(img, sx, sy, side, side, cx - d / 2, cy - d / 2, d, d);
+}
+const GG_FONT_STACK2 = `'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
+async function ggDrawCardCanvas(it, opts) {
+  const SCALE = 3;
+  const boxSize = 32 * SCALE, overlap = 12 * SCALE, gap = 8 * SCALE;
+  const padL = 6 * SCALE, padR = 14 * SCALE, padY = 6 * SCALE;
+  const fontName = `700 ${14 * SCALE}px ${GG_FONT_STACK2}`;
+  const fontSpoon = `700 ${13 * SCALE}px ${GG_FONT_STACK2}`;
+  const stickerSize = 30 * SCALE;
+  const senderOnly = opts.avatarMode === 'senderOnly';
+  const cardShape = opts.cardShape || 'pill';
+  const shape = opts.avatarShape || 'circle';
+
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+  const [userImg, djImg, stickerImg] = await Promise.all([
+    ggLoadImage2(it.profileUrl ? ggProxyImg2(it.profileUrl) : ''),
+    senderOnly ? Promise.resolve(null) : ggLoadImage2(it.djProfileUrl ? ggProxyImg2(it.djProfileUrl) : ''),
+    ggLoadImage2(it.stickerImage ? ggProxyImg2(it.stickerImage) : '')
+  ]);
+
+  const spoonsText = (it.totalSpoons || it.amount || 0).toLocaleString() + '스푼';
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = fontName;
+  const nameWidth = measure.measureText(it.author).width;
+  measure.font = fontSpoon;
+  const spoonWidth = measure.measureText(spoonsText).width;
+
+  const avatarsWidth = senderOnly ? boxSize : (boxSize * 2 - overlap);
+  const stickerBlock = stickerImg ? (gap + stickerSize) : 0;
+  const contentWidth = avatarsWidth + gap + nameWidth + stickerBlock + gap + spoonWidth;
+  const cardWidth = Math.ceil(padL + contentWidth + padR);
+  const cardHeight = boxSize + padY * 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = cardWidth; canvas.height = cardHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  if (cardShape !== 'none') {
+    const r = cardShape === 'rect' ? 10 * SCALE : cardHeight / 2;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.15)';
+    ctx.shadowBlur = 4 * SCALE;
+    ctx.shadowOffsetY = 1 * SCALE;
+    ctx.fillStyle = '#fff';
+    ggRoundRectPath2(ctx, 0, 0, cardWidth, cardHeight, r);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const cy = cardHeight / 2;
+  let x = padL;
+
+  function drawAvatar(img, fallbackCh, fallbackBg, fallbackFg) {
+    const cx = x + boxSize / 2;
+    ctx.save();
+    if (shape === 'circle') { ctx.beginPath(); ctx.arc(cx, cy, boxSize / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip(); }
+    else { ggRoundRectPath2(ctx, x, cy - boxSize / 2, boxSize, boxSize, 8 * SCALE); ctx.clip(); }
+    if (img) ggDrawCoverImage2(ctx, img, cx, cy, boxSize);
+    else {
+      ctx.fillStyle = fallbackBg;
+      ctx.fillRect(x, cy - boxSize / 2, boxSize, boxSize);
+      ctx.fillStyle = fallbackFg;
+      ctx.font = `700 ${14 * SCALE}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(fallbackCh, cx, cy);
+    }
+    ctx.restore();
+  }
+
+  if (senderOnly) {
+    drawAvatar(userImg, (it.author || '?').trim().slice(0, 1) || '?', '#f6c453', '#3a1e00');
+    x += boxSize;
+  } else {
+    ctx.save(); x += (boxSize - overlap);
+    drawAvatar(djImg, '디', '#5eead4', '#062e2a');
+    ctx.restore();
+    x = padL;
+    drawAvatar(userImg, (it.author || '?').trim().slice(0, 1) || '?', '#f6c453', '#3a1e00');
+    x += boxSize - overlap + boxSize;
+  }
+
+  x += gap;
+  ctx.fillStyle = '#111';
+  ctx.font = fontName;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(it.author, x, cy);
+  x += nameWidth + gap;
+
+  if (stickerImg) {
+    const iw = stickerImg.naturalWidth || 1, ih = stickerImg.naturalHeight || 1;
+    const fitScale = Math.min(stickerSize / iw, stickerSize / ih);
+    const dw = iw * fitScale, dh = ih * fitScale;
+    ctx.drawImage(stickerImg, x + (stickerSize - dw) / 2, cy - dh / 2, dw, dh);
+    x += stickerSize + gap;
+  }
+
+  ctx.fillStyle = '#f97316';
+  ctx.font = fontSpoon;
+  ctx.fillText(spoonsText, x, cy);
+
+  return canvas;
+}
+async function renderGgImportGrid(gridId, hintId) {
+  const grid = document.getElementById(gridId);
+  const hint = document.getElementById(hintId);
+  if (!grid) return;
+  if (!ggDjToken) {
+    hint.textContent = '에디봇 웹에 로그인한 상태에서 열어야 불러올 수 있어요.';
+    return;
+  }
+  try {
+    const res = await fetch('/giftgallery/settings', { headers: ggAuthHeaders() });
+    const d = await res.json();
+    if (!d.success || !d.settings.items.length) {
+      hint.textContent = '저장된 선물카드가 없어요.';
+      return;
+    }
+    const gallery = d.settings;
+    const items = gallery.items.slice(0, 20); // 최근 20개까지만
+    hint.style.display = 'none';
+    grid.innerHTML = '';
+    for (const it of items) {
+      const cell = document.createElement('div');
+      cell.style.cssText = 'border:1px solid var(--border);border-radius:8px;padding:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;background:#f5f5fa;min-height:48px;';
+      cell.innerHTML = '<div class="loading-spin"></div>';
+      grid.appendChild(cell);
+      ggDrawCardCanvas(it, { avatarShape: gallery.avatarShape, cardShape: gallery.cardShape, avatarMode: gallery.avatarMode }).then(canvas => {
+        const dataUrl = canvas.toDataURL('image/png');
+        cell.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:60px;">`;
+        cell.onclick = () => addSticker(dataUrl);
+      }).catch(() => { cell.innerHTML = '⚠️'; });
+    }
+  } catch (e) {
+    hint.textContent = '선물카드 갤러리를 불러오지 못했어요.';
+  }
 }
 
 // ════════════════════════════════════════════════
@@ -1418,8 +1598,13 @@ function renderMobileTabContent() {
       <div style="padding:16px;">
         <button class="btn btn-accent" style="width:100%; margin-bottom:12px;" onclick="document.getElementById('mobileLocalInput').click()">📁 내 이미지 추가</button>
         <input type="file" id="mobileLocalInput" accept="image/*" multiple style="display:none" onchange="handleLocalUpload(event)">
+        <div class="sep"></div>
+        <div class="section-label">🎁 선물카드 갤러리</div>
+        <div id="ggImportGridMobile" style="display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:8px;"></div>
+        <p id="ggImportHintMobile" style="font-size:12px; color:var(--muted); text-align:center; margin-top:12px;">불러오는 중...</p>
       </div>
     `;
+    renderGgImportGrid('ggImportGridMobile', 'ggImportHintMobile');
   } else if (tab === 'text') {
     el.innerHTML = `
       <div style="padding:16px;">
@@ -1596,6 +1781,7 @@ function init() {
   renderAll();
   fetchStickers();
   renderMobileTabContent();
+  renderGgImportGrid('ggImportGrid', 'ggImportHint');
 }
 
 init();
