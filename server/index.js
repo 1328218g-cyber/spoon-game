@@ -13402,8 +13402,23 @@ app.get('/trophy-editor/stickers', async (req, res) => {
     })
     if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
     const raw = await upstream.json()
-    trophyEditorStickerCache = { data: raw, fetchedAt: now }
-    res.json(raw)
+    // 🎯 룰렛 스티커 선택창과 동일한 기준으로, 지금 실제 판매 중인 스티커만 남긴다
+    // (개별 스티커의 is_used=false 제외 + start_date~end_date 판매기간 벗어난 것 제외).
+    const nowDate = new Date(now)
+    const filtered = {
+      ...raw,
+      categories: (raw.categories || []).map(cat => ({
+        ...cat,
+        stickers: (cat.stickers || []).filter(s => {
+          if (s.is_used === false) return false
+          if (s.start_date) { const d = new Date(s.start_date); if (!isNaN(d) && d > nowDate) return false }
+          if (s.end_date) { const d = new Date(s.end_date); if (!isNaN(d) && d < nowDate) return false }
+          return true
+        })
+      })).filter(cat => cat.stickers.length > 0)
+    }
+    trophyEditorStickerCache = { data: filtered, fetchedAt: now }
+    res.json(filtered)
   } catch (e) {
     if (trophyEditorStickerCache.data) return res.json(trophyEditorStickerCache.data)
     res.status(502).json({ categories: [] })

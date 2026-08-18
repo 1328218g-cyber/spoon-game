@@ -135,6 +135,21 @@
     .panel-left { width: 100%; height: 45vh; border-right: none; border-top: 1px solid var(--border); }
     .panel-used, .panel-right { display: none; }
     .panel-center { flex: 1; }
+
+    /* 모바일에서 팝업/모달이 화면 밖으로 벗어나거나 좌우로 잘리던 문제 보정 */
+    .popup-overlay, .modal-overlay { padding: 12px; }
+    .popup { max-width: 100%; padding: 20px; }
+    .anim-capture-modal { max-width: 100%; max-height: 90vh; overflow-y: auto; }
+    .anim-capture-stage { padding: 12px; min-height: 200px; }
+    #lottieStage { width: 100% !important; max-width: 240px; height: auto !important; aspect-ratio: 1; }
+    .anim-capture-stage img { max-height: 220px; }
+
+    /* 이미지 편집 모달(지우개/투명도)이 데스크톱용 좌우 배치라 모바일에서 캔버스가 너무 좁아지던
+       문제 — 세로로 쌓이게 바꾸고, 캔버스 영역에 화면 높이 비중을 더 준다 */
+    .modal { max-width: 100%; max-height: 92vh; }
+    .modal-body { flex-direction: column; overflow-y: auto; }
+    .modal-canvas-area { min-height: 45vh; padding: 8px; }
+    .modal-controls { width: 100%; border-left: none; border-top: 1px solid var(--border); }
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
@@ -284,7 +299,8 @@ async function fetchStickers() {
     for (const cat of data.categories) {
       // ⚠️ [수정] cat.is_used는 스푼 API에서 실제 노출 여부와 무관하게 거의 항상 false로 내려온다.
       // 이 값으로 카테고리 전체를 거르면 목록이 통째로 비어버린다 — 개별 스티커의 is_used만 본다.
-      const stickers = (cat.stickers || []).filter(s => s.is_used === true);
+      // 서버(/trophy-editor/stickers)에서 이미 판매기간/사용여부로 걸러서 내려주므로 여기선 그대로 사용
+      const stickers = cat.stickers || [];
       if (stickers.length > 0) {
         result.push({
           id: cat.id, name: cat.name, title: cat.title,
@@ -1067,7 +1083,7 @@ function openEditModal(stickerId) {
   STATE.editBaseData = null;
 
   const overlay = document.getElementById('editModal');
-  overlay.style.display = 'block';
+  overlay.style.display = 'flex';
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal">
@@ -1103,6 +1119,7 @@ function openEditModal(stickerId) {
     </div>
   `;
 
+  makeDraggable(overlay.querySelector('.modal'), overlay.querySelector('.modal-header'));
   const canvas = document.getElementById('editCanvas');
   editCanvasRef = canvas;
   const ctx = canvas.getContext('2d');
@@ -1211,7 +1228,7 @@ function closeEditModal() {
 // ════════════════════════════════════════════════
 function showChoicePopup(sticker, type, fullUrl) {
   const popup = document.getElementById('choicePopup');
-  popup.style.display = 'block';
+  popup.style.display = 'flex';
   popup.className = 'popup-overlay';
   popup.innerHTML = `
     <div class="popup">
@@ -1232,6 +1249,7 @@ function showChoicePopup(sticker, type, fullUrl) {
   STATE.choiceSticker = sticker;
   STATE.choiceType = type;
   STATE.choiceFullUrl = fullUrl;
+  makeDraggable(popup.querySelector('.popup'), popup.querySelector('h3'));
 }
 
 function closeChoicePopup() {
@@ -1298,6 +1316,7 @@ function openAnimCaptureModal() {
       </div>
     `;
   }
+  makeDraggable(overlay.querySelector('.anim-capture-modal'), overlay.querySelector('.anim-capture-header'));
 }
 
 function onAnimSpeedChange(v) {
@@ -1343,6 +1362,32 @@ function closeAnimCaptureModal() {
   if (animCaptureLottie) { animCaptureLottie.destroy(); animCaptureLottie = null; }
   document.getElementById('choicePopup').style.display = 'none';
   document.getElementById('choicePopup').innerHTML = '';
+}
+
+// 🖱️ 팝업/모달을 원하는 위치로 직접 드래그해서 옮길 수 있게 해주는 공용 유틸.
+// handleEl(보통 제목 영역)을 눌러서 끌면 modalEl 전체가 그 위치로 따라간다.
+function makeDraggable(modalEl, handleEl) {
+  if (!modalEl || !handleEl) return;
+  handleEl.style.cursor = 'move';
+  let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+  handleEl.onmousedown = e => {
+    if (e.target.closest('button')) return; // 닫기 버튼 클릭은 드래그로 안 잡음
+    dragging = true;
+    const rect = modalEl.getBoundingClientRect();
+    modalEl.style.position = 'fixed';
+    modalEl.style.left = rect.left + 'px';
+    modalEl.style.top = rect.top + 'px';
+    modalEl.style.margin = '0';
+    origX = rect.left; origY = rect.top;
+    startX = e.clientX; startY = e.clientY;
+    e.preventDefault();
+  };
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    modalEl.style.left = (origX + e.clientX - startX) + 'px';
+    modalEl.style.top = (origY + e.clientY - startY) + 'px';
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
 }
 
 // ════════════════════════════════════════════════
