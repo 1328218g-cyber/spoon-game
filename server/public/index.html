@@ -495,7 +495,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -8629,32 +8628,152 @@ function ggPreloadBgImages(el){
     img.src=u;
   }))).then(()=>sizes);
 }
-async function downloadGgItem(id){
-  const cardEl=document.getElementById('ggCard_'+id);
-  if(!cardEl||typeof html2canvas==='undefined'){showToast('다운로드 기능을 불러오지 못했어요');return;}
-  const delBtn=document.getElementById('ggDel_'+id);
-  const dlBtn=document.getElementById('ggDl_'+id);
-  const prevDel=delBtn?delBtn.style.display:'';
-  const prevDl=dlBtn?dlBtn.style.display:'';
-  if(delBtn)delBtn.style.display='none';
-  if(dlBtn)dlBtn.style.display='none';
-  try{
-    // 🖼️ 캡처 직전에 배경이미지들을 미리 브라우저에 로드시켜서, 로딩이 덜 끝난 상태에서
-    // 캡처가 시작돼 사진이 빈 채로 찍히는 경쟁 상태(race condition)를 방지한다.
-    await ggPreloadBgImages(cardEl);
-    // 🖼️ 카드 자체가 흰색이라 배경을 투명(null)으로 뽑으면 흰 바탕 위에서 카드가 안 보이는
-    // 문제가 있었다. 살짝 톤 있는 배경(#eef2f7)을 깔아서 어디에 올려놔도 카드 테두리가 보이게 한다.
-    // scale을 5로 올려서 확대해서 봐도 흐리지 않게 고해상도로 뽑는다.
-    const canvas=await html2canvas(cardEl,{backgroundColor:'#eef2f7',useCORS:true,scale:5,imageTimeout:15000});
-    const link=document.createElement('a');
-    link.download='선물카드_'+id+'.png';
-    link.href=canvas.toDataURL('image/png');
-    link.click();
-  }catch(e){
-    showToast('이미지 다운로드 실패 (프로필 이미지 접근 제한일 수 있어요)');
+function ggLoadImage(url){
+  return new Promise(res=>{
+    if(!url){res(null);return;}
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>res(img);
+    img.onerror=()=>res(null);
+    img.src=url;
+  });
+}
+function ggRoundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function ggDrawCoverImage(ctx,img,cx,cy,d){
+  // object-fit:cover와 동일한 계산으로 원본 이미지에서 중앙 정사각형을 잘라 그린다.
+  const iw=img.naturalWidth,ih=img.naturalHeight;
+  const side=Math.min(iw,ih);
+  const sx=(iw-side)/2, sy=(ih-side)/2;
+  ctx.drawImage(img,sx,sy,side,side,cx-d/2,cy-d/2,d,d);
+}
+// 🖼️ [업데이트] html2canvas는 이미지를 축소해서 합성하는 과정에서 화질이 눈에 띄게 떨어지는
+// 문제가 있었다(원본이 1248x1248처럼 고화질이어도 결과물은 흐릿하게 나옴). 그래서 캡처 라이브러리를
+// 아예 쓰지 않고, Canvas 2D에 직접 그려서 만든다 — 이미지 스무딩 품질을 최고(high)로 직접 지정하니
+// 원본 해상도를 제대로 살려서 그린다.
+async function drawGgCardCanvas(it, opts){
+  const SCALE=4 // 결과 이미지 배율(고해상도)
+  const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
+  const padL=6*SCALE, padR=14*SCALE, padY=6*SCALE
+  const fontName=`700 ${14*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
+  const fontSpoon=`700 ${13*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
+  const stickerSize=16*SCALE
+  const senderOnly=opts.avatarMode==='senderOnly'
+  const cardShape=opts.cardShape||'pill'
+  const shape=opts.avatarShape||'circle'
+
+  const [userImg,djImg,stickerImg]=await Promise.all([
+    ggLoadImage(it.profileUrl?ggProxyImg(it.profileUrl):''),
+    senderOnly?Promise.resolve(null):ggLoadImage(it.djProfileUrl?ggProxyImg(it.djProfileUrl):''),
+    ggLoadImage(it.stickerImage?ggProxyImg(it.stickerImage):'')
+  ])
+
+  const spoonsText=(it.totalSpoons||it.amount||0).toLocaleString()+'스푼'
+  const measure=document.createElement('canvas').getContext('2d')
+  measure.font=fontName
+  const nameWidth=measure.measureText(it.author).width
+  measure.font=fontSpoon
+  const spoonWidth=measure.measureText(spoonsText).width
+
+  const avatarsWidth=senderOnly?boxSize:(boxSize*2-overlap)
+  const stickerBlock=stickerImg?(gap+stickerSize):0
+  const contentWidth=avatarsWidth+gap+nameWidth+stickerBlock+gap+spoonWidth
+  const cardWidth=Math.ceil(padL+contentWidth+padR)
+  const cardHeight=boxSize+padY*2
+
+  const canvas=document.createElement('canvas')
+  canvas.width=cardWidth; canvas.height=cardHeight
+  const ctx=canvas.getContext('2d')
+  ctx.imageSmoothingEnabled=true
+  ctx.imageSmoothingQuality='high'
+
+  // 배경(카드 뒤 살짝 톤 있는 바탕 — 흰 카드가 흰 배경에 묻히지 않게)
+  ctx.fillStyle='#eef2f7'
+  ctx.fillRect(0,0,cardWidth,cardHeight)
+
+  if(cardShape!=='none'){
+    const r=cardShape==='rect'?10*SCALE:cardHeight/2
+    ctx.save()
+    ctx.shadowColor='rgba(0,0,0,0.15)'
+    ctx.shadowBlur=4*SCALE
+    ctx.shadowOffsetY=1*SCALE
+    ctx.fillStyle='#fff'
+    ggRoundRectPath(ctx,0,0,cardWidth,cardHeight,r)
+    ctx.fill()
+    ctx.restore()
   }
-  if(delBtn)delBtn.style.display=prevDel;
-  if(dlBtn)dlBtn.style.display=prevDl;
+
+  const cy=cardHeight/2
+  let x=padL
+
+  function drawAvatar(img,fallbackCh,fallbackBg,fallbackFg){
+    const cx=x+boxSize/2
+    ctx.save()
+    if(shape==='circle'){ ctx.beginPath(); ctx.arc(cx,cy,boxSize/2,0,Math.PI*2); ctx.closePath(); ctx.clip() }
+    else { ggRoundRectPath(ctx,x,cy-boxSize/2,boxSize,boxSize,8*SCALE); ctx.clip() }
+    if(img) ggDrawCoverImage(ctx,img,cx,cy,boxSize)
+    else {
+      ctx.fillStyle=fallbackBg
+      ctx.fillRect(x,cy-boxSize/2,boxSize,boxSize)
+      ctx.fillStyle=fallbackFg
+      ctx.font=`700 ${14*SCALE}px sans-serif`
+      ctx.textAlign='center'; ctx.textBaseline='middle'
+      ctx.fillText(fallbackCh,cx,cy)
+    }
+    ctx.restore()
+  }
+
+  if(senderOnly){
+    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
+    x+=boxSize
+  } else {
+    // 뒤(디제이) 먼저 그리고 앞(후원자)을 나중에 겹쳐 그려서 후원자가 위로 보이게 한다.
+    ctx.save(); x+= (boxSize-overlap)
+    drawAvatar(djImg,'디','#5eead4','#062e2a')
+    ctx.restore()
+    x=padL
+    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
+    x+= boxSize-overlap+boxSize
+  }
+
+  x+=gap
+  ctx.fillStyle='#111'
+  ctx.font=fontName
+  ctx.textAlign='left'; ctx.textBaseline='middle'
+  ctx.fillText(it.author,x,cy)
+  x+=nameWidth+gap
+
+  if(stickerImg){
+    const sr=stickerSize/2
+    ctx.drawImage(stickerImg,x,cy-sr,stickerSize,stickerSize)
+    x+=stickerSize+gap
+  }
+
+  ctx.fillStyle='#3b82f6'
+  ctx.font=fontSpoon
+  ctx.fillText(spoonsText,x,cy)
+
+  return canvas
+}
+async function downloadGgItem(id){
+  const it=ggData.items.find(i=>i.id===id)
+  if(!it){showToast('카드를 찾을 수 없어요');return}
+  try{
+    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode})
+    const link=document.createElement('a')
+    link.download='선물카드_'+id+'.png'
+    link.href=canvas.toDataURL('image/png')
+    link.click()
+  }catch(e){
+    showToast('이미지 다운로드 실패 (프로필 이미지 접근 제한일 수 있어요)')
+  }
 }
 async function checkGgImageResolution(){
   const firstCard=document.querySelector('#ggGrid > div[id^="ggCard_"]');
