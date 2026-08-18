@@ -1496,7 +1496,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
 
     const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
     if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
-    const useCount = Math.min(count, d.lotto || 0)
+    const useCount = Math.min(count, 100, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 100장까지만 처리한다
     d.lotto -= useCount
     let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
     for (let i = 0; i < useCount; i++) {
@@ -6163,7 +6163,7 @@ function stkCmdRule(djId, cfg, parts) {
     '룰렛': `🎡 룰렛 룰 (${cfg.cmdRoulette} 빨강 5만원)\n· 빨강 2배 · 검정 2배 · 초록 14배`,
     '홀짝': `⚫ 홀짝 룰 (${cfg.cmdOddEven} 홀 5만원)\n· 홀/짝 반반, 맞히면 2배`,
     '주사위': `🎲 주사위 룰 (${cfg.cmdDice} 3 5만원)\n· 1~6 중 숫자 선택, 맞히면 6배 / 틀리면 0`,
-    '복권': `🎟️ 복권 룰 (${cfg.cmdLotto} 5장)\n· 1장 100,000원, 1회 최대 10장, 결과 즉시 발표\n· 1등 1,000만 / 2등 300만 / 3등 100만`,
+    '복권': `🎟️ 복권 룰 (${cfg.cmdLotto} 5장)\n· 1장 100,000원, 1회 최대 100장, 결과 즉시 발표\n· 1등 1,000만 / 2등 300만 / 3등 100만`,
     '은행': `🏦 은행 룰\n· ${cfg.cmdDeposit} [금액] → 방송일마다 이자 ${cfg.depositInterestPct}% 자동 지급\n· ${cfg.cmdLoan} [금액] → 한도 ${stkFmt(cfg.loanLimit)}, 방송일마다 이자 ${cfg.loanInterestPct}% 가산\n· 전 재산이 0원이 되면 자동 대출 ${stkFmt(cfg.autoLoanAmount)} 실행`,
     '아이템': `🛍️ 아이템 룰 (${cfg.cmdShop} → ${cfg.cmdBuy} → ${cfg.cmdUse})\n· 시장분석권 : 지정 종목의 다음 시세 변동 예측\n· 배당쿠폰 : 다음 배당 2배 / 보험 : 폭락 손실 50% 보상 / 행운권 : 다음 슬롯 확률 2배`,
     '랭킹': `🏆 랭킹 룰\n· 총자산 = 현금 + 주식 평가액 + 예금 - 대출\n· ${cfg.cmdRanking} 으로 TOP5 확인`,
@@ -6386,7 +6386,7 @@ function stkCmdLotto(djId, stock, tag, nickname, parts) {
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   let n = parseInt(parts[1], 10); if (!n || n < 1) n = 1
-  n = Math.min(n, 10)
+  n = Math.min(n, 100)
   const price = 100000
   const cost = price * n
   if ((u.cash || 0) < cost) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
