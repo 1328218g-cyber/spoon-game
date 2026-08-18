@@ -199,7 +199,7 @@ const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, djProfileUrl: '', tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
   }
   return rooms[djId]
 }
@@ -460,10 +460,11 @@ async function fetchLiveInfo(liveId, accessToken) {
     return {
       streamName: live.stream_name || live.streamName || String(liveId),
       djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
+      djProfileUrl: live.author?.profile_url || live.author?.profileUrl || live.author?.image_url || live.user?.profile_url || live.user?.profileUrl || '',
     }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null }
+    return { streamName: String(liveId), djUserId: null, djProfileUrl: '' }
   }
 }
 
@@ -581,7 +582,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftgallery'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4928,6 +4929,57 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
   }
 }
 
+// 🎁 선물카드 갤러리 — 스푼 앱 화면 자체를 캡처할 순 없어서(우리 서버가 접근 못 하는 영역), 대신
+// 선물 이벤트로 들어온 정보(닉네임/고유닉/선물종류/개수/프로필사진)를 가벼운 기록으로 남겨두고,
+// 화면에서는 이 기록으로 "선물카드" 모양을 그려서 보여준다. 스티커/프로필 이미지는 실제 파일을
+// 우리 서버에 저장하지 않고 스푼 CDN 원본 URL을 그대로 참조만 한다 (예전 박제판 앨범이 이미지를
+// 직접 저장하다가 용량 문제로 기능 자체를 뺐던 전례가 있어서, 그 실수를 반복하지 않으려는 것).
+const GIFT_GALLERY_MAX_ITEMS = 300
+function getGiftGallerySettings(djId, settings) {
+  if (!settings.giftGallery) {
+    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', items: [] }
+    store.saveSettings(djId, { giftGallery: settings.giftGallery })
+  }
+  if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
+  if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
+  if (!['rect', 'pill', 'none'].includes(settings.giftGallery.cardShape)) settings.giftGallery.cardShape = 'pill'
+  if (settings.giftGallery.avatarMode !== 'senderOnly' && settings.giftGallery.avatarMode !== 'both') settings.giftGallery.avatarMode = 'both'
+  return settings.giftGallery
+}
+let giftGallerySaveDebounce = {}
+function saveGiftGallery(djId, gallery) {
+  if (giftGallerySaveDebounce[djId]) clearTimeout(giftGallerySaveDebounce[djId])
+  giftGallerySaveDebounce[djId] = setTimeout(() => {
+    try { store.saveSettings(djId, { giftGallery: gallery }) } catch (e) { console.log('[선물카드 갤러리] 저장 실패', e.message) }
+  }, 800)
+}
+function handleGiftGalleryHook(djId, settings, author, tag, sticker, stickerImage, amount, comboCount, profileUrl, djProfileUrl) {
+  // 🌟 [업데이트] 사이드바 "선물카드 갤러리" 모듈을 켠 것 자체가 사용 의사이므로, 설정 페이지에서
+  // 별도로 체크박스를 또 켜야 하는 이중 스위치를 없앴다. 모듈 ON = 바로 자동 저장 동작.
+  if (!isModuleOn(settings, 'giftgallery', djId)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 사이드바 모듈이 꺼져있어요`); return }
+  const gallery = getGiftGallerySettings(djId, settings)
+  const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
+  if (!(totalSpoons > 0)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 스푼 수량이 0이에요 (amount=${amount}, comboCount=${comboCount})`); return }
+  const item = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    ts: Date.now(),
+    author,
+    tag: tag || '',
+    sticker: String(sticker || '').trim(),
+    stickerImage: stickerImage || '',
+    amount: Number(amount) || 0,
+    comboCount: Math.max(1, Number(comboCount) || 1),
+    totalSpoons,
+    profileUrl: profileUrl || '',      // 후원한 유저 프로필사진
+    djProfileUrl: djProfileUrl || ''   // 이 방송 디제이 프로필사진
+  }
+  gallery.items.unshift(item)
+  if (gallery.items.length > GIFT_GALLERY_MAX_ITEMS) gallery.items.length = GIFT_GALLERY_MAX_ITEMS
+  saveGiftGallery(djId, gallery)
+  console.log(`[선물카드 갤러리:${djId}] 저장 완료 — ${author} / ${totalSpoons}스푼 (누적 ${gallery.items.length}개)`)
+  broadcast({ type: 'giftgallery', djId, item })
+}
+
 function getPickboardSettings(djId, settings) {
   if (!settings.pickboard) {
     const config = pbDefaultConfig()
@@ -6688,8 +6740,10 @@ setInterval(() => {
 // ⚔️ 검키우기 — 기존 "Sopia" 봇용으로 만들어져 있던 게임을 이 서버(Express) 구조로 이식.
 // 게임 로직(강화/던전/배틀/랭킹 등 계산 공식)은 원본 그대로이고, 메시지 송수신 부분만
 // 이 서버의 채팅 파이프라인에 맞게 다시 연결했다.
-// 유저 데이터(검 레벨/골드 등)는 기존처럼 Base44(외부 DB)에 저장돼있던 걸 그대로 쓴다 —
-// !저장/!로드 명령어로 수동 동기화(원본과 동일한 방식). 설정(강화확률/상점 등)은
+// 유저 데이터(검 레벨/골드 등)는 [업데이트] 몬스터잡기와 동일한 방식으로 이 서버(관리자
+// 계정 아래 djs.json)에 전역 저장한다. 원래는 Base44(외부 DB)에 저장하고 !저장/!로드로
+// 수동 동기화했지만, 이제 이 서버 저장소가 1순위 출처이고 Base44는 예전 데이터 마이그레이션용
+// 백업으로만 남겨뒀다(handleSaveData/handleLoadData 참고). 설정(강화확률/상점 등)은
 // 관리자(sum) 계정 아래 공용으로 저장해서, 이 모듈을 켠 모든 방송이 같은 설정을 공유한다
 // (플레이어 데이터가 Base44에 태그 기준으로 전역 저장되는 것과 같은 맥락).
 //
@@ -6697,17 +6751,12 @@ setInterval(() => {
 // 출석·저장/로드·검온오프·도움말 (1차) + 상점/구매·펫·몬스터박스·방보스·자동배틀·거래소·
 // 관리자 지급(!쿠폰/!보상) (2차, handleSwordHelp 함수 위쪽 "2차 이식" 섹션 참고) 까지 이식 완료.
 
-const APP_URL = 'https://copy-09a708e1.base44.app'
-let API_TOKEN = process.env.SWORD_API_TOKEN || '102810aa'
-
 let localUsers = new Map()
 let localSettings = null
 let enhanceCooldowns = new Map()
 let battleCooldowns = new Map()
 let dungeonCooldowns = new Map()
 let loadCooldowns = new Map()
-let bannedUsersCache = new Set()
-let lastBannedCheck = 0
 
 // 2차 이식(상점/펫/몬스터박스/자동배틀/거래소/방보스/관리자 지급) 전용 상태 — 전부 인메모리, 프로세스 재시작 시 초기화됨
 let autoBattleUsers = new Map()      // tag -> true (자동배틀 진행 중 표시)
@@ -6718,88 +6767,9 @@ let marketListings = []              // 거래소(자동쿠폰 전용): [{ id, s
 let currentBoss = null               // 방보스: { name, hp, maxHp, contributions:{tag:damage}, spawnedAt } | null
 let bossCooldowns = new Map()        // tag -> 마지막 !참여 시각 (연타 방지)
 
-async function checkBannedUser(tag) {
-  // 5분마다 캐시 갱신
-  if (Date.now() - lastBannedCheck > 300000) {
-    try {
-      const response = await apiRequest('getBannedUsers', 'GET', {});
-      if (response.success && response.banned_tags) {
-        bannedUsersCache = new Set(response.banned_tags);
-        lastBannedCheck = Date.now();
-      }
-    } catch (error) {
-      console.log('[차단 체크 실패]', error);
-    }
-  }
-  
-  return bannedUsersCache.has(tag);
-}
-
-async function apiRequest(endpoint, method = 'GET', params = {}, body = null) {
-  const url = new URL(APP_URL + '/functions/' + endpoint);
-  if (method === 'GET') {
-    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-  }
-  const options = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + API_TOKEN,
-    },
-  };
-  if (body) options.body = JSON.stringify(body);
-  const response = await fetch(url, options);
-  return await response.json();
-}
-
-async function loadUserFromDB(tag) {
-  try {
-    const response = await apiRequest('loadGlobalSwordUser', 'POST', {}, { tag });
-    return response.success && response.user ? response.user : null;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function saveUserToDB(user) {
-  try {
-    const payload = {
-      tag: user.tag,
-      userData: {
-        nickname: user.nickname,
-        gold: user.gold,
-        spoon_points: user.spoon_points,
-        sword_level: user.sword_level,
-        max_sword_level: user.max_sword_level,
-        attack_power: user.attack_power,
-        weapon_bonus: user.weapon_bonus,
-        weapon_bonus2: user.weapon_bonus2,
-        weapon_bonus3: user.weapon_bonus3,
-        battle_wins: user.battle_wins,
-        battle_losses: user.battle_losses,
-        inventory: user.inventory,
-        special_weapon: user.special_weapon,
-        last_daily_money_date: user.last_daily_money_date,
-        current_dungeon_floor: user.current_dungeon_floor,
-        relics: user.relics,
-        dungeon_tickets: user.dungeon_tickets,
-        auto_battle_tickets: user.auto_battle_tickets,
-        runes: user.runes,
-        rune_fragments: user.rune_fragments,
-        last_explore_date: user.last_explore_date,
-        explore_count: user.explore_count,
-        user_plan_level: user.user_plan_level,
-        pets: user.pets,
-        equipped_pet_id: user.equipped_pet_id,
-        pet_fragments: user.pet_fragments
-      }
-    };
-    await apiRequest('saveGlobalSwordUser', 'POST', {}, payload);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
+// 🚫 [업데이트] Base44 외부 DB는 더 이상 사용하지 않음. 차단은 이 서버 안에서만 관리하는
+// 로컬 차단(아래 isLocallyBanned/handleLocalBan)만 쓴다.
+function checkBannedUser(tag) { return false }
 
 function initializeSettings() {
   if (localSettings) return localSettings;
@@ -10569,9 +10539,10 @@ function handleBattle(tag, nickname, targetTag) {
 }
 
 async function handleRanking(tag, nickname) {
-  // 로컬 방 랭킹
+  // 🚫 [업데이트] Base44 월드 랭킹 제거 — localUsers 자체가 이제 이 서버(모든 디제이 방)를
+  // 통틀어 전역으로 공유되는 데이터라, 별도 외부 DB 없이도 이 랭킹이 곧 전체 랭킹이다.
   const allUsers = Array.from(localUsers.values());
-  const localRanking = [...allUsers].sort((a, b) => b.sword_level - a.sword_level);
+  const ranking = [...allUsers].sort((a, b) => b.sword_level - a.sword_level);
 
   const weaponNames = localSettings?.weapon_names || [];
   const getWeaponName = (level, userData) => {
@@ -10582,42 +10553,19 @@ async function handleRanking(tag, nickname) {
 
   let msg = '';
 
-  // DB 월드 랭킹 조회
-  try {
-    const response = await apiRequest('getGlobalSwordRanking', 'GET', {});
-    if (response.users && response.users.length > 0) {
-      const globalRanking = response.users.sort((a, b) => b.sword_level - a.sword_level).slice(0, 5);
-      
-      msg += `🏆 검키우기 월드 랭킹 🏆\n`;
-      for (let i = 0; i < globalRanking.length; i++) {
-        const user = globalRanking[i];
-        const weaponName = getWeaponName(user.sword_level, user);
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
-        msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
-        if (i < globalRanking.length - 1) {
-          msg += '\n';
-        }
-      }
-      msg += '\n\n';
-    }
-  } catch (error) {
-    console.log('[월드 랭킹 조회 실패]', error);
-  }
-
-  // 우리방 랭킹
-  if (localRanking.length > 0) {
-    msg += `🏆 우리방 검랭킹 🏆\n`;
-    for (let i = 0; i < Math.min(5, localRanking.length); i++) {
-      const user = localRanking[i];
+  if (ranking.length > 0) {
+    msg += `🏆 검키우기 전체 랭킹 🏆\n`;
+    for (let i = 0; i < Math.min(5, ranking.length); i++) {
+      const user = ranking[i];
       const weaponName = getWeaponName(user.sword_level, user);
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
       msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
-      if (i < Math.min(4, localRanking.length - 1)) {
+      if (i < Math.min(4, ranking.length - 1)) {
         msg += '\n';
       }
     }
   } else {
-    msg += '❌ 우리방 랭킹 데이터가 없습니다';
+    msg += '❌ 랭킹 데이터가 없습니다';
   }
 
   return msg;
@@ -11345,12 +11293,20 @@ function handleMonsterBoxTest(tag, nickname) {
 // !ALL — 지금 메모리에 있는 모든 유저 데이터를 한 번에 Base44에 저장한다 (서버 재시작 전 백업용)
 async function handleSaveAllUsers(tag) {
   if (String(tag).toLowerCase() !== 'sum') return null
-  const users = Array.from(localUsers.values())
-  let saved = 0
-  for (const u of users) {
-    try { if (await saveUserToDB(u)) saved++ } catch (e) { /* 개별 실패는 무시하고 계속 진행 */ }
+  // 🚫 [업데이트] Base44로 개별 업로드하던 방식 제거 — 이제 모든 유저 데이터가 이미
+  // 액션마다 자동으로 서버(djs.json)에 저장되고 있어서, 여기서는 확실히 지금 이 순간의
+  // 상태를 디스크에 강제로 즉시 반영(flush)하기만 하면 된다.
+  if (swordSaveDebounceTimer) { clearTimeout(swordSaveDebounceTimer); swordSaveDebounceTimer = null }
+  try {
+    store.saveSettings(SHARED_TOKEN_DJID, {
+      swordGameUsers: Object.fromEntries(localUsers),
+      swordGameMarket: marketListings,
+      swordGameBoss: currentBoss
+    })
+  } catch (e) {
+    return '❌ 서버 저장 실패'
   }
-  return `✅ 전체 유저 데이터 저장 완료! (${saved}/${users.length}명)`
+  return `✅ 전체 유저 데이터(${localUsers.size}명)를 서버에 즉시 저장했어요!`
 }
 
 // !유물리셋 — 고급 유물(화염/번개/빛/바람/얼음/대지/도플갱어)을 로컬 캐시에 있는 모든 유저에게서 제거
@@ -11448,8 +11404,8 @@ function handleSwordHelp() {
   msg += '• 🟢 !검온 - 검키우기 시스템 활성화\n';
   msg += '• 🔴 !검오프 - 검키우기 시스템 비활성화\n';
   msg += '• 🔧 !복구 [고유닉] [+레벨] [일/단] [옵션1] [옵션2] [옵션3] - 검 복구\n';
-  msg += '• 💾 !저장 - 현재 데이터를 DB에 저장\n';
-  msg += '• 📥 !로드 - DB에서 데이터 불러오기 (20분 쿨타임)\n';
+  msg += '• 💾 !저장 - 현재 데이터를 서버에 저장\n';
+  msg += '• 📥 !로드 - 서버에서 최신 데이터 불러오기 (5초 쿨타임)\n';
   msg += '• 🔄 !ALL - 모든 유저 데이터 DB 저장\n';
   msg += '• 🔄 !설정새로고침 - 상점/던전 설정 업데이트\n';
   msg += '• 📋 !질문 [내용] - 복구 요청 등록\n\n';
@@ -11471,80 +11427,61 @@ function handleSwordHelp() {
 
 async function handleSaveData(tag, nickname) {
   const user = localUsers.get(tag);
-  
+
   if (!user) {
     return '❌ 저장할 데이터가 없습니다. 먼저 !출석으로 시작하세요';
   }
 
-  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
-    return '❌ DB 저장 불가 (토큰 미설정)';
+  // 🌐 [업데이트] 몬스터잡기와 같은 방식으로, 이 서버(관리자 계정 아래 djs.json)가 모든 유저의
+  // 검키우기 데이터를 전역으로 들고 있다. localUsers는 이 서버(하나의 프로세스)가 처리하는
+  // 모든 디제이 방이 실시간으로 함께 보는 같은 메모리라서, 사실 이 시점에 이미 다른 방에서도
+  // 최신 정보가 보인다. 그래도 디스크에 확실히 바로 반영되도록 디바운스(2초)를 기다리지 않고
+  // 여기서 즉시 저장한다.
+  if (swordSaveDebounceTimer) { clearTimeout(swordSaveDebounceTimer); swordSaveDebounceTimer = null }
+  try {
+    store.saveSettings(SHARED_TOKEN_DJID, {
+      swordGameUsers: Object.fromEntries(localUsers),
+      swordGameMarket: marketListings,
+      swordGameBoss: currentBoss
+    })
+  } catch (e) {
+    return '❌ 서버 저장 실패';
   }
 
-  const success = await saveUserToDB(user);
-  
-  if (success) {
-    return `✅ ${nickname}님의 데이터가 DB에 저장되었습니다!\n다른 방에서 !로드 명령어로 불러올 수 있습니다.`;
-  } else {
-    return '❌ DB 저장 실패';
-  }
+  return `✅ ${nickname}님의 데이터가 서버에 저장되었습니다!\n이제 다른 방에 가셔도 !로드 없이 자동으로 최신 정보가 유지돼요.`;
 }
 
 async function handleLoadData(tag, nickname, targetTag) {
-  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
-    return '❌ DB 로드 불가 (토큰 미설정)';
-  }
+  // sum이 targetTag를 지정한 경우 해당 유저 로드
+  const loadTag = (tag.toLowerCase() === 'sum' && targetTag) ? String(targetTag).replace('@', '').trim().toLowerCase() : tag;
 
-  // sum이 아닌 유저는 20분 쿨타임 적용
+  // 🌐 [업데이트] Base44는 더 이상 쓰지 않는다 — 이 서버의 전역 저장소(djs.json, 관리자 계정
+  // 아래 공용)가 유일한 데이터 출처다. localUsers는 이미 모든 방이 실시간으로 함께 보는
+  // 메모리라서 대부분의 경우 !로드 없이도 이미 최신 정보가 들어있지만, 디스크에 저장된
+  // 최신본으로 한 번 더 맞춰준다 (관리자가 직접 데이터를 만졌거나 서버가 방금 재시작된 경우를 대비).
   if (tag.toLowerCase() !== 'sum') {
-    const loadCooldown = 1200 * 1000; // 20분
+    const loadCooldown = 5 * 1000; // 이제 서버 저장소를 읽는 가벼운 조회라 20분 → 5초로 대폭 단축(스팸 방지용 최소 쿨타임만 유지)
     const lastLoadTime = loadCooldowns.get(tag) || 0;
     const elapsed = Date.now() - lastLoadTime;
 
     if (elapsed < loadCooldown) {
-      const remainingMinutes = Math.ceil((loadCooldown - elapsed) / 60000);
-      return `⏰ 로드 쿨타임 ${remainingMinutes}분 남음`;
+      const remainingSeconds = Math.ceil((loadCooldown - elapsed) / 1000);
+      return `⏰ ${remainingSeconds}초 후 다시 시도해주세요`;
     }
   }
 
-  // sum이 targetTag를 지정한 경우 해당 유저 로드
-  const loadTag = (tag.toLowerCase() === 'sum' && targetTag) ? targetTag : tag;
-  const dbUser = await loadUserFromDB(loadTag);
+  try {
+    const adminSettings = store.getSettings(SHARED_TOKEN_DJID) || {};
+    const stored = adminSettings.swordGameUsers && adminSettings.swordGameUsers[loadTag];
+    if (stored) localUsers.set(loadTag, stored);
+  } catch (e) { /* 서버 저장소 조회 실패해도 이미 메모리에 있는 데이터로 계속 진행 */ }
+
+  let dbUser = localUsers.get(loadTag);
 
   if (!dbUser) {
-    return `❌ DB에 저장된 데이터가 없습니다. 먼저 다른 방에서 !저장을 하세요`;
+    return `❌ 저장된 데이터가 없습니다. 먼저 !출석으로 시작하세요`;
   }
 
-  // DB 데이터를 로컬 메모리에 덮어쓰기 (고급 유물 제거 없이)
-  localUsers.set(loadTag, {
-    tag: dbUser.tag,
-    nickname: dbUser.nickname,
-    gold: dbUser.gold || 0,
-    sword_level: dbUser.sword_level || 0,
-    max_sword_level: dbUser.max_sword_level || 0,
-    attack_power: dbUser.attack_power || 0,
-    weapon_bonus: dbUser.weapon_bonus || 0,
-    weapon_bonus2: dbUser.weapon_bonus2 || 0,
-    weapon_bonus3: dbUser.weapon_bonus3 || 0,
-    battle_wins: dbUser.battle_wins || 0,
-    battle_losses: dbUser.battle_losses || 0,
-    inventory: dbUser.inventory || {},
-    special_weapon: dbUser.special_weapon || null,
-    last_daily_money_date: dbUser.last_daily_money_date || null,
-    current_dungeon_floor: dbUser.current_dungeon_floor || 1,
-    relics: dbUser.relics || {},
-    dungeon_tickets: dbUser.dungeon_tickets || 0,
-    runes: dbUser.runes || {},
-    rune_fragments: dbUser.rune_fragments || 0,
-    last_explore_date: dbUser.last_explore_date || null,
-    explore_count: dbUser.explore_count || 0,
-    user_plan_level: dbUser.user_plan_level || 0,
-    spoon_points: dbUser.spoon_points || 0,
-    pets: dbUser.pets || [],
-    equipped_pet_id: dbUser.equipped_pet_id || null,
-    pet_fragments: dbUser.pet_fragments || 0
-    });
-
-  // sum이 아닌 경우만 쿨타임 기록
   if (tag.toLowerCase() !== 'sum') {
     loadCooldowns.set(tag, Date.now());
   }
@@ -11559,12 +11496,11 @@ async function handleLoadData(tag, nickname, targetTag) {
   };
 
   const weaponName = getWeaponName(dbUser.sword_level, dbUser.special_weapon);
-  const loadedUser = localUsers.get(loadTag);
-  const relicAttack = calculateRelicAttack(loadedUser);
+  const relicAttack = calculateRelicAttack(dbUser);
   const totalAttack = (dbUser.attack_power || 0) + (dbUser.weapon_bonus || 0) + (dbUser.weapon_bonus2 || 0) + (dbUser.weapon_bonus3 || 0) + relicAttack;
 
   const displayName = (tag.toLowerCase() === 'sum' && targetTag) ? dbUser.nickname : nickname;
-  return `✅ ${displayName}님의 데이터가 DB에서 로드되었습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
+  return `✅ ${displayName}님의 데이터를 불러왔습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
 }
 // ── 설정 로드/저장: 관리자(sum) 계정 아래 공용으로 보관 ──
 // 원본은 매 액션마다 로컬 암호화 파일에 저장했는데, Railway는 재배포마다 디스크가 초기화되니
@@ -11667,7 +11603,7 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
   const tag = actTag ? String(actTag).trim().toLowerCase() : null
   if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
 
-  // 차단 유저 체크 (원본 로직 그대로, Base44 API 사용 + 이 서버 안에서만 적용되는 로컬 차단)
+  // 차단 유저 체크 — checkBannedUser는 이제 항상 false(더 이상 Base44 원격 차단목록 안 씀), 실제 차단은 아래 로컬 차단만 적용됨
   try {
     const isBanned = await checkBannedUser(tag)
     if (isBanned) { sendChatSplit(djId, '❌ 차단된 등록자입니다', 150, 300); return }
@@ -12803,10 +12739,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
+  const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
+  room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
   // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
@@ -13095,11 +13032,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id)
           : (eventPayload.userId != null ? Number(eventPayload.userId)
             : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
+        // ⚠️ profileUrl도 authorId와 같은 문제였다 — LiveDonation 이벤트는 generator 없이
+        // eventPayload 최상위에 profileUrl이 바로 오는 경우가 있는데, gen.profileUrl만 보고 있어서
+        // 이 경우 항상 빈 값이었다 (선물카드 갤러리에서 후원자 프로필사진이 안 나오던 원인).
+        const donorProfileUrl = gen.profileUrl || eventPayload.profileUrl || eventPayload.profile_url || ''
         const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: gen.profileUrl || '' })
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
@@ -13107,12 +13048,13 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           rememberTagNickname(room, donationTag, author)
-          rememberProfileUrl(room, donationTag, author, gen.profileUrl)
+          rememberProfileUrl(room, donationTag, author, donorProfileUrl)
           handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
           handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
+          handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
@@ -13381,6 +13323,61 @@ app.post('/images/delete', auth.requireAuth, (req, res) => {
   if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true })
   try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
   res.json({ success: true })
+})
+
+// 🖼️ 선물카드 갤러리 — 이미지 프록시. 스푼 CDN 이미지를 그대로 <img src>에 쓰면 크로스오리진이라
+// html2canvas로 카드를 캡처(다운로드)할 때 그 이미지만 빈 채로 그려지는 문제가 있었다. 우리 서버를
+// 한 번 거치게 해서 같은 도메인(same-origin)으로 보이게 만들면 캡처가 정상적으로 된다.
+// SSRF 방지를 위해 스푼 CDN 도메인만 허용한다. 로그인 없이도 <img> 태그에서 바로 쓸 수 있어야 하므로
+// auth 없이 열어두되(이미지 프록시라 민감정보 없음), 허용 도메인 화이트리스트로 오용을 막는다.
+const GIFT_IMAGE_PROXY_ALLOWED_HOSTS = ['kr-cdn.spooncast.net', 'cdn.spooncast.net', 'static.spooncast.net']
+app.get('/giftgallery/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!GIFT_IMAGE_PROXY_ALLOWED_HOSTS.includes(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw)
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
+})
+
+// 🎁 선물카드 갤러리 — 설정 조회/저장 + 개별삭제/전체삭제
+app.get('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getGiftGallerySettings(req.djId, settings) })
+})
+app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { avatarShape, cardShape, avatarMode } = req.body || {}
+  if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
+  if (['rect', 'pill', 'none'].includes(cardShape)) gallery.cardShape = cardShape
+  if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/delete-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id } = req.body || {}
+  gallery.items = gallery.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  gallery.items = []
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
 })
 
 // 🏆 박제판 — 설정 조회/저장 + 칸 초기화
