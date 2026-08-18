@@ -13381,6 +13381,13 @@ app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
 })
 
 // 🏆 박제판 — 설정 조회/저장 + 칸 초기화
+// 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게
+// 정적 화면만 내려주고(브라우저에서 스푼 스티커 API를 직접 불러와 클라이언트에서만 동작),
+// 완성본은 서버에 저장하지 않고 그 자리에서 바로 다운로드한다.
+app.get('/trophy-editor', (req, res) => {
+  res.sendFile(__dirname + '/public/trophy-editor.html')
+})
+
 app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, settings: getTrophyBoardSettings(req.djId, settings) })

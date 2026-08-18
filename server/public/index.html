@@ -3244,6 +3244,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card">
+          <div class="card-title"><span>🎨 박제 직접 만들기</span></div>
+          <p class="hint" style="margin-bottom:12px">스티커·이모지·텍스트를 직접 배치해서 나만의 박제 이미지를 만들 수 있는 별도 에디터예요. 완성한 이미지는 그 자리에서 바로 다운로드할 수 있어요.</p>
+          <button class="btn-connect" onclick="window.open('/trophy-editor','_blank')">🎨 박제 에디터 열기 (새 탭)</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🏆 박제판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTrophyBoard()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">선물 아이템별로 칸을 만들어두면, 시청자가 그 선물을 보낼 때 자동으로 그 칸에 닉네임이 새겨져요. <b>처음 보낸 사람으로 고정</b>돼서, 같은 선물을 또 보내도 이미 채워진 칸은 안 바뀌어요 (다시 비우려면 "초기화" 버튼을 눌러야 해요). 배경 이미지를 올려서 꾸밀 수 있고, 아래 공개 링크로 시청자도 실시간으로 볼 수 있어요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tbEnabled"> 박제판 공개 (켜야 링크가 열려요)</label>
