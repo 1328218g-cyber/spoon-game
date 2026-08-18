@@ -8,6 +8,20 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+
+// 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
+// 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
+// 프로세스 전체를 즉시 종료시킨다. 이렇게 되면 "가끔씩 본섭이 다운되는" 원인 파악이 안 되고,
+// 그냥 Railway가 재시작해줄 때까지(또는 수동 재시작 전까지) 완전히 접속 불가 상태가 된다.
+// 여기서 잡아서 로그만 남기고 프로세스는 계속 살려두면, 웬만한 오류는 그 순간의 요청/타이머만
+// 실패하고 넘어가고 서비스 전체는 안 죽는다. (진짜 메모리 부족 등 복구 불가능한 상태라면
+// 어차피 Railway의 헬스체크/재시작이 알아서 처리해준다.)
+process.on('uncaughtException', (err) => {
+  console.error('[치명적 오류 — uncaughtException] 서버는 계속 실행됩니다:', err && err.stack || err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[치명적 오류 — unhandledRejection] 서버는 계속 실행됩니다:', reason)
+})
 // 🔮 사주팔자 — package.json에 npm install 전이어도 서버 전체가 죽지 않도록 안전하게 불러온다.
 // (설치 안 된 상태로 배포되면 require 자체가 예외를 던져서 서버가 통째로 크래시하는 문제가 있었음)
 let calculateSaju = null, calculateSajuSimple = null
