@@ -2376,13 +2376,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label class="check-opt"><input type="checkbox" id="ttsPlayChime" onchange="onTtsPlayChimeToggle()"> 🔔 읽기 전 알림음 재생</label>
           <div id="ttsChimeUploadWrap" style="display:none;margin:6px 0 4px;padding:10px;background:var(--surface2);border-radius:9px">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <span id="ttsChimeFileLabel" class="hint" style="margin:0;flex:1;min-width:120px">기본 알림음(삐 소리) 사용 중</span>
+              <span id="ttsChimeFileLabel" class="hint" style="margin:0;flex:1;min-width:120px">기본 알림음 사용 중</span>
               <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="document.getElementById('ttsChimeFileInput').click()">📁 알림음 업로드</button>
               <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="ttsPlayChimeBeep()">▶️ 미리듣기</button>
               <button class="btn-gray" id="ttsChimeRemoveBtn" style="padding:6px 12px;font-size:12px;display:none" onclick="removeTtsChime()">✕ 기본음으로</button>
             </div>
             <input type="file" id="ttsChimeFileInput" accept="audio/*" style="display:none" onchange="uploadTtsChime(this.files[0])">
-            <div class="hint" style="margin-top:6px">1MB 이하 오디오 파일만 업로드 가능해요. 업로드 안 하면 기본 알림음(짧은 삐 소리)이 재생돼요.</div>
+            <div class="hint" style="margin-top:6px">1MB 이하 오디오 파일만 업로드 가능해요. 업로드 안 하면 기본 알림음이 재생돼요.</div>
           </div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
             <div><label>말하기 속도 (0.5~2.0)</label><input type="number" id="ttsRate" value="1.0" min="0.5" max="2" step="0.1"></div>
@@ -3366,9 +3366,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="monstercatch">
         <div class="card">
           <div class="card-title"><span>🐾 몬스터 잡기 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveMonsterCatch()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">설정한 시간마다 채팅에 랜덤 몬스터가 나타나요. 시청자가 명령어로 잡으면 각자 도감에 기록되는 수집형 미니게임이에요.</p>
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="mcEnabled"> 몬스터 잡기 활성화</label>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+          <p class="hint" style="margin-bottom:12px">설정한 시간마다 채팅에 랜덤 몬스터가 나타나요. 시청자가 명령어로 잡으면 각자 도감에 기록되는 수집형 미니게임이에요. 사이드바에서 이 메뉴를 켜두면 바로 동작해요 (별도 활성화 버튼 없음).</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
             <div><label>등장 주기 (분)</label><input type="number" id="mcSpawnInterval" value="5" min="1" max="180"></div>
             <div><label>등장 유지 시간 (초)</label><input type="number" id="mcCatchWindow" value="60" min="5" max="600"></div>
           </div>
@@ -9240,7 +9239,6 @@ async function loadMonsterCatch(){
     const d=await res.json();
     if(!d.success)return;
     const s=d.settings;
-    document.getElementById('mcEnabled').checked=!!s.enabled;
     document.getElementById('mcSpawnInterval').value=s.spawnIntervalMin||5;
     document.getElementById('mcCatchWindow').value=s.catchWindowSec||60;
     document.getElementById('mcCatchMode').value=s.catchMode||'first';
@@ -9502,7 +9500,7 @@ function bulkAddFilteredMcStickers(){
 
 async function saveMonsterCatch(){
   const body={
-    enabled:document.getElementById('mcEnabled').checked,
+    enabled:true,
     spawnIntervalMin:document.getElementById('mcSpawnInterval').value,
     catchWindowSec:document.getElementById('mcCatchWindow').value,
     catchMode:document.getElementById('mcCatchMode').value,
@@ -10059,10 +10057,19 @@ function ttsResolvePreset(nickname){
 }
 
 function ttsPlayChimeBeep(){
-  // 🔔 커스텀 알림음이 설정돼있으면 그 파일을 재생하고, 없으면 기존처럼 짧은 합성음(삐 소리)을 재생한다.
-  if(ttsData.chimeUrl){
-    try{ const audio=new Audio(SERVER+ttsData.chimeUrl); audio.volume=ttsData.volume!=null?ttsData.volume:1; audio.play().catch(()=>{}); return; }catch(e){}
-  }
+  // 🔔 [업데이트] 커스텀 알림음이 설정돼있으면 그 파일을, 아니면 이제 합성 삐 소리 대신
+  // 기본 제공 알림음(default-chime.mp3)을 재생한다. 혹시 그마저 재생 실패하면 마지막으로
+  // 합성음으로 대체한다(완전 무음 방지용 안전장치).
+  const url = ttsData.chimeUrl || '/sounds/default-chime.mp3';
+  try{
+    const audio=new Audio(SERVER+url);
+    audio.volume=ttsData.volume!=null?ttsData.volume:1;
+    audio.play().catch(()=>ttsPlaySynthBeep());
+    return;
+  }catch(e){}
+  ttsPlaySynthBeep();
+}
+function ttsPlaySynthBeep(){
   try{
     const ctx=new (window.AudioContext||window.webkitAudioContext)();
     const osc=ctx.createOscillator();
@@ -10084,7 +10091,7 @@ function renderTtsChimeUI(){
   const on=!!ttsData.playChime;
   document.getElementById('ttsChimeUploadWrap').style.display=on?'block':'none';
   const hasCustom=!!ttsData.chimeUrl;
-  document.getElementById('ttsChimeFileLabel').textContent=hasCustom?'🎵 사용자 지정 알림음 사용 중':'기본 알림음(삐 소리) 사용 중';
+  document.getElementById('ttsChimeFileLabel').textContent=hasCustom?'🎵 사용자 지정 알림음 사용 중':'기본 알림음 사용 중';
   document.getElementById('ttsChimeRemoveBtn').style.display=hasCustom?'inline-flex':'none';
 }
 

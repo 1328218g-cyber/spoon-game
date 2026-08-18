@@ -2068,7 +2068,6 @@ function startMonsterCatchTimer(djId) {
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — "몬스터 잡기 활성화" 체크가 꺼져있어요`); return }
   if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
   room.monsterCatchTimer = setInterval(() => {
@@ -2082,7 +2081,6 @@ function spawnMonster(djId) {
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   if (room._activeMonster) { console.log(`[몬스터잡기][${djId}] 스폰 건너뜀 — 이미 [${room._activeMonster.name}]이(가) 등장 중`); return }
   const picked = mcPickMonster(mc)
   if (!picked) { console.log(`[몬스터잡기][${djId}] 스폰 실패 — 등장 가능한(가중치>0) 몬스터가 없어요`); return }
@@ -2347,7 +2345,6 @@ function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
 function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
@@ -2363,7 +2360,6 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
 function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
@@ -2381,7 +2377,6 @@ function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
 function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return
@@ -2399,7 +2394,6 @@ function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
 function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comboCount, sticker = '') {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 상점 이용 대상 아님
