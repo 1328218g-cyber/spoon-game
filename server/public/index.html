@@ -8662,8 +8662,11 @@ async function drawGgCardCanvas(it, opts){
   const SCALE=4 // 결과 이미지 배율(고해상도)
   const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
   const padL=6*SCALE, padR=14*SCALE, padY=6*SCALE
-  const fontName=`700 ${14*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
-  const fontSpoon=`700 ${13*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
+  // 🈵 [업데이트] 폰트를 특정 이름(맑은 고딕 등)으로 못박아두면, 그 폰트에 없는 특수문자/이모지가
+  // 캔버스에서는 다른 폰트로 자동 대체(fallback)되지 않고 그냥 빈 칸으로 사라지는 문제가 있었다.
+  // 제네릭 sans-serif만 지정해서 OS가 알아서 완전한 폰트 대체 체인을 쓰도록 한다.
+  const fontName=`700 ${14*SCALE}px sans-serif`
+  const fontSpoon=`700 ${13*SCALE}px sans-serif`
   const stickerSize=30*SCALE
   const senderOnly=opts.avatarMode==='senderOnly'
   const cardShape=opts.cardShape||'pill'
