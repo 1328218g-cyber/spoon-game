@@ -8628,150 +8628,45 @@ function ggPreloadBgImages(el){
     img.src=u;
   }))).then(()=>sizes);
 }
-function ggLoadImage(url){
-  return new Promise(res=>{
-    if(!url){res(null);return;}
-    const img=new Image();
-    img.crossOrigin='anonymous';
-    img.onload=()=>res(img);
-    img.onerror=()=>res(null);
-    img.src=url;
-  });
-}
-function ggRoundRectPath(ctx,x,y,w,h,r){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);
-  ctx.arcTo(x+w,y,x+w,y+h,r);
-  ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r);
-  ctx.arcTo(x,y,x+w,y,r);
-  ctx.closePath();
-}
-function ggDrawCoverImage(ctx,img,cx,cy,d){
-  // object-fit:cover와 동일한 계산으로 원본 이미지에서 중앙 정사각형을 잘라 그린다.
-  const iw=img.naturalWidth,ih=img.naturalHeight;
-  const side=Math.min(iw,ih);
-  const sx=(iw-side)/2, sy=(ih-side)/2;
-  ctx.drawImage(img,sx,sy,side,side,cx-d/2,cy-d/2,d,d);
-}
-// 🖼️ [업데이트] html2canvas는 이미지를 축소해서 합성하는 과정에서 화질이 눈에 띄게 떨어지는
-// 문제가 있었다(원본이 1248x1248처럼 고화질이어도 결과물은 흐릿하게 나옴). 그래서 캡처 라이브러리를
-// 아예 쓰지 않고, Canvas 2D에 직접 그려서 만든다 — 이미지 스무딩 품질을 최고(high)로 직접 지정하니
-// 원본 해상도를 제대로 살려서 그린다.
-async function drawGgCardCanvas(it, opts){
-  const SCALE=4 // 결과 이미지 배율(고해상도)
-  const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
-  const padL=6*SCALE, padR=14*SCALE, padY=6*SCALE
-  // 🈵 [업데이트] 폰트를 특정 이름(맑은 고딕 등)으로 못박아두면, 그 폰트에 없는 특수문자/이모지가
-  // 캔버스에서는 다른 폰트로 자동 대체(fallback)되지 않고 그냥 빈 칸으로 사라지는 문제가 있었다.
-  // 제네릭 sans-serif만 지정해서 OS가 알아서 완전한 폰트 대체 체인을 쓰도록 한다.
-  const fontName=`700 ${14*SCALE}px sans-serif`
-  const fontSpoon=`700 ${13*SCALE}px sans-serif`
-  const stickerSize=30*SCALE
-  const senderOnly=opts.avatarMode==='senderOnly'
-  const cardShape=opts.cardShape||'pill'
-  const shape=opts.avatarShape||'circle'
-
-  const [userImg,djImg,stickerImg]=await Promise.all([
-    ggLoadImage(it.profileUrl?ggProxyImg(it.profileUrl):''),
-    senderOnly?Promise.resolve(null):ggLoadImage(it.djProfileUrl?ggProxyImg(it.djProfileUrl):''),
-    ggLoadImage(it.stickerImage?ggProxyImg(it.stickerImage):'')
-  ])
-
-  const spoonsText=(it.totalSpoons||it.amount||0).toLocaleString()+'스푼'
-  const measure=document.createElement('canvas').getContext('2d')
-  measure.font=fontName
-  const nameWidth=measure.measureText(it.author).width
-  measure.font=fontSpoon
-  const spoonWidth=measure.measureText(spoonsText).width
-
-  const avatarsWidth=senderOnly?boxSize:(boxSize*2-overlap)
-  const stickerBlock=stickerImg?(gap+stickerSize):0
-  const contentWidth=avatarsWidth+gap+nameWidth+stickerBlock+gap+spoonWidth
-  const cardWidth=Math.ceil(padL+contentWidth+padR)
-  const cardHeight=boxSize+padY*2
-
-  const canvas=document.createElement('canvas')
-  canvas.width=cardWidth; canvas.height=cardHeight
-  const ctx=canvas.getContext('2d')
-  ctx.imageSmoothingEnabled=true
-  ctx.imageSmoothingQuality='high'
-
-  // 🖼️ 카드 뒤 배경은 다운로드 시 투명 처리 — 캔버스를 그냥 비워두면 기본이 투명이라 별도 처리 불필요.
-
-  if(cardShape!=='none'){
-    const r=cardShape==='rect'?10*SCALE:cardHeight/2
-    ctx.save()
-    ctx.shadowColor='rgba(0,0,0,0.15)'
-    ctx.shadowBlur=4*SCALE
-    ctx.shadowOffsetY=1*SCALE
-    ctx.fillStyle='#fff'
-    ggRoundRectPath(ctx,0,0,cardWidth,cardHeight,r)
-    ctx.fill()
-    ctx.restore()
+// 🈵🖼️ [업데이트] Canvas 2D로 직접 그리는 방식은 화질/찌부 문제는 해결됐지만, 캔버스 텍스트
+// 렌더러가 폰트에 없는 특수문자를 자동으로 다른 폰트로 대체하지 못해 빈 칸(tofu box)으로 나오는
+// 문제가 있었다. 그래서 화면에 이미 정상적으로 보이는 실제 카드 DOM을 그대로 SVG의
+// <foreignObject>에 넣어서 이미지화한다 — 이러면 브라우저의 진짜 텍스트 레이아웃 엔진(완전한
+// 폰트 대체 체인 포함)을 그대로 쓰게 되어, 화면에 보이는 것과 100% 동일하게 캡처된다.
+async function ggCardToCanvas(cardEl, scale){
+  await ggPreloadBgImages(cardEl); // 배경이미지 로딩 경쟁 상태 방지
+  const PAD=10 // 카드 그림자가 잘리지 않도록 여백을 살짝 둔다
+  const rect=cardEl.getBoundingClientRect();
+  const w=Math.ceil(rect.width)+PAD*2, h=Math.ceil(rect.height)+PAD*2;
+  const clone=cardEl.cloneNode(true);
+  clone.querySelectorAll('button').forEach(b=>b.remove()); // 다운로드/삭제 버튼은 결과물에서 제외
+  clone.style.position='static';
+  clone.style.margin=`${PAD}px`;
+  const xml=new XMLSerializer().serializeToString(clone);
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+    <foreignObject width="100%" height="100%">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px">${xml}</div>
+    </foreignObject>
+  </svg>`;
+  const blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  try{
+    const img=await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+    const canvas=document.createElement('canvas');
+    canvas.width=w*scale; canvas.height=h*scale;
+    const ctx=canvas.getContext('2d');
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,0,0,w*scale,h*scale);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
   }
-
-  const cy=cardHeight/2
-  let x=padL
-
-  function drawAvatar(img,fallbackCh,fallbackBg,fallbackFg){
-    const cx=x+boxSize/2
-    ctx.save()
-    if(shape==='circle'){ ctx.beginPath(); ctx.arc(cx,cy,boxSize/2,0,Math.PI*2); ctx.closePath(); ctx.clip() }
-    else { ggRoundRectPath(ctx,x,cy-boxSize/2,boxSize,boxSize,8*SCALE); ctx.clip() }
-    if(img) ggDrawCoverImage(ctx,img,cx,cy,boxSize)
-    else {
-      ctx.fillStyle=fallbackBg
-      ctx.fillRect(x,cy-boxSize/2,boxSize,boxSize)
-      ctx.fillStyle=fallbackFg
-      ctx.font=`700 ${14*SCALE}px sans-serif`
-      ctx.textAlign='center'; ctx.textBaseline='middle'
-      ctx.fillText(fallbackCh,cx,cy)
-    }
-    ctx.restore()
-  }
-
-  if(senderOnly){
-    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
-    x+=boxSize
-  } else {
-    // 뒤(디제이) 먼저 그리고 앞(후원자)을 나중에 겹쳐 그려서 후원자가 위로 보이게 한다.
-    ctx.save(); x+= (boxSize-overlap)
-    drawAvatar(djImg,'디','#5eead4','#062e2a')
-    ctx.restore()
-    x=padL
-    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
-    x+= boxSize-overlap+boxSize
-  }
-
-  x+=gap
-  ctx.fillStyle='#111'
-  ctx.font=fontName
-  ctx.textAlign='left'; ctx.textBaseline='middle'
-  ctx.fillText(it.author,x,cy)
-  x+=nameWidth+gap
-
-  if(stickerImg){
-    // 🖼️ 정사각형으로 강제로 그리면 원본 비율이 아닌 스티커가 찌그러져 보였다. 원본 가로세로
-    // 비율을 유지한 채(object-fit:contain과 동일하게) stickerSize 박스 안에 맞춰서 그린다.
-    const iw=stickerImg.naturalWidth||1, ih=stickerImg.naturalHeight||1
-    const fitScale=Math.min(stickerSize/iw, stickerSize/ih)
-    const dw=iw*fitScale, dh=ih*fitScale
-    ctx.drawImage(stickerImg, x+(stickerSize-dw)/2, cy-dh/2, dw, dh)
-    x+=stickerSize+gap
-  }
-
-  ctx.fillStyle='#f97316'
-  ctx.font=fontSpoon
-  ctx.fillText(spoonsText,x,cy)
-
-  return canvas
 }
 async function downloadGgItem(id){
-  const it=ggData.items.find(i=>i.id===id)
-  if(!it){showToast('카드를 찾을 수 없어요');return}
+  const cardEl=document.getElementById('ggCard_'+id);
+  if(!cardEl){showToast('카드를 찾을 수 없어요');return}
   try{
-    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode})
+    const canvas=await ggCardToCanvas(cardEl,4)
     const link=document.createElement('a')
     link.download='선물카드_'+id+'.png'
     link.href=canvas.toDataURL('image/png')
