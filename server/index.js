@@ -2051,14 +2051,24 @@ function mcPickMonster(mc) {
 function mcPickStrongest(collection, monsters) {
   const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
   if (!owned.length) return null
-  let best = null
-  owned.forEach(id => {
+  // ✨ 대결(배틀) 시 전설 몬스터를 1순위로 사용한다 — 보유한 전설 몬스터가 있으면 그중 가장 강한
+  // 걸 쓰고, 전설이 하나도 없을 때만 기존처럼 전체 보유 몬스터 중 가장 강한 걸 쓴다.
+  const pickStrongestFrom = (idList) => {
+    let best = null
+    idList.forEach(id => {
+      const m = monsters.find(mm => mm.id === id)
+      if (!m) return
+      const power = Number(m.power) || 10
+      if (!best || power > best.power) best = { m, power }
+    })
+    return best ? best.m : null
+  }
+  const legendaryOwned = owned.filter(id => {
     const m = monsters.find(mm => mm.id === id)
-    if (!m) return
-    const power = Number(m.power) || 10
-    if (!best || power > best.power) best = { m, power }
+    return m && m.legendary
   })
-  return best ? best.m : null
+  if (legendaryOwned.length) return pickStrongestFrom(legendaryOwned)
+  return pickStrongestFrom(owned)
 }
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
@@ -2230,7 +2240,10 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       const count = owned[id]
       const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
       const canEvolve = !!(mon && mon.evolvesTo) && count >= need
-      return `${name} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
+      // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
+      const isLegendary = !!((mon && mon.legendary) || (catalog[id] && catalog[id].legendary))
+      const displayName = isLegendary ? `✨${name}` : name
+      return `${displayName} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
     }).join('\n')
 
     let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
