@@ -495,7 +495,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap">
 </head>
 <body>
 
@@ -3316,7 +3316,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
-          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
           <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
@@ -8593,7 +8593,7 @@ function renderGgGrid(){
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans Symbols 2',sans-serif`;
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
@@ -8702,6 +8702,21 @@ async function checkGgImageResolution(){
   showToast('원본 해상도 확인 중...');
   const sizes=await ggPreloadBgImages(firstCard);
   alert('이 카드의 원본 이미지 해상도:\n'+sizes.join('\n')+'\n\n(예: 100x100처럼 작으면 스푼이 원래 작은 사진을 주고 있는 거라 저희 쪽에서 화질을 더 올릴 방법이 없어요)');
+}
+function checkGgNicknameChars(){
+  if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
+  const lines=ggData.items.slice(0,10).map(it=>{
+    const codes=Array.from(it.author).map(ch=>{
+      const cp=ch.codePointAt(0);
+      const hex='U+'+cp.toString(16).toUpperCase().padStart(4,'0');
+      // 🈵 사설 영역(Private Use Area)에 속한 코드값이면, 그 모양은 특정 앱(여기선 스푼)이
+      // 자체 폰트에만 갖고 있는 전용 문자라 다른 폰트로는 절대 표시할 수 없다.
+      const isPUA=(cp>=0xE000&&cp<=0xF8FF)||(cp>=0xF0000&&cp<=0xFFFFD)||(cp>=0x100000&&cp<=0x10FFFD);
+      return ch+'('+hex+(isPUA?' 🚫사설영역':'')+')';
+    }).join(' ');
+    return it.author+' → '+codes;
+  });
+  alert('닉네임별 문자 코드값:\n\n'+lines.join('\n\n')+'\n\n🚫사설영역(Private Use Area) 표시가 있으면, 그 문자는 스푼 앱 전용 폰트로만 표현 가능해서 저희 쪽에서는 절대 재현할 수 없어요.');
 }
 async function downloadAllGgItems(){
   if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
