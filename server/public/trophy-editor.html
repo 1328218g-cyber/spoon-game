@@ -111,12 +111,12 @@
   .choice-opt .co-title { font-size: 13px; font-weight: 700; }
   .choice-opt .co-desc { font-size: 11px; color: var(--muted); }
 
-  .anim-capture-modal { background: #fff; border-radius: 16px; max-width: 560px; width: 100%; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
-  .anim-capture-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .anim-capture-modal { background: #fff; border-radius: 16px; max-width: 680px; width: 100%; max-height: 92vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; }
+  .anim-capture-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   .anim-capture-header h2 { font-size: 14px; font-weight: 700; }
-  .anim-capture-stage { padding: 20px; background: repeating-conic-gradient(#d0d0d0 0% 25%, #fff 0% 50%) 50% / 16px 16px; display: flex; align-items: center; justify-content: center; min-height: 260px; }
-  .anim-capture-stage img, .anim-capture-stage canvas { max-width: 100%; max-height: 320px; }
-  .anim-capture-controls { padding: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+  .anim-capture-stage { padding: 20px; background: repeating-conic-gradient(#d0d0d0 0% 25%, #fff 0% 50%) 50% / 16px 16px; display: flex; align-items: center; justify-content: center; min-height: 420px; flex: 1; overflow: hidden; }
+  .anim-capture-stage img, .anim-capture-stage canvas { max-width: 100%; max-height: 65vh; }
+  .anim-capture-controls { padding: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; flex-shrink: 0; }
 
   .loading-spin { width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -1465,15 +1465,20 @@ function openAnimCaptureModal() {
     overlay.innerHTML = `
       <div class="anim-capture-modal">
         <div class="anim-capture-header"><h2>원하는 순간을 캡처하세요</h2><button onclick="closeAnimCaptureModal()" style="font-size:18px;color:var(--muted);">✕</button></div>
-        <div class="anim-capture-stage"><div id="lottieStage" style="width:280px;height:280px;"></div></div>
+        <div class="anim-capture-stage"><div id="lottieStage" style="width:100%;height:100%;min-height:380px;"></div></div>
         <div class="anim-capture-controls">
+          <div class="slider-row"><label>원하는 위치</label><input type="range" id="animSeek" min="0" max="100" step="0.1" value="0" oninput="onAnimSeekChange(this.value)"><span class="val" id="animSeekVal">0%</span></div>
           <div class="slider-row"><label>속도</label><input type="range" id="animSpeed" min="0.5" max="2" step="0.1" value="1" oninput="onAnimSpeedChange(this.value)"><span class="val" id="animSpeedVal">1.0x</span></div>
-          <p style="font-size:12px; color:var(--muted); text-align:center;">애니메이션이 재생 중입니다. 원하는 순간에 아래 버튼을 누르세요.</p>
+          <p id="animStatusText" style="font-size:12px; color:var(--muted); text-align:center;">불러오는 중...</p>
           <button class="btn btn-primary" style="width:100%;" onclick="captureLottieFrame()">📷 이 순간으로 사용하기</button>
         </div>
       </div>
     `;
     const lottieUrl = sticker.lottie_url ? proxyImg(sticker.lottie_url) : '';
+    if (!lottieUrl) {
+      document.getElementById('animStatusText').textContent = '이 스티커는 애니메이션 데이터가 없어요. 썸네일로 추가해주세요.';
+      return;
+    }
     animCaptureLottie = lottie.loadAnimation({
       container: document.getElementById('lottieStage'),
       renderer: 'canvas',
@@ -1481,22 +1486,42 @@ function openAnimCaptureModal() {
       autoplay: true,
       path: lottieUrl
     });
+    animCaptureLottie.addEventListener('DOMLoaded', () => {
+      const statusEl = document.getElementById('animStatusText');
+      if (statusEl) statusEl.textContent = '재생 중입니다. 슬라이더로 원하는 위치를 직접 고르거나, 재생 중 원하는 순간에 캡처하세요.';
+      const seek = document.getElementById('animSeek');
+      if (seek) seek.max = 100;
+    });
+    animCaptureLottie.addEventListener('data_failed', () => {
+      const statusEl = document.getElementById('animStatusText');
+      if (statusEl) statusEl.textContent = '애니메이션을 불러오지 못했어요. 썸네일로 추가해주세요.';
+    });
+    // 사용자가 슬라이더를 움직이는 동안엔 자동재생과 충돌하지 않게 재생을 멈춰둔다
+    document.getElementById('animSeek').addEventListener('pointerdown', () => { if (animCaptureLottie) animCaptureLottie.pause(); });
   } else {
     // GIF — 브라우저가 재생 중인 <img>를 그 순간 그대로 캔버스에 그릴 수 있어서, 재생 화면을
-    // 그대로 보여주고 캡처 버튼을 누르는 순간의 프레임을 그대로 캡처한다.
+    // 그대로 보여주고 캡처 버튼을 누르는 순간의 프레임을 그대로 캡처한다. (네이티브 GIF는
+    // 임의 프레임으로 직접 이동은 지원하지 않아서, 위치 슬라이더 없이 실시간 캡처만 제공)
     const fullUrl = STATE.choiceFullUrl || sticker.image_url_web || '';
     overlay.innerHTML = `
       <div class="anim-capture-modal">
         <div class="anim-capture-header"><h2>원하는 순간을 캡처하세요</h2><button onclick="closeAnimCaptureModal()" style="font-size:18px;color:var(--muted);">✕</button></div>
-        <div class="anim-capture-stage"><img id="gifStage" src="${fullUrl}" crossorigin="anonymous"></div>
+        <div class="anim-capture-stage"><img id="gifStage" src="${fullUrl}" crossorigin="anonymous" onerror="document.getElementById('animStatusText').textContent='이미지를 불러오지 못했어요. 썸네일로 추가해주세요.'"></div>
         <div class="anim-capture-controls">
-          <p style="font-size:12px; color:var(--muted); text-align:center;">GIF가 재생 중입니다. 원하는 순간에 아래 버튼을 누르세요.</p>
+          <p id="animStatusText" style="font-size:12px; color:var(--muted); text-align:center;">GIF가 재생 중입니다. 원하는 순간에 아래 버튼을 누르세요.</p>
           <button class="btn btn-primary" style="width:100%;" onclick="captureGifFrame()">📷 이 순간으로 사용하기</button>
         </div>
       </div>
     `;
   }
   makeDraggable(overlay.querySelector('.anim-capture-modal'), overlay.querySelector('.anim-capture-header'));
+}
+
+function onAnimSeekChange(v) {
+  document.getElementById('animSeekVal').textContent = Math.round(v) + '%';
+  if (!animCaptureLottie || !animCaptureLottie.totalFrames) return;
+  const frame = (v / 100) * animCaptureLottie.totalFrames;
+  animCaptureLottie.goToAndStop(frame, true);
 }
 
 function onAnimSpeedChange(v) {
