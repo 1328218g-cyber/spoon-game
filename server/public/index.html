@@ -3316,7 +3316,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
-          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
           <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
@@ -8620,13 +8620,14 @@ function ggPreloadBgImages(el){
     const m=node.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
     if(m&&m[1])urls.push(m[1]);
   });
+  const sizes=[];
   return Promise.all(urls.map(u=>new Promise(res=>{
     const img=new Image();
     img.crossOrigin='anonymous';
-    img.onload=()=>{ console.log('[선물카드 원본 해상도]', u, img.naturalWidth+'x'+img.naturalHeight); res(); };
-    img.onerror=res;
+    img.onload=()=>{ sizes.push(img.naturalWidth+'x'+img.naturalHeight); res(); };
+    img.onerror=()=>{ sizes.push('로드실패'); res(); };
     img.src=u;
-  })));
+  }))).then(()=>sizes);
 }
 async function downloadGgItem(id){
   const cardEl=document.getElementById('ggCard_'+id);
@@ -8654,6 +8655,13 @@ async function downloadGgItem(id){
   }
   if(delBtn)delBtn.style.display=prevDel;
   if(dlBtn)dlBtn.style.display=prevDl;
+}
+async function checkGgImageResolution(){
+  const firstCard=document.querySelector('#ggGrid > div[id^="ggCard_"]');
+  if(!firstCard){showToast('저장된 선물카드가 없어요');return;}
+  showToast('원본 해상도 확인 중...');
+  const sizes=await ggPreloadBgImages(firstCard);
+  alert('이 카드의 원본 이미지 해상도:\n'+sizes.join('\n')+'\n\n(예: 100x100처럼 작으면 스푼이 원래 작은 사진을 주고 있는 거라 저희 쪽에서 화질을 더 올릴 방법이 없어요)');
 }
 async function downloadAllGgItems(){
   if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
