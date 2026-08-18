@@ -496,6 +496,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/unifont@latest/index.min.css">
 </head>
 <body>
 
@@ -8593,7 +8594,7 @@ function renderGgGrid(){
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',sans-serif`;
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
