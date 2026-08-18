@@ -8594,7 +8594,7 @@ function renderGgGrid(){
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
-        ${it.stickerImage?`<div style="width:16px;height:16px;background-image:url('${escapeHtml(ggProxyImg(it.stickerImage))}');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0" title="${escapeHtml(it.sticker||'')}"></div>`:''}
+        ${it.stickerImage?`<div style="width:20px;height:20px;background-image:url('${escapeHtml(ggProxyImg(it.stickerImage))}');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0" title="${escapeHtml(it.sticker||'')}"></div>`:''}
         <span style="color:#f97316;font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
@@ -8664,7 +8664,7 @@ async function drawGgCardCanvas(it, opts){
   const padL=6*SCALE, padR=14*SCALE, padY=6*SCALE
   const fontName=`700 ${14*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
   const fontSpoon=`700 ${13*SCALE}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`
-  const stickerSize=16*SCALE
+  const stickerSize=22*SCALE
   const senderOnly=opts.avatarMode==='senderOnly'
   const cardShape=opts.cardShape||'pill'
   const shape=opts.avatarShape||'circle'
@@ -8749,8 +8749,12 @@ async function drawGgCardCanvas(it, opts){
   x+=nameWidth+gap
 
   if(stickerImg){
-    const sr=stickerSize/2
-    ctx.drawImage(stickerImg,x,cy-sr,stickerSize,stickerSize)
+    // 🖼️ 정사각형으로 강제로 그리면 원본 비율이 아닌 스티커가 찌그러져 보였다. 원본 가로세로
+    // 비율을 유지한 채(object-fit:contain과 동일하게) stickerSize 박스 안에 맞춰서 그린다.
+    const iw=stickerImg.naturalWidth||1, ih=stickerImg.naturalHeight||1
+    const fitScale=Math.min(stickerSize/iw, stickerSize/ih)
+    const dw=iw*fitScale, dh=ih*fitScale
+    ctx.drawImage(stickerImg, x+(stickerSize-dw)/2, cy-dh/2, dw, dh)
     x+=stickerSize+gap
   }
 
