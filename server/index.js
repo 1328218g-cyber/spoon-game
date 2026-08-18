@@ -4942,7 +4942,7 @@ function getGiftGallerySettings(djId, settings) {
   }
   if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
   if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
-  if (settings.giftGallery.cardShape !== 'rect' && settings.giftGallery.cardShape !== 'pill') settings.giftGallery.cardShape = 'pill'
+  if (!['rect', 'pill', 'none'].includes(settings.giftGallery.cardShape)) settings.giftGallery.cardShape = 'pill'
   if (settings.giftGallery.avatarMode !== 'senderOnly' && settings.giftGallery.avatarMode !== 'both') settings.giftGallery.avatarMode = 'both'
   return settings.giftGallery
 }
@@ -13359,7 +13359,7 @@ app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const gallery = getGiftGallerySettings(req.djId, settings)
   const { avatarShape, cardShape, avatarMode } = req.body || {}
   if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
-  if (cardShape === 'rect' || cardShape === 'pill') gallery.cardShape = cardShape
+  if (['rect', 'pill', 'none'].includes(cardShape)) gallery.cardShape = cardShape
   if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })

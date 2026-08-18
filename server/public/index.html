@@ -3305,8 +3305,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <label style="margin-top:14px">카드 테두리 모양</label>
           <div style="display:flex;gap:16px;margin-top:6px">
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="pill" checked onchange="saveGgSettings()"> 둥근 알약형 (지금 모양)</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="pill" checked onchange="saveGgSettings()"> 둥근 알약형</label>
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="rect" onchange="saveGgSettings()"> 직사각형</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="none" onchange="saveGgSettings()"> 테두리 없음</label>
           </div>
           <label style="margin-top:14px">아바타 표시</label>
           <div style="display:flex;gap:16px;margin-top:6px">
@@ -8522,7 +8523,7 @@ async function loadGgSettings(){
     ggData=d.settings;
     const avatarRadio=document.querySelector(`input[name="ggAvatarShape"][value="${ggData.avatarShape==='square'?'square':'circle'}"]`);
     if(avatarRadio)avatarRadio.checked=true;
-    const cardRadio=document.querySelector(`input[name="ggCardShape"][value="${ggData.cardShape==='rect'?'rect':'pill'}"]`);
+    const cardRadio=document.querySelector(`input[name="ggCardShape"][value="${['rect','none'].includes(ggData.cardShape)?ggData.cardShape:'pill'}"]`);
     if(cardRadio)cardRadio.checked=true;
     const modeRadio=document.querySelector(`input[name="ggAvatarMode"][value="${ggData.avatarMode==='senderOnly'?'senderOnly':'both'}"]`);
     if(modeRadio)modeRadio.checked=true;
@@ -8546,7 +8547,10 @@ async function saveGgSettings(){
 function ggProxyImg(url){ return url?SERVER+'/giftgallery/image-proxy?url='+encodeURIComponent(url):''; }
 function ggAvatarHtml(url,label,bg,fg,extraStyle,shape){
   const radius=shape==='square'?'8px':'50%';
-  if(url) return `<img src="${escapeHtml(ggProxyImg(url))}" crossorigin="anonymous" style="width:32px;height:32px;border-radius:${radius};object-fit:cover;flex-shrink:0${extraStyle||''}">`;
+  // 🖼️ <img>+object-fit:cover는 다운로드용 캡처 라이브러리(html2canvas)가 제대로 못 그려서
+  // 사진이 눌린 것처럼 찌부되는 문제가 있었다. background-image+background-size:cover로 바꾸면
+  // 화면에서 보이는 모습은 동일하면서 캡처도 정확하게 된다.
+  if(url) return `<div style="width:32px;height:32px;border-radius:${radius};background-image:url('${escapeHtml(ggProxyImg(url))}');background-size:cover;background-position:center;flex-shrink:0${extraStyle||''}"></div>`;
   const ch=(label||'?').trim().slice(0,1)||'?';
   return `<div style="width:32px;height:32px;border-radius:${radius};background:${bg};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${fg};flex-shrink:0${extraStyle||''}">${escapeHtml(ch)}</div>`;
 }
@@ -8562,7 +8566,9 @@ function renderGgGrid(){
   count.textContent=ggData.items.length;
   emptyHint.style.display=ggData.items.length?'none':'block';
   const shape=ggData.avatarShape==='square'?'square':'circle';
-  const cardRadius=ggData.cardShape==='rect'?'10px':'24px';
+  const cardRadius=ggData.cardShape==='rect'?'10px':(ggData.cardShape==='none'?'0':'24px');
+  const cardBg=ggData.cardShape==='none'?'transparent':'#fff';
+  const cardShadow=ggData.cardShape==='none'?'none':'0 1px 4px rgba(0,0,0,0.15)';
   const senderOnly=ggData.avatarMode==='senderOnly';
   let html='';
   let lastGroupKey=null;
@@ -8576,18 +8582,20 @@ function renderGgGrid(){
       </div>`;
       lastGroupKey=groupKey;
     }
-    const userAvatar=ggAvatarHtml(it.profileUrl,it.author,'linear-gradient(135deg,#f6c453,#f08a3c)','#3a1e00','',shape);
-    const djAvatar=senderOnly?'':ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px',shape);
+    // 🎨 후원자(선물 보낸 사람) 프로필이 디제이 프로필보다 앞으로 튀어나오게 z-index로 겹치는
+    // 순서를 지정한다. (왼쪽-오른쪽 배치 순서와는 별개로, 겹치는 부분에서 어느 쪽이 위로 보이는지를 결정)
+    const userAvatar=ggAvatarHtml(it.profileUrl,it.author,'linear-gradient(135deg,#f6c453,#f08a3c)','#3a1e00',';position:relative;z-index:2',shape);
+    const djAvatar=senderOnly?'':ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px;position:relative;z-index:1',shape);
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
     const cardId='ggCard_'+it.id;
-    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);position:relative"
+    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
-        ${it.stickerImage?`<img src="${escapeHtml(ggProxyImg(it.stickerImage))}" crossorigin="anonymous" style="width:16px;height:16px;object-fit:contain;flex-shrink:0" title="${escapeHtml(it.sticker||'')}">`:''}
+        ${it.stickerImage?`<div style="width:16px;height:16px;background-image:url('${escapeHtml(ggProxyImg(it.stickerImage))}');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0" title="${escapeHtml(it.sticker||'')}"></div>`:''}
         <span style="color:#3b82f6;font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
