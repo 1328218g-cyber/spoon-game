@@ -600,7 +600,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
-    <div class="nav-item" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic">🎨</span><span class="lbl">박제 하기</span></div>
+    <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic">🎨</span><span class="lbl">박제 하기</span></div>
     <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic">🔐</span><span class="lbl">요청 모듈</span></div>
 
     <div class="nav-group-label">연결</div>
@@ -2373,7 +2373,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
 
           <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="ttsEnabled"> TTS 기능 활성화</label>
-          <label class="check-opt"><input type="checkbox" id="ttsPlayChime"> 🔔 읽기 전 알림음 재생</label>
+          <label class="check-opt"><input type="checkbox" id="ttsPlayChime" onchange="onTtsPlayChimeToggle()"> 🔔 읽기 전 알림음 재생</label>
+          <div id="ttsChimeUploadWrap" style="display:none;margin:6px 0 4px;padding:10px;background:var(--surface2);border-radius:9px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span id="ttsChimeFileLabel" class="hint" style="margin:0;flex:1;min-width:120px">기본 알림음 사용 중</span>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="document.getElementById('ttsChimeFileInput').click()">📁 알림음 업로드</button>
+              <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="ttsPlayChimeBeep()">▶️ 미리듣기</button>
+              <button class="btn-gray" id="ttsChimeRemoveBtn" style="padding:6px 12px;font-size:12px;display:none" onclick="removeTtsChime()">✕ 기본음으로</button>
+            </div>
+            <input type="file" id="ttsChimeFileInput" accept="audio/*" style="display:none" onchange="uploadTtsChime(this.files[0])">
+            <div class="hint" style="margin-top:6px">1MB 이하 오디오 파일만 업로드 가능해요. 업로드 안 하면 기본 알림음이 재생돼요.</div>
+          </div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
             <div><label>말하기 속도 (0.5~2.0)</label><input type="number" id="ttsRate" value="1.0" min="0.5" max="2" step="0.1"></div>
             <div><label>트리거 스푼 개수</label><input type="number" id="ttsTriggerAmount" value="10" min="1"></div>
@@ -3249,7 +3259,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
-        <div class="card">
+        <div class="card" id="trophyEditorCard" style="display:none">
           <div class="card-title"><span>🎨 박제 직접 만들기</span></div>
           <p class="hint" style="margin-bottom:12px">스티커·이모지·텍스트를 직접 배치해서 나만의 박제 이미지를 만들 수 있는 별도 에디터예요. 완성한 이미지는 그 자리에서 바로 다운로드할 수 있어요.</p>
           <button class="btn-connect" onclick="window.open('/trophy-editor','_blank')">🎨 박제 에디터 열기 (새 탭)</button>
@@ -3356,9 +3366,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="monstercatch">
         <div class="card">
           <div class="card-title"><span>🐾 몬스터 잡기 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveMonsterCatch()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">설정한 시간마다 채팅에 랜덤 몬스터가 나타나요. 시청자가 명령어로 잡으면 각자 도감에 기록되는 수집형 미니게임이에요.</p>
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="mcEnabled"> 몬스터 잡기 활성화</label>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+          <p class="hint" style="margin-bottom:12px">설정한 시간마다 채팅에 랜덤 몬스터가 나타나요. 시청자가 명령어로 잡으면 각자 도감에 기록되는 수집형 미니게임이에요. 사이드바에서 이 메뉴를 켜두면 바로 동작해요 (별도 활성화 버튼 없음).</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
             <div><label>등장 주기 (분)</label><input type="number" id="mcSpawnInterval" value="5" min="1" max="180"></div>
             <div><label>등장 유지 시간 (초)</label><input type="number" id="mcCatchWindow" value="60" min="5" max="600"></div>
           </div>
@@ -4359,6 +4368,7 @@ async function installPwaApp(){
 const PANEL_META={
   modulemarket:['🛒 모듈 마켓','필요한 기능만 켜고 나머지는 꺼두세요'],
   requestmodules:['🔐 요청 모듈','특정 유저에게만 허용된 제한 메뉴입니다'],
+  'trophy-editor':['🎨 박제 하기','스티커·이미지로 나만의 박제를 직접 만드는 도구입니다'],
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
   botreboot:['🔁 봇 재부팅','문제가 있을 때 내 계정의 봇 연결만 새로 시작합니다'],
@@ -4692,6 +4702,12 @@ async function loadRequestModules(){
   }catch(e){ requestModulesList=[]; }
   const nav=document.getElementById('requestModulesNav');
   if(nav) nav.style.display=(djId===ADMIN_DJ_ID||requestModulesList.length)?'':'none';
+  // 🎨 박제 하기 — 관리자이거나, "요청 모듈" 목록에 trophy-editor 항목으로 허용돼있을 때만 사이드바에 보이게 한다.
+  const tbNav=document.getElementById('trophyEditorNav');
+  const allowed=(djId===ADMIN_DJ_ID||requestModulesList.some(m=>m.targetPanel==='trophy-editor'));
+  if(tbNav) tbNav.style.display=allowed?'':'none';
+  const tbCard=document.getElementById('trophyEditorCard');
+  if(tbCard) tbCard.style.display=allowed?'':'none';
 }
 
 function renderRequestModulesPanel(){
@@ -4717,12 +4733,13 @@ function renderRequestModulesPanel(){
 }
 
 function openRequestModule(targetPanel){
+  if(targetPanel==='trophy-editor'){ window.open('/trophy-editor','_blank'); return; }
   selectPanel(targetPanel);
 }
 
 /* ── 🔐 요청 모듈 관리자 화면 ── */
 // "모듈 선택" 드롭다운은 모듈 마켓에 등록된 모듈(MODULE_KEYS) + 팝블리네 낚시대회(fishtournament, 요청 모듈 전용이라 마켓엔 없음)를 합쳐서 보여준다.
-const REQUEST_MODULE_SELECTABLE_KEYS=[...new Set([...MODULE_KEYS,'fishtournament'])];
+const REQUEST_MODULE_SELECTABLE_KEYS=[...new Set([...MODULE_KEYS,'fishtournament','trophy-editor'])];
 
 function populateRmModuleSelect(){
   const sel=document.getElementById('rmNewTargetPanel');
@@ -9222,7 +9239,6 @@ async function loadMonsterCatch(){
     const d=await res.json();
     if(!d.success)return;
     const s=d.settings;
-    document.getElementById('mcEnabled').checked=!!s.enabled;
     document.getElementById('mcSpawnInterval').value=s.spawnIntervalMin||5;
     document.getElementById('mcCatchWindow').value=s.catchWindowSec||60;
     document.getElementById('mcCatchMode').value=s.catchMode||'first';
@@ -9484,7 +9500,7 @@ function bulkAddFilteredMcStickers(){
 
 async function saveMonsterCatch(){
   const body={
-    enabled:document.getElementById('mcEnabled').checked,
+    enabled:true,
     spawnIntervalMin:document.getElementById('mcSpawnInterval').value,
     catchWindowSec:document.getElementById('mcCatchWindow').value,
     catchMode:document.getElementById('mcCatchMode').value,
@@ -9732,7 +9748,7 @@ function ttsGoogleVoiceOption(name){
   return {languageCode:lang,name:name,ssmlGender:gender};
 }
 
-let ttsData={enabled:false,engine:'browser',voice:'',typecastVoiceId:'',typecastVoiceName:'',typecastModel:'ssfm-v30',typecastEmotion:'normal',rate:1,triggerAmount:10,durationMin:30,maxLen:50,volume:1,playChime:false,voicePresets:{}};
+let ttsData={enabled:false,engine:'browser',voice:'',typecastVoiceId:'',typecastVoiceName:'',typecastModel:'ssfm-v30',typecastEmotion:'normal',rate:1,triggerAmount:10,durationMin:30,maxLen:50,volume:1,playChime:false,chimeUrl:'',voicePresets:{}};
 let ttsActiveUsers=[];
 let ttsLogEntries=[];
 let ttsQueue=[];
@@ -9964,6 +9980,7 @@ async function loadTtsData(){
       if(enabledBox){
         enabledBox.checked=ttsData.enabled!==false;
         document.getElementById('ttsPlayChime').checked=!!ttsData.playChime;
+        renderTtsChimeUI();
         document.getElementById('ttsEngine').value=ttsData.engine||'browser';
         document.getElementById('ttsRate').value=ttsData.rate!=null?ttsData.rate:1;
         document.getElementById('ttsTriggerAmount').value=ttsData.triggerAmount||10;
@@ -9999,6 +10016,7 @@ async function saveTtsSettings(){
     enabled:document.getElementById('ttsEnabled').checked,
     engine,
     playChime:document.getElementById('ttsPlayChime').checked,
+    chimeUrl:ttsData.chimeUrl||'',
     voice:engine==='google'?document.getElementById('ttsGoogleVoiceSelect').value:document.getElementById('ttsVoiceSelect').value,
     typecastVoiceId:document.getElementById('ttsTypecastVoiceSelect').value,
     typecastVoiceName:(document.getElementById('ttsTypecastVoiceSelect').selectedOptions[0]||{}).textContent||'',
@@ -10039,6 +10057,19 @@ function ttsResolvePreset(nickname){
 }
 
 function ttsPlayChimeBeep(){
+  // 🔔 [업데이트] 커스텀 알림음이 설정돼있으면 그 파일을, 아니면 이제 합성 삐 소리 대신
+  // 기본 제공 알림음(default-chime.mp3)을 재생한다. 혹시 그마저 재생 실패하면 마지막으로
+  // 합성음으로 대체한다(완전 무음 방지용 안전장치).
+  const url = ttsData.chimeUrl || '/sounds/default-chime.mp3';
+  try{
+    const audio=new Audio(SERVER+url);
+    audio.volume=ttsData.volume!=null?ttsData.volume:1;
+    audio.play().catch(()=>ttsPlaySynthBeep());
+    return;
+  }catch(e){}
+  ttsPlaySynthBeep();
+}
+function ttsPlaySynthBeep(){
   try{
     const ctx=new (window.AudioContext||window.webkitAudioContext)();
     const osc=ctx.createOscillator();
@@ -10049,6 +10080,45 @@ function ttsPlayChimeBeep(){
     osc.connect(gain);gain.connect(ctx.destination);
     osc.start();osc.stop(ctx.currentTime+0.35);
   }catch(e){}
+}
+
+function onTtsPlayChimeToggle(){
+  document.getElementById('ttsChimeUploadWrap').style.display=document.getElementById('ttsPlayChime').checked?'block':'none';
+  saveTtsSettings();
+}
+
+function renderTtsChimeUI(){
+  const on=!!ttsData.playChime;
+  document.getElementById('ttsChimeUploadWrap').style.display=on?'block':'none';
+  const hasCustom=!!ttsData.chimeUrl;
+  document.getElementById('ttsChimeFileLabel').textContent=hasCustom?'🎵 사용자 지정 알림음 사용 중':'기본 알림음 사용 중';
+  document.getElementById('ttsChimeRemoveBtn').style.display=hasCustom?'inline-flex':'none';
+}
+
+async function uploadTtsChime(file){
+  if(!file)return;
+  if(file.size>1024*1024){showToast('1MB 이하 파일만 업로드할 수 있어요');return;}
+  const prevUrl=ttsData.chimeUrl;
+  try{
+    const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});
+    const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl,filename:file.name})});
+    const d=await res.json();
+    if(!d.success){showToast(d.error||'업로드 실패');return;}
+    ttsData.chimeUrl=d.url;
+    renderTtsChimeUI();
+    saveTtsSettings();
+    if(prevUrl)fetch(SERVER+'/sounds/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({url:prevUrl})}).catch(()=>{});
+    showToast('알림음 업로드 완료 ✓');
+  }catch(e){showToast('업로드 실패');}
+  document.getElementById('ttsChimeFileInput').value='';
+}
+
+async function removeTtsChime(){
+  const prevUrl=ttsData.chimeUrl;
+  ttsData.chimeUrl='';
+  renderTtsChimeUI();
+  saveTtsSettings();
+  if(prevUrl)fetch(SERVER+'/sounds/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({url:prevUrl})}).catch(()=>{});
 }
 
 function ttsEnqueue(nickname,text){

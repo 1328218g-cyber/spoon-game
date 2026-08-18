@@ -438,8 +438,6 @@ function renderStickerPanel() {
 
   let html = `
     <div style="padding:8px 12px; border-bottom:1px solid var(--border);">
-      <button class="btn btn-accent" style="width:100%;" onclick="document.getElementById('stickerLocalInput').click()">📁 내 이미지 추가</button>
-      <input type="file" id="stickerLocalInput" accept="image/*" multiple style="display:none" onchange="handleLocalUpload(event)">
     </div>
   `;
 
@@ -495,7 +493,7 @@ async function onStickerClick(idx) {
     return;
   }
 
-  const tempId = addSticker(imgUrl);
+  const tempId = addSticker(imgUrl, null, ggAutoFitOverrides());
   try {
     const dataUrl = await urlToDataUrl(fullUrl);
     addSticker(dataUrl, tempId);
@@ -549,7 +547,7 @@ function handleLocalUpload(e) {
   const files = Array.from(e.target.files);
   files.forEach(file => {
     const reader = new FileReader();
-    reader.onload = ev => addSticker(ev.target.result);
+    reader.onload = ev => addSticker(ev.target.result, null, ggAutoFitOverrides());
     reader.readAsDataURL(file);
   });
   e.target.value = '';
@@ -723,7 +721,7 @@ async function renderGgImportGrid(gridId, hintId) {
       ggDrawCardCanvas(it, { avatarShape: gallery.avatarShape, cardShape: gallery.cardShape, avatarMode: gallery.avatarMode }).then(canvas => {
         const dataUrl = canvas.toDataURL('image/png');
         cell.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:60px;">`;
-        cell.onclick = () => addSticker(dataUrl);
+        cell.onclick = () => addSticker(dataUrl, null, ggAutoFitOverrides());
       }).catch(() => { cell.innerHTML = '⚠️'; });
     }
   } catch (e) {
@@ -1459,9 +1457,9 @@ async function addStaticSticker() {
   closeChoicePopup();
   try {
     const dataUrl = await urlToDataUrl(imgUrl);
-    addSticker(dataUrl);
+    addSticker(dataUrl, null, ggAutoFitOverrides());
   } catch (e) {
-    addSticker(imgUrl);
+    addSticker(imgUrl, null, ggAutoFitOverrides());
   }
 }
 
@@ -1582,7 +1580,7 @@ function captureGifFrame() {
 function addStaticStickerFallback() {
   const sticker = STATE.choiceSticker;
   const imgUrl = sticker && (sticker.image_thumbnail_web || sticker.image_thumbnail || sticker.image_url_web) || '';
-  if (imgUrl) addSticker(imgUrl);
+  if (imgUrl) addSticker(imgUrl, null, ggAutoFitOverrides());
 }
 
 function closeAnimCaptureModal() {
@@ -1711,8 +1709,6 @@ function renderMobileStickerPanel() {
   }
   let html = `
     <div style="padding:8px 12px; border-bottom:1px solid var(--border);">
-      <button class="btn btn-accent" style="width:100%;" onclick="document.getElementById('mStickerLocal').click()">📁 내 이미지 추가</button>
-      <input type="file" id="mStickerLocal" accept="image/*" multiple style="display:none" onchange="handleLocalUpload(event)">
     </div>
   `;
   if (STATE.selectedCategory) {
@@ -1831,7 +1827,26 @@ function init() {
   renderGgImportGrid('ggImportGrid', 'ggImportHint');
 }
 
-init();
+// 🔐 접근 권한 확인 — 사이드바에서 숨겨져 있어도 URL을 직접 알면 열릴 수 있으므로, 실제로도
+// "요청 모듈"에서 trophy-editor 접근을 허용받았는지(또는 관리자 sum인지) 서버에 물어보고,
+// 권한이 없으면 에디터 대신 안내 화면만 보여준다.
+async function ggCheckTrophyEditorAccess() {
+  const djId = localStorage.getItem('djId') || sessionStorage.getItem('djId') || '';
+  if (!ggDjToken) {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;text-align:center;padding:20px;"><div><p style="font-size:16px;font-weight:700;margin-bottom:8px;">🔒 로그인이 필요해요</p><p style="color:#888;font-size:13px;">에디봇 웹에 로그인한 상태에서 열어주세요.</p></div></div>';
+    return;
+  }
+  if (djId === 'sum') { init(); return; }
+  try {
+    const res = await fetch('/request-modules', { headers: ggAuthHeaders() });
+    const d = await res.json();
+    const allowed = d.success && (d.list || []).some(m => m.targetPanel === 'trophy-editor');
+    if (allowed) { init(); return; }
+  } catch (e) {}
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;text-align:center;padding:20px;"><div><p style="font-size:16px;font-weight:700;margin-bottom:8px;">🔒 접근 권한이 없어요</p><p style="color:#888;font-size:13px;">이 도구는 관리자가 허용한 계정만 사용할 수 있어요.</p></div></div>';
+}
+
+ggCheckTrophyEditorAccess();
 </script>
 </body>
 </html>

@@ -8,6 +8,20 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+
+// 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
+// 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
+// 프로세스 전체를 즉시 종료시킨다. 이렇게 되면 "가끔씩 본섭이 다운되는" 원인 파악이 안 되고,
+// 그냥 Railway가 재시작해줄 때까지(또는 수동 재시작 전까지) 완전히 접속 불가 상태가 된다.
+// 여기서 잡아서 로그만 남기고 프로세스는 계속 살려두면, 웬만한 오류는 그 순간의 요청/타이머만
+// 실패하고 넘어가고 서비스 전체는 안 죽는다. (진짜 메모리 부족 등 복구 불가능한 상태라면
+// 어차피 Railway의 헬스체크/재시작이 알아서 처리해준다.)
+process.on('uncaughtException', (err) => {
+  console.error('[치명적 오류 — uncaughtException] 서버는 계속 실행됩니다:', err && err.stack || err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[치명적 오류 — unhandledRejection] 서버는 계속 실행됩니다:', reason)
+})
 // 🔮 사주팔자 — package.json에 npm install 전이어도 서버 전체가 죽지 않도록 안전하게 불러온다.
 // (설치 안 된 상태로 배포되면 require 자체가 예외를 던져서 서버가 통째로 크래시하는 문제가 있었음)
 let calculateSaju = null, calculateSajuSimple = null
@@ -1482,7 +1496,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
 
     const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
     if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
-    const useCount = Math.min(count, d.lotto || 0)
+    const useCount = Math.min(count, 100, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 100장까지만 처리한다
     d.lotto -= useCount
     let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
     for (let i = 0; i < useCount; i++) {
@@ -2037,14 +2051,24 @@ function mcPickMonster(mc) {
 function mcPickStrongest(collection, monsters) {
   const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
   if (!owned.length) return null
-  let best = null
-  owned.forEach(id => {
+  // ✨ 대결(배틀) 시 전설 몬스터를 1순위로 사용한다 — 보유한 전설 몬스터가 있으면 그중 가장 강한
+  // 걸 쓰고, 전설이 하나도 없을 때만 기존처럼 전체 보유 몬스터 중 가장 강한 걸 쓴다.
+  const pickStrongestFrom = (idList) => {
+    let best = null
+    idList.forEach(id => {
+      const m = monsters.find(mm => mm.id === id)
+      if (!m) return
+      const power = Number(m.power) || 10
+      if (!best || power > best.power) best = { m, power }
+    })
+    return best ? best.m : null
+  }
+  const legendaryOwned = owned.filter(id => {
     const m = monsters.find(mm => mm.id === id)
-    if (!m) return
-    const power = Number(m.power) || 10
-    if (!best || power > best.power) best = { m, power }
+    return m && m.legendary
   })
-  return best ? best.m : null
+  if (legendaryOwned.length) return pickStrongestFrom(legendaryOwned)
+  return pickStrongestFrom(owned)
 }
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
@@ -2054,7 +2078,6 @@ function startMonsterCatchTimer(djId) {
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — "몬스터 잡기 활성화" 체크가 꺼져있어요`); return }
   if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
   room.monsterCatchTimer = setInterval(() => {
@@ -2068,7 +2091,6 @@ function spawnMonster(djId) {
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   if (room._activeMonster) { console.log(`[몬스터잡기][${djId}] 스폰 건너뜀 — 이미 [${room._activeMonster.name}]이(가) 등장 중`); return }
   const picked = mcPickMonster(mc)
   if (!picked) { console.log(`[몬스터잡기][${djId}] 스폰 실패 — 등장 가능한(가중치>0) 몬스터가 없어요`); return }
@@ -2218,7 +2240,10 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       const count = owned[id]
       const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
       const canEvolve = !!(mon && mon.evolvesTo) && count >= need
-      return `${name} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
+      // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
+      const isLegendary = !!((mon && mon.legendary) || (catalog[id] && catalog[id].legendary))
+      const displayName = isLegendary ? `✨${name}` : name
+      return `${displayName} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
     }).join('\n')
 
     let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
@@ -2333,7 +2358,6 @@ function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
 function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
@@ -2349,7 +2373,6 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
 function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
@@ -2367,7 +2390,6 @@ function handleMonsterCatchChatCountHook(djId, settings, author, tag) {
 function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return
@@ -2385,7 +2407,6 @@ function handleMonsterCatchGiftBallHook(djId, settings, author, tag) {
 function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comboCount, sticker = '') {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
-  if (!mc.enabled) return
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 상점 이용 대상 아님
@@ -3529,12 +3550,14 @@ function getTtsSettings(djId, settings) {
       maxLen: 50,
       volume: 1.0,
       playChime: false,
+      chimeUrl: '', // 읽기 전 알림음 — 비어있으면 기본 합성음(삐 소리), 채워지면 업로드한 오디오 파일 재생
       // { '태그또는닉네임(소문자)': { voice:'브라우저/구글 음성', typecastVoiceId:'', typecastVoiceName:'' } }
       voicePresets: {},
     }
     store.saveSettings(djId, { tts: settings.tts })
   }
   if (!settings.tts.voicePresets) settings.tts.voicePresets = {}
+  if (settings.tts.chimeUrl == null) settings.tts.chimeUrl = ''
   return settings.tts
 }
 
@@ -6140,7 +6163,7 @@ function stkCmdRule(djId, cfg, parts) {
     '룰렛': `🎡 룰렛 룰 (${cfg.cmdRoulette} 빨강 5만원)\n· 빨강 2배 · 검정 2배 · 초록 14배`,
     '홀짝': `⚫ 홀짝 룰 (${cfg.cmdOddEven} 홀 5만원)\n· 홀/짝 반반, 맞히면 2배`,
     '주사위': `🎲 주사위 룰 (${cfg.cmdDice} 3 5만원)\n· 1~6 중 숫자 선택, 맞히면 6배 / 틀리면 0`,
-    '복권': `🎟️ 복권 룰 (${cfg.cmdLotto} 5장)\n· 1장 100,000원, 1회 최대 10장, 결과 즉시 발표\n· 1등 1,000만 / 2등 300만 / 3등 100만`,
+    '복권': `🎟️ 복권 룰 (${cfg.cmdLotto} 5장)\n· 1장 100,000원, 1회 최대 100장, 결과 즉시 발표\n· 1등 1,000만 / 2등 300만 / 3등 100만`,
     '은행': `🏦 은행 룰\n· ${cfg.cmdDeposit} [금액] → 방송일마다 이자 ${cfg.depositInterestPct}% 자동 지급\n· ${cfg.cmdLoan} [금액] → 한도 ${stkFmt(cfg.loanLimit)}, 방송일마다 이자 ${cfg.loanInterestPct}% 가산\n· 전 재산이 0원이 되면 자동 대출 ${stkFmt(cfg.autoLoanAmount)} 실행`,
     '아이템': `🛍️ 아이템 룰 (${cfg.cmdShop} → ${cfg.cmdBuy} → ${cfg.cmdUse})\n· 시장분석권 : 지정 종목의 다음 시세 변동 예측\n· 배당쿠폰 : 다음 배당 2배 / 보험 : 폭락 손실 50% 보상 / 행운권 : 다음 슬롯 확률 2배`,
     '랭킹': `🏆 랭킹 룰\n· 총자산 = 현금 + 주식 평가액 + 예금 - 대출\n· ${cfg.cmdRanking} 으로 TOP5 확인`,
@@ -6363,7 +6386,7 @@ function stkCmdLotto(djId, stock, tag, nickname, parts) {
   if (!u.started) { stkReply(djId, `⚠️ 먼저 ${stock.config.cmdStart}로 시작해주세요.`); return }
   if (u.creditBad) { stkReply(djId, '🚫 신용불량 상태에서는 도박을 이용할 수 없어요.'); return }
   let n = parseInt(parts[1], 10); if (!n || n < 1) n = 1
-  n = Math.min(n, 10)
+  n = Math.min(n, 100)
   const price = 100000
   const cost = price * n
   if ((u.cash || 0) < cost) { stkReply(djId, '❌ 보유 현금이 부족해요.'); return }
@@ -15084,7 +15107,7 @@ app.post('/tts/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getTtsSettings(req.djId, settings)
-  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime } = req.body || {}
+  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime, chimeUrl } = req.body || {}
   if (enabled != null) cfg.enabled = !!enabled
   if (engine != null && ['browser', 'google', 'typecast'].includes(engine)) cfg.engine = engine
   if (voice != null) cfg.voice = String(voice)
@@ -15098,6 +15121,7 @@ app.post('/tts/settings', auth.requireAuth, (req, res) => {
   if (maxLen != null) cfg.maxLen = Math.max(1, Math.min(200, Number(maxLen) || 50))
   if (volume != null) cfg.volume = Math.max(0, Math.min(1, Number(volume)))
   if (playChime != null) cfg.playChime = !!playChime
+  if (chimeUrl != null) cfg.chimeUrl = String(chimeUrl).slice(0, 300)
   store.saveSettings(req.djId, { tts: cfg })
   res.json({ success: true })
 })
@@ -15733,6 +15757,32 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       cmdStockCreate: '종목 설립 (관리자)', cmdStockDelete: '종목 폐지 (관리자)', cmdGiveMoney: '머니 지급 (관리자)',
     }
     groups.push({ key: 'stock', icon: '🍞', label: '증권거래소', items: Object.keys(labelMap).map(k => ({ cmd: cfg[k], desc: labelMap[k] })).filter(x => x.cmd) })
+  }
+  if (on('monstercatch')) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    groups.push({
+      key: 'monstercatch', icon: '🐾', label: '몬스터 잡기', items: [
+        { cmd: mc.cmdCatch || '!잡기', desc: '등장한 몬스터 잡기' },
+        { cmd: '!모험시작', desc: '몬스터잡기 시작 (포획볼 지급)' },
+        { cmd: mc.cmdDex || '!도감', desc: '내 도감 확인 (페이지: !도감2, !도감3...)' },
+        { cmd: '!포획볼구매', desc: '포획볼 구매' },
+        { cmd: mc.cmdEvolve || '!진화', desc: '[몬스터이름] 진화시키기' },
+        { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
+        { cmd: mc.cmdUserReset || '!리셋', desc: '[고유닉] 특정 유저 정보 초기화 (DJ/매니저)' },
+        { cmd: mc.cmdBallGive || '!볼지급', desc: '[고유닉] [수량] 포획볼 지급/차감 (DJ/매니저)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('swordgame')) {
+    groups.push({
+      key: 'swordgame', icon: '⚔️', label: '검키우기', items: [
+        { cmd: '!강화', desc: '검 강화 시도' }, { cmd: '!프로필', desc: '내 정보 조회' }, { cmd: '!출석', desc: '출석 체크' },
+        { cmd: '!배틀', desc: '다른 유저와 배틀' }, { cmd: '!판매', desc: '아이템 판매' }, { cmd: '!창고', desc: '내 인벤토리 조회' },
+        { cmd: '!검랭킹', desc: '전체 검 랭킹 조회' }, { cmd: '!검버전', desc: '검키우기 버전 정보' },
+        { cmd: '!저장', desc: '현재 데이터를 서버에 저장' }, { cmd: '!로드', desc: '서버에서 최신 데이터 불러오기' },
+        { cmd: '!도움말', desc: '검키우기 전체 명령어 안내' },
+      ]
+    })
   }
 
   const total = groups.reduce((s, g) => s + g.items.length, 0)
@@ -16582,6 +16632,14 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html')
 })
 
+// 🩺 헬스체크 — Railway가 이 주소로 주기적으로 접속해봐서, 응답이 없으면(서버가 멈췄으면)
+// 자동으로 재시작하게 만드는 용도. 지금까지는 "가끔 접속 안 될 때 수동으로 재시작"해야 했는데,
+// 이 경로를 Railway 설정(Settings → Healthcheck Path)에 등록해두면 Railway가 알아서 감지하고
+// 재시작해준다 (사람이 직접 안 눌러도 됨).
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() })
+})
+
 // 어떤 라우트에서도 처리되지 못한 오류(예: 업로드 파일이 body 용량 제한을 넘어서 express.json이
 // 자체적으로 거부하는 경우 등)가 나면, Express 기본 HTML 에러 페이지 대신 JSON으로 내려준다.
 // 이게 없으면 프론트엔드에서 "Unexpected token '<', <!DOCTYPE..." 같은 혼란스러운 에러만 보이게 된다.
@@ -16640,7 +16698,7 @@ app.listen(PORT, () => {
   setInterval(backupToBase44, 30 * 60 * 1000)
 })
 
-// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
