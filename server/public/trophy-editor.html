@@ -364,14 +364,14 @@ async function urlToDataUrl(url) {
 // ════════════════════════════════════════════════
 // STICKER MANAGEMENT
 // ════════════════════════════════════════════════
-function addSticker(dataUrl, replaceId) {
+function addSticker(dataUrl, replaceId, overrides) {
   if (replaceId) {
     STATE.stickers = STATE.stickers.map(s => s.id === replaceId ? { ...s, dataUrl } : s);
     renderAll();
     return replaceId;
   }
   const id = STATE.nextId++;
-  STATE.stickers.push({ id, dataUrl, x: 50, y: 50, ...DEFAULT_T });
+  STATE.stickers.push({ id, dataUrl, x: 50, y: 50, ...DEFAULT_T, ...(overrides || {}) });
   STATE.selectedId = id;
   STATE.multiSelectedIds = [];
   renderAll();
@@ -1529,6 +1529,11 @@ function onAnimSpeedChange(v) {
   if (animCaptureLottie) animCaptureLottie.setSpeed(Number(v));
 }
 
+function ggAutoFitOverrides() {
+  // 🖼️ 배경화면이 설정돼있으면, 캡처한 이미지를 배경 크기에 맞춰 화면 전체를 채우도록
+  // 자동으로 크기/위치를 잡아준다. 배경이 없으면 기존처럼 기본 크기(20%)로 추가된다.
+  return STATE.background ? { x: 50, y: 50, size: 100 } : {};
+}
 function captureLottieFrame() {
   const stage = document.getElementById('lottieStage');
   const srcCanvas = stage && stage.querySelector('canvas');
@@ -1537,7 +1542,7 @@ function captureLottieFrame() {
   canvas.width = srcCanvas.width;
   canvas.height = srcCanvas.height;
   canvas.getContext('2d').drawImage(srcCanvas, 0, 0);
-  addSticker(canvas.toDataURL('image/png'));
+  addSticker(canvas.toDataURL('image/png'), null, ggAutoFitOverrides());
   closeAnimCaptureModal();
 }
 
@@ -1549,7 +1554,7 @@ function captureGifFrame() {
   canvas.height = img.naturalHeight || img.height;
   try {
     canvas.getContext('2d').drawImage(img, 0, 0);
-    addSticker(canvas.toDataURL('image/png'));
+    addSticker(canvas.toDataURL('image/png'), null, ggAutoFitOverrides());
   } catch (e) {
     // 캡처 실패 시(브라우저 제약) 정지 썸네일로 대체
     addStaticStickerFallback();
