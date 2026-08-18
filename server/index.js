@@ -6688,8 +6688,10 @@ setInterval(() => {
 // ⚔️ 검키우기 — 기존 "Sopia" 봇용으로 만들어져 있던 게임을 이 서버(Express) 구조로 이식.
 // 게임 로직(강화/던전/배틀/랭킹 등 계산 공식)은 원본 그대로이고, 메시지 송수신 부분만
 // 이 서버의 채팅 파이프라인에 맞게 다시 연결했다.
-// 유저 데이터(검 레벨/골드 등)는 기존처럼 Base44(외부 DB)에 저장돼있던 걸 그대로 쓴다 —
-// !저장/!로드 명령어로 수동 동기화(원본과 동일한 방식). 설정(강화확률/상점 등)은
+// 유저 데이터(검 레벨/골드 등)는 [업데이트] 몬스터잡기와 동일한 방식으로 이 서버(관리자
+// 계정 아래 djs.json)에 전역 저장한다. 원래는 Base44(외부 DB)에 저장하고 !저장/!로드로
+// 수동 동기화했지만, 이제 이 서버 저장소가 1순위 출처이고 Base44는 예전 데이터 마이그레이션용
+// 백업으로만 남겨뒀다(handleSaveData/handleLoadData 참고). 설정(강화확률/상점 등)은
 // 관리자(sum) 계정 아래 공용으로 저장해서, 이 모듈을 켠 모든 방송이 같은 설정을 공유한다
 // (플레이어 데이터가 Base44에 태그 기준으로 전역 저장되는 것과 같은 맥락).
 //
@@ -6697,17 +6699,12 @@ setInterval(() => {
 // 출석·저장/로드·검온오프·도움말 (1차) + 상점/구매·펫·몬스터박스·방보스·자동배틀·거래소·
 // 관리자 지급(!쿠폰/!보상) (2차, handleSwordHelp 함수 위쪽 "2차 이식" 섹션 참고) 까지 이식 완료.
 
-const APP_URL = 'https://copy-09a708e1.base44.app'
-let API_TOKEN = process.env.SWORD_API_TOKEN || '102810aa'
-
 let localUsers = new Map()
 let localSettings = null
 let enhanceCooldowns = new Map()
 let battleCooldowns = new Map()
 let dungeonCooldowns = new Map()
 let loadCooldowns = new Map()
-let bannedUsersCache = new Set()
-let lastBannedCheck = 0
 
 // 2차 이식(상점/펫/몬스터박스/자동배틀/거래소/방보스/관리자 지급) 전용 상태 — 전부 인메모리, 프로세스 재시작 시 초기화됨
 let autoBattleUsers = new Map()      // tag -> true (자동배틀 진행 중 표시)
@@ -6718,88 +6715,9 @@ let marketListings = []              // 거래소(자동쿠폰 전용): [{ id, s
 let currentBoss = null               // 방보스: { name, hp, maxHp, contributions:{tag:damage}, spawnedAt } | null
 let bossCooldowns = new Map()        // tag -> 마지막 !참여 시각 (연타 방지)
 
-async function checkBannedUser(tag) {
-  // 5분마다 캐시 갱신
-  if (Date.now() - lastBannedCheck > 300000) {
-    try {
-      const response = await apiRequest('getBannedUsers', 'GET', {});
-      if (response.success && response.banned_tags) {
-        bannedUsersCache = new Set(response.banned_tags);
-        lastBannedCheck = Date.now();
-      }
-    } catch (error) {
-      console.log('[차단 체크 실패]', error);
-    }
-  }
-  
-  return bannedUsersCache.has(tag);
-}
-
-async function apiRequest(endpoint, method = 'GET', params = {}, body = null) {
-  const url = new URL(APP_URL + '/functions/' + endpoint);
-  if (method === 'GET') {
-    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-  }
-  const options = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + API_TOKEN,
-    },
-  };
-  if (body) options.body = JSON.stringify(body);
-  const response = await fetch(url, options);
-  return await response.json();
-}
-
-async function loadUserFromDB(tag) {
-  try {
-    const response = await apiRequest('loadGlobalSwordUser', 'POST', {}, { tag });
-    return response.success && response.user ? response.user : null;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function saveUserToDB(user) {
-  try {
-    const payload = {
-      tag: user.tag,
-      userData: {
-        nickname: user.nickname,
-        gold: user.gold,
-        spoon_points: user.spoon_points,
-        sword_level: user.sword_level,
-        max_sword_level: user.max_sword_level,
-        attack_power: user.attack_power,
-        weapon_bonus: user.weapon_bonus,
-        weapon_bonus2: user.weapon_bonus2,
-        weapon_bonus3: user.weapon_bonus3,
-        battle_wins: user.battle_wins,
-        battle_losses: user.battle_losses,
-        inventory: user.inventory,
-        special_weapon: user.special_weapon,
-        last_daily_money_date: user.last_daily_money_date,
-        current_dungeon_floor: user.current_dungeon_floor,
-        relics: user.relics,
-        dungeon_tickets: user.dungeon_tickets,
-        auto_battle_tickets: user.auto_battle_tickets,
-        runes: user.runes,
-        rune_fragments: user.rune_fragments,
-        last_explore_date: user.last_explore_date,
-        explore_count: user.explore_count,
-        user_plan_level: user.user_plan_level,
-        pets: user.pets,
-        equipped_pet_id: user.equipped_pet_id,
-        pet_fragments: user.pet_fragments
-      }
-    };
-    await apiRequest('saveGlobalSwordUser', 'POST', {}, payload);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
+// 🚫 [업데이트] Base44 외부 DB는 더 이상 사용하지 않음. 차단은 이 서버 안에서만 관리하는
+// 로컬 차단(아래 isLocallyBanned/handleLocalBan)만 쓴다.
+function checkBannedUser(tag) { return false }
 
 function initializeSettings() {
   if (localSettings) return localSettings;
@@ -10569,9 +10487,10 @@ function handleBattle(tag, nickname, targetTag) {
 }
 
 async function handleRanking(tag, nickname) {
-  // 로컬 방 랭킹
+  // 🚫 [업데이트] Base44 월드 랭킹 제거 — localUsers 자체가 이제 이 서버(모든 디제이 방)를
+  // 통틀어 전역으로 공유되는 데이터라, 별도 외부 DB 없이도 이 랭킹이 곧 전체 랭킹이다.
   const allUsers = Array.from(localUsers.values());
-  const localRanking = [...allUsers].sort((a, b) => b.sword_level - a.sword_level);
+  const ranking = [...allUsers].sort((a, b) => b.sword_level - a.sword_level);
 
   const weaponNames = localSettings?.weapon_names || [];
   const getWeaponName = (level, userData) => {
@@ -10582,42 +10501,19 @@ async function handleRanking(tag, nickname) {
 
   let msg = '';
 
-  // DB 월드 랭킹 조회
-  try {
-    const response = await apiRequest('getGlobalSwordRanking', 'GET', {});
-    if (response.users && response.users.length > 0) {
-      const globalRanking = response.users.sort((a, b) => b.sword_level - a.sword_level).slice(0, 5);
-      
-      msg += `🏆 검키우기 월드 랭킹 🏆\n`;
-      for (let i = 0; i < globalRanking.length; i++) {
-        const user = globalRanking[i];
-        const weaponName = getWeaponName(user.sword_level, user);
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
-        msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
-        if (i < globalRanking.length - 1) {
-          msg += '\n';
-        }
-      }
-      msg += '\n\n';
-    }
-  } catch (error) {
-    console.log('[월드 랭킹 조회 실패]', error);
-  }
-
-  // 우리방 랭킹
-  if (localRanking.length > 0) {
-    msg += `🏆 우리방 검랭킹 🏆\n`;
-    for (let i = 0; i < Math.min(5, localRanking.length); i++) {
-      const user = localRanking[i];
+  if (ranking.length > 0) {
+    msg += `🏆 검키우기 전체 랭킹 🏆\n`;
+    for (let i = 0; i < Math.min(5, ranking.length); i++) {
+      const user = ranking[i];
       const weaponName = getWeaponName(user.sword_level, user);
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '등';
       msg += medal + ' ' + user.nickname + '(' + user.tag + ') [+' + user.sword_level + '] ' + weaponName;
-      if (i < Math.min(4, localRanking.length - 1)) {
+      if (i < Math.min(4, ranking.length - 1)) {
         msg += '\n';
       }
     }
   } else {
-    msg += '❌ 우리방 랭킹 데이터가 없습니다';
+    msg += '❌ 랭킹 데이터가 없습니다';
   }
 
   return msg;
@@ -11345,12 +11241,20 @@ function handleMonsterBoxTest(tag, nickname) {
 // !ALL — 지금 메모리에 있는 모든 유저 데이터를 한 번에 Base44에 저장한다 (서버 재시작 전 백업용)
 async function handleSaveAllUsers(tag) {
   if (String(tag).toLowerCase() !== 'sum') return null
-  const users = Array.from(localUsers.values())
-  let saved = 0
-  for (const u of users) {
-    try { if (await saveUserToDB(u)) saved++ } catch (e) { /* 개별 실패는 무시하고 계속 진행 */ }
+  // 🚫 [업데이트] Base44로 개별 업로드하던 방식 제거 — 이제 모든 유저 데이터가 이미
+  // 액션마다 자동으로 서버(djs.json)에 저장되고 있어서, 여기서는 확실히 지금 이 순간의
+  // 상태를 디스크에 강제로 즉시 반영(flush)하기만 하면 된다.
+  if (swordSaveDebounceTimer) { clearTimeout(swordSaveDebounceTimer); swordSaveDebounceTimer = null }
+  try {
+    store.saveSettings(SHARED_TOKEN_DJID, {
+      swordGameUsers: Object.fromEntries(localUsers),
+      swordGameMarket: marketListings,
+      swordGameBoss: currentBoss
+    })
+  } catch (e) {
+    return '❌ 서버 저장 실패'
   }
-  return `✅ 전체 유저 데이터 저장 완료! (${saved}/${users.length}명)`
+  return `✅ 전체 유저 데이터(${localUsers.size}명)를 서버에 즉시 저장했어요!`
 }
 
 // !유물리셋 — 고급 유물(화염/번개/빛/바람/얼음/대지/도플갱어)을 로컬 캐시에 있는 모든 유저에게서 제거
@@ -11448,8 +11352,8 @@ function handleSwordHelp() {
   msg += '• 🟢 !검온 - 검키우기 시스템 활성화\n';
   msg += '• 🔴 !검오프 - 검키우기 시스템 비활성화\n';
   msg += '• 🔧 !복구 [고유닉] [+레벨] [일/단] [옵션1] [옵션2] [옵션3] - 검 복구\n';
-  msg += '• 💾 !저장 - 현재 데이터를 DB에 저장\n';
-  msg += '• 📥 !로드 - DB에서 데이터 불러오기 (20분 쿨타임)\n';
+  msg += '• 💾 !저장 - 현재 데이터를 서버에 저장\n';
+  msg += '• 📥 !로드 - 서버에서 최신 데이터 불러오기 (5초 쿨타임)\n';
   msg += '• 🔄 !ALL - 모든 유저 데이터 DB 저장\n';
   msg += '• 🔄 !설정새로고침 - 상점/던전 설정 업데이트\n';
   msg += '• 📋 !질문 [내용] - 복구 요청 등록\n\n';
@@ -11471,80 +11375,61 @@ function handleSwordHelp() {
 
 async function handleSaveData(tag, nickname) {
   const user = localUsers.get(tag);
-  
+
   if (!user) {
     return '❌ 저장할 데이터가 없습니다. 먼저 !출석으로 시작하세요';
   }
 
-  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
-    return '❌ DB 저장 불가 (토큰 미설정)';
+  // 🌐 [업데이트] 몬스터잡기와 같은 방식으로, 이 서버(관리자 계정 아래 djs.json)가 모든 유저의
+  // 검키우기 데이터를 전역으로 들고 있다. localUsers는 이 서버(하나의 프로세스)가 처리하는
+  // 모든 디제이 방이 실시간으로 함께 보는 같은 메모리라서, 사실 이 시점에 이미 다른 방에서도
+  // 최신 정보가 보인다. 그래도 디스크에 확실히 바로 반영되도록 디바운스(2초)를 기다리지 않고
+  // 여기서 즉시 저장한다.
+  if (swordSaveDebounceTimer) { clearTimeout(swordSaveDebounceTimer); swordSaveDebounceTimer = null }
+  try {
+    store.saveSettings(SHARED_TOKEN_DJID, {
+      swordGameUsers: Object.fromEntries(localUsers),
+      swordGameMarket: marketListings,
+      swordGameBoss: currentBoss
+    })
+  } catch (e) {
+    return '❌ 서버 저장 실패';
   }
 
-  const success = await saveUserToDB(user);
-  
-  if (success) {
-    return `✅ ${nickname}님의 데이터가 DB에 저장되었습니다!\n다른 방에서 !로드 명령어로 불러올 수 있습니다.`;
-  } else {
-    return '❌ DB 저장 실패';
-  }
+  return `✅ ${nickname}님의 데이터가 서버에 저장되었습니다!\n이제 다른 방에 가셔도 !로드 없이 자동으로 최신 정보가 유지돼요.`;
 }
 
 async function handleLoadData(tag, nickname, targetTag) {
-  if (!API_TOKEN || API_TOKEN === 'YOUR_TOKEN_HERE') {
-    return '❌ DB 로드 불가 (토큰 미설정)';
-  }
+  // sum이 targetTag를 지정한 경우 해당 유저 로드
+  const loadTag = (tag.toLowerCase() === 'sum' && targetTag) ? String(targetTag).replace('@', '').trim().toLowerCase() : tag;
 
-  // sum이 아닌 유저는 20분 쿨타임 적용
+  // 🌐 [업데이트] Base44는 더 이상 쓰지 않는다 — 이 서버의 전역 저장소(djs.json, 관리자 계정
+  // 아래 공용)가 유일한 데이터 출처다. localUsers는 이미 모든 방이 실시간으로 함께 보는
+  // 메모리라서 대부분의 경우 !로드 없이도 이미 최신 정보가 들어있지만, 디스크에 저장된
+  // 최신본으로 한 번 더 맞춰준다 (관리자가 직접 데이터를 만졌거나 서버가 방금 재시작된 경우를 대비).
   if (tag.toLowerCase() !== 'sum') {
-    const loadCooldown = 1200 * 1000; // 20분
+    const loadCooldown = 5 * 1000; // 이제 서버 저장소를 읽는 가벼운 조회라 20분 → 5초로 대폭 단축(스팸 방지용 최소 쿨타임만 유지)
     const lastLoadTime = loadCooldowns.get(tag) || 0;
     const elapsed = Date.now() - lastLoadTime;
 
     if (elapsed < loadCooldown) {
-      const remainingMinutes = Math.ceil((loadCooldown - elapsed) / 60000);
-      return `⏰ 로드 쿨타임 ${remainingMinutes}분 남음`;
+      const remainingSeconds = Math.ceil((loadCooldown - elapsed) / 1000);
+      return `⏰ ${remainingSeconds}초 후 다시 시도해주세요`;
     }
   }
 
-  // sum이 targetTag를 지정한 경우 해당 유저 로드
-  const loadTag = (tag.toLowerCase() === 'sum' && targetTag) ? targetTag : tag;
-  const dbUser = await loadUserFromDB(loadTag);
+  try {
+    const adminSettings = store.getSettings(SHARED_TOKEN_DJID) || {};
+    const stored = adminSettings.swordGameUsers && adminSettings.swordGameUsers[loadTag];
+    if (stored) localUsers.set(loadTag, stored);
+  } catch (e) { /* 서버 저장소 조회 실패해도 이미 메모리에 있는 데이터로 계속 진행 */ }
+
+  let dbUser = localUsers.get(loadTag);
 
   if (!dbUser) {
-    return `❌ DB에 저장된 데이터가 없습니다. 먼저 다른 방에서 !저장을 하세요`;
+    return `❌ 저장된 데이터가 없습니다. 먼저 !출석으로 시작하세요`;
   }
 
-  // DB 데이터를 로컬 메모리에 덮어쓰기 (고급 유물 제거 없이)
-  localUsers.set(loadTag, {
-    tag: dbUser.tag,
-    nickname: dbUser.nickname,
-    gold: dbUser.gold || 0,
-    sword_level: dbUser.sword_level || 0,
-    max_sword_level: dbUser.max_sword_level || 0,
-    attack_power: dbUser.attack_power || 0,
-    weapon_bonus: dbUser.weapon_bonus || 0,
-    weapon_bonus2: dbUser.weapon_bonus2 || 0,
-    weapon_bonus3: dbUser.weapon_bonus3 || 0,
-    battle_wins: dbUser.battle_wins || 0,
-    battle_losses: dbUser.battle_losses || 0,
-    inventory: dbUser.inventory || {},
-    special_weapon: dbUser.special_weapon || null,
-    last_daily_money_date: dbUser.last_daily_money_date || null,
-    current_dungeon_floor: dbUser.current_dungeon_floor || 1,
-    relics: dbUser.relics || {},
-    dungeon_tickets: dbUser.dungeon_tickets || 0,
-    runes: dbUser.runes || {},
-    rune_fragments: dbUser.rune_fragments || 0,
-    last_explore_date: dbUser.last_explore_date || null,
-    explore_count: dbUser.explore_count || 0,
-    user_plan_level: dbUser.user_plan_level || 0,
-    spoon_points: dbUser.spoon_points || 0,
-    pets: dbUser.pets || [],
-    equipped_pet_id: dbUser.equipped_pet_id || null,
-    pet_fragments: dbUser.pet_fragments || 0
-    });
-
-  // sum이 아닌 경우만 쿨타임 기록
   if (tag.toLowerCase() !== 'sum') {
     loadCooldowns.set(tag, Date.now());
   }
@@ -11559,12 +11444,11 @@ async function handleLoadData(tag, nickname, targetTag) {
   };
 
   const weaponName = getWeaponName(dbUser.sword_level, dbUser.special_weapon);
-  const loadedUser = localUsers.get(loadTag);
-  const relicAttack = calculateRelicAttack(loadedUser);
+  const relicAttack = calculateRelicAttack(dbUser);
   const totalAttack = (dbUser.attack_power || 0) + (dbUser.weapon_bonus || 0) + (dbUser.weapon_bonus2 || 0) + (dbUser.weapon_bonus3 || 0) + relicAttack;
 
   const displayName = (tag.toLowerCase() === 'sum' && targetTag) ? dbUser.nickname : nickname;
-  return `✅ ${displayName}님의 데이터가 DB에서 로드되었습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
+  return `✅ ${displayName}님의 데이터를 불러왔습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
 }
 // ── 설정 로드/저장: 관리자(sum) 계정 아래 공용으로 보관 ──
 // 원본은 매 액션마다 로컬 암호화 파일에 저장했는데, Railway는 재배포마다 디스크가 초기화되니
@@ -11667,7 +11551,7 @@ async function handleSwordCommand(djId, room, settings, author, authorId, liveId
   const tag = actTag ? String(actTag).trim().toLowerCase() : null
   if (!tag) { sendChatSplit(djId, '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
 
-  // 차단 유저 체크 (원본 로직 그대로, Base44 API 사용 + 이 서버 안에서만 적용되는 로컬 차단)
+  // 차단 유저 체크 — checkBannedUser는 이제 항상 false(더 이상 Base44 원격 차단목록 안 씀), 실제 차단은 아래 로컬 차단만 적용됨
   try {
     const isBanned = await checkBannedUser(tag)
     if (isBanned) { sendChatSplit(djId, '❌ 차단된 등록자입니다', 150, 300); return }
