@@ -8546,9 +8546,13 @@ async function saveGgSettings(){
 function ggProxyImg(url){ return url?SERVER+'/giftgallery/image-proxy?url='+encodeURIComponent(url):''; }
 function ggAvatarHtml(url,label,bg,fg,extraStyle,shape){
   const radius=shape==='square'?'8px':'50%';
-  if(url) return `<img src="${escapeHtml(ggProxyImg(url))}" crossorigin="anonymous" style="width:32px;height:32px;border-radius:${radius};object-fit:cover;border:2px solid #fff;flex-shrink:0${extraStyle||''}">`;
+  if(url) return `<img src="${escapeHtml(ggProxyImg(url))}" crossorigin="anonymous" style="width:32px;height:32px;border-radius:${radius};object-fit:cover;flex-shrink:0${extraStyle||''}">`;
   const ch=(label||'?').trim().slice(0,1)||'?';
-  return `<div style="width:32px;height:32px;border-radius:${radius};background:${bg};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${fg};flex-shrink:0${extraStyle||''}">${escapeHtml(ch)}</div>`;
+  return `<div style="width:32px;height:32px;border-radius:${radius};background:${bg};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${fg};flex-shrink:0${extraStyle||''}">${escapeHtml(ch)}</div>`;
+}
+function ggDateGroupKey(ts){
+  const d=new Date(ts);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function renderGgGrid(){
   const wrap=document.getElementById('ggGrid');
@@ -8559,16 +8563,19 @@ function renderGgGrid(){
   emptyHint.style.display=ggData.items.length?'none':'block';
   const shape=ggData.avatarShape==='square'?'square':'circle';
   const cardRadius=ggData.cardShape==='rect'?'10px':'24px';
+  const senderOnly=ggData.avatarMode==='senderOnly';
   let html='';
-  let lastDateKey=null;
+  let lastGroupKey=null;
   ggData.items.forEach(it=>{
-    const d=new Date(it.ts);
-    const dateKey=d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',weekday:'short'});
-    if(dateKey!==lastDateKey){
-      html+=`<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:${lastDateKey?'14px':'0'} 0 2px">${dateKey}</div>`;
-      lastDateKey=dateKey;
+    const groupKey=ggDateGroupKey(it.ts);
+    if(groupKey!==lastGroupKey){
+      const dateLabel=new Date(it.ts).toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',weekday:'short'});
+      html+=`<div style="display:flex;align-items:center;gap:8px;margin:${lastGroupKey?'14px':'0'} 0 2px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-dim)">${dateLabel}</span>
+        <button onclick="downloadDateGgItems('${groupKey}')" style="font-size:11px;padding:2px 8px;border-radius:10px;border:0.5px solid var(--border);background:none;color:var(--text-dim);cursor:pointer">⬇ 모두 저장</button>
+      </div>`;
+      lastGroupKey=groupKey;
     }
-    const senderOnly=ggData.avatarMode==='senderOnly';
     const userAvatar=ggAvatarHtml(it.profileUrl,it.author,'linear-gradient(135deg,#f6c453,#f08a3c)','#3a1e00','',shape);
     const djAvatar=senderOnly?'':ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px',shape);
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
@@ -8588,6 +8595,16 @@ function renderGgGrid(){
     </div>`;
   });
   wrap.innerHTML=html;
+}
+async function downloadDateGgItems(groupKey){
+  const items=ggData.items.filter(it=>ggDateGroupKey(it.ts)===groupKey);
+  if(!items.length){showToast('해당 날짜에 저장된 카드가 없어요');return;}
+  showToast(`${items.length}개 다운로드를 시작해요...`);
+  for(let i=0;i<items.length;i++){
+    await downloadGgItem(items[i].id);
+    await new Promise(r=>setTimeout(r,400));
+  }
+  showToast('다운로드 완료 ✓');
 }
 async function downloadGgItem(id){
   const cardEl=document.getElementById('ggCard_'+id);
@@ -13278,6 +13295,12 @@ function startSSE(){
   };
   es.onerror=()=>setTimeout(startSSE,3000);
 }
+
+// 🎁 선물카드 갤러리 — SSE만으로는 간혹 실시간 반영이 늦거나 놓치는 경우가 있어서, 이 패널을
+// 보고 있을 때만 5초마다 서버에서 최신 목록을 다시 받아와 화면을 갱신한다 (안전망).
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="giftgallery"]')?.classList.contains('active')) loadGgSettings();
+}, 5000);
 
 function updateSessionPill(d){
   const pill=document.getElementById('sessionPill');
