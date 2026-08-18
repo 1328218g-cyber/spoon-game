@@ -3543,12 +3543,14 @@ function getTtsSettings(djId, settings) {
       maxLen: 50,
       volume: 1.0,
       playChime: false,
+      chimeUrl: '', // 읽기 전 알림음 — 비어있으면 기본 합성음(삐 소리), 채워지면 업로드한 오디오 파일 재생
       // { '태그또는닉네임(소문자)': { voice:'브라우저/구글 음성', typecastVoiceId:'', typecastVoiceName:'' } }
       voicePresets: {},
     }
     store.saveSettings(djId, { tts: settings.tts })
   }
   if (!settings.tts.voicePresets) settings.tts.voicePresets = {}
+  if (settings.tts.chimeUrl == null) settings.tts.chimeUrl = ''
   return settings.tts
 }
 
@@ -15098,7 +15100,7 @@ app.post('/tts/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getTtsSettings(req.djId, settings)
-  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime } = req.body || {}
+  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime, chimeUrl } = req.body || {}
   if (enabled != null) cfg.enabled = !!enabled
   if (engine != null && ['browser', 'google', 'typecast'].includes(engine)) cfg.engine = engine
   if (voice != null) cfg.voice = String(voice)
@@ -15112,6 +15114,7 @@ app.post('/tts/settings', auth.requireAuth, (req, res) => {
   if (maxLen != null) cfg.maxLen = Math.max(1, Math.min(200, Number(maxLen) || 50))
   if (volume != null) cfg.volume = Math.max(0, Math.min(1, Number(volume)))
   if (playChime != null) cfg.playChime = !!playChime
+  if (chimeUrl != null) cfg.chimeUrl = String(chimeUrl).slice(0, 300)
   store.saveSettings(req.djId, { tts: cfg })
   res.json({ success: true })
 })
@@ -15747,6 +15750,32 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       cmdStockCreate: '종목 설립 (관리자)', cmdStockDelete: '종목 폐지 (관리자)', cmdGiveMoney: '머니 지급 (관리자)',
     }
     groups.push({ key: 'stock', icon: '🍞', label: '증권거래소', items: Object.keys(labelMap).map(k => ({ cmd: cfg[k], desc: labelMap[k] })).filter(x => x.cmd) })
+  }
+  if (on('monstercatch')) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    groups.push({
+      key: 'monstercatch', icon: '🐾', label: '몬스터 잡기', items: [
+        { cmd: mc.cmdCatch || '!잡기', desc: '등장한 몬스터 잡기' },
+        { cmd: '!모험시작', desc: '몬스터잡기 시작 (포획볼 지급)' },
+        { cmd: mc.cmdDex || '!도감', desc: '내 도감 확인 (페이지: !도감2, !도감3...)' },
+        { cmd: '!포획볼구매', desc: '포획볼 구매' },
+        { cmd: mc.cmdEvolve || '!진화', desc: '[몬스터이름] 진화시키기' },
+        { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
+        { cmd: mc.cmdUserReset || '!리셋', desc: '[고유닉] 특정 유저 정보 초기화 (DJ/매니저)' },
+        { cmd: mc.cmdBallGive || '!볼지급', desc: '[고유닉] [수량] 포획볼 지급/차감 (DJ/매니저)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('swordgame')) {
+    groups.push({
+      key: 'swordgame', icon: '⚔️', label: '검키우기', items: [
+        { cmd: '!강화', desc: '검 강화 시도' }, { cmd: '!프로필', desc: '내 정보 조회' }, { cmd: '!출석', desc: '출석 체크' },
+        { cmd: '!배틀', desc: '다른 유저와 배틀' }, { cmd: '!판매', desc: '아이템 판매' }, { cmd: '!창고', desc: '내 인벤토리 조회' },
+        { cmd: '!검랭킹', desc: '전체 검 랭킹 조회' }, { cmd: '!검버전', desc: '검키우기 버전 정보' },
+        { cmd: '!저장', desc: '현재 데이터를 서버에 저장' }, { cmd: '!로드', desc: '서버에서 최신 데이터 불러오기' },
+        { cmd: '!도움말', desc: '검키우기 전체 명령어 안내' },
+      ]
+    })
   }
 
   const total = groups.reduce((s, g) => s + g.items.length, 0)
