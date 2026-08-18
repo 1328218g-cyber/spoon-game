@@ -8642,6 +8642,7 @@ function ggPreloadBgImages(el){
 async function ggImageUrlToDataUri(url){
   try{
     const res=await fetch(url);
+    if(!res.ok) throw new Error('이미지 요청 실패 HTTP '+res.status);
     const blob=await res.blob();
     return await new Promise((resolve,reject)=>{
       const reader=new FileReader();
@@ -8649,7 +8650,7 @@ async function ggImageUrlToDataUri(url){
       reader.onerror=reject;
       reader.readAsDataURL(blob);
     });
-  }catch(e){ return null; }
+  }catch(e){ console.warn('[선물카드] 이미지 base64 변환 실패:',url,e); return null; }
 }
 async function ggCardToCanvas(cardEl, scale){
   const PAD=10 // 카드 그림자가 잘리지 않도록 여백을 살짝 둔다
@@ -8715,7 +8716,8 @@ async function downloadGgItem(id){
     }
   }catch(e){
     if(preWin)preWin.close()
-    showToast('이미지 다운로드 실패 (프로필 이미지 접근 제한일 수 있어요)')
+    console.error('[선물카드 다운로드 실패]',e)
+    showToast('다운로드 실패: '+(e&&e.message?e.message:e))
   }
 }
 async function checkGgImageResolution(){
