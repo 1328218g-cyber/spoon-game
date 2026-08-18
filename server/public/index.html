@@ -8623,7 +8623,8 @@ function ggPreloadBgImages(el){
   return Promise.all(urls.map(u=>new Promise(res=>{
     const img=new Image();
     img.crossOrigin='anonymous';
-    img.onload=res;img.onerror=res;
+    img.onload=()=>{ console.log('[선물카드 원본 해상도]', u, img.naturalWidth+'x'+img.naturalHeight); res(); };
+    img.onerror=res;
     img.src=u;
   })));
 }
