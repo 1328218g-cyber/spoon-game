@@ -495,6 +495,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
 </head>
 <body>
 
@@ -8589,7 +8590,11 @@ function renderGgGrid(){
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
     const cardId='ggCard_'+it.id;
-    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative"
+    // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
+    // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
+    // 봐도 동일한 폰트로 렌더링되게 한다.
+    const ggFontFamily=`'Noto Sans KR','Noto Sans Symbols 2',sans-serif`;
+    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
@@ -8665,13 +8670,29 @@ async function ggCardToCanvas(cardEl, scale){
 async function downloadGgItem(id){
   const cardEl=document.getElementById('ggCard_'+id);
   if(!cardEl){showToast('카드를 찾을 수 없어요');return}
+  // 📱 새 탭은 비동기 작업(await) 전에 미리 열어둬야 브라우저가 "사용자 동작으로 연 탭"으로
+  // 인정해서 팝업 차단을 안 한다 — await 뒤에 열면 대부분 브라우저가 막아버린다.
+  const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  const preWin=isMobile?window.open('','_blank'):null
   try{
+    // 🈵 웹폰트(Noto Sans KR 등)가 다 로드되기 전에 캡처하면 시스템 기본 폰트로 대체되어
+    // 캡처될 수 있어서, 캡처 전에 폰트 로딩이 끝나길 기다린다.
+    if(document.fonts&&document.fonts.ready) await document.fonts.ready;
     const canvas=await ggCardToCanvas(cardEl,4)
+    const dataUrl=canvas.toDataURL('image/png')
     const link=document.createElement('a')
     link.download='선물카드_'+id+'.png'
-    link.href=canvas.toDataURL('image/png')
+    link.href=dataUrl
+    document.body.appendChild(link)
     link.click()
+    link.remove()
+    // 📱 모바일 브라우저(특히 iOS Safari)는 download 속성이 안 먹히는 경우가 많아서, 미리 열어둔
+    // 탭에 이미지를 띄워서 길게 눌러 저장할 수 있게 해준다.
+    if(preWin){
+      preWin.document.write(`<title>선물카드 저장</title><body style="margin:0;background:#222;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif"><p style="color:#fff;font-size:14px;margin-bottom:12px">이미지를 길게 눌러서 저장하세요</p><img src="${dataUrl}" style="max-width:95vw"></body>`)
+    }
   }catch(e){
+    if(preWin)preWin.close()
     showToast('이미지 다운로드 실패 (프로필 이미지 접근 제한일 수 있어요)')
   }
 }
