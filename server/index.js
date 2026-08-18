@@ -16698,7 +16698,7 @@ app.listen(PORT, () => {
   setInterval(backupToBase44, 30 * 60 * 1000)
 })
 
-// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
