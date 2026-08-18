@@ -8639,69 +8639,156 @@ function ggPreloadBgImages(el){
 // 문제가 있었다. 그래서 화면에 이미 정상적으로 보이는 실제 카드 DOM을 그대로 SVG의
 // <foreignObject>에 넣어서 이미지화한다 — 이러면 브라우저의 진짜 텍스트 레이아웃 엔진(완전한
 // 폰트 대체 체인 포함)을 그대로 쓰게 되어, 화면에 보이는 것과 100% 동일하게 캡처된다.
-async function ggImageUrlToDataUri(url){
-  try{
-    const res=await fetch(url);
-    if(!res.ok) throw new Error('이미지 요청 실패 HTTP '+res.status);
-    const blob=await res.blob();
-    return await new Promise((resolve,reject)=>{
-      const reader=new FileReader();
-      reader.onload=()=>resolve(reader.result);
-      reader.onerror=reject;
-      reader.readAsDataURL(blob);
-    });
-  }catch(e){ console.warn('[선물카드] 이미지 base64 변환 실패:',url,e); return null; }
+function ggLoadImage(url){
+  return new Promise(res=>{
+    if(!url){res(null);return;}
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>res(img);
+    img.onerror=()=>res(null);
+    img.src=url;
+  });
 }
-async function ggCardToCanvas(cardEl, scale){
-  const PAD=10 // 카드 그림자가 잘리지 않도록 여백을 살짝 둔다
-  const rect=cardEl.getBoundingClientRect();
-  const w=Math.ceil(rect.width)+PAD*2, h=Math.ceil(rect.height)+PAD*2;
-  const clone=cardEl.cloneNode(true);
-  clone.querySelectorAll('button').forEach(b=>b.remove()); // 다운로드/삭제 버튼은 결과물에서 제외
-  clone.style.position='static';
-  clone.style.margin=`${PAD}px`;
-  // 🖼️ [업데이트] SVG 안에 외부(우리 프록시 포함) 이미지 URL이 그대로 남아있으면, 브라우저가
-  // 안전상 캔버스를 "오염됨(tainted)"으로 처리해서 toDataURL()이 막혀버리는 문제가 있었다.
-  // 이미지를 아예 base64로 통째로 내장(inline)시켜서 외부 참조를 완전히 없애면 이 문제가 해결된다.
-  const bgNodes=Array.from(clone.querySelectorAll('[style*="background-image"]'));
-  await Promise.all(bgNodes.map(async node=>{
-    const m=node.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
-    if(!m||!m[1])return;
-    const dataUri=await ggImageUrlToDataUri(m[1]);
-    if(dataUri) node.style.backgroundImage=`url('${dataUri}')`;
-  }));
-  const xml=new XMLSerializer().serializeToString(clone);
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-    <foreignObject width="100%" height="100%">
-      <div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px">${xml}</div>
-    </foreignObject>
-  </svg>`;
-  const blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  try{
-    const img=await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
-    const canvas=document.createElement('canvas');
-    canvas.width=w*scale; canvas.height=h*scale;
-    const ctx=canvas.getContext('2d');
-    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-    ctx.drawImage(img,0,0,w*scale,h*scale);
-    return canvas;
-  } finally {
-    URL.revokeObjectURL(url);
+function ggRoundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function ggDrawCoverImage(ctx,img,cx,cy,d){
+  // object-fit:cover와 동일한 계산으로 원본 이미지에서 중앙 정사각형을 잘라 그린다.
+  const iw=img.naturalWidth,ih=img.naturalHeight;
+  const side=Math.min(iw,ih);
+  const sx=(iw-side)/2, sy=(ih-side)/2;
+  ctx.drawImage(img,sx,sy,side,side,cx-d/2,cy-d/2,d,d);
+}
+// 🖼️🈵 [업데이트] SVG의 <foreignObject>를 이미지로 만드는 방식은 브라우저가 보안상 항상 캔버스를
+// "오염됨"으로 처리해서 toDataURL()이 아예 막혀버리는 근본적인 한계가 있었다(이미지를 base64로
+// 내장해도 소용없었음). 그래서 다시 Canvas 2D에 직접 그리는 방식으로 되돌리되, 이번엔 특수문자
+// 대응을 위해 불러온 전체 폰트 목록(Noto 계열 + Warang Citi + Unifont)을 그대로 ctx.font에
+// 지정한다 — 최신 브라우저는 Canvas 텍스트에도 이 폰트 목록 순서대로 글자별 대체(fallback)를
+// 적용해주기 때문에, 화면(DOM)에서 보이는 것과 동일하게 특수문자까지 정상적으로 그려진다.
+const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
+async function drawGgCardCanvas(it, opts){
+  const SCALE=4 // 결과 이미지 배율(고해상도)
+  const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
+  const padL=6*SCALE, padR=14*SCALE, padY=6*SCALE
+  const fontName=`700 ${14*SCALE}px ${GG_FONT_STACK}`
+  const fontSpoon=`700 ${13*SCALE}px ${GG_FONT_STACK}`
+  const stickerSize=30*SCALE
+  const senderOnly=opts.avatarMode==='senderOnly'
+  const cardShape=opts.cardShape||'pill'
+  const shape=opts.avatarShape||'circle'
+
+  if(document.fonts&&document.fonts.ready) await document.fonts.ready // 웹폰트 로딩 완료를 기다려야 정확히 그려짐
+
+  const [userImg,djImg,stickerImg]=await Promise.all([
+    ggLoadImage(it.profileUrl?ggProxyImg(it.profileUrl):''),
+    senderOnly?Promise.resolve(null):ggLoadImage(it.djProfileUrl?ggProxyImg(it.djProfileUrl):''),
+    ggLoadImage(it.stickerImage?ggProxyImg(it.stickerImage):'')
+  ])
+
+  const spoonsText=(it.totalSpoons||it.amount||0).toLocaleString()+'스푼'
+  const measure=document.createElement('canvas').getContext('2d')
+  measure.font=fontName
+  const nameWidth=measure.measureText(it.author).width
+  measure.font=fontSpoon
+  const spoonWidth=measure.measureText(spoonsText).width
+
+  const avatarsWidth=senderOnly?boxSize:(boxSize*2-overlap)
+  const stickerBlock=stickerImg?(gap+stickerSize):0
+  const contentWidth=avatarsWidth+gap+nameWidth+stickerBlock+gap+spoonWidth
+  const cardWidth=Math.ceil(padL+contentWidth+padR)
+  const cardHeight=boxSize+padY*2
+
+  const canvas=document.createElement('canvas')
+  canvas.width=cardWidth; canvas.height=cardHeight
+  const ctx=canvas.getContext('2d')
+  ctx.imageSmoothingEnabled=true
+  ctx.imageSmoothingQuality='high'
+
+  // 🖼️ 카드 뒤 배경은 다운로드 시 투명 처리 — 캔버스를 그냥 비워두면 기본이 투명이라 별도 처리 불필요.
+
+  if(cardShape!=='none'){
+    const r=cardShape==='rect'?10*SCALE:cardHeight/2
+    ctx.save()
+    ctx.shadowColor='rgba(0,0,0,0.15)'
+    ctx.shadowBlur=4*SCALE
+    ctx.shadowOffsetY=1*SCALE
+    ctx.fillStyle='#fff'
+    ggRoundRectPath(ctx,0,0,cardWidth,cardHeight,r)
+    ctx.fill()
+    ctx.restore()
   }
+
+  const cy=cardHeight/2
+  let x=padL
+
+  function drawAvatar(img,fallbackCh,fallbackBg,fallbackFg){
+    const cx=x+boxSize/2
+    ctx.save()
+    if(shape==='circle'){ ctx.beginPath(); ctx.arc(cx,cy,boxSize/2,0,Math.PI*2); ctx.closePath(); ctx.clip() }
+    else { ggRoundRectPath(ctx,x,cy-boxSize/2,boxSize,boxSize,8*SCALE); ctx.clip() }
+    if(img) ggDrawCoverImage(ctx,img,cx,cy,boxSize)
+    else {
+      ctx.fillStyle=fallbackBg
+      ctx.fillRect(x,cy-boxSize/2,boxSize,boxSize)
+      ctx.fillStyle=fallbackFg
+      ctx.font=`700 ${14*SCALE}px ${GG_FONT_STACK}`
+      ctx.textAlign='center'; ctx.textBaseline='middle'
+      ctx.fillText(fallbackCh,cx,cy)
+    }
+    ctx.restore()
+  }
+
+  if(senderOnly){
+    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
+    x+=boxSize
+  } else {
+    // 뒤(디제이) 먼저 그리고 앞(후원자)을 나중에 겹쳐 그려서 후원자가 위로 보이게 한다.
+    ctx.save(); x+= (boxSize-overlap)
+    drawAvatar(djImg,'디','#5eead4','#062e2a')
+    ctx.restore()
+    x=padL
+    drawAvatar(userImg,(it.author||'?').trim().slice(0,1)||'?','#f6c453','#3a1e00')
+    x+= boxSize-overlap+boxSize
+  }
+
+  x+=gap
+  ctx.fillStyle='#111'
+  ctx.font=fontName
+  ctx.textAlign='left'; ctx.textBaseline='middle'
+  ctx.fillText(it.author,x,cy)
+  x+=nameWidth+gap
+
+  if(stickerImg){
+    // 🖼️ 정사각형으로 강제로 그리면 원본 비율이 아닌 스티커가 찌그러져 보였다. 원본 가로세로
+    // 비율을 유지한 채(object-fit:contain과 동일하게) stickerSize 박스 안에 맞춰서 그린다.
+    const iw=stickerImg.naturalWidth||1, ih=stickerImg.naturalHeight||1
+    const fitScale=Math.min(stickerSize/iw, stickerSize/ih)
+    const dw=iw*fitScale, dh=ih*fitScale
+    ctx.drawImage(stickerImg, x+(stickerSize-dw)/2, cy-dh/2, dw, dh)
+    x+=stickerSize+gap
+  }
+
+  ctx.fillStyle='#f97316'
+  ctx.font=fontSpoon
+  ctx.fillText(spoonsText,x,cy)
+
+  return canvas
 }
 async function downloadGgItem(id){
-  const cardEl=document.getElementById('ggCard_'+id);
-  if(!cardEl){showToast('카드를 찾을 수 없어요');return}
+  const it=ggData.items.find(i=>i.id===id)
+  if(!it){showToast('카드를 찾을 수 없어요');return}
   // 📱 새 탭은 비동기 작업(await) 전에 미리 열어둬야 브라우저가 "사용자 동작으로 연 탭"으로
   // 인정해서 팝업 차단을 안 한다 — await 뒤에 열면 대부분 브라우저가 막아버린다.
   const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   const preWin=isMobile?window.open('','_blank'):null
   try{
-    // 🈵 웹폰트(Noto Sans KR 등)가 다 로드되기 전에 캡처하면 시스템 기본 폰트로 대체되어
-    // 캡처될 수 있어서, 캡처 전에 폰트 로딩이 끝나길 기다린다.
-    if(document.fonts&&document.fonts.ready) await document.fonts.ready;
-    const canvas=await ggCardToCanvas(cardEl,4)
+    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode})
     const dataUrl=canvas.toDataURL('image/png')
     const link=document.createElement('a')
     link.download='선물카드_'+id+'.png'
