@@ -16596,6 +16596,14 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html')
 })
 
+// 🩺 헬스체크 — Railway가 이 주소로 주기적으로 접속해봐서, 응답이 없으면(서버가 멈췄으면)
+// 자동으로 재시작하게 만드는 용도. 지금까지는 "가끔 접속 안 될 때 수동으로 재시작"해야 했는데,
+// 이 경로를 Railway 설정(Settings → Healthcheck Path)에 등록해두면 Railway가 알아서 감지하고
+// 재시작해준다 (사람이 직접 안 눌러도 됨).
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() })
+})
+
 // 어떤 라우트에서도 처리되지 못한 오류(예: 업로드 파일이 body 용량 제한을 넘어서 express.json이
 // 자체적으로 거부하는 경우 등)가 나면, Express 기본 HTML 에러 페이지 대신 JSON으로 내려준다.
 // 이게 없으면 프론트엔드에서 "Unexpected token '<', <!DOCTYPE..." 같은 혼란스러운 에러만 보이게 된다.
