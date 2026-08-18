@@ -4937,12 +4937,13 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
 const GIFT_GALLERY_MAX_ITEMS = 300
 function getGiftGallerySettings(djId, settings) {
   if (!settings.giftGallery) {
-    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', items: [] }
+    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', items: [] }
     store.saveSettings(djId, { giftGallery: settings.giftGallery })
   }
   if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
   if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
   if (settings.giftGallery.cardShape !== 'rect' && settings.giftGallery.cardShape !== 'pill') settings.giftGallery.cardShape = 'pill'
+  if (settings.giftGallery.avatarMode !== 'senderOnly' && settings.giftGallery.avatarMode !== 'both') settings.giftGallery.avatarMode = 'both'
   return settings.giftGallery
 }
 let giftGallerySaveDebounce = {}
@@ -13356,9 +13357,10 @@ app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gallery = getGiftGallerySettings(req.djId, settings)
-  const { avatarShape, cardShape } = req.body || {}
+  const { avatarShape, cardShape, avatarMode } = req.body || {}
   if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
   if (cardShape === 'rect' || cardShape === 'pill') gallery.cardShape = cardShape
+  if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })

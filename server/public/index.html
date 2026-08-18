@@ -3308,9 +3308,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="pill" checked onchange="saveGgSettings()"> 둥근 알약형 (지금 모양)</label>
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="rect" onchange="saveGgSettings()"> 직사각형</label>
           </div>
+          <label style="margin-top:14px">아바타 표시</label>
+          <div style="display:flex;gap:16px;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="both" checked onchange="saveGgSettings()"> 디제이 + 후원자 둘 다</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="senderOnly" onchange="saveGgSettings()"> 후원자만</label>
+          </div>
         </div>
         <div class="card">
-          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div>
+          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
           <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
@@ -8508,7 +8513,7 @@ let tbEditingSlotIndex=null;
 let tbIdSeq=1;
 
 /* ── 🎁 선물카드 갤러리 ── */
-let ggData={avatarShape:'circle',cardShape:'pill',items:[]};
+let ggData={avatarShape:'circle',cardShape:'pill',avatarMode:'both',items:[]};
 async function loadGgSettings(){
   try{
     const res=await fetch(SERVER+'/giftgallery/settings',{headers:authHeaders()});
@@ -8519,6 +8524,8 @@ async function loadGgSettings(){
     if(avatarRadio)avatarRadio.checked=true;
     const cardRadio=document.querySelector(`input[name="ggCardShape"][value="${ggData.cardShape==='rect'?'rect':'pill'}"]`);
     if(cardRadio)cardRadio.checked=true;
+    const modeRadio=document.querySelector(`input[name="ggAvatarMode"][value="${ggData.avatarMode==='senderOnly'?'senderOnly':'both'}"]`);
+    if(modeRadio)modeRadio.checked=true;
     renderGgGrid();
   }catch(e){}
 }
@@ -8527,8 +8534,10 @@ async function saveGgSettings(){
   const avatarShape=avatarEl?avatarEl.value:'circle';
   const cardEl=document.querySelector('input[name="ggCardShape"]:checked');
   const cardShape=cardEl?cardEl.value:'pill';
+  const modeEl=document.querySelector('input[name="ggAvatarMode"]:checked');
+  const avatarMode=modeEl?modeEl.value:'both';
   try{
-    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape})});
+    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode})});
     const d=await res.json();
     if(d.success){ggData=d.settings;renderGgGrid();showToast('설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
@@ -8559,8 +8568,9 @@ function renderGgGrid(){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:${lastDateKey?'14px':'0'} 0 2px">${dateKey}</div>`;
       lastDateKey=dateKey;
     }
+    const senderOnly=ggData.avatarMode==='senderOnly';
     const userAvatar=ggAvatarHtml(it.profileUrl,it.author,'linear-gradient(135deg,#f6c453,#f08a3c)','#3a1e00','',shape);
-    const djAvatar=ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px',shape);
+    const djAvatar=senderOnly?'':ggAvatarHtml(it.djProfileUrl,'디','linear-gradient(135deg,#5eead4,#0d9488)','#062e2a',';margin-left:-12px',shape);
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
@@ -8589,7 +8599,9 @@ async function downloadGgItem(id){
   if(delBtn)delBtn.style.display='none';
   if(dlBtn)dlBtn.style.display='none';
   try{
-    const canvas=await html2canvas(cardEl,{backgroundColor:null,useCORS:true,scale:3});
+    // 🖼️ 카드 자체가 흰색이라 배경을 투명(null)으로 뽑으면 흰 바탕 위에서 카드가 안 보이는
+    // 문제가 있었다. 살짝 톤 있는 배경(#eef2f7)을 깔아서 어디에 올려놔도 카드 테두리가 보이게 한다.
+    const canvas=await html2canvas(cardEl,{backgroundColor:'#eef2f7',useCORS:true,scale:3});
     const link=document.createElement('a');
     link.download='선물카드_'+id+'.png';
     link.href=canvas.toDataURL('image/png');
@@ -8599,6 +8611,15 @@ async function downloadGgItem(id){
   }
   if(delBtn)delBtn.style.display=prevDel;
   if(dlBtn)dlBtn.style.display=prevDl;
+}
+async function downloadAllGgItems(){
+  if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
+  showToast(`${ggData.items.length}개 다운로드를 시작해요...`);
+  for(let i=0;i<ggData.items.length;i++){
+    await downloadGgItem(ggData.items[i].id);
+    await new Promise(r=>setTimeout(r,400)); // 브라우저가 연속 다운로드를 막지 않도록 살짝 간격을 둠
+  }
+  showToast('전체 다운로드 완료 ✓');
 }
 async function deleteGgItem(id){
   ggData.items=ggData.items.filter(it=>it.id!==id);
