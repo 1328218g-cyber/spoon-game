@@ -104,7 +104,19 @@
   .popup { background: #fff; border-radius: 16px; padding: 24px; max-width: 360px; text-align: center; }
   .popup h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
   .popup p { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
-  .popup .btns { display: flex; gap: 8px; justify-content: center; }
+  .popup .btns { display: flex; flex-direction: column; gap: 8px; }
+  .choice-opt { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; text-align: left; transition: background .15s, border-color .15s; }
+  .choice-opt:hover { background: #f5f5fa; border-color: var(--primary); }
+  .choice-opt .co-icon { width: 36px; height: 36px; border-radius: 8px; background: #f0f0f7; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .choice-opt .co-title { font-size: 13px; font-weight: 700; }
+  .choice-opt .co-desc { font-size: 11px; color: var(--muted); }
+
+  .anim-capture-modal { background: #fff; border-radius: 16px; max-width: 560px; width: 100%; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+  .anim-capture-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .anim-capture-header h2 { font-size: 14px; font-weight: 700; }
+  .anim-capture-stage { padding: 20px; background: repeating-conic-gradient(#d0d0d0 0% 25%, #fff 0% 50%) 50% / 16px 16px; display: flex; align-items: center; justify-content: center; min-height: 260px; }
+  .anim-capture-stage img, .anim-capture-stage canvas { max-width: 100%; max-height: 320px; }
+  .anim-capture-controls { padding: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
 
   .loading-spin { width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -125,6 +137,7 @@
     .panel-center { flex: 1; }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
 </head>
 <body>
 <div class="top-nav"><a href="javascript:history.back()">← 에디봇으로 돌아가기</a></div>
@@ -1203,13 +1216,21 @@ function showChoicePopup(sticker, type, fullUrl) {
   popup.innerHTML = `
     <div class="popup">
       <h3>${type === 'lottie' ? '애니메이션 스티커' : 'GIF 스티커'}</h3>
-      <p>이 스티커는 애니메이션입니다.<br>정적 이미지로 추가할 수 있습니다.</p>
+      <p>이 스티커는 애니메이션입니다.<br>어떻게 추가할까요?</p>
       <div class="btns">
-        <button class="btn btn-outline" onclick="closeChoicePopup(); addStaticSticker()">정적 이미지로 추가</button>
+        <button class="choice-opt" onclick="closeChoicePopup(); openAnimCaptureModal()">
+          <div class="co-icon">📷</div>
+          <div><div class="co-title">원하는 순간 선택</div><div class="co-desc">애니메이션에서 장면을 캡처해요</div></div>
+        </button>
+        <button class="choice-opt" onclick="closeChoicePopup(); addStaticSticker()">
+          <div class="co-icon">🖼️</div>
+          <div><div class="co-title">썸네일 이미지로 추가</div><div class="co-desc">정지 이미지로 바로 추가</div></div>
+        </button>
       </div>
     </div>
   `;
   STATE.choiceSticker = sticker;
+  STATE.choiceType = type;
   STATE.choiceFullUrl = fullUrl;
 }
 
@@ -1227,6 +1248,101 @@ async function addStaticSticker() {
   } catch (e) {
     addSticker(imgUrl);
   }
+}
+
+// ════════════════════════════════════════════════
+// ANIMATION FRAME CAPTURE (GIF / Lottie)
+// 재생 중인 애니메이션을 실제로 보여주고, 사용자가 원하는 순간에 "이 상황으로 사용하기"를
+// 누르면 그 순간의 화면을 캔버스로 캡처해서 정지 스티커로 추가한다.
+// ════════════════════════════════════════════════
+let animCaptureLottie = null;
+function openAnimCaptureModal() {
+  const sticker = STATE.choiceSticker;
+  const type = STATE.choiceType;
+  const overlay = document.getElementById('choicePopup');
+  overlay.style.display = 'flex';
+  overlay.className = 'popup-overlay';
+
+  if (type === 'lottie') {
+    overlay.innerHTML = `
+      <div class="anim-capture-modal">
+        <div class="anim-capture-header"><h2>원하는 순간을 캡처하세요</h2><button onclick="closeAnimCaptureModal()" style="font-size:18px;color:var(--muted);">✕</button></div>
+        <div class="anim-capture-stage"><div id="lottieStage" style="width:280px;height:280px;"></div></div>
+        <div class="anim-capture-controls">
+          <div class="slider-row"><label>속도</label><input type="range" id="animSpeed" min="0.5" max="2" step="0.1" value="1" oninput="onAnimSpeedChange(this.value)"><span class="val" id="animSpeedVal">1.0x</span></div>
+          <p style="font-size:12px; color:var(--muted); text-align:center;">애니메이션이 재생 중입니다. 원하는 순간에 아래 버튼을 누르세요.</p>
+          <button class="btn btn-primary" style="width:100%;" onclick="captureLottieFrame()">📷 이 순간으로 사용하기</button>
+        </div>
+      </div>
+    `;
+    const lottieUrl = sticker.lottie_url ? proxyImg(sticker.lottie_url) : '';
+    animCaptureLottie = lottie.loadAnimation({
+      container: document.getElementById('lottieStage'),
+      renderer: 'canvas',
+      loop: true,
+      autoplay: true,
+      path: lottieUrl
+    });
+  } else {
+    // GIF — 브라우저가 재생 중인 <img>를 그 순간 그대로 캔버스에 그릴 수 있어서, 재생 화면을
+    // 그대로 보여주고 캡처 버튼을 누르는 순간의 프레임을 그대로 캡처한다.
+    const fullUrl = STATE.choiceFullUrl || sticker.image_url_web || '';
+    overlay.innerHTML = `
+      <div class="anim-capture-modal">
+        <div class="anim-capture-header"><h2>원하는 순간을 캡처하세요</h2><button onclick="closeAnimCaptureModal()" style="font-size:18px;color:var(--muted);">✕</button></div>
+        <div class="anim-capture-stage"><img id="gifStage" src="${fullUrl}" crossorigin="anonymous"></div>
+        <div class="anim-capture-controls">
+          <p style="font-size:12px; color:var(--muted); text-align:center;">GIF가 재생 중입니다. 원하는 순간에 아래 버튼을 누르세요.</p>
+          <button class="btn btn-primary" style="width:100%;" onclick="captureGifFrame()">📷 이 순간으로 사용하기</button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function onAnimSpeedChange(v) {
+  document.getElementById('animSpeedVal').textContent = Number(v).toFixed(1) + 'x';
+  if (animCaptureLottie) animCaptureLottie.setSpeed(Number(v));
+}
+
+function captureLottieFrame() {
+  const stage = document.getElementById('lottieStage');
+  const srcCanvas = stage && stage.querySelector('canvas');
+  if (!srcCanvas) { closeAnimCaptureModal(); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = srcCanvas.width;
+  canvas.height = srcCanvas.height;
+  canvas.getContext('2d').drawImage(srcCanvas, 0, 0);
+  addSticker(canvas.toDataURL('image/png'));
+  closeAnimCaptureModal();
+}
+
+function captureGifFrame() {
+  const img = document.getElementById('gifStage');
+  if (!img) { closeAnimCaptureModal(); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  try {
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    addSticker(canvas.toDataURL('image/png'));
+  } catch (e) {
+    // 캡처 실패 시(브라우저 제약) 정지 썸네일로 대체
+    addStaticStickerFallback();
+  }
+  closeAnimCaptureModal();
+}
+
+function addStaticStickerFallback() {
+  const sticker = STATE.choiceSticker;
+  const imgUrl = sticker && (sticker.image_thumbnail_web || sticker.image_thumbnail || sticker.image_url_web) || '';
+  if (imgUrl) addSticker(imgUrl);
+}
+
+function closeAnimCaptureModal() {
+  if (animCaptureLottie) { animCaptureLottie.destroy(); animCaptureLottie = null; }
+  document.getElementById('choicePopup').style.display = 'none';
+  document.getElementById('choicePopup').innerHTML = '';
 }
 
 // ════════════════════════════════════════════════
