@@ -750,6 +750,22 @@ function handleFlagAutoDonation(djId, settings, amount) {
   }
 }
 
+// 💰 펀딩 — 깃발의 "자동 적립(mode==='auto')"과 동일한 방식. 항목별로 자동 적립을 켜두면
+// 선물(스푼) 받을 때마다 그 항목의 current에 자동으로 더해진다.
+function handleFundingAutoDonation(djId, settings, amount) {
+  if (!isModuleOn(settings, 'funding', djId)) return
+  const funding = settings.funding
+  if (!funding || !funding.items || !funding.items.length || !amount) return
+  let changed = false
+  funding.items.forEach(it => {
+    if (it.mode === 'auto') { it.current = (it.current || 0) + amount; changed = true }
+  })
+  if (changed) {
+    store.saveSettings(djId, { funding })
+    broadcast({ type: 'funding', djId, items: funding.items })
+  }
+}
+
 function calcDday(endDate) {
   if (!endDate) return ''
   const end = new Date(endDate + 'T23:59:59')
@@ -13044,6 +13060,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
+          handleFundingAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           await handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
           const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))

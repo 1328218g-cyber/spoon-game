@@ -1182,7 +1182,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="funding">
         <div class="card">
           <div class="card-title"><span>💰 펀딩 관리</span></div>
-          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 적립합니다.</p>
+          <p class="hint" style="margin-bottom:14px">펀딩을 생성하고 관리합니다. 채팅창에서 설정한 명령어로 [명령어] [번호] [숫자]로 수동 적립하거나, 펀딩 추가 시 "자동 적립"을 선택하면 스푼을 받을 때마다 자동으로 누적돼요.</p>
           <button class="btn-connect" style="width:100%" onclick="showFundingModal()">+ 새 펀딩 추가하기</button>
         </div>
 
@@ -1229,6 +1229,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="text" id="fundingTitleInput" placeholder="예: 오이먹방🥒, 신곡 연습 등">
           <label>목표 금액 (스푼)</label>
           <input type="number" id="fundingGoalInput" placeholder="목표 금액을 입력하세요" min="0">
+          <div class="radio-row">
+            <label class="radio-opt"><input type="radio" name="fundingMode" value="manual" checked> 수동 적립</label>
+            <label class="radio-opt"><input type="radio" name="fundingMode" value="auto"> 자동 적립</label>
+          </div>
+          <p class="hint" style="margin:4px 0 10px">자동 적립 선택 시, 스푼을 받으면(선물 종류 상관없이) 받은 수량만큼 이 펀딩에 자동으로 누적돼요.</p>
           <label>종료 날짜 (선택)</label>
           <input type="date" id="fundingEndDateInput">
           <div class="btn-row">
@@ -5152,6 +5157,7 @@ function renderFunding(){
       </div>
       <div style="margin-bottom:10px">
         <span class="status-pill ${ended?'ended':'ongoing'}">${ended?'종료':'진행중'}</span>
+        <span class="status-pill ${it.mode==='auto'?'ongoing':''}" style="${it.mode==='auto'?'':'background:var(--surface2);color:var(--muted)'}">${it.mode==='auto'?'🔗 자동 적립':'수동 적립'}</span>
         ${dday && fundingData.showDday ? `<span class="status-pill dday">${dday}</span>` : ''}
       </div>
       <div class="flag-progress-bar"><div class="flag-progress-fill" style="width:${percent}%"></div></div>
@@ -5188,6 +5194,7 @@ function showFundingModal(id){
   document.getElementById('fundingTitleInput').value=it?it.title:'';
   document.getElementById('fundingGoalInput').value=it?it.goal:'';
   document.getElementById('fundingEndDateInput').value=it?(it.endDate||''):'';
+  document.querySelectorAll('input[name="fundingMode"]').forEach(r=>r.checked=(r.value===(it?it.mode:'manual')||(!it&&r.value==='manual')));
   document.getElementById('fundingModalOverlay').style.display='flex';
 }
 
@@ -5200,13 +5207,14 @@ function saveFundingModal(){
   const title=document.getElementById('fundingTitleInput').value.trim();
   const goal=Number(document.getElementById('fundingGoalInput').value)||0;
   const endDate=document.getElementById('fundingEndDateInput').value||'';
+  const mode=document.querySelector('input[name="fundingMode"]:checked').value;
   if(!title)return showToast('펀딩 제목을 입력해주세요');
 
   if(fundingEditingId){
     const it=fundingData.items.find(x=>x.id===fundingEditingId);
-    Object.assign(it,{title,goal,endDate});
+    Object.assign(it,{title,goal,endDate,mode});
   } else {
-    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate});
+    fundingData.items.push({id:'fd'+(fundingIdSeq++),title,goal,current:0,endDate,mode});
   }
   hideFundingModal();
   renderFunding();
