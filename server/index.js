@@ -199,7 +199,7 @@ const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, djProfileUrl: '', tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
   }
   return rooms[djId]
 }
@@ -460,10 +460,11 @@ async function fetchLiveInfo(liveId, accessToken) {
     return {
       streamName: live.stream_name || live.streamName || String(liveId),
       djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
+      djProfileUrl: live.author?.profile_url || live.author?.profileUrl || live.author?.image_url || live.user?.profile_url || live.user?.profileUrl || '',
     }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null }
+    return { streamName: String(liveId), djUserId: null, djProfileUrl: '' }
   }
 }
 
@@ -581,7 +582,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftgallery'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4926,6 +4927,54 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
     store.saveSettings(djId, { trophyBoard: board })
     broadcast({ type: 'trophyboard', djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
   }
+}
+
+// 🎁 선물카드 갤러리 — 스푼 앱 화면 자체를 캡처할 순 없어서(우리 서버가 접근 못 하는 영역), 대신
+// 선물 이벤트로 들어온 정보(닉네임/고유닉/선물종류/개수/프로필사진)를 가벼운 기록으로 남겨두고,
+// 화면에서는 이 기록으로 "선물카드" 모양을 그려서 보여준다. 스티커/프로필 이미지는 실제 파일을
+// 우리 서버에 저장하지 않고 스푼 CDN 원본 URL을 그대로 참조만 한다 (예전 박제판 앨범이 이미지를
+// 직접 저장하다가 용량 문제로 기능 자체를 뺐던 전례가 있어서, 그 실수를 반복하지 않으려는 것).
+const GIFT_GALLERY_MAX_ITEMS = 300
+function getGiftGallerySettings(djId, settings) {
+  if (!settings.giftGallery) {
+    settings.giftGallery = { enabled: false, avatarShape: 'circle', items: [] }
+    store.saveSettings(djId, { giftGallery: settings.giftGallery })
+  }
+  if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
+  if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
+  return settings.giftGallery
+}
+let giftGallerySaveDebounce = {}
+function saveGiftGallery(djId, gallery) {
+  if (giftGallerySaveDebounce[djId]) clearTimeout(giftGallerySaveDebounce[djId])
+  giftGallerySaveDebounce[djId] = setTimeout(() => {
+    try { store.saveSettings(djId, { giftGallery: gallery }) } catch (e) { console.log('[선물카드 갤러리] 저장 실패', e.message) }
+  }, 800)
+}
+function handleGiftGalleryHook(djId, settings, author, tag, sticker, stickerImage, amount, comboCount, profileUrl, djProfileUrl) {
+  if (!isModuleOn(settings, 'giftgallery', djId)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 사이드바 모듈이 꺼져있어요`); return }
+  const gallery = getGiftGallerySettings(djId, settings)
+  if (!gallery.enabled) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 설정 페이지의 "자동 저장" 체크박스가 꺼져있어요`); return }
+  const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
+  if (!(totalSpoons > 0)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 스푼 수량이 0이에요 (amount=${amount}, comboCount=${comboCount})`); return }
+  const item = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    ts: Date.now(),
+    author,
+    tag: tag || '',
+    sticker: String(sticker || '').trim(),
+    stickerImage: stickerImage || '',
+    amount: Number(amount) || 0,
+    comboCount: Math.max(1, Number(comboCount) || 1),
+    totalSpoons,
+    profileUrl: profileUrl || '',      // 후원한 유저 프로필사진
+    djProfileUrl: djProfileUrl || ''   // 이 방송 디제이 프로필사진
+  }
+  gallery.items.unshift(item)
+  if (gallery.items.length > GIFT_GALLERY_MAX_ITEMS) gallery.items.length = GIFT_GALLERY_MAX_ITEMS
+  saveGiftGallery(djId, gallery)
+  console.log(`[선물카드 갤러리:${djId}] 저장 완료 — ${author} / ${totalSpoons}스푼 (누적 ${gallery.items.length}개)`)
+  broadcast({ type: 'giftgallery', djId, item })
 }
 
 function getPickboardSettings(djId, settings) {
@@ -12687,10 +12736,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const { streamName, djUserId } = await fetchLiveInfo(liveId, accessToken)
+  const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
+  room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
   // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
@@ -12997,6 +13047,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
+          handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, gen.profileUrl, room.djProfileUrl)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
@@ -13265,6 +13316,37 @@ app.post('/images/delete', auth.requireAuth, (req, res) => {
   if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true })
   try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
   res.json({ success: true })
+})
+
+// 🎁 선물카드 갤러리 — 설정 조회/저장 + 개별삭제/전체삭제
+app.get('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getGiftGallerySettings(req.djId, settings) })
+})
+app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { enabled, avatarShape } = req.body || {}
+  if (enabled != null) gallery.enabled = !!enabled
+  if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/delete-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id } = req.body || {}
+  gallery.items = gallery.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  gallery.items = []
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
 })
 
 // 🏆 박제판 — 설정 조회/저장 + 칸 초기화
