@@ -3297,12 +3297,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="giftgallery">
         <div class="card">
           <div class="card-title"><span>🎁 선물카드 갤러리 설정</span></div>
-          <p class="hint" style="margin-bottom:12px">스푼을 후원받으면 자동으로 앨범에 저장돼요. 디제이 프로필 + 후원자 프로필 + 닉네임 + 후원 스푼 수를 한 줄짜리 카드로 보여드려요. 날짜별로 묶어서 보여주고, 카드에 마우스를 올리면 이미지로 다운로드(⬇)하거나 삭제(✕)할 수 있어요. 이미지 파일을 직접 저장하지 않고 프로필 사진은 스푼 원본 링크만 참조해서 저장 용량 걱정 없어요.</p>
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="ggEnabled" onchange="saveGgSettings()"> 선물카드 자동 저장 켜기</label>
-          <label style="margin-top:14px">아바타 모양</label>
+          <p class="hint" style="margin-bottom:12px">사이드바에서 이 메뉴를 켜두면 스푼을 후원받을 때마다 자동으로 앨범에 저장돼요 (별도 켜기 버튼 없음). 디제이 프로필 + 후원자 프로필 + 닉네임 + 후원 스푼 수를 한 줄짜리 카드로 보여드려요. 날짜별로 묶어서 보여주고, 카드에 마우스를 올리면 이미지로 다운로드(⬇)하거나 삭제(✕)할 수 있어요. 이미지 파일을 직접 저장하지 않고 프로필 사진은 스푼 원본 링크만 참조해서 저장 용량 걱정 없어요.</p>
+          <label style="margin-top:0">아바타 모양</label>
           <div style="display:flex;gap:16px;margin-top:6px">
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggShape" value="circle" checked onchange="saveGgSettings()"> 원형</label>
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggShape" value="square" onchange="saveGgSettings()"> 사각형</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarShape" value="circle" checked onchange="saveGgSettings()"> 원형</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarShape" value="square" onchange="saveGgSettings()"> 사각형</label>
+          </div>
+          <label style="margin-top:14px">카드 테두리 모양</label>
+          <div style="display:flex;gap:16px;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="pill" checked onchange="saveGgSettings()"> 둥근 알약형 (지금 모양)</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggCardShape" value="rect" onchange="saveGgSettings()"> 직사각형</label>
           </div>
         </div>
         <div class="card">
@@ -8504,33 +8508,36 @@ let tbEditingSlotIndex=null;
 let tbIdSeq=1;
 
 /* ── 🎁 선물카드 갤러리 ── */
-let ggData={enabled:false,avatarShape:'circle',items:[]};
+let ggData={avatarShape:'circle',cardShape:'pill',items:[]};
 async function loadGgSettings(){
   try{
     const res=await fetch(SERVER+'/giftgallery/settings',{headers:authHeaders()});
     const d=await res.json();
     if(!d.success)return;
     ggData=d.settings;
-    document.getElementById('ggEnabled').checked=!!ggData.enabled;
-    const shapeRadio=document.querySelector(`input[name="ggShape"][value="${ggData.avatarShape==='square'?'square':'circle'}"]`);
-    if(shapeRadio)shapeRadio.checked=true;
+    const avatarRadio=document.querySelector(`input[name="ggAvatarShape"][value="${ggData.avatarShape==='square'?'square':'circle'}"]`);
+    if(avatarRadio)avatarRadio.checked=true;
+    const cardRadio=document.querySelector(`input[name="ggCardShape"][value="${ggData.cardShape==='rect'?'rect':'pill'}"]`);
+    if(cardRadio)cardRadio.checked=true;
     renderGgGrid();
   }catch(e){}
 }
 async function saveGgSettings(){
-  const enabled=document.getElementById('ggEnabled').checked;
-  const shapeEl=document.querySelector('input[name="ggShape"]:checked');
-  const avatarShape=shapeEl?shapeEl.value:'circle';
+  const avatarEl=document.querySelector('input[name="ggAvatarShape"]:checked');
+  const avatarShape=avatarEl?avatarEl.value:'circle';
+  const cardEl=document.querySelector('input[name="ggCardShape"]:checked');
+  const cardShape=cardEl?cardEl.value:'pill';
   try{
-    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,avatarShape})});
+    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape})});
     const d=await res.json();
     if(d.success){ggData=d.settings;renderGgGrid();showToast('설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('저장 실패');}
 }
+function ggProxyImg(url){ return url?SERVER+'/giftgallery/image-proxy?url='+encodeURIComponent(url):''; }
 function ggAvatarHtml(url,label,bg,fg,extraStyle,shape){
   const radius=shape==='square'?'8px':'50%';
-  if(url) return `<img src="${escapeHtml(url)}" style="width:32px;height:32px;border-radius:${radius};object-fit:cover;border:2px solid #fff;flex-shrink:0${extraStyle||''}">`;
+  if(url) return `<img src="${escapeHtml(ggProxyImg(url))}" crossorigin="anonymous" style="width:32px;height:32px;border-radius:${radius};object-fit:cover;border:2px solid #fff;flex-shrink:0${extraStyle||''}">`;
   const ch=(label||'?').trim().slice(0,1)||'?';
   return `<div style="width:32px;height:32px;border-radius:${radius};background:${bg};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${fg};flex-shrink:0${extraStyle||''}">${escapeHtml(ch)}</div>`;
 }
@@ -8542,6 +8549,7 @@ function renderGgGrid(){
   count.textContent=ggData.items.length;
   emptyHint.style.display=ggData.items.length?'none':'block';
   const shape=ggData.avatarShape==='square'?'square':'circle';
+  const cardRadius=ggData.cardShape==='rect'?'10px':'24px';
   let html='';
   let lastDateKey=null;
   ggData.items.forEach(it=>{
@@ -8557,11 +8565,12 @@ function renderGgGrid(){
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
     const cardId='ggCard_'+it.id;
-    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:24px;padding:6px 14px 6px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);position:relative"
+    html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);position:relative"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
+        ${it.stickerImage?`<img src="${escapeHtml(ggProxyImg(it.stickerImage))}" crossorigin="anonymous" style="width:16px;height:16px;object-fit:contain;flex-shrink:0" title="${escapeHtml(it.sticker||'')}">`:''}
         <span style="color:#3b82f6;font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>

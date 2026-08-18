@@ -4937,11 +4937,12 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
 const GIFT_GALLERY_MAX_ITEMS = 300
 function getGiftGallerySettings(djId, settings) {
   if (!settings.giftGallery) {
-    settings.giftGallery = { enabled: false, avatarShape: 'circle', items: [] }
+    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', items: [] }
     store.saveSettings(djId, { giftGallery: settings.giftGallery })
   }
   if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
   if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
+  if (settings.giftGallery.cardShape !== 'rect' && settings.giftGallery.cardShape !== 'pill') settings.giftGallery.cardShape = 'pill'
   return settings.giftGallery
 }
 let giftGallerySaveDebounce = {}
@@ -4952,9 +4953,10 @@ function saveGiftGallery(djId, gallery) {
   }, 800)
 }
 function handleGiftGalleryHook(djId, settings, author, tag, sticker, stickerImage, amount, comboCount, profileUrl, djProfileUrl) {
+  // 🌟 [업데이트] 사이드바 "선물카드 갤러리" 모듈을 켠 것 자체가 사용 의사이므로, 설정 페이지에서
+  // 별도로 체크박스를 또 켜야 하는 이중 스위치를 없앴다. 모듈 ON = 바로 자동 저장 동작.
   if (!isModuleOn(settings, 'giftgallery', djId)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 사이드바 모듈이 꺼져있어요`); return }
   const gallery = getGiftGallerySettings(djId, settings)
-  if (!gallery.enabled) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 설정 페이지의 "자동 저장" 체크박스가 꺼져있어요`); return }
   const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
   if (!(totalSpoons > 0)) { console.log(`[선물카드 갤러리:${djId}] 건너뜀 — 스푼 수량이 0이에요 (amount=${amount}, comboCount=${comboCount})`); return }
   const item = {
@@ -13322,6 +13324,29 @@ app.post('/images/delete', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🖼️ 선물카드 갤러리 — 이미지 프록시. 스푼 CDN 이미지를 그대로 <img src>에 쓰면 크로스오리진이라
+// html2canvas로 카드를 캡처(다운로드)할 때 그 이미지만 빈 채로 그려지는 문제가 있었다. 우리 서버를
+// 한 번 거치게 해서 같은 도메인(same-origin)으로 보이게 만들면 캡처가 정상적으로 된다.
+// SSRF 방지를 위해 스푼 CDN 도메인만 허용한다. 로그인 없이도 <img> 태그에서 바로 쓸 수 있어야 하므로
+// auth 없이 열어두되(이미지 프록시라 민감정보 없음), 허용 도메인 화이트리스트로 오용을 막는다.
+const GIFT_IMAGE_PROXY_ALLOWED_HOSTS = ['kr-cdn.spooncast.net', 'cdn.spooncast.net', 'static.spooncast.net']
+app.get('/giftgallery/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!GIFT_IMAGE_PROXY_ALLOWED_HOSTS.includes(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw)
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
+})
+
 // 🎁 선물카드 갤러리 — 설정 조회/저장 + 개별삭제/전체삭제
 app.get('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -13331,9 +13356,9 @@ app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gallery = getGiftGallerySettings(req.djId, settings)
-  const { enabled, avatarShape } = req.body || {}
-  if (enabled != null) gallery.enabled = !!enabled
+  const { avatarShape, cardShape } = req.body || {}
   if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
+  if (cardShape === 'rect' || cardShape === 'pill') gallery.cardShape = cardShape
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })
