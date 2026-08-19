@@ -2062,30 +2062,75 @@ function mcPickMonster(mc) {
 }
 
 // 대결에 쓸 "가장 강한 보유 몬스터"를 골라준다 (공격력 기준). 잡은 게 없으면 null.
+const MC_SHINY_PREFIX = 'shiny_' // ✨ 이로치 몬스터는 원본 도감 id 앞에 이 접두사를 붙인 별도 id로 취급한다
+const MC_SHINY_POWER_MULT = 1.1  // 이로치는 같은 몬스터의 일반 개체보다 공격력 10% 더 강함
+const MC_SHINY_CHANCE = 0.1      // 희귀상자를 열었을 때 이로치가 나올 확률 (10%)
+function mcIsShinyId(id) { return typeof id === 'string' && id.startsWith(MC_SHINY_PREFIX) }
+function mcBaseIdFromShiny(id) { return mcIsShinyId(id) ? id.slice(MC_SHINY_PREFIX.length) : id }
+// id(이로치 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
+function mcResolveMonster(id, monsters) {
+  const shiny = mcIsShinyId(id)
+  const baseId = mcBaseIdFromShiny(id)
+  const m = (monsters || []).find(mm => mm.id === baseId)
+  if (!m) return null
+  const basePower = Number(m.power) || 10
+  return {
+    monster: m,
+    shiny,
+    name: shiny ? `🌈이로치 ${m.name}` : m.name,
+    power: shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower,
+  }
+}
+
 function mcPickStrongest(collection, monsters) {
   const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
   if (!owned.length) return null
   // ✨ 대결(배틀) 시 전설 몬스터를 1순위로 사용한다 — 보유한 전설 몬스터가 있으면 그중 가장 강한
   // 걸 쓰고, 전설이 하나도 없을 때만 기존처럼 전체 보유 몬스터 중 가장 강한 걸 쓴다.
+  // (이로치 여부와 무관하게 "전설 원본 몬스터의 이로치"도 전설 취급한다)
   const pickStrongestFrom = (idList) => {
     let best = null
     idList.forEach(id => {
-      const m = monsters.find(mm => mm.id === id)
-      if (!m) return
-      const power = Number(m.power) || 10
-      if (!best || power > best.power) best = { m, power }
+      const resolved = mcResolveMonster(id, monsters)
+      if (!resolved) return
+      if (!best || resolved.power > best.power) best = { id, resolved }
     })
-    return best ? best.m : null
+    return best ? { ...best.resolved.monster, name: best.resolved.name, power: best.resolved.power } : null
   }
   const legendaryOwned = owned.filter(id => {
-    const m = monsters.find(mm => mm.id === id)
-    return m && m.legendary
+    const resolved = mcResolveMonster(id, monsters)
+    return resolved && resolved.monster.legendary
   })
   if (legendaryOwned.length) return pickStrongestFrom(legendaryOwned)
   return pickStrongestFrom(owned)
 }
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
+// 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
+// 같은 문구를 채팅으로 뿌린다. 서버 전체에 딱 하나만 도는 전역 타이머(방마다 따로 있는 게 아님).
+let globalAnnounceTimer = null
+function startGlobalAnnounceTimer() {
+  if (globalAnnounceTimer) { clearInterval(globalAnnounceTimer); globalAnnounceTimer = null }
+  const cfg = store.getGlobalAnnounce()
+  if (!cfg.enabled || !cfg.message) { console.log('[전체방 공지] 타이머 시작 안 함 — 꺼져있거나 문구가 비어있어요'); return }
+  const intervalMs = Math.max(1, Math.min(720, parseInt(cfg.intervalMin, 10) || 30)) * 60 * 1000
+  globalAnnounceTimer = setInterval(() => {
+    const cur = store.getGlobalAnnounce() // 매번 최신 설정으로 다시 읽어서, 중간에 문구/제외목록이 바뀌어도 바로 반영
+    if (!cur.enabled || !cur.message) return
+    const excludeSet = new Set((cur.excludeDjIds || []).map(x => String(x).trim().toLowerCase()))
+    let sentCount = 0
+    Object.keys(rooms).forEach(djId => {
+      const room = rooms[djId]
+      if (!room || !room.isConnected) return
+      if (excludeSet.has(String(djId).trim().toLowerCase())) return
+      sendChatToRoom(djId, cur.message)
+      sentCount++
+    })
+    console.log(`[전체방 공지] "${cur.message}" — ${sentCount}개 방에 전송됨 (제외 ${excludeSet.size}명)`)
+  }, intervalMs)
+  console.log(`[전체방 공지] 타이머 시작됨 — ${Math.round(intervalMs / 60000)}분마다 전체 방송 중인 방에 전송`)
+}
+
 function startMonsterCatchTimer(djId) {
   const room = getRoom(djId)
   if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
@@ -2257,13 +2302,16 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     const pageIds = ownedIds.slice(startIdx, startIdx + pageSize)
     // 🧬 모든 몬스터를 "이름 (보유/필요)" 형태로 통일하게 보여준다. 진화 가능한 몬스터(evolvesTo가 설정된 경우)는 evolveCount를 필요수량으로 쓰고 채웠으면 "진화가능"을 붙인다. 진화 대상이 아니거나(다른 방에서 조회해서) evolveCount를 모를 때는 보유수량/보유수량으로 뜨을 채운 것처럼 보여준다.
     const lines = pageIds.map(id => {
-      const mon = localById[id]
-      const name = nameOf(id)
+      const baseId = mcBaseIdFromShiny(id)
+      const mon = localById[baseId]
+      const isShinyEntry = mcIsShinyId(id)
+      const baseName = nameOf(baseId)
+      const name = isShinyEntry ? `🌈이로치 ${baseName}` : baseName
       const count = owned[id]
       const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
-      const canEvolve = !!(mon && mon.evolvesTo) && count >= need
+      const canEvolve = !isShinyEntry && !!(mon && mon.evolvesTo) && count >= need // 이로치는 별도 id라 진화 대상에서 제외
       // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
-      const isLegendary = !!((mon && mon.legendary) || (catalog[id] && catalog[id].legendary))
+      const isLegendary = !!((mon && mon.legendary) || (catalog[baseId] && catalog[baseId].legendary))
       const displayName = isLegendary ? `✨${name}` : name
       return `${displayName} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
     }).join('\n')
@@ -2304,12 +2352,11 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     const rate = Math.max(0, Math.min(100, (Number(active.catchRate) || 50) + rateBonus))
     const success = Math.random() * 100 < rate
     if (success) {
-      if (!mc.collections[key]) mc.collections[key] = {}
-      mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
+      const grant = mcGrantCaughtMonster(mc, key, active.id)
       mcSaveUserData()
-      const count = mc.collections[key][active.id]
-      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
-      mcCheckAutoEvolve(djId, mc, key, active.id, author)
+      const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
+      if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
     } else {
       mcSaveUserData()
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchFailMsg, { nickname: author, monster: active.name, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
@@ -2322,13 +2369,12 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   active.caught = true
   if (useGreatBall) mc.greatBags[key] -= 1; else mc.bags[key] -= 1
   if (room._activeMonsterTimeout) { clearTimeout(room._activeMonsterTimeout); room._activeMonsterTimeout = null }
-  if (!mc.collections[key]) mc.collections[key] = {}
-  mc.collections[key][active.id] = (mc.collections[key][active.id] || 0) + 1
+  const grant = mcGrantCaughtMonster(mc, key, active.id)
   mcSaveUserData()
-  const count = mc.collections[key][active.id]
-  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: active.name, count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
+  const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
   room._activeMonster = null
-  mcCheckAutoEvolve(djId, mc, key, active.id, author)
+  if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
 }
 
 // 채팅 한 번 칠 때마다 소소한 확률로 포획볼 1개 획득 (모험을 시작한 유저만 대상)
@@ -2362,6 +2408,15 @@ function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
 }
 
 // 잡기 성공 직후에 호출 — "자동 진화"가 켜져있고 조건이 채워졌으면 조용히 즉시 진화시킨다.
+// 🌈 잡기 성공 시 이 함수로 도감에 넣는다 — 희귀상자랑 같은 확률(MC_SHINY_CHANCE)로 이로치가 나온다.
+function mcGrantCaughtMonster(mc, key, monsterId) {
+  const isShiny = Math.random() < MC_SHINY_CHANCE
+  const grantId = isShiny ? MC_SHINY_PREFIX + monsterId : monsterId
+  if (!mc.collections[key]) mc.collections[key] = {}
+  mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
+  return { grantId, isShiny, count: mc.collections[key][grantId] }
+}
+
 function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
   if (!mc.autoEvolve) return
   const mon = mc.monsters.find(m => m.id === monsterId)
@@ -2452,9 +2507,14 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
       for (let i = 0; i < totalGrant; i++) {
         const picked = mcPickMonster(mc)
         if (!picked) continue
-        mc.collections[key][picked.id] = (mc.collections[key][picked.id] || 0) + 1
-        sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBox, { nickname: author, monster: picked.name }))
-        mcCheckAutoEvolve(djId, mc, key, picked.id, author)
+        // ✨ 희귀상자에서만 일정 확률로 "이로치"(색다른 개체) 몬스터가 나온다. 이로치는 같은
+        // 몬스터의 일반 개체보다 공격력이 10% 더 강하고, 도감에는 별도 항목(✨이로치 OOO)으로 쌓인다.
+        const isShiny = Math.random() < MC_SHINY_CHANCE
+        const grantId = isShiny ? MC_SHINY_PREFIX + picked.id : picked.id
+        const displayName = isShiny ? `🌈이로치 ${picked.name}` : picked.name
+        mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
+        sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBox, { nickname: author, monster: displayName }))
+        if (!isShiny) mcCheckAutoEvolve(djId, mc, key, picked.id, author) // 이로치는 별도 id라 진화 체인 대상에서는 일단 제외
       }
       mcSaveUserData()
     } else {
@@ -14052,6 +14112,19 @@ app.post('/status-banner', auth.requireAuth, (req, res) => {
   res.json(result.ok ? { success: true, banner: result.banner } : { success: false, error: result.error })
 })
 
+// 📢 전체방 반복 공지
+app.get('/admin/global-announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: store.getGlobalAnnounce() })
+})
+app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setGlobalAnnounce(req.body || {})
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  startGlobalAnnounceTimer() // 간격/활성화 값이 바뀌었을 수 있으니 타이머 재시작
+  res.json({ success: true, data: result.data })
+})
+
 // 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
 app.get('/session/global-off', auth.requireAuth, (req, res) => {
   res.json({ success: true, off: store.getSessionModuleGlobalOff() })
@@ -16703,6 +16776,8 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
+  // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
+  startGlobalAnnounceTimer()
 
   // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
   // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가
