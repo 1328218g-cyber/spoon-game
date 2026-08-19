@@ -577,7 +577,10 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
 async function sendChatToRoom(djId, message) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  if (!room.streamName || !accessToken) return
+  if (!room.streamName || !accessToken) {
+    console.log(`[채팅전송 실패][${djId}] streamName=${room.streamName || '없음'}, accessToken=${accessToken ? '있음' : '없음'} — 메시지가 전송되지 않았어요:`, message)
+    return
+  }
   try {
     const headers = {
       'Content-Type': 'application/json',
@@ -1908,6 +1911,23 @@ function getMonsterCatchSettings(djId, settings) {
       msgBallGiveUsage: '⚠️ 사용법: {cmdBallGive} [고유닉] [수량] (음수 입력 시 차감)',
       msgBallGiveNoAuth: '⚠️ DJ 또는 매니저만 사용할 수 있어요.',
       msgBallGiveSuccess: '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)',
+
+      // 🌿 보스 몬스터 — 정해진 시간마다 자동으로 "풀" 타입 몬스터 중 하나가 보스로 등장한다.
+      // {cmdBossJoin}으로 참여하면 각자 가장 강한 몬스터의 공격력이 보스 체력에 더해지고,
+      // 참여 시간이 끝나면 자동으로 격파 처리되며(체력 = 참여자 총 공격력) 가장 강한 공격력을
+      // 기여한 사람이 MVP로 랜덤 이로치 몬스터 1마리를 받는다.
+      bossEnabled: false,
+      bossMonsterName: '풀잎',
+      bossIntervalMin: 60,
+      bossJoinWindowSec: 90,
+      cmdBossJoin: '!참여',
+      msgBossSpawn: '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+      msgBossJoin: '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})',
+      msgBossAlreadyJoined: '⚠️ {nickname}님은 이미 참여했어요!',
+      msgBossNoMonsters: '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!',
+      msgBossNoActive: '⚠️ 지금 진행 중인 보스전이 없어요.',
+      msgBossNoParticipants: '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...',
+      msgBossResult: '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
   }
@@ -1968,6 +1988,18 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveUsage == null) mc.msgBallGiveUsage = '⚠️ 사용법: {cmdBallGive} [고유닉] [수량] (음수 입력 시 차감)'
   if (mc.msgBallGiveNoAuth == null) mc.msgBallGiveNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
+  if (mc.bossEnabled == null) mc.bossEnabled = false
+  if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
+  if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
+  if (mc.bossJoinWindowSec == null) mc.bossJoinWindowSec = 90
+  if (mc.cmdBossJoin == null) mc.cmdBossJoin = '!참여'
+  if (mc.msgBossSpawn == null) mc.msgBossSpawn = '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)'
+  if (mc.msgBossJoin == null) mc.msgBossJoin = '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})'
+  if (mc.msgBossAlreadyJoined == null) mc.msgBossAlreadyJoined = '⚠️ {nickname}님은 이미 참여했어요!'
+  if (mc.msgBossNoMonsters == null) mc.msgBossNoMonsters = '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!'
+  if (mc.msgBossNoActive == null) mc.msgBossNoActive = '⚠️ 지금 진행 중인 보스전이 없어요.'
+  if (mc.msgBossNoParticipants == null) mc.msgBossNoParticipants = '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...'
+  if (mc.msgBossResult == null) mc.msgBossResult = '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!'
 
   // 🌐 포획볼/고급볼/도감(잡은 몬스터)/채팅카운트는 디제이별로 따로 두지 않고, 전체 플랫폼
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
@@ -2047,6 +2079,11 @@ function mcFormat(tpl, data) {
     .replace(/{cmdUserReset}/g, data.cmdUserReset || '')
     .replace(/{action}/g, data.action || '')
     .replace(/{cmdBallGive}/g, data.cmdBallGive || '')
+    .replace(/{cmdBossJoin}/g, data.cmdBossJoin || '')
+    .replace(/{power}/g, v(data.power))
+    .replace(/{totalPower}/g, v(data.totalPower))
+    .replace(/{mvpNickname}/g, data.mvpNickname || '')
+    .replace(/{mvpPower}/g, v(data.mvpPower))
 }
 
 function mcPickMonster(mc) {
@@ -2156,7 +2193,8 @@ function startMonsterCatchTimer(djId) {
 function spawnMonster(djId) {
   const room = getRoom(djId)
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  console.log(`[몬스터잡기][${djId}] spawnMonster 호출됨 — moduleOn=${isModuleOn(settings, 'monstercatch', djId)}, streamName=${room.streamName || '없음'}`)
+  if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 스폰 취소 — 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
   if (room._activeMonster) { console.log(`[몬스터잡기][${djId}] 스폰 건너뜀 — 이미 [${room._activeMonster.name}]이(가) 등장 중`); return }
   const picked = mcPickMonster(mc)
@@ -2415,6 +2453,99 @@ function mcGrantCaughtMonster(mc, key, monsterId) {
   if (!mc.collections[key]) mc.collections[key] = {}
   mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
   return { grantId, isShiny, count: mc.collections[key][grantId] }
+}
+
+// 🌿 보스 몬스터 — 이 방의 등록된 몬스터 중 "풀" 타입만 골라서 랜덤으로 하나 뽑는다.
+// 포켓몬 일괄등록(POKEMON_GEN1_DATA)은 typeNames 필드가 있고, 직접 등록한 몬스터는 그게 없을
+// 수 있어서 trait(설명) 텍스트에 "타입 ... 풀..."이 포함되어 있는지도 같이 확인한다.
+// 🌿 보스 몬스터는 랜덤이 아니라 DJ가 지정한 고유 이름(기본값 "풀잎")을 가진 고정 보스다.
+
+function startBossTimer(djId) {
+  const room = getRoom(djId)
+  if (room.bossTimer) { clearInterval(room.bossTimer); room.bossTimer = null }
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.bossEnabled) { console.log(`[보스몬스터][${djId}] 타이머 시작 안 함 — "보스 몬스터" 설정이 꺼져있어요`); return }
+  const min = Math.max(1, Math.min(720, parseInt(mc.bossIntervalMin, 10) || 60))
+  room.bossTimer = setInterval(() => {
+    try { spawnBoss(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 등장 중 오류:`, e && e.stack || e) }
+  }, min * 60 * 1000)
+  console.log(`[보스몬스터][${djId}] 타이머 시작됨 — ${min}분마다 등장`)
+}
+
+function spawnBoss(djId) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (!mc.bossEnabled) return
+  if (room.currentBoss && room.currentBoss.active) return // 이미 보스전 진행 중이면 중복 등장 방지
+  const monster = { name: mc.bossMonsterName || '풀잎' } // 랜덤이 아니라 DJ가 지정한 고정 보스 이름
+  const windowSec = Math.max(10, Math.min(1800, parseInt(mc.bossJoinWindowSec, 10) || 90))
+  room.currentBoss = { active: true, monster, participants: {}, spawnedAt: Date.now() }
+  sendChatToRoom(djId, mcFormat(mc.msgBossSpawn, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec }))
+  room.bossResolveTimeout = setTimeout(() => {
+    try { resolveBoss(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 결과 처리 중 오류:`, e && e.stack || e) }
+  }, windowSec * 1000)
+}
+
+function handleBossJoinCommand(djId, room, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg !== (mc.cmdBossJoin || '!참여')) return
+  if (!room.currentBoss || !room.currentBoss.active) { setTimeout(() => sendChatToRoom(djId, mc.msgBossNoActive), 300); return }
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return
+  if (room.currentBoss.participants[key]) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossAlreadyJoined, { nickname: author })), 300); return }
+  const myMon = mcPickStrongest(mc.collections[key], mc.monsters)
+  if (!myMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossNoMonsters, { nickname: author })), 300); return }
+  const power = Number(myMon.power) || 10
+  room.currentBoss.participants[key] = { nickname: author, power }
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossJoin, { nickname: author, power })), 300)
+}
+
+function resolveBoss(djId) {
+  const room = getRoom(djId)
+  if (!room.currentBoss || !room.currentBoss.active) return
+  const settings = store.getSettings(djId) || {}
+  const mc = getMonsterCatchSettings(djId, settings)
+  const boss = room.currentBoss
+  room.currentBoss = null
+  if (room.bossResolveTimeout) { clearTimeout(room.bossResolveTimeout); room.bossResolveTimeout = null }
+
+  const participants = Object.values(boss.participants || {})
+  if (!participants.length) {
+    sendChatToRoom(djId, mcFormat(mc.msgBossNoParticipants, { monster: boss.monster.name }))
+    return
+  }
+  // 🌿 보스 체력은 참여자들의 총 공격력에 비례해서 자동으로 정해진다 — 참여한 만큼 확실히
+  // 잡히는 구조라서, 별도의 "실패" 판정 없이 참여자 수/화력에 맞춰 격파된다.
+  const totalPower = participants.reduce((s, p) => s + p.power, 0)
+  let mvp = participants[0]
+  participants.forEach(p => { if (p.power > mvp.power) mvp = p })
+
+  // 🌈 MVP는 랜덤 이로치 몬스터 1마리를 받는다 (희귀상자/잡기랑 같은 이로치 개념, 여기선 100% 확정 지급)
+  const picked = mcPickMonster(mc)
+  const mvpKey = Object.keys(boss.participants).find(k => boss.participants[k] === mvp)
+  let rewardName = '(보상 없음)'
+  if (picked && mvpKey) {
+    const grantId = MC_SHINY_PREFIX + picked.id
+    if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+    mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+    rewardName = picked.name
+    mcSaveUserData()
+  }
+
+  sendChatToRoom(djId, mcFormat(mc.msgBossResult, {
+    monster: boss.monster.name,
+    count: participants.length,
+    totalPower,
+    mvpNickname: mvp.nickname,
+    mvpPower: mvp.power,
+    reward: rewardName,
+  }))
 }
 
 function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
@@ -12935,6 +13066,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     startStockTimers(djId, liveId)
     // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
     startMonsterCatchTimer(djId)
+    startBossTimer(djId)
     // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
     try {
       const s = store.getSettings(djId) || {}
@@ -13027,6 +13159,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMonsterCatchChatCountHook(djId, settings, author, actTag)
           handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
           handleMonsterEvolveCommand(djId, room, settings, author, actTag, text)
+          handleBossJoinCommand(djId, room, settings, author, actTag, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
@@ -13680,7 +13813,8 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
-    cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve } = req.body || {}
+    cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
+    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossResult } = req.body || {}
   if (enabled != null) mc.enabled = !!enabled
   if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
   if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
@@ -13751,6 +13885,18 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgEvolveFail != null) mc.msgEvolveFail = msgEvolveFail
   if (msgEvolveSuccess != null) mc.msgEvolveSuccess = msgEvolveSuccess
   if (msgAutoEvolve != null) mc.msgAutoEvolve = msgAutoEvolve
+  if (bossEnabled != null) mc.bossEnabled = !!bossEnabled
+  if (bossMonsterName != null) mc.bossMonsterName = String(bossMonsterName).trim() || '풀잎'
+  if (bossIntervalMin != null) mc.bossIntervalMin = Math.max(1, Math.min(720, parseInt(bossIntervalMin, 10) || 60))
+  if (bossJoinWindowSec != null) mc.bossJoinWindowSec = Math.max(10, Math.min(1800, parseInt(bossJoinWindowSec, 10) || 90))
+  if (cmdBossJoin != null) mc.cmdBossJoin = String(cmdBossJoin).trim() || '!참여'
+  if (msgBossSpawn != null) mc.msgBossSpawn = msgBossSpawn
+  if (msgBossJoin != null) mc.msgBossJoin = msgBossJoin
+  if (msgBossAlreadyJoined != null) mc.msgBossAlreadyJoined = msgBossAlreadyJoined
+  if (msgBossNoMonsters != null) mc.msgBossNoMonsters = msgBossNoMonsters
+  if (msgBossNoActive != null) mc.msgBossNoActive = msgBossNoActive
+  if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
+  if (msgBossResult != null) mc.msgBossResult = msgBossResult
   if (Array.isArray(monsters)) {
     mc.monsters = monsters.map((m, i) => ({
       id: m.id && !String(m.id).startsWith('new') ? m.id : ('mon' + Date.now() + Math.floor(Math.random() * 1000) + i),
@@ -13771,6 +13917,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   }
   mcSaveConfig(req.djId, mc)
   startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
+  startBossTimer(req.djId)
   res.json({ success: true, settings: mcConfigOnly(mc) })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
@@ -15890,6 +16037,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
         { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
         { cmd: mc.cmdUserReset || '!리셋', desc: '[고유닉] 특정 유저 정보 초기화 (DJ/매니저)' },
         { cmd: mc.cmdBallGive || '!볼지급', desc: '[고유닉] [수량] 포획볼 지급/차감 (DJ/매니저)' },
+        { cmd: mc.cmdBossJoin || '!참여', desc: '풀 타입 보스 몬스터 등장 시 참여 (참여자 총 공격력에 비례해 자동 처치, MVP는 이로치 획득)' },
       ].filter(x => x.cmd)
     })
   }
@@ -16446,7 +16594,9 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   // 들어가도 바로 스폰 타이머가 다시 계산되도록 여기서도 재시작해준다. (끄면 알아서 멈추고,
   // 켜면 그 즉시 설정값 그대로 다시 돈다 — 방송 이미 켜진 상태에서 모듈만 켜도 동작해야 함)
   if (moduleEnabled && Object.prototype.hasOwnProperty.call(moduleEnabled, 'monstercatch')) {
+    console.log(`[몬스터잡기][${req.djId}] 모듈 토글 감지됨 — moduleEnabled.monstercatch=${moduleEnabled.monstercatch}, 타이머 재시작 시도`)
     startMonsterCatchTimer(req.djId)
+    startBossTimer(req.djId)
   }
   res.json({ success: true })
 })

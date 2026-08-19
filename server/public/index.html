@@ -903,6 +903,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" style="flex:1" onclick="saveStatusBanner(false)">배너 끄기</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-title"><span>📢 전체방 반복 공지</span></div>
+          <p class="hint" style="margin-bottom:12px">지금 방송 연결되어있는 <b>모든 디제이 방</b>에, 정해진 간격마다 같은 문구를 채팅으로 한꺼번에 보내요. 특정 디제이는 아래 제외 목록에 고유닉을 넣으면 그 방만 빼고 보내져요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="gaEnabled"> 전체방 반복 공지 켜기</label>
+          <label style="margin-top:10px">공지 문구</label>
+          <textarea id="gaMessage" rows="3" placeholder="예: 📢 안내: 잠시 후 서버 점검이 있습니다."></textarea>
+          <label style="margin-top:10px">전송 간격 (분)</label>
+          <input type="number" id="gaIntervalMin" value="30" min="1" max="720">
+          <label style="margin-top:10px">제외할 디제이 고유닉 (쉼표로 구분)</label>
+          <input type="text" id="gaExcludeIds" placeholder="예: sum1, dj2, dj3">
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGlobalAnnounce()">💾 저장</button>
+          <div class="hint" id="gaStatusHint" style="margin-top:8px"></div>
+        </div>
       </div>
 
       <!-- 🛰️ 이벤트 뷰어 -->
@@ -3526,6 +3539,36 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <textarea id="mcMsgEvolveUsage" style="height:44px">⚠️ 사용법: {cmdEvolve} [몬스터이름]</textarea>
           <div class="hint" style="margin-top:8px">변수: {nickname}, {monster}, {targetMonster}, {need}, {owned}, {cmdEvolve}</div>
         </div>
+
+        <div class="card">
+          <div class="card-title">🌿 보스 몬스터</div>
+          <p class="hint" style="margin-bottom:12px">정해진 시간마다 지정한 이름의 보스가 자동 등장해요. 참여 명령어로 함께 싸우면 각자 가장 강한 몬스터의 공격력이 보스 체력에 더해지고, 참여 시간이 끝나면 자동으로 격파돼요(체력 = 참여자 총 공격력). 가장 강한 공격력을 기여한 사람이 MVP로 랜덤 🌈이로치 몬스터 1마리를 받아요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="mcBossEnabled"> 보스 몬스터 활성화</label>
+          <label style="margin-top:10px">보스 이름</label>
+          <input type="text" id="mcBossMonsterName" value="풀잎" style="max-width:220px">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>등장 주기 (분)</label><input type="number" id="mcBossIntervalMin" value="60" min="1" max="720"></div>
+            <div><label>참여 마감 시간 (초)</label><input type="number" id="mcBossJoinWindowSec" value="90" min="10" max="1800"></div>
+          </div>
+          <label style="margin-top:10px">참여 명령어</label>
+          <input type="text" id="mcCmdBossJoin" value="!참여" style="max-width:220px">
+          <label style="margin-top:10px">보스 등장 안내</label>
+          <textarea id="mcMsgBossSpawn" style="height:56px">🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)</textarea>
+          <label style="margin-top:10px">참여 성공</label>
+          <textarea id="mcMsgBossJoin" style="height:44px">⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})</textarea>
+          <label style="margin-top:10px">이미 참여함</label>
+          <textarea id="mcMsgBossAlreadyJoined" style="height:44px">⚠️ {nickname}님은 이미 참여했어요!</textarea>
+          <label style="margin-top:10px">잡은 몬스터가 없어서 참여 불가</label>
+          <textarea id="mcMsgBossNoMonsters" style="height:44px">⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!</textarea>
+          <label style="margin-top:10px">진행 중인 보스전이 없을 때</label>
+          <textarea id="mcMsgBossNoActive" style="height:44px">⚠️ 지금 진행 중인 보스전이 없어요.</textarea>
+          <label style="margin-top:10px">아무도 참여 안 했을 때</label>
+          <textarea id="mcMsgBossNoParticipants" style="height:44px">💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...</textarea>
+          <label style="margin-top:10px">보스 격파 결과</label>
+          <textarea id="mcMsgBossResult" style="height:70px">🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}
+🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!</textarea>
+          <div class="hint" style="margin-top:8px">변수: {monster}, {cmdBossJoin}, {sec}, {nickname}, {power}, {count}, {totalPower}, {mvpNickname}, {mvpPower}, {reward}</div>
+        </div>
       </div>
 
       <!-- 스티커 선택 모달 (몬스터 잡기 전용) -->
@@ -4289,7 +4332,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -4442,7 +4485,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadUserList(); }
+  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); }
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
@@ -5866,6 +5909,32 @@ async function saveStatusBanner(enabled){
     const res=await fetch(SERVER+'/status-banner',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,message,type})});
     const d=await res.json();
     if(d.success){ showToast(enabled?'배너를 켰어요 🚨':'배너를 껐어요'); loadStatusBanner(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadGlobalAnnounce(){
+  try{
+    const res=await fetch(SERVER+'/admin/global-announce',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('gaEnabled').checked=!!d.data.enabled;
+    document.getElementById('gaMessage').value=d.data.message||'';
+    document.getElementById('gaIntervalMin').value=d.data.intervalMin||30;
+    document.getElementById('gaExcludeIds').value=(d.data.excludeDjIds||[]).join(', ');
+    document.getElementById('gaStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전송 중`:'⏸️ 꺼짐';
+  }catch(e){}
+}
+async function saveGlobalAnnounce(){
+  const enabled=document.getElementById('gaEnabled').checked;
+  const message=document.getElementById('gaMessage').value.trim();
+  const intervalMin=Number(document.getElementById('gaIntervalMin').value)||30;
+  const excludeDjIds=document.getElementById('gaExcludeIds').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(enabled&&!message)return showToast('공지 문구를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/global-announce',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,message,intervalMin,excludeDjIds})});
+    const d=await res.json();
+    if(d.success){ showToast('저장 완료 ✓'); loadGlobalAnnounce(); }
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -9304,6 +9373,18 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgEvolveNoTarget').value=s.msgEvolveNoTarget||'';
     document.getElementById('mcMsgEvolveNotFound').value=s.msgEvolveNotFound||'';
     document.getElementById('mcMsgEvolveUsage').value=s.msgEvolveUsage||'';
+    document.getElementById('mcBossEnabled').checked=!!s.bossEnabled;
+    document.getElementById('mcBossMonsterName').value=s.bossMonsterName||'풀잎';
+    document.getElementById('mcBossIntervalMin').value=s.bossIntervalMin||60;
+    document.getElementById('mcBossJoinWindowSec').value=s.bossJoinWindowSec||90;
+    document.getElementById('mcCmdBossJoin').value=s.cmdBossJoin||'!참여';
+    document.getElementById('mcMsgBossSpawn').value=s.msgBossSpawn||'';
+    document.getElementById('mcMsgBossJoin').value=s.msgBossJoin||'';
+    document.getElementById('mcMsgBossAlreadyJoined').value=s.msgBossAlreadyJoined||'';
+    document.getElementById('mcMsgBossNoMonsters').value=s.msgBossNoMonsters||'';
+    document.getElementById('mcMsgBossNoActive').value=s.msgBossNoActive||'';
+    document.getElementById('mcMsgBossNoParticipants').value=s.msgBossNoParticipants||'';
+    document.getElementById('mcMsgBossResult').value=s.msgBossResult||'';
     const shop=s.shop||{};
     document.getElementById('mcCmdShop').value=shop.cmdShop||'!상점';
     document.getElementById('mcMsgShopList').value=shop.msgShopList||'';
@@ -9565,6 +9646,18 @@ async function saveMonsterCatch(){
     msgEvolveNoTarget:document.getElementById('mcMsgEvolveNoTarget').value,
     msgEvolveNotFound:document.getElementById('mcMsgEvolveNotFound').value,
     msgEvolveUsage:document.getElementById('mcMsgEvolveUsage').value,
+    bossEnabled:document.getElementById('mcBossEnabled').checked,
+    bossMonsterName:document.getElementById('mcBossMonsterName').value,
+    bossIntervalMin:document.getElementById('mcBossIntervalMin').value,
+    bossJoinWindowSec:document.getElementById('mcBossJoinWindowSec').value,
+    cmdBossJoin:document.getElementById('mcCmdBossJoin').value,
+    msgBossSpawn:document.getElementById('mcMsgBossSpawn').value,
+    msgBossJoin:document.getElementById('mcMsgBossJoin').value,
+    msgBossAlreadyJoined:document.getElementById('mcMsgBossAlreadyJoined').value,
+    msgBossNoMonsters:document.getElementById('mcMsgBossNoMonsters').value,
+    msgBossNoActive:document.getElementById('mcMsgBossNoActive').value,
+    msgBossNoParticipants:document.getElementById('mcMsgBossNoParticipants').value,
+    msgBossResult:document.getElementById('mcMsgBossResult').value,
     monsters:mcMonsters,
     greatBallBonus:document.getElementById('mcGreatBallBonus').value,
     shop:{
