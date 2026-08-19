@@ -2524,7 +2524,10 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
 
   const myPower = Math.max(1, Number(myMon.power) || 10)
   const targetPower = Math.max(1, Number(targetMon.power) || 10)
-  const iWin = Math.random() < myPower / (myPower + targetPower)
+  // ⚔️ [업데이트] 예전엔 공격력 비율로 "확률"만 정해서, 공격력이 낮아도 가끔 이기는 확률형이었다.
+  // 이제 실제 공격력을 그대로 기준으로 삼아서, 공격력이 더 높은 몬스터가 항상 이긴다.
+  // 공격력이 정확히 같을 때만 50:50 무작위로 승패를 가른다.
+  const iWin = myPower === targetPower ? Math.random() < 0.5 : myPower > targetPower
   const winnerMonster = iWin ? myMon : targetMon
   const loserMonster = iWin ? targetMon : myMon
   const winnerName = iWin ? author : targetNick
@@ -16698,7 +16701,7 @@ app.listen(PORT, () => {
   setInterval(backupToBase44, 30 * 60 * 1000)
 })
 
-// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
