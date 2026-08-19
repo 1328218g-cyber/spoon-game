@@ -43,6 +43,20 @@ app.use(require('express').static(__dirname + '/public'))
 // 그래서 지금은 실제 파일로 Volume(store.DATA_DIR)에 저장하고, 설정에는 URL 경로만 남긴다.
 const SOUNDS_DIR = path.join(store.DATA_DIR, 'sounds')
 if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true })
+// 🔊 기본 알림음(default-chime.mp3, reaction-timer-alert.mp3)이 아직 없으면 자동으로 채워넣는다.
+// (SOUNDS_DIR는 git 추적 폴더가 아니라 런타임 데이터 폴더라, git에 파일을 올려도 여기엔 안 생김)
+try {
+  const defaultSounds = require('./defaultSounds')
+  Object.entries(defaultSounds).forEach(([filename, base64]) => {
+    const filePath = path.join(SOUNDS_DIR, filename)
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+      console.log(`[기본 알림음] ${filename} 생성됨`)
+    }
+  })
+} catch (e) {
+  console.log('[기본 알림음] 초기화 실패:', e.message)
+}
 app.use('/sounds', require('express').static(SOUNDS_DIR, { maxAge: '30d' }))
 
 // 🖼️ 박제판 배경 이미지 등, base64를 djs.json에 직접 안 넣기 위한 이미지 전용 저장소.
@@ -2692,6 +2706,10 @@ function handleReminderCommand(djId, room, settings, author, authorId, text) {
     return
   }
   if (msg.startsWith(cmd + ' ')) {
+    // ⏰ 등록도 DJ 전용으로 제한 (중지랑 동일 기준). isDj는 위 "중지" 분기에서도 쓰는 계산이지만
+    // 여기선 별도 분기라 다시 계산한다.
+    const isDjRegister = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    if (!isDjRegister) { setTimeout(() => sendChatToRoom(djId, '⚠️ 리액션 타이머 등록은 DJ만 사용할 수 있어요.'), 400); return }
     const rest = msg.slice(cmd.length).trim()
     const m = rest.match(/^(\d+)\s+(.+)$/)
     if (!m) { setTimeout(() => sendChatToRoom(djId, `⏰ 사용법: ${cmd} [분] [내용]`), 400); return }
@@ -2706,6 +2724,8 @@ function handleReminderCommand(djId, room, settings, author, authorId, text) {
       if (idx >= 0) room.reminderTimers.splice(idx, 1)
       const alertText = (cfg.alertMsg || '🔔 {content} 시간이 됐습니다!').replace(/\{content\}/g, content)
       sendChatToRoom(djId, alertText)
+      // 🔔 타이머가 실제로 울릴 때, 방송 화면(웹)을 보고 있는 브라우저에서 기본 알림음을 2번 재생한다.
+      broadcast({ type: 'reactiontimersound', djId })
     }, min * 60000)
     room.reminderTimers.push({ id, content, author, dueAt, handle })
     const regText = (cfg.registerMsg || '⏰ {min}분 후 알림: {content}').replace(/\{min\}/g, min).replace(/\{content\}/g, content)
