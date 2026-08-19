@@ -408,6 +408,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .market-card.off{opacity:.6}
 .market-card-top{display:flex;align-items:center;justify-content:space-between}
 .market-card-icon{font-size:24px}
+.market-card-icon img{width:28px;height:28px;object-fit:contain;display:block}
 .market-card-title{font-size:14px;font-weight:700;color:var(--text)}
 .market-card-desc{font-size:12px;color:var(--muted);line-height:1.5;flex:1}
 .market-card-goto{padding:8px;font-size:12px;margin-top:2px}
@@ -4529,6 +4530,23 @@ function moveSidebarItem(btn,dir){
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
 const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+
+// 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
+const MODULE_ICON_FILES={
+  dashboard:'dashboard.png',autofollow:'autofollow.png',modulemarket:'modulemarket.png',requestmodules:'requestmodules.png',
+  session:'session-connect.png',userlist:'user-management.png',adminstats:'adminstats.png',eventviewer:'eventviewer.png',
+  autojoin:'room-entry.png',botreboot:'botreboot.png',migrate:'migrate.png',settingsbackup:'settingsbackup.png',
+  chat:'chat.png',entrysettings:'entry-settings.png',funding:'funding-management.png',shortcuts:'shortcut-commands.png',
+  greet:'designated-greeting.png',flag:'flag-goal.png',shield:'shield-management.png',request:'song-request.png',
+  roulette:'roulette-settings.png',roulettelog:'roulette-history.png',autogrant:'real-time-payout.png',loyalty:'nickname-index.png',
+  quiz:'quiz-settings.png',lottoauto:'lottoauto.png',lottorank:'lottorank.png',reactiontimer:'reactiontimer.png',
+  dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
+  raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
+  couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
+  'trophy-editor':'trophyeditor.png',
+};
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4678,7 +4696,7 @@ function renderModuleMarket(){
     return `<div class="market-card ${on?'':'off'}" style="position:relative">
       ${isNew?'<span style="position:absolute;top:-8px;right:10px;background:linear-gradient(135deg,#fb923c,#f59e0b);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(245,158,11,.4)">NEW</span>':''}
       <div class="market-card-top">
-        <div class="market-card-icon">${icon}</div>
+        <div class="market-card-icon">${MODULE_ICON_FILES[key]?`<img src="/icons/${MODULE_ICON_FILES[key]}" alt="">`:icon}</div>
         <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}');renderModuleMarket()"><span class="slider"></span></label>
       </div>
       <div class="market-card-title">${escapeHtml(label)}</div>
