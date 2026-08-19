@@ -2075,15 +2075,23 @@ function mcPickStrongest(collection, monsters) {
 function startMonsterCatchTimer(djId) {
   const room = getRoom(djId)
   if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
+  if (room.monsterCatchFirstSpawnTimeout) { clearTimeout(room.monsterCatchFirstSpawnTimeout); room.monsterCatchFirstSpawnTimeout = null }
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
+  // 🐾 [업데이트] 예전엔 타이머를 시작해도 첫 등장까지 설정한 시간(예: 5분) 전체를 그대로
+  // 기다려야 했다. 방송 입장하거나 모듈을 막 켰을 때 그 즉시 기본 1마리를 먼저 등장시키고,
+  // 그다음부터 설정한 주기로 카운터를 시작하도록 바꾼다. (방 연결 직후 채팅 전송이 씹히지
+  // 않도록 살짝 지연을 둔다)
+  room.monsterCatchFirstSpawnTimeout = setTimeout(() => {
+    try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 첫 스폰 중 오류:`, e && e.stack || e) }
+  }, 5000)
   room.monsterCatchTimer = setInterval(() => {
     try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 스폰 중 오류:`, e && e.stack || e) }
   }, min * 60 * 1000)
-  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
+  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — 5초 뒤 첫 등장, 이후 ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
 }
 
 function spawnMonster(djId) {
@@ -2654,7 +2662,7 @@ function clearReminderTimers(room) {
   room.reminderTimers = []
 }
 
-function handleReminderCommand(djId, room, settings, author, text) {
+function handleReminderCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'reactiontimer', djId)) return
   const cfg = getReminderSettings(djId, settings)
   const msg = String(text || '').trim()
@@ -2668,6 +2676,19 @@ function handleReminderCommand(djId, room, settings, author, text) {
       return `${i + 1}. ${t.content} (약 ${remainMin}분 후, 등록: ${t.author})`
     })
     sendChatSplit(djId, ['⏰ 등록된 리액션 타이머'].concat(lines).join('\n'), 150, 600)
+    return
+  }
+  // ⏰ {cmd} 중지 [번호] — 위 목록에 나오는 번호로 타이머를 제거한다. 방송 진행에 영향을 주는
+  // 기능이라 DJ 본인만 사용 가능하게 제한한다 (등록은 누구나, 중지는 DJ만).
+  const stopMatch = msg.match(new RegExp(`^${escapeRegExp(cmd)}\\s+중지\\s+(\\d+)$`))
+  if (stopMatch) {
+    const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '⚠️ 타이머 중지는 DJ만 사용할 수 있어요.'), 400); return }
+    const idx = parseInt(stopMatch[1], 10) - 1
+    if (idx < 0 || idx >= room.reminderTimers.length) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${idx + 1}번 타이머를 찾을 수 없어요. ${cmd}로 목록을 먼저 확인해주세요.`), 400); return }
+    const [removed] = room.reminderTimers.splice(idx, 1)
+    if (removed && removed.handle) clearTimeout(removed.handle)
+    setTimeout(() => sendChatToRoom(djId, `⏰ ${idx + 1}번 타이머(${removed.content})를 중지했어요.`), 400)
     return
   }
   if (msg.startsWith(cmd + ' ')) {
@@ -12915,7 +12936,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text, actTag)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
-          handleReminderCommand(djId, room, settings, author, text)
+          handleReminderCommand(djId, room, settings, author, authorId, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
           handleWeatherCommand(djId, room, settings, author, authorId, text)
@@ -15664,7 +15685,10 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     })
   }
   if (on('reactiontimer') && settings.reminderTimer && settings.reminderTimer.cmd) {
-    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [{ cmd: settings.reminderTimer.cmd, desc: '[명령어] [분] [내용] 형식으로 예약 알림 등록' }] })
+    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [
+      { cmd: settings.reminderTimer.cmd, desc: '[분] [내용] 형식으로 예약 알림 등록 (예약목록은 명령어만 입력)' },
+      { cmd: `${settings.reminderTimer.cmd} 중지 [번호]`, desc: '등록된 타이머 취소 (DJ 전용)' },
+    ] })
   }
   if (on('dday') && settings.dday && settings.dday.cmd) {
     groups.push({ key: 'dday', icon: '📅', label: '디데이', items: [{ cmd: settings.dday.cmd, desc: '디데이 등록/조회' }] })
