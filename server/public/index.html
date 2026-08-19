@@ -64,6 +64,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .nav-item:hover{background:var(--surface2)}
 .nav-item.active{background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(251,146,60,.14));box-shadow:inset 0 0 0 1px rgba(14,165,233,.4)}
 .nav-item .ic{width:18px;text-align:center;flex-shrink:0;font-size:14px}
+.nav-item .ic.ic-img{display:flex;align-items:center;justify-content:center;width:24px;margin-right:2px}
+.nav-item .ic.ic-img img{width:24px;height:24px;object-fit:contain;display:block}
 .nav-item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nav-badge{font-size:9.5px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:20px;flex-shrink:0;cursor:pointer;user-select:none;transition:transform .1s}
 .nav-badge:active{transform:scale(.92)}
@@ -406,6 +408,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .market-card.off{opacity:.6}
 .market-card-top{display:flex;align-items:center;justify-content:space-between}
 .market-card-icon{font-size:24px}
+.market-card-icon img{width:28px;height:28px;object-fit:contain;display:block}
 .market-card-title{font-size:14px;font-weight:700;color:var(--text)}
 .market-card-desc{font-size:12px;color:var(--muted);line-height:1.5;flex:1}
 .market-card-goto{padding:8px;font-size:12px;margin-top:2px}
@@ -595,67 +598,67 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
 
     <div class="nav-group-label">홈</div>
-    <div class="nav-item" data-panel="dashboard"><span class="ic">📊</span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="autofollow"><span class="ic">🤝</span><span class="lbl">고정매니저신청</span></div>
+    <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autofollow"><span class="ic ic-img"><img src="/icons/autofollow.png" alt=""></span><span class="lbl">고정매니저신청</span></div>
 
     <div class="nav-group-label">모듈</div>
-    <div class="nav-item" data-panel="modulemarket"><span class="ic">🛒</span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
-    <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic">🎨</span><span class="lbl">박제 하기</span></div>
-    <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic">🔐</span><span class="lbl">요청 모듈</span></div>
+    <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
+    <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic ic-img"><img src="/icons/trophyeditor.png" alt=""></span><span class="lbl">박제 하기</span></div>
+    <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic ic-img"><img src="/icons/requestmodules.png" alt=""></span><span class="lbl">요청 모듈</span></div>
 
     <div class="nav-group-label">연결</div>
-    <div class="nav-item active" data-panel="session"><span class="ic">🔑</span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="userlist"><span class="ic">👥</span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic">📊</span><span class="lbl">관리자 대시보드</span></div>
-    <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic">🛰️</span><span class="lbl">이벤트 뷰어</span></div>
-    <div class="nav-item" data-panel="autojoin"><span class="ic">🚪</span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="botreboot"><span class="ic">🔁</span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="migrate"><span class="ic">📦</span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="settingsbackup"><span class="ic">💾</span><span class="lbl">설정 내보내기/가져오기</span></div>
+    <div class="nav-item active" data-panel="session"><span class="ic ic-img"><img src="/icons/session-connect.png" alt=""></span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="userlist"><span class="ic ic-img"><img src="/icons/user-management.png" alt=""></span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic ic-img"><img src="/icons/adminstats.png" alt=""></span><span class="lbl">관리자 대시보드</span></div>
+    <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic ic-img"><img src="/icons/eventviewer.png" alt=""></span><span class="lbl">이벤트 뷰어</span></div>
+    <div class="nav-item" data-panel="autojoin"><span class="ic ic-img"><img src="/icons/room-entry.png" alt=""></span><span class="lbl">자동입장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="botreboot"><span class="ic ic-img"><img src="/icons/botreboot.png" alt=""></span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="migrate"><span class="ic ic-img"><img src="/icons/migrate.png" alt=""></span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="settingsbackup"><span class="ic ic-img"><img src="/icons/settingsbackup.png" alt=""></span><span class="lbl">설정 내보내기/가져오기</span></div>
 
     <div class="nav-group-label">방송 도구</div>
-    <div class="nav-item" data-panel="chat"><span class="ic">💬</span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="entrysettings"><span class="ic">👋</span><span class="lbl">입장 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="funding"><span class="ic">💰</span><span class="lbl">펀딩 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="shortcuts"><span class="ic">⌨️</span><span class="lbl">단축키 명령어</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="greet"><span class="ic">🙋</span><span class="lbl">지정 인사</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="flag"><span class="ic">🚩</span><span class="lbl">단비 깃발</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="shield"><span class="ic">🛡️</span><span class="lbl">실드 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="request"><span class="ic">🎵</span><span class="lbl">신청곡 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="chat"><span class="ic ic-img"><img src="/icons/chat.png" alt=""></span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="entrysettings"><span class="ic ic-img"><img src="/icons/entry-settings.png" alt=""></span><span class="lbl">입장 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="funding"><span class="ic ic-img"><img src="/icons/funding-management.png" alt=""></span><span class="lbl">펀딩 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="shortcuts"><span class="ic ic-img"><img src="/icons/shortcut-commands.png" alt=""></span><span class="lbl">단축키 명령어</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="greet"><span class="ic ic-img"><img src="/icons/designated-greeting.png" alt=""></span><span class="lbl">지정 인사</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="flag"><span class="ic ic-img"><img src="/icons/flag-goal.png" alt=""></span><span class="lbl">단비 깃발</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="shield"><span class="ic ic-img"><img src="/icons/shield-management.png" alt=""></span><span class="lbl">실드 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="request"><span class="ic ic-img"><img src="/icons/song-request.png" alt=""></span><span class="lbl">신청곡 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">이벤트 / 게임</div>
-    <div class="nav-item" data-panel="roulette"><span class="ic">🎡</span><span class="lbl">룰렛 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="roulettelog"><span class="ic">📊</span><span class="lbl">룰렛 기록</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="autogrant"><span class="ic">🎁</span><span class="lbl">실시간 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="loyalty"><span class="ic">⭐</span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="quiz"><span class="ic">🧩</span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="lottoauto"><span class="ic">🎟️</span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="lottorank"><span class="ic">🏁</span><span class="lbl">복권 차등지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="reactiontimer"><span class="ic">⏰</span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="dday"><span class="ic">📅</span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="saju"><span class="ic">🔮</span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="memo2"><span class="ic">📝</span><span class="lbl">메모2</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="plansub"><span class="ic">💎</span><span class="lbl">구독자 플랜 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="viptier"><span class="ic">🌟</span><span class="lbl">귀빈 등급 시스템</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="managertoken"><span class="ic">💰</span><span class="lbl">매니저 토큰</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="raffle"><span class="ic">🎁</span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="dice"><span class="ic">🎲</span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="soundfx"><span class="ic">🔊</span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="tts"><span class="ic">🎙️</span><span class="lbl">TTS</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="wheelroulette"><span class="ic">🎡</span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="couponcheck"><span class="ic">🎟️</span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="usernotes"><span class="ic">📝</span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="mynotes"><span class="ic">🗒️</span><span class="lbl">나만의 메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="discordnotify"><span class="ic">🔔</span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="fishing"><span class="ic">🎣</span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="stock"><span class="ic">🍞</span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="auction"><span class="ic">🔨</span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="randombox"><span class="ic">🎁</span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="pickboard"><span class="ic">🎯</span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="trophyboard"><span class="ic">🏆</span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="giftgallery"><span class="ic">🎁</span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="monstercatch"><span class="ic">🐾</span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="swordgame"><span class="ic">⚔️</span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="roulette"><span class="ic ic-img"><img src="/icons/roulette-settings.png" alt=""></span><span class="lbl">룰렛 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="roulettelog"><span class="ic ic-img"><img src="/icons/roulette-history.png" alt=""></span><span class="lbl">룰렛 기록</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="autogrant"><span class="ic ic-img"><img src="/icons/real-time-payout.png" alt=""></span><span class="lbl">실시간 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="loyalty"><span class="ic ic-img"><img src="/icons/nickname-index.png" alt=""></span><span class="lbl">애청지수</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="quiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt=""></span><span class="lbl">퀴즈 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="lottoauto"><span class="ic ic-img"><img src="/icons/lottoauto.png" alt=""></span><span class="lbl">복권 자동지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="lottorank"><span class="ic ic-img"><img src="/icons/lottorank.png" alt=""></span><span class="lbl">복권 차등지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="reactiontimer"><span class="ic ic-img"><img src="/icons/reactiontimer.png" alt=""></span><span class="lbl">리액션 타이머</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="dday"><span class="ic ic-img"><img src="/icons/dday.png" alt=""></span><span class="lbl">디데이</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="saju"><span class="ic ic-img"><img src="/icons/saju.png" alt=""></span><span class="lbl">사주팔자</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="memo2"><span class="ic ic-img"><img src="/icons/memo2.png" alt=""></span><span class="lbl">메모2</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="plansub"><span class="ic ic-img"><img src="/icons/plansub.png" alt=""></span><span class="lbl">구독자 플랜 지급</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="viptier"><span class="ic ic-img"><img src="/icons/viptier.png" alt=""></span><span class="lbl">귀빈 등급 시스템</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="managertoken"><span class="ic ic-img"><img src="/icons/managertoken.png" alt=""></span><span class="lbl">매니저 토큰</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="raffle"><span class="ic ic-img"><img src="/icons/raffle.png" alt=""></span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="dice"><span class="ic ic-img"><img src="/icons/dice.png" alt=""></span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="soundfx"><span class="ic ic-img"><img src="/icons/soundfx.png" alt=""></span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="tts"><span class="ic ic-img"><img src="/icons/tts.png" alt=""></span><span class="lbl">TTS</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="wheelroulette"><span class="ic ic-img"><img src="/icons/wheelroulette.png" alt=""></span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="couponcheck"><span class="ic ic-img"><img src="/icons/couponcheck.png" alt=""></span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="usernotes"><span class="ic ic-img"><img src="/icons/usernotes.png" alt=""></span><span class="lbl">메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="mynotes"><span class="ic ic-img"><img src="/icons/mynotes.png" alt=""></span><span class="lbl">나만의 메모장</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="discordnotify"><span class="ic ic-img"><img src="/icons/discordnotify.png" alt=""></span><span class="lbl">디스코드 알림</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="fishing"><span class="ic ic-img"><img src="/icons/fishing.png" alt=""></span><span class="lbl">낚시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="stock"><span class="ic ic-img"><img src="/icons/stock.png" alt=""></span><span class="lbl">증권거래소</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="auction"><span class="ic ic-img"><img src="/icons/auction.png" alt=""></span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="randombox"><span class="ic ic-img"><img src="/icons/randombox.png" alt=""></span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="pickboard"><span class="ic ic-img"><img src="/icons/pickboard.png" alt=""></span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
   </nav>
 
@@ -4527,6 +4530,23 @@ function moveSidebarItem(btn,dir){
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
 const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+
+// 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
+const MODULE_ICON_FILES={
+  dashboard:'dashboard.png',autofollow:'autofollow.png',modulemarket:'modulemarket.png',requestmodules:'requestmodules.png',
+  session:'session-connect.png',userlist:'user-management.png',adminstats:'adminstats.png',eventviewer:'eventviewer.png',
+  autojoin:'room-entry.png',botreboot:'botreboot.png',migrate:'migrate.png',settingsbackup:'settingsbackup.png',
+  chat:'chat.png',entrysettings:'entry-settings.png',funding:'funding-management.png',shortcuts:'shortcut-commands.png',
+  greet:'designated-greeting.png',flag:'flag-goal.png',shield:'shield-management.png',request:'song-request.png',
+  roulette:'roulette-settings.png',roulettelog:'roulette-history.png',autogrant:'real-time-payout.png',loyalty:'nickname-index.png',
+  quiz:'quiz-settings.png',lottoauto:'lottoauto.png',lottorank:'lottorank.png',reactiontimer:'reactiontimer.png',
+  dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
+  raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
+  couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
+  'trophy-editor':'trophyeditor.png',
+};
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
 let moduleEnabled={};
 let moduleVisible={};
@@ -4676,7 +4696,7 @@ function renderModuleMarket(){
     return `<div class="market-card ${on?'':'off'}" style="position:relative">
       ${isNew?'<span style="position:absolute;top:-8px;right:10px;background:linear-gradient(135deg,#fb923c,#f59e0b);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(245,158,11,.4)">NEW</span>':''}
       <div class="market-card-top">
-        <div class="market-card-icon">${icon}</div>
+        <div class="market-card-icon">${MODULE_ICON_FILES[key]?`<img src="/icons/${MODULE_ICON_FILES[key]}" alt="">`:icon}</div>
         <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}');renderModuleMarket()"><span class="slider"></span></label>
       </div>
       <div class="market-card-title">${escapeHtml(label)}</div>
@@ -9723,6 +9743,16 @@ function playSoundFxById(id){
   }catch(e){}
 }
 
+// ⏰ 리액션 타이머가 실제로 울리는 순간, 기본 알림음을 2번 재생한다 (방송 화면을 보고 있는
+// 브라우저에서만 들려요 — 채팅 알림 메시지랑 별개로 시각/청각 둘 다 챙기는 용도).
+function playReactionTimerAlert(){
+  const play=()=>{
+    try{ const audio=new Audio(SERVER+'/sounds/reaction-timer-alert.mp3'); audio.play().catch(()=>{}); }catch(e){}
+  };
+  play();
+  setTimeout(play,900);
+}
+
 function previewSoundFx(id){ playSoundFxById(id); }
 
 /* ── 🎙️ TTS (브라우저 내장 / 구글 보이스 / 타입캐스트) ── */
@@ -13534,6 +13564,7 @@ function startSSE(){
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
+    else if(d.type==='reactiontimersound')playReactionTimerAlert();
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
     else if(d.type==='greetsound')playGreetSoundById(d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }

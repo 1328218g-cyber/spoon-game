@@ -43,6 +43,20 @@ app.use(require('express').static(__dirname + '/public'))
 // 그래서 지금은 실제 파일로 Volume(store.DATA_DIR)에 저장하고, 설정에는 URL 경로만 남긴다.
 const SOUNDS_DIR = path.join(store.DATA_DIR, 'sounds')
 if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true })
+// 🔊 기본 알림음(default-chime.mp3, reaction-timer-alert.mp3)이 아직 없으면 자동으로 채워넣는다.
+// (SOUNDS_DIR는 git 추적 폴더가 아니라 런타임 데이터 폴더라, git에 파일을 올려도 여기엔 안 생김)
+try {
+  const defaultSounds = require('./defaultSounds')
+  Object.entries(defaultSounds).forEach(([filename, base64]) => {
+    const filePath = path.join(SOUNDS_DIR, filename)
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+      console.log(`[기본 알림음] ${filename} 생성됨`)
+    }
+  })
+} catch (e) {
+  console.log('[기본 알림음] 초기화 실패:', e.message)
+}
 app.use('/sounds', require('express').static(SOUNDS_DIR, { maxAge: '30d' }))
 
 // 🖼️ 박제판 배경 이미지 등, base64를 djs.json에 직접 안 넣기 위한 이미지 전용 저장소.
@@ -2075,15 +2089,23 @@ function mcPickStrongest(collection, monsters) {
 function startMonsterCatchTimer(djId) {
   const room = getRoom(djId)
   if (room.monsterCatchTimer) { clearInterval(room.monsterCatchTimer); room.monsterCatchTimer = null }
+  if (room.monsterCatchFirstSpawnTimeout) { clearTimeout(room.monsterCatchFirstSpawnTimeout); room.monsterCatchFirstSpawnTimeout = null }
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'monstercatch', djId)) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 사이드바 모듈이 꺼져있어요`); return }
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.monsters.length) { console.log(`[몬스터잡기][${djId}] 타이머 시작 안 함 — 등록된 몬스터가 0마리예요`); return }
   const min = Math.max(1, Math.min(180, parseInt(mc.spawnIntervalMin, 10) || 5))
+  // 🐾 [업데이트] 예전엔 타이머를 시작해도 첫 등장까지 설정한 시간(예: 5분) 전체를 그대로
+  // 기다려야 했다. 방송 입장하거나 모듈을 막 켰을 때 그 즉시 기본 1마리를 먼저 등장시키고,
+  // 그다음부터 설정한 주기로 카운터를 시작하도록 바꾼다. (방 연결 직후 채팅 전송이 씹히지
+  // 않도록 살짝 지연을 둔다)
+  room.monsterCatchFirstSpawnTimeout = setTimeout(() => {
+    try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 첫 스폰 중 오류:`, e && e.stack || e) }
+  }, 5000)
   room.monsterCatchTimer = setInterval(() => {
     try { spawnMonster(djId) } catch (e) { console.log(`[몬스터잡기][${djId}] 스폰 중 오류:`, e && e.stack || e) }
   }, min * 60 * 1000)
-  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
+  console.log(`[몬스터잡기][${djId}] 타이머 시작됨 — 5초 뒤 첫 등장, 이후 ${min}분마다 등장 (몬스터 ${mc.monsters.length}종 등록됨)`)
 }
 
 function spawnMonster(djId) {
@@ -2524,7 +2546,10 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
 
   const myPower = Math.max(1, Number(myMon.power) || 10)
   const targetPower = Math.max(1, Number(targetMon.power) || 10)
-  const iWin = Math.random() < myPower / (myPower + targetPower)
+  // ⚔️ [업데이트] 예전엔 공격력 비율로 "확률"만 정해서, 공격력이 낮아도 가끔 이기는 확률형이었다.
+  // 이제 실제 공격력을 그대로 기준으로 삼아서, 공격력이 더 높은 몬스터가 항상 이긴다.
+  // 공격력이 정확히 같을 때만 50:50 무작위로 승패를 가른다.
+  const iWin = myPower === targetPower ? Math.random() < 0.5 : myPower > targetPower
   const winnerMonster = iWin ? myMon : targetMon
   const loserMonster = iWin ? targetMon : myMon
   const winnerName = iWin ? author : targetNick
@@ -2651,7 +2676,7 @@ function clearReminderTimers(room) {
   room.reminderTimers = []
 }
 
-function handleReminderCommand(djId, room, settings, author, text) {
+function handleReminderCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'reactiontimer', djId)) return
   const cfg = getReminderSettings(djId, settings)
   const msg = String(text || '').trim()
@@ -2667,7 +2692,24 @@ function handleReminderCommand(djId, room, settings, author, text) {
     sendChatSplit(djId, ['⏰ 등록된 리액션 타이머'].concat(lines).join('\n'), 150, 600)
     return
   }
+  // ⏰ {cmd} 중지 [번호] — 위 목록에 나오는 번호로 타이머를 제거한다. 방송 진행에 영향을 주는
+  // 기능이라 DJ 본인만 사용 가능하게 제한한다 (등록은 누구나, 중지는 DJ만).
+  const stopMatch = msg.match(new RegExp(`^${escapeRegExp(cmd)}\\s+중지\\s+(\\d+)$`))
+  if (stopMatch) {
+    const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '⚠️ 타이머 중지는 DJ만 사용할 수 있어요.'), 400); return }
+    const idx = parseInt(stopMatch[1], 10) - 1
+    if (idx < 0 || idx >= room.reminderTimers.length) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${idx + 1}번 타이머를 찾을 수 없어요. ${cmd}로 목록을 먼저 확인해주세요.`), 400); return }
+    const [removed] = room.reminderTimers.splice(idx, 1)
+    if (removed && removed.handle) clearTimeout(removed.handle)
+    setTimeout(() => sendChatToRoom(djId, `⏰ ${idx + 1}번 타이머(${removed.content})를 중지했어요.`), 400)
+    return
+  }
   if (msg.startsWith(cmd + ' ')) {
+    // ⏰ 등록도 DJ 전용으로 제한 (중지랑 동일 기준). isDj는 위 "중지" 분기에서도 쓰는 계산이지만
+    // 여기선 별도 분기라 다시 계산한다.
+    const isDjRegister = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+    if (!isDjRegister) { setTimeout(() => sendChatToRoom(djId, '⚠️ 리액션 타이머 등록은 DJ만 사용할 수 있어요.'), 400); return }
     const rest = msg.slice(cmd.length).trim()
     const m = rest.match(/^(\d+)\s+(.+)$/)
     if (!m) { setTimeout(() => sendChatToRoom(djId, `⏰ 사용법: ${cmd} [분] [내용]`), 400); return }
@@ -2682,6 +2724,8 @@ function handleReminderCommand(djId, room, settings, author, text) {
       if (idx >= 0) room.reminderTimers.splice(idx, 1)
       const alertText = (cfg.alertMsg || '🔔 {content} 시간이 됐습니다!').replace(/\{content\}/g, content)
       sendChatToRoom(djId, alertText)
+      // 🔔 타이머가 실제로 울릴 때, 방송 화면(웹)을 보고 있는 브라우저에서 기본 알림음을 2번 재생한다.
+      broadcast({ type: 'reactiontimersound', djId })
     }, min * 60000)
     room.reminderTimers.push({ id, content, author, dueAt, handle })
     const regText = (cfg.registerMsg || '⏰ {min}분 후 알림: {content}').replace(/\{min\}/g, min).replace(/\{content\}/g, content)
@@ -12912,7 +12956,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text, actTag)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
-          handleReminderCommand(djId, room, settings, author, text)
+          handleReminderCommand(djId, room, settings, author, authorId, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
           handleWeatherCommand(djId, room, settings, author, authorId, text)
@@ -15661,7 +15705,10 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     })
   }
   if (on('reactiontimer') && settings.reminderTimer && settings.reminderTimer.cmd) {
-    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [{ cmd: settings.reminderTimer.cmd, desc: '[명령어] [분] [내용] 형식으로 예약 알림 등록' }] })
+    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [
+      { cmd: settings.reminderTimer.cmd, desc: '[분] [내용] 형식으로 예약 알림 등록 (예약목록은 명령어만 입력)' },
+      { cmd: `${settings.reminderTimer.cmd} 중지 [번호]`, desc: '등록된 타이머 취소 (DJ 전용)' },
+    ] })
   }
   if (on('dday') && settings.dday && settings.dday.cmd) {
     groups.push({ key: 'dday', icon: '📅', label: '디데이', items: [{ cmd: settings.dday.cmd, desc: '디데이 등록/조회' }] })
@@ -16698,7 +16745,7 @@ app.listen(PORT, () => {
   setInterval(backupToBase44, 30 * 60 * 1000)
 })
 
-// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
