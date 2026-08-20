@@ -5802,7 +5802,7 @@ function mfDefaultConfig() {
     ],
     nightSec: 60, daySec: 90,
     cmdAuth: '!마피아인증', cmdJoin: '!마피아참가', cmdStart: '!마피아시작',
-    cmdVote: '!마피아투표', cmdSkip: '!마피아기권', cmdStatus: '!마피아상태', cmdEnd: '!마피아종료',
+    cmdVote: '!마피아투표', cmdSkip: '!마피아기권', cmdStatus: '!마피아상태', cmdEnd: '!마피아종료', cmdForce: '!마피아진행',
   }
 }
 function mfDefaultGame() {
@@ -6116,6 +6116,21 @@ async function handleMafiaCommand(djId, room, settings, author, authorId, liveId
     broadcast({ type: 'mafia-phase', djId, phase: 'waiting' })
     return sendChatSplit(djId, '🛑 마피아 게임을 종료하고 초기화했어요. 다시 참가를 받을 수 있어요.', 150, 300)
   }
+
+  if (cmd === cfg.cmdForce) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const result = mfForcePhase(djId, mf)
+    if (!result.ok) return sendChatSplit(djId, `⚠️ ${result.error}`, 150, 300)
+    return
+  }
+}
+
+// DJ가 타이머를 기다리지 않고 지금 바로 밤→낮 또는 낮→밤으로 강제 진행시킨다.
+function mfForcePhase(djId, mf) {
+  if (mf.game.phase !== 'night' && mf.game.phase !== 'day') return { ok: false, error: '지금은 진행 중인 밤/낮이 없어요.' }
+  if (mf.game.phase === 'night') mfResolveNight(djId, mf)
+  else mfResolveDay(djId, mf)
+  return { ok: true }
 }
 
 // 🎣 팝블리네 낚시대회 — 낚시 게임과는 완전히 별개인 신규 모듈.
@@ -16653,6 +16668,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
         { cmd: mcfg.cmdVote + ' 고유닉', desc: '처형 투표 (낮에만)' },
         { cmd: mcfg.cmdSkip, desc: '투표 기권' },
         { cmd: mcfg.cmdStatus, desc: '진행 상황 확인' },
+        { cmd: mcfg.cmdForce, desc: '지금 바로 다음 단계로 강제 진행 (관리자)' },
         { cmd: mcfg.cmdEnd, desc: '게임 종료/초기화 (관리자)' },
       ].filter(x => x.cmd)
     })
@@ -17277,7 +17293,7 @@ app.post('/mafia-admin/settings', auth.requireAuth, (req, res) => {
   if (Array.isArray(body.roles)) mf.config.roles = mfNormalizeRoles(body.roles)
   if (body.nightSec != null) mf.config.nightSec = Math.max(10, Math.min(600, Number(body.nightSec) || 60))
   if (body.daySec != null) mf.config.daySec = Math.max(10, Math.min(600, Number(body.daySec) || 90))
-  const cmdKeys = ['cmdAuth', 'cmdJoin', 'cmdStart', 'cmdVote', 'cmdSkip', 'cmdStatus', 'cmdEnd']
+  const cmdKeys = ['cmdAuth', 'cmdJoin', 'cmdStart', 'cmdVote', 'cmdSkip', 'cmdStatus', 'cmdEnd', 'cmdForce']
   cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) mf.config[k] = v.slice(0, 40) } })
   saveMafia(req.djId, mf)
   res.json({ success: true, config: mf.config })
@@ -17297,6 +17313,14 @@ app.post('/mafia-admin/reset', auth.requireAuth, (req, res) => {
   mf.game = mfDefaultGame()
   saveMafia(req.djId, mf)
   broadcast({ type: 'mafia-phase', djId: req.djId, phase: 'waiting' })
+  res.json({ success: true })
+})
+// DJ가 밤/낮 타이머를 안 기다리고 지금 바로 다음 단계로 강제 진행
+app.post('/mafia-admin/force-phase', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  const result = mfForcePhase(req.djId, mf)
+  if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true })
 })
 // 관리자는 진행 상황 확인용으로 전체 참가자의 역할까지 볼 수 있다 (시청자 웹페이지는 본인 것만 노출)
@@ -17368,9 +17392,17 @@ app.get('/mafia/:djId/me', (req, res) => {
   const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
   if (player) {
     resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
-    resp.myNightAction = game.nightActions[tag] || null
-    if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
-    resp.targetableAlive = mfAliveTags(game).filter(t => t !== tag).map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    if (game.phase === 'night') {
+      resp.myNightAction = game.nightActions[tag] || null
+      if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
+      // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
+      let candidates = mfAliveTags(game)
+      if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)
+      resp.targetableAlive = candidates.map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    } else if (game.phase === 'day') {
+      resp.myVote = game.votes[tag] || null
+      resp.targetableAlive = mfAliveTags(game).filter(t => t !== tag).map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    }
   }
   res.json(resp)
 })
@@ -17383,7 +17415,10 @@ app.post('/mafia/:djId/join', (req, res) => {
   const tag = mf.webUsers[webUserId]
   if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
   if (mf.game.phase !== 'waiting') return res.json({ success: false, error: '지금은 참가할 수 없어요.' })
-  mf.game.pool[tag] = mf.game.pool[tag] || tag
+  // 웹 "참가하기" 버튼으로 처음 들어오는 경우, 저장된 닉네임이 없으면 태그가 그대로 이름으로
+  // 보이는 문제가 있었다 — 방에서 최근에 확인된 실제 닉네임으로 채워준다.
+  const room = getRoom(djId)
+  mf.game.pool[tag] = mf.game.pool[tag] || resolveNicknameFromInput(room, tag)
   saveMafia(djId, mf)
   broadcast({ type: 'mafia-pool', djId, count: Object.keys(mf.game.pool).length })
   res.json({ success: true, poolCount: Object.keys(mf.game.pool).length })
@@ -17405,6 +17440,25 @@ app.post('/mafia/:djId/night-action', (req, res) => {
   if (!targetTag || !game.players[targetTag]) return res.json({ success: false, error: '대상을 선택해주세요.' })
   if (player.nightAction !== 'heal' && targetTag === tag) return res.json({ success: false, error: '본인은 지목할 수 없어요.' })
   game.nightActions[tag] = targetTag
+  saveMafia(djId, mf)
+  res.json({ success: true })
+})
+// 낮 처형 투표를 웹에서 클릭으로도 할 수 있게 하는 공개 API (방송 채팅 명령어와 동일하게 동작)
+app.post('/mafia/:djId/vote', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const targetTag = String((req.body || {}).targetTag || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const game = mf.game
+  if (game.phase !== 'day') return res.json({ success: false, error: '지금은 투표 시간이 아니에요.' })
+  const voter = game.players[tag]
+  if (!voter || !voter.alive) return res.json({ success: false, error: '생존한 참가자만 투표할 수 있어요.' })
+  if (!targetTag || !game.players[targetTag] || !game.players[targetTag].alive) return res.json({ success: false, error: '대상을 선택해주세요 (생존자만 지목할 수 있어요).' })
+  game.votes[tag] = targetTag
   saveMafia(djId, mf)
   res.json({ success: true })
 })

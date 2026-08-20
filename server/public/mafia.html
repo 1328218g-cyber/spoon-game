@@ -85,7 +85,8 @@
     </div>
 
     <div id="dayBox" style="display:none">
-      <div class="hint">☀️ 낮이에요. 방송 채팅에서 처형 투표 명령어로 투표해주세요.</div>
+      <div class="hint">☀️ 낮이에요. 처형할 대상을 선택하거나, 방송 채팅에서 투표 명령어로 투표해도 돼요.</div>
+      <div class="target-list" id="voteTargetList"></div>
     </div>
 
     <div id="endBox" style="display:none">
@@ -109,6 +110,7 @@ let webUserId = localStorage.getItem(LS_KEY) || '';
 let myTag = '', myTickets = 0;
 let pollTimer = null;
 let selectedTarget = null;
+let selectedVote = null;
 let lastPhase = null;
 
 function showToast(msg){
@@ -205,7 +207,7 @@ function renderMain(d){
   waitingBox.style.display='none'; roleBox.style.display='none';
   nightBox.style.display='none'; dayBox.style.display='none'; endBox.style.display='none';
 
-  if(d.phase !== lastPhase){ selectedTarget = null; lastPhase = d.phase; }
+  if(d.phase !== lastPhase){ selectedTarget = null; selectedVote = null; lastPhase = d.phase; }
 
   if(d.phase === 'waiting'){
     pill.className='phase-pill phase-wait'; pill.textContent='🎭 참가 대기 중';
@@ -240,6 +242,11 @@ function renderMain(d){
         statusText.textContent = d.role.alive ? '' : '💀 사망했어요. 계속 지켜볼 수 있어요.';
       }
     }
+    if(d.role && !d.role.alive){
+      document.getElementById('voteTargetList').innerHTML = '<div class="hint">사망한 상태라 투표할 수 없어요.</div>';
+    } else {
+      renderVoteList(d);
+    }
     dayBox.style.display='block';
   } else if(d.phase === 'ended'){
     pill.className='phase-pill phase-end'; pill.textContent='🏁 게임 종료';
@@ -270,9 +277,29 @@ function renderNightAction(d){
   const already = d.myNightAction;
   list.innerHTML = targets.map(t => {
     const sel = (selectedTarget===t.tag || (!selectedTarget && already===t.tag));
-    return `<button class="target-btn ${sel?'selected':''}" onclick="mfPickTarget('${t.tag}')">${escapeHtml(t.nickname)}</button>`;
+    const isSelf = t.tag === myTag;
+    return `<button class="target-btn ${sel?'selected':''}" onclick="mfPickTarget('${t.tag}')">${escapeHtml(t.nickname)}${isSelf?' (나)':''}</button>`;
   }).join('');
   if(already && !selectedTarget) selectedTarget = already;
+  if(already){
+    const doneMsg = {kill:'선택 완료! 아침에 결과를 확인할 수 있어요.',heal:'선택 완료! 아침에 결과를 확인할 수 있어요.',investigate:'선택 완료! 아침이 되면 조사 결과가 이 화면에 표시돼요.'};
+    const el = document.createElement('div');
+    el.className = 'hint center';
+    el.textContent = doneMsg[d.role.nightAction] || '선택 완료!';
+    list.after(el);
+  }
+}
+
+function renderVoteList(d){
+  const list = document.getElementById('voteTargetList');
+  const targets = d.targetableAlive || [];
+  const already = d.myVote;
+  if(!targets.length){ list.innerHTML=''; return; }
+  list.innerHTML = targets.map(t => {
+    const sel = (selectedVote===t.tag || (!selectedVote && already===t.tag));
+    return `<button class="target-btn ${sel?'selected':''}" onclick="mfVote('${t.tag}')">${escapeHtml(t.nickname)}</button>`;
+  }).join('');
+  if(already && !selectedVote) selectedVote = already;
 }
 
 async function mfPickTarget(targetTag){
@@ -285,6 +312,20 @@ async function mfPickTarget(targetTag){
     const d = await res.json();
     if(!d.success){ showToast(d.error||'실패했어요'); return; }
     showToast('선택했어요');
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function mfVote(targetTag){
+  selectedVote = targetTag;
+  try{
+    const res = await fetch(`${SERVER}/mafia/${DJ_ID}/vote`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, targetTag })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패했어요'); return; }
+    showToast('투표했어요');
     checkMe();
   }catch(e){ showToast('오류: '+e.message); }
 }

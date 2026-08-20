@@ -3388,6 +3388,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-connect" style="flex:1" onclick="mfStartGame()">▶️ 게임 시작</button>
             <button class="btn-shield-reset" style="flex:1" onclick="mfResetGame()">🛑 종료/초기화</button>
           </div>
+          <button class="btn-gray" style="width:100%;margin-top:8px;padding:10px" onclick="mfForcePhase()">⏭️ 지금 바로 다음 단계로 (타이머 무시)</button>
         </div>
 
         <div class="card">
@@ -3415,6 +3416,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>투표 기권</label><input type="text" id="mfCmdSkip" value="마피아기권"></div>
             <div><label>진행 상태 확인</label><input type="text" id="mfCmdStatus" value="마피아상태"></div>
             <div><label>종료/초기화 (관리자)</label><input type="text" id="mfCmdEnd" value="마피아종료"></div>
+            <div><label>다음 단계 강제 진행 (관리자)</label><input type="text" id="mfCmdForce" value="마피아진행"></div>
           </div>
         </div>
 
@@ -12414,6 +12416,7 @@ async function loadMfSettings(){
     document.getElementById('mfCmdSkip').value=(mfConfig.cmdSkip||'').replace(/^!/,'');
     document.getElementById('mfCmdStatus').value=(mfConfig.cmdStatus||'').replace(/^!/,'');
     document.getElementById('mfCmdEnd').value=(mfConfig.cmdEnd||'').replace(/^!/,'');
+    document.getElementById('mfCmdForce').value=(mfConfig.cmdForce||'').replace(/^!/,'');
     document.getElementById('mfPublicUrl').value=location.origin+(d.publicUrl||'/mafia/'+djId);
     mfRenderRoleList();
     mfRenderStatus(d.game);
@@ -12483,6 +12486,7 @@ async function saveMfSettings(){
     cmdSkip:document.getElementById('mfCmdSkip').value,
     cmdStatus:document.getElementById('mfCmdStatus').value,
     cmdEnd:document.getElementById('mfCmdEnd').value,
+    cmdForce:document.getElementById('mfCmdForce').value,
   };
   try{
     const res=await fetch(SERVER+'/mafia-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
@@ -12509,6 +12513,16 @@ async function mfResetGame(){
     const d=await res.json();
     if(!d.success)return showToast(d.error||'실패');
     showToast('초기화했어요');
+    loadMfSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function mfForcePhase(){
+  if(!confirm('타이머를 무시하고 지금 바로 다음 단계(밤↔낮)로 진행할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/mafia-admin/force-phase',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('다음 단계로 진행했어요');
     loadMfSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
