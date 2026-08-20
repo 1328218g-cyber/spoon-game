@@ -3285,12 +3285,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 🌐 웹뽑기판 -->
       <div class="panel" data-panel="webpickboard">
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-weight:700;font-size:14px">⚙️ 웹뽑기판 설정</div>
+            <p class="hint" style="margin:4px 0 0">아래 내용을 바꾼 뒤 이 버튼 하나로 전부 저장돼요. 시청자가 웹페이지(로그인 불필요)에서 직접 눌러서 뽑는 새 뽑기판이고, 기존 채팅용 "뽑기판"과는 완전히 별개예요.</p>
+          </div>
+          <button class="btn-connect" style="padding:10px 20px;font-size:13px;white-space:nowrap" onclick="saveWpbSettings()">💾 저장</button>
+        </div>
+
         <div class="card">
-          <div class="card-title"><span>⚙️ 뽑기판 크기</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wpbApplySize()">✔ 적용</button></div>
-          <p class="hint">시청자가 웹페이지(로그인 불필요)에서 직접 눌러서 뽑는 새로운 뽑기판이에요. 기존 채팅용 "뽑기판"과는 완전히 별개로 동작해요.</p>
+          <div class="card-title"><span>📐 뽑기판 크기</span></div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>가로</label><input type="number" id="wpbCols" value="7" min="1" max="60"></div>
-            <div><label>세로</label><input type="number" id="wpbRows" value="7" min="1" max="60"></div>
+            <div><label>가로</label><input type="text" value="10칸 (고정)" disabled></div>
+            <div><label>세로 (최대 80)</label><input type="number" id="wpbRows" value="7" min="1" max="80"></div>
           </div>
         </div>
 
@@ -3309,7 +3316,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>🏆 등수별 상품 / 개수</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveWpbSettings()">💾 저장</button></div>
+          <div class="card-title"><span>🏆 등수별 상품 / 개수</span></div>
           <p class="hint">개수의 합이 판 크기(가로×세로)보다 적으면 남는 칸은 마지막 등수(7등)로 자동 채워지고, 많으면 초과분은 잘려요. 저장하면 판이 다시 무작위로 배치돼요.</p>
           <div id="wpbRankList"></div>
         </div>
@@ -3322,7 +3329,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>뽑기권 차감 (관리자)</label><input type="text" id="wpbCmdTicketRemove" value="뽑기권차감"></div>
             <div><label>내 뽑기권 확인</label><input type="text" id="wpbCmdMyTicket" value="뽑기권확인"></div>
           </div>
-          <div class="fish-tab-footer"><button class="btn-connect" onclick="saveWpbSettings()">저장</button></div>
         </div>
 
         <div class="card">
@@ -12125,7 +12131,6 @@ async function loadWpbSettings(){
     const d=await res.json();
     if(!d.success)return;
     wpbConfig=d.config; wpbGrid=d.grid||[]; wpbPicked=d.picked||{};
-    document.getElementById('wpbCols').value=wpbConfig.cols;
     document.getElementById('wpbRows').value=wpbConfig.rows;
     document.getElementById('wpbCmdAuth').value=(wpbConfig.cmdAuth||'').replace(/^!/,'');
     document.getElementById('wpbCmdTicketGive').value=(wpbConfig.cmdTicketGive||'').replace(/^!/,'');
@@ -12140,10 +12145,11 @@ async function loadWpbSettings(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+const WPB_FIXED_COLS=10;
 function wpbRenderRankList(){
   const wrap=document.getElementById('wpbRankList');
   if(!wpbConfig)return;
-  const total=(Number(wpbConfig.cols)||0)*(Number(wpbConfig.rows)||0);
+  const total=WPB_FIXED_COLS*(Number(wpbConfig.rows)||0);
   const sum=wpbConfig.ranks.reduce((a,r)=>a+(Number(r.count)||0),0);
   wrap.innerHTML=wpbConfig.ranks.map((r,i)=>`
     <div class="btn-row" style="grid-template-columns:60px 1fr 100px;align-items:center;margin-bottom:8px">
@@ -12155,21 +12161,16 @@ function wpbRenderRankList(){
 function wpbRenderRankSum(){
   const el=document.getElementById('wpbRankSum');
   if(!el||!wpbConfig)return;
-  const total=(Number(document.getElementById('wpbCols').value)||0)*(Number(document.getElementById('wpbRows').value)||0);
+  const total=WPB_FIXED_COLS*(Number(document.getElementById('wpbRows').value)||0);
   const sum=wpbConfig.ranks.reduce((a,r)=>a+(Number(r.count)||0),0);
   el.textContent=`현재 개수 합: ${sum}개 / 판 크기: ${total}칸`+(sum!==total?' ⚠️ 합이 판 크기와 달라요 (부족분은 7등으로 채워지고, 초과분은 잘려요)':'');
-}
-function wpbApplySize(){
-  wpbRenderRankSum();
-  showToast('아래 "저장"을 눌러야 실제로 적용돼요');
 }
 
 async function saveWpbSettings(){
   if(!wpbConfig)return;
-  const reqCols=Number(document.getElementById('wpbCols').value)||7;
   const reqRows=Number(document.getElementById('wpbRows').value)||7;
   const body={
-    cols:reqCols,
+    cols:WPB_FIXED_COLS,
     rows:reqRows,
     ranks:wpbConfig.ranks,
     cmdAuth:document.getElementById('wpbCmdAuth').value,
@@ -12181,8 +12182,8 @@ async function saveWpbSettings(){
     const res=await fetch(SERVER+'/webpickboard-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
     if(!d.success)return showToast(d.error||'실패');
-    if(d.config.cols!==reqCols||d.config.rows!==reqRows){
-      showToast(`⚠️ 가로/세로는 최대 60까지예요. ${d.config.cols}x${d.config.rows}로 저장됐어요`);
+    if(d.config.rows!==reqRows){
+      showToast(`⚠️ 세로는 최대 80까지예요. ${d.config.cols}x${d.config.rows}로 저장됐어요`);
     }else{
       showToast('저장 완료! 판이 새로 배치됐어요');
     }
@@ -12266,7 +12267,7 @@ async function wpbSavePreset(){
   const name=document.getElementById('wpbPresetName').value.trim();
   if(!name)return showToast('프리셋 이름을 입력해주세요');
   // 지금 화면에 입력된 값(아직 저장 안 했을 수도 있는) 기준으로 저장
-  wpbConfig.cols=Number(document.getElementById('wpbCols').value)||7;
+  wpbConfig.cols=WPB_FIXED_COLS;
   wpbConfig.rows=Number(document.getElementById('wpbRows').value)||7;
   try{
     const res=await fetch(SERVER+'/webpickboard-admin/preset/save',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({name})});

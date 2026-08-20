@@ -5561,12 +5561,14 @@ setInterval(() => {
 // 그 다음부터는 그 브라우저에서 로그인 없이 계속 본인 뽑기권으로 웹 화면에서 뽑기를 할 수 있다.
 // ══════════════════════════════════════════════════════
 const WPB_RANK_COUNT = 7
+const WPB_FIXED_COLS = 10 // 🔒 가로는 항상 10칸으로 고정 (모바일에서 다루기 좋은 폭)
+const WPB_MAX_ROWS = 80
 function wpbDefaultRanks() {
   return Array.from({ length: WPB_RANK_COUNT }, (_, i) => ({ rank: i + 1, name: '', count: 0 }))
 }
 function wpbDefaultConfig() {
   return {
-    cols: 7, rows: 7,
+    cols: WPB_FIXED_COLS, rows: 7,
     ranks: wpbDefaultRanks(),
     presets: [], // { id, name, cols, rows, ranks }
     cmdAuth: '!뽑기인증', cmdTicketGive: '!뽑기권지급', cmdTicketRemove: '!뽑기권차감', cmdMyTicket: '!뽑기권확인',
@@ -5605,6 +5607,8 @@ function getWebPickboardSettings(djId, settings) {
   }
   const wpb = settings.webPickboard
   wpb.config = { ...wpbDefaultConfig(), ...(wpb.config || {}) }
+  wpb.config.cols = WPB_FIXED_COLS // 🔒 예전에 저장된 값이 있어도 항상 10으로 강제
+  wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(wpb.config.rows) || 7))
   wpb.config.ranks = wpbNormalizeRanks(wpb.config.ranks)
   if (!Array.isArray(wpb.config.presets)) wpb.config.presets = []
   if (!Array.isArray(wpb.grid) || wpb.grid.length !== wpbCellTotal(wpb.config)) wpb.grid = wpbBuildGrid(wpb.config)
@@ -16641,8 +16645,9 @@ app.post('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
   const wpb = getWebPickboardSettings(req.djId, settings)
   const body = req.body || {}
 
-  if (body.cols != null) wpb.config.cols = Math.max(1, Math.min(20, Number(body.cols) || 7))
-  if (body.rows != null) wpb.config.rows = Math.max(1, Math.min(20, Number(body.rows) || 7))
+  // 🔒 가로는 항상 10칸으로 고정 — 클라이언트가 뭘 보내든 무시한다. 세로만 최대 80까지 가변.
+  wpb.config.cols = WPB_FIXED_COLS
+  if (body.rows != null) wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(body.rows) || 7))
   if (Array.isArray(body.ranks)) wpb.config.ranks = wpbNormalizeRanks(body.ranks)
 
   const cmdKeys = ['cmdAuth', 'cmdTicketGive', 'cmdTicketRemove', 'cmdMyTicket']
@@ -16672,8 +16677,8 @@ app.post('/webpickboard-admin/preset/load', auth.requireAuth, (req, res) => {
   const id = String((req.body || {}).id || '')
   const preset = wpb.config.presets.find(p => p.id === id)
   if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
-  wpb.config.cols = preset.cols
-  wpb.config.rows = preset.rows
+  wpb.config.cols = WPB_FIXED_COLS // 🔒 옛날 프리셋에 다른 가로 값이 저장돼있어도 항상 10으로 고정
+  wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(preset.rows) || 7))
   wpb.config.ranks = wpbNormalizeRanks(preset.ranks)
   wpb.grid = wpbBuildGrid(wpb.config)
   wpb.picked = {}

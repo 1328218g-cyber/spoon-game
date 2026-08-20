@@ -65,6 +65,7 @@
   <div class="card" id="authWaitCard" style="display:none">
     <div class="hint">아래 코드를 방송 <b>채팅창</b>에 그대로 입력해주세요.</div>
     <div class="code-box" id="authCodeBox">------</div>
+    <button class="btn btn-gray" style="margin-bottom:10px" onclick="wpCopyCode()">📋 코드 복사</button>
     <div class="hint center" id="authCmdHint"></div>
     <div class="hint center">⏳ 인증 확인 중... (자동으로 감지돼요)</div>
     <button class="btn btn-gray" onclick="wpRegister()">코드 다시 발급받기</button>
@@ -110,6 +111,28 @@ function showToast(msg){
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function wpCopyCode(){
+  const code = document.getElementById('authCodeBox').textContent.trim();
+  if(!code || code === '------') return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(()=>showToast('코드를 복사했어요')).catch(()=>wpCopyCodeFallback(code));
+  } else {
+    wpCopyCodeFallback(code);
+  }
+}
+function wpCopyCodeFallback(code){
+  const ta = document.createElement('textarea');
+  ta.value = code;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try{ document.execCommand('copy'); showToast('코드를 복사했어요'); }
+  catch(e){ showToast('복사에 실패했어요. 직접 입력해주세요'); }
+  document.body.removeChild(ta);
 }
 
 document.getElementById('djTitle').textContent = '🎯 ' + DJ_ID + '님의 웹뽑기판';
