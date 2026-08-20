@@ -223,6 +223,52 @@ function tokenDjIdFor(djId) {
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 
+// 🔗 자체 단축 URL 시스템 — buly.kr 같은 외부 서비스는 클라우드 서버(Railway) IP에서 오는
+// 요청을 조용히 막는(응답 자체를 안 주는) 경우가 있어서, 외부 서비스에 의존하지 않고
+// 에디봇 서버 자체에서 짧은 링크를 만들어 저장해뒀다가 리다이렉트해준다.
+const SHORTLINKS_FILE = path.join(store.DATA_DIR, 'shortlinks.json')
+let shortlinksCache = null
+function loadShortlinks() {
+  if (shortlinksCache) return shortlinksCache
+  try {
+    shortlinksCache = JSON.parse(fs.readFileSync(SHORTLINKS_FILE, 'utf8'))
+  } catch (e) {
+    shortlinksCache = {}
+  }
+  return shortlinksCache
+}
+function saveShortlinks() {
+  try {
+    fs.mkdirSync(path.dirname(SHORTLINKS_FILE), { recursive: true })
+    fs.writeFileSync(SHORTLINKS_FILE, JSON.stringify(shortlinksCache, null, 2))
+  } catch (e) {
+    console.log('[단축링크] 저장 실패:', e.message)
+  }
+}
+function makeShortCode() {
+  const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' // 헷갈리는 0/O/1/I/l 제외
+  const map = loadShortlinks()
+  let code
+  do { code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') } while (map[code])
+  return code
+}
+app.post('/shorten-url', auth.requireAuth, (req, res) => {
+  const longUrl = String((req.body || {}).url || '').trim()
+  if (!longUrl) return res.json({ success: false, error: 'URL을 입력해주세요' })
+  if (!/^https?:\/\//.test(longUrl)) return res.json({ success: false, error: 'http(s):// 로 시작하는 URL만 단축할 수 있어요' })
+  const map = loadShortlinks()
+  const existingCode = Object.keys(map).find(c => map[c].url === longUrl) // 같은 주소는 코드 재사용
+  const code = existingCode || makeShortCode()
+  if (!existingCode) { map[code] = { url: longUrl, createdAt: Date.now(), djId: req.djId }; saveShortlinks() }
+  res.json({ success: true, shortUrl: `${req.protocol}://${req.get('host')}/s/${code}` })
+})
+app.get('/s/:code', (req, res) => {
+  const map = loadShortlinks()
+  const entry = map[req.params.code]
+  if (!entry) return res.status(404).send('존재하지 않거나 만료된 링크예요.')
+  res.redirect(entry.url)
+})
+
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
 const rooms = {}
 function getRoom(djId) {
@@ -613,7 +659,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftgallery'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2146,13 +2192,22 @@ function mcPickStrongest(collection, monsters) {
 // 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
 // 같은 문구를 채팅으로 뿌린다. 서버 전체에 딱 하나만 도는 전역 타이머(방마다 따로 있는 게 아님).
 let globalAnnounceTimer = null
+// 🛡️ store.js에 getGlobalAnnounce/setGlobalAnnounce가 아직 없는 배포본에서도 서버가
+// 죽지 않도록(uncaughtException) 안전하게 감싼 함수. store.js에 실제 함수가 추가되면
+// 자동으로 그쪽을 우선 사용한다.
+function getGlobalAnnounceSafe() {
+  if (typeof store.getGlobalAnnounce === 'function') {
+    try { return store.getGlobalAnnounce() } catch (e) { console.log('[전체방 공지] store.getGlobalAnnounce 호출 실패:', e.message) }
+  }
+  return { enabled: false, message: '', intervalMin: 30, excludeDjIds: [] }
+}
 function startGlobalAnnounceTimer() {
   if (globalAnnounceTimer) { clearInterval(globalAnnounceTimer); globalAnnounceTimer = null }
-  const cfg = store.getGlobalAnnounce()
+  const cfg = getGlobalAnnounceSafe()
   if (!cfg.enabled || !cfg.message) { console.log('[전체방 공지] 타이머 시작 안 함 — 꺼져있거나 문구가 비어있어요'); return }
   const intervalMs = Math.max(1, Math.min(720, parseInt(cfg.intervalMin, 10) || 30)) * 60 * 1000
   globalAnnounceTimer = setInterval(() => {
-    const cur = store.getGlobalAnnounce() // 매번 최신 설정으로 다시 읽어서, 중간에 문구/제외목록이 바뀌어도 바로 반영
+    const cur = getGlobalAnnounceSafe() // 매번 최신 설정으로 다시 읽어서, 중간에 문구/제외목록이 바뀌어도 바로 반영
     if (!cur.enabled || !cur.message) return
     const excludeSet = new Set((cur.excludeDjIds || []).map(x => String(x).trim().toLowerCase()))
     let sentCount = 0
@@ -5552,6 +5607,532 @@ setInterval(() => {
 }, 20000)
 
 // ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 기존 채팅전용 "뽑기판"과는 완전히 별개인 신규 모듈. 시청자가 채팅 명령어 없이
+// 웹페이지(/webpickboard/:djId)에서 직접 판을 눌러 뽑기를 진행한다. 1등~7등 등수별로 상품명과
+// 개수를 정해서 가로x세로 크기의 판에 무작위 배치해두고, DJ/매니저가 채팅으로
+// "!뽑기권지급 [고유닉] [수량]"을 치면 그 고유닉에게 뽑기권이 쌓인다.
+// 시청자 쪽 흐름: 웹페이지에서 "유저등록" → 6자리 인증코드 발급 → 그 코드를 방송 채팅창에
+// "!뽑기인증 코드"로 입력 → 봇이 그 채팅(고유닉)과 웹페이지 세션(webUserId)을 자동으로 연결.
+// 그 다음부터는 그 브라우저에서 로그인 없이 계속 본인 뽑기권으로 웹 화면에서 뽑기를 할 수 있다.
+// ══════════════════════════════════════════════════════
+const WPB_RANK_COUNT = 7
+const WPB_FIXED_COLS = 10 // 🔒 가로는 항상 10칸으로 고정 (모바일에서 다루기 좋은 폭)
+const WPB_MAX_ROWS = 80
+function wpbDefaultRanks() {
+  return Array.from({ length: WPB_RANK_COUNT }, (_, i) => ({ rank: i + 1, name: '', count: 0 }))
+}
+function wpbDefaultConfig() {
+  return {
+    cols: WPB_FIXED_COLS, rows: 7,
+    ranks: wpbDefaultRanks(),
+    presets: [], // { id, name, cols, rows, ranks }
+    cmdAuth: '!뽑기인증', cmdTicketGive: '!뽑기권지급', cmdTicketRemove: '!뽑기권차감', cmdMyTicket: '!뽑기권확인',
+  }
+}
+function wpbCellTotal(cfg) { return Math.max(1, Number(cfg.cols) || 1) * Math.max(1, Number(cfg.rows) || 1) }
+function wpbRand(max) { return Math.floor(Math.random() * max) }
+// 등수별 개수만큼 배치용 풀을 만들고 무작위로 섞는다. 개수 합이 판 크기보다 적으면 남는 칸은
+// 마지막 등수(보통 "꽝"에 해당하는 가장 많은 등수)로 채우고, 많으면 넘치는 만큼 잘라낸다 —
+// 그래야 관리자가 개수를 판 크기와 정확히 안 맞춰도 화면이 깨지지 않는다.
+function wpbBuildGrid(cfg) {
+  const total = wpbCellTotal(cfg)
+  const pool = []
+  for (const r of cfg.ranks) {
+    const cnt = Math.max(0, Number(r.count) || 0)
+    for (let i = 0; i < cnt; i++) pool.push(r.rank)
+  }
+  const fillRank = cfg.ranks[cfg.ranks.length - 1]?.rank || WPB_RANK_COUNT
+  while (pool.length < total) pool.push(fillRank)
+  if (pool.length > total) pool.length = total
+  for (let i = pool.length - 1; i > 0; i--) { const j = wpbRand(i + 1);[pool[i], pool[j]] = [pool[j], pool[i]] }
+  return pool
+}
+function wpbNormalizeRanks(raw) {
+  const list = Array.from({ length: WPB_RANK_COUNT }, (_, i) => {
+    const src = Array.isArray(raw) ? raw.find(r => Number(r.rank) === i + 1) : null
+    return { rank: i + 1, name: String((src && src.name) || '').trim().slice(0, 30), count: Math.max(0, Number(src && src.count) || 0) }
+  })
+  return list
+}
+function getWebPickboardSettings(djId, settings) {
+  if (!settings.webPickboard) {
+    const config = wpbDefaultConfig()
+    settings.webPickboard = { config, grid: wpbBuildGrid(config), picked: {}, users: {}, webUsers: {}, authKeys: {}, winners: [] }
+    store.saveSettings(djId, { webPickboard: settings.webPickboard })
+  }
+  const wpb = settings.webPickboard
+  wpb.config = { ...wpbDefaultConfig(), ...(wpb.config || {}) }
+  wpb.config.cols = WPB_FIXED_COLS // 🔒 예전에 저장된 값이 있어도 항상 10으로 강제
+  wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(wpb.config.rows) || 7))
+  wpb.config.ranks = wpbNormalizeRanks(wpb.config.ranks)
+  if (!Array.isArray(wpb.config.presets)) wpb.config.presets = []
+  if (!Array.isArray(wpb.grid) || wpb.grid.length !== wpbCellTotal(wpb.config)) wpb.grid = wpbBuildGrid(wpb.config)
+  if (!wpb.picked || typeof wpb.picked !== 'object') wpb.picked = {}
+  if (!wpb.users || typeof wpb.users !== 'object') wpb.users = {}
+  if (!wpb.webUsers || typeof wpb.webUsers !== 'object') wpb.webUsers = {}
+  if (!wpb.authKeys || typeof wpb.authKeys !== 'object') wpb.authKeys = {}
+  if (!Array.isArray(wpb.winners)) wpb.winners = []
+  return wpb
+}
+function saveWebPickboard(djId, wpb) { store.saveSettings(djId, { webPickboard: wpb }) }
+
+function wpbGetUser(wpb, tag) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  return wpb.users[clean] || { nickname: '', tickets: 0 }
+}
+function wpbSetUser(wpb, tag, nickname, tickets) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  if (!clean) return
+  const cur = wpb.users[clean] || { nickname: '', tickets: 0 }
+  wpb.users[clean] = { nickname: nickname || cur.nickname, tickets: Math.max(0, Number(tickets) || 0) }
+}
+
+// 인증코드는 헷갈리는 0/O/1/I를 뺀 6자리 영숫자, 10분 유효.
+const WPB_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function wpbGenAuthKey(wpb) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[wpbRand(chars.length)]).join('') } while (wpb.authKeys[key])
+  return key
+}
+function wpbCleanExpiredKeys(wpb) {
+  const now = Date.now()
+  for (const k of Object.keys(wpb.authKeys)) {
+    if (!wpb.authKeys[k] || wpb.authKeys[k].expiresAt < now) delete wpb.authKeys[k]
+  }
+}
+
+// 🔑 인증코드 처리 공용 함수 — "!뽑기인증 코드"로 치든, 명령어 없이 코드만 딱 치든 동일하게 동작.
+function wpbHandleAuth(djId, wpb, tag, author, code) {
+  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+  wpbCleanExpiredKeys(wpb)
+  const entry = wpb.authKeys[code]
+  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
+  wpb.webUsers[entry.webUserId] = tag
+  delete wpb.authKeys[code]
+  const cur = wpbGetUser(wpb, tag)
+  wpbSetUser(wpb, tag, author, cur.tickets)
+  saveWebPickboard(djId, wpb)
+  return sendChatSplit(djId, `✅ ${author}님 웹페이지 인증 완료! 이제 웹에서 뽑기를 진행할 수 있어요.`, 150, 300)
+}
+
+async function handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'webpickboard', djId)) return
+  const wpb = getWebPickboardSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const chatAct = getActivitySettings(djId, settings)
+  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  const canManage = isDj || isManager
+
+  // 🔑 "!뽑기인증 코드"처럼 명령어를 안 붙이고, 헷갈리지 않게 인증코드만 딱 쳐도 인식되게 처리.
+  // (영문/숫자 6자리이고, 실제로 발급되어 대기중인 코드와 정확히 일치할 때만 동작하므로 일반
+  //  채팅과 혼동될 일이 거의 없다)
+  if (!msg.startsWith('!')) {
+    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+      wpbCleanExpiredKeys(wpb)
+      if (wpb.authKeys[rawCode]) return wpbHandleAuth(djId, wpb, tag, author, rawCode)
+      // 형식은 인증코드 같은데(6자리 영숫자) 실제로 대기중인 코드가 아니면 조용히 넘기지 않고
+      // 바로 안내해준다 — 그래야 사람이 "인증이 안 된다"며 막막해하지 않는다.
+      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 "코드 다시 발급받기"로 새로 받아주세요.', 150, 300)
+    }
+    return
+  }
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  // 🔑 웹에서 발급받은 인증코드를 채팅으로 입력 → 이 채팅 계정(고유닉)과 웹 세션을 연결
+  if (cmd === wpb.config.cmdAuth) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+    const code = String(parts[1] || '').trim().toUpperCase()
+    if (!code) return sendChatSplit(djId, `사용법: ${wpb.config.cmdAuth} 코드6자리`, 150, 300)
+    return wpbHandleAuth(djId, wpb, tag, author, code)
+  }
+
+  if (cmd === wpb.config.cmdTicketGive) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = String(parts[1] || '').replace(/^@/, '').trim()
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, `사용법: ${wpb.config.cmdTicketGive} 고유닉 수량`, 150, 300)
+    const user = wpbGetUser(wpb, target)
+    wpbSetUser(wpb, target, user.nickname || target, user.tickets + count)
+    saveWebPickboard(djId, wpb)
+    broadcast({ type: 'webpickboard-ticket', djId, tag: target, tickets: wpb.users[target].tickets })
+    return sendChatSplit(djId, `🎫 ${target}님에게 뽑기권 ${count}장을 지급했어요. (보유: ${wpb.users[target].tickets}장)`, 150, 300)
+  }
+
+  if (cmd === wpb.config.cmdTicketRemove) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = String(parts[1] || '').replace(/^@/, '').trim()
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, `사용법: ${wpb.config.cmdTicketRemove} 고유닉 수량`, 150, 300)
+    const user = wpbGetUser(wpb, target)
+    const nextTickets = Math.max(0, user.tickets - count)
+    wpbSetUser(wpb, target, user.nickname || target, nextTickets)
+    saveWebPickboard(djId, wpb)
+    broadcast({ type: 'webpickboard-ticket', djId, tag: target, tickets: nextTickets })
+    return sendChatSplit(djId, `🎫 ${target}님의 뽑기권을 ${count}장 차감했어요. (남은: ${nextTickets}장)`, 150, 300)
+  }
+
+  if (cmd === wpb.config.cmdMyTicket) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요.', 150, 300)
+    const user = wpbGetUser(wpb, tag)
+    return sendChatSplit(djId, `🎫 ${author}님 보유 뽑기권: ${user.tickets}장`, 150, 300)
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🎭 마피아 게임 — 웹뽑기판과 같은 방식(웹페이지 + 채팅 인증)으로 시청자를 연결해서 진행하는
+// 자유 역할 구성 마피아 게임. DJ가 역할(이름/진영/인원/밤능력)을 자유롭게 정의해두면, 참가한
+// 시청자에게 무작위로 배정되고, 각자 자기 역할은 본인 웹페이지에서만 몰래 확인할 수 있다.
+// 밤/낮은 설정해둔 시간(초)에 따라 서버가 자동으로 전환하고, 처형 투표는 방송 채팅
+// 명령어로 진행한다.
+// ══════════════════════════════════════════════════════
+const MF_NIGHT_ACTIONS = ['kill', 'heal', 'investigate', 'none']
+function mfDefaultConfig() {
+  return {
+    roles: [
+      { id: 'r1', name: '마피아', team: 'mafia', count: 1, nightAction: 'kill' },
+      { id: 'r2', name: '경찰', team: 'citizen', count: 1, nightAction: 'investigate' },
+      { id: 'r3', name: '의사', team: 'citizen', count: 1, nightAction: 'heal' },
+      { id: 'r4', name: '시민', team: 'citizen', count: 1, nightAction: 'none' },
+    ],
+    nightSec: 60, daySec: 90,
+    cmdAuth: '!마피아인증', cmdJoin: '!마피아참가', cmdStart: '!마피아시작',
+    cmdVote: '!마피아투표', cmdSkip: '!마피아기권', cmdStatus: '!마피아상태', cmdEnd: '!마피아종료', cmdForce: '!마피아진행',
+  }
+}
+function mfDefaultGame() {
+  return { phase: 'waiting', players: {}, pool: {}, nightActions: {}, votes: {}, investigateResults: {}, phaseEndsAt: 0, round: 0, lastResult: null }
+}
+function mfNormalizeRoles(raw) {
+  const list = Array.isArray(raw) ? raw : []
+  return list.map((r, i) => ({
+    id: String(r.id || ('r' + Date.now() + i)),
+    name: String(r.name || '').trim().slice(0, 20) || `역할${i + 1}`,
+    team: r.team === 'mafia' ? 'mafia' : 'citizen',
+    count: Math.max(1, Math.min(50, Number(r.count) || 1)),
+    nightAction: MF_NIGHT_ACTIONS.includes(r.nightAction) ? r.nightAction : 'none',
+  })).slice(0, 20)
+}
+function getMafiaSettings(djId, settings) {
+  if (!settings.mafia) {
+    settings.mafia = { config: mfDefaultConfig(), game: mfDefaultGame(), webUsers: {}, authKeys: {} }
+    store.saveSettings(djId, { mafia: settings.mafia })
+  }
+  const mf = settings.mafia
+  mf.config = { ...mfDefaultConfig(), ...(mf.config || {}) }
+  mf.config.roles = mfNormalizeRoles(mf.config.roles)
+  if (!mf.game || typeof mf.game !== 'object') mf.game = mfDefaultGame()
+  if (!mf.game.players || typeof mf.game.players !== 'object') mf.game.players = {}
+  if (!mf.game.pool || typeof mf.game.pool !== 'object') mf.game.pool = {}
+  if (!mf.game.nightActions || typeof mf.game.nightActions !== 'object') mf.game.nightActions = {}
+  if (!mf.game.votes || typeof mf.game.votes !== 'object') mf.game.votes = {}
+  if (!mf.game.investigateResults || typeof mf.game.investigateResults !== 'object') mf.game.investigateResults = {}
+  if (!mf.webUsers || typeof mf.webUsers !== 'object') mf.webUsers = {}
+  if (!mf.authKeys || typeof mf.authKeys !== 'object') mf.authKeys = {}
+  return mf
+}
+function saveMafia(djId, mf) { store.saveSettings(djId, { mafia: mf }) }
+
+function mfRand(max) { return Math.floor(Math.random() * max) }
+const MF_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function mfGenAuthKey(mf) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[mfRand(chars.length)]).join('') } while (mf.authKeys[key])
+  return key
+}
+function mfCleanExpiredKeys(mf) {
+  const now = Date.now()
+  for (const k of Object.keys(mf.authKeys)) { if (!mf.authKeys[k] || mf.authKeys[k].expiresAt < now) delete mf.authKeys[k] }
+}
+
+function mfTotalSlots(cfg) { return cfg.roles.reduce((a, r) => a + r.count, 0) }
+function mfAliveTags(game) { return Object.keys(game.players).filter(t => game.players[t].alive) }
+function mfCountAliveTeam(game, team) { return mfAliveTags(game).filter(t => game.players[t].team === team).length }
+function mfCheckWin(game) {
+  const mafiaAlive = mfCountAliveTeam(game, 'mafia')
+  const citizenAlive = mfCountAliveTeam(game, 'citizen')
+  if (mafiaAlive <= 0) return 'citizen'
+  if (mafiaAlive >= citizenAlive) return 'mafia'
+  return null
+}
+function mfBuildPool(cfg) {
+  const pool = []
+  for (const r of cfg.roles) { for (let i = 0; i < r.count; i++) pool.push(r) }
+  return pool
+}
+
+function mfStartGame(djId, mf) {
+  const cfg = mf.config
+  const total = mfTotalSlots(cfg)
+  const mafiaCount = cfg.roles.filter(r => r.team === 'mafia').reduce((a, r) => a + r.count, 0)
+  const citizenCount = cfg.roles.filter(r => r.team === 'citizen').reduce((a, r) => a + r.count, 0)
+  if (mafiaCount < 1 || citizenCount < 1) return { ok: false, error: '마피아팀/시민팀 역할이 각각 최소 1개씩은 있어야 해요.' }
+  const joined = Object.keys(mf.game.pool)
+  if (joined.length !== total) return { ok: false, error: `참가 인원(${joined.length}명)이 설정된 역할 수(${total}명)와 달라요.` }
+
+  const rolePool = mfBuildPool(cfg)
+  const tags = [...joined]
+  for (let i = tags.length - 1; i > 0; i--) { const j = mfRand(i + 1);[tags[i], tags[j]] = [tags[j], tags[i]] }
+  for (let i = rolePool.length - 1; i > 0; i--) { const j = mfRand(i + 1);[rolePool[i], rolePool[j]] = [rolePool[j], rolePool[i]] }
+
+  const players = {}
+  tags.forEach((tag, i) => {
+    const role = rolePool[i]
+    players[tag] = { nickname: mf.game.pool[tag] || tag, roleId: role.id, roleName: role.name, team: role.team, nightAction: role.nightAction, alive: true }
+  })
+  mf.game = { phase: 'night', players, pool: {}, nightActions: {}, votes: {}, investigateResults: {}, phaseEndsAt: Date.now() + Math.max(10, Number(cfg.nightSec) || 60) * 1000, round: 1, lastResult: null }
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-phase', djId, phase: 'night', round: 1 })
+  sendChatSplit(djId, `🎭 마피아 게임 시작! 참가자 ${tags.length}명. 각자 웹페이지에서 자기 역할을 확인하세요. 🌙 1일차 밤이 시작됐어요. (${Math.round((mf.game.phaseEndsAt - Date.now()) / 1000)}초)`, 150, 300)
+  return { ok: true }
+}
+
+function mfResolveNight(djId, mf) {
+  const game = mf.game
+  const cfg = mf.config
+  const killVotes = {}
+  for (const [tag, target] of Object.entries(game.nightActions)) {
+    const p = game.players[tag]
+    if (!p || !p.alive || p.nightAction !== 'kill') continue
+    if (!target || !game.players[target] || !game.players[target].alive) continue
+    killVotes[target] = (killVotes[target] || 0) + 1
+  }
+  let killTarget = null
+  let maxVotes = 0
+  const tiedTargets = []
+  for (const [t, c] of Object.entries(killVotes)) {
+    if (c > maxVotes) { maxVotes = c; tiedTargets.length = 0; tiedTargets.push(t) }
+    else if (c === maxVotes) tiedTargets.push(t)
+  }
+  if (tiedTargets.length) killTarget = tiedTargets[mfRand(tiedTargets.length)]
+
+  const healedTags = new Set()
+  for (const [tag, target] of Object.entries(game.nightActions)) {
+    const p = game.players[tag]
+    if (!p || !p.alive || p.nightAction !== 'heal') continue
+    if (target) healedTags.add(target)
+  }
+  const saved = killTarget && healedTags.has(killTarget)
+
+  game.investigateResults = {}
+  for (const [tag, target] of Object.entries(game.nightActions)) {
+    const p = game.players[tag]
+    if (!p || !p.alive || p.nightAction !== 'investigate') continue
+    if (!target || !game.players[target]) continue
+    game.investigateResults[tag] = { targetNickname: game.players[target].nickname, team: game.players[target].team }
+  }
+
+  let deathMsg = '간밤에는 아무도 죽지 않았어요.'
+  if (killTarget && !saved) {
+    game.players[killTarget].alive = false
+    deathMsg = `간밤에 ${game.players[killTarget].nickname}님이 사망했어요.`
+  } else if (killTarget && saved) {
+    deathMsg = '누군가 습격당했지만 의사의 치료로 목숨을 건졌어요!'
+  }
+
+  game.nightActions = {}
+  game.lastResult = { type: 'night', message: deathMsg }
+
+  const winner = mfCheckWin(game)
+  if (winner) { mfEndGame(djId, mf, winner, deathMsg); return }
+
+  game.phase = 'day'
+  game.votes = {}
+  game.phaseEndsAt = Date.now() + Math.max(10, Number(cfg.daySec) || 90) * 1000
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-phase', djId, phase: 'day', round: game.round })
+  const alive = mfAliveTags(game).map(t => game.players[t].nickname).join(', ')
+  sendChatSplit(djId, `☀️ ${deathMsg} 생존자(${mfAliveTags(game).length}명): ${alive}\n${cfg.cmdVote} [고유닉] 으로 처형 투표해주세요! (${Math.round((game.phaseEndsAt - Date.now()) / 1000)}초)`, 150, 300)
+}
+
+function mfResolveDay(djId, mf) {
+  const game = mf.game
+  const cfg = mf.config
+  const tally = {}
+  for (const target of Object.values(game.votes)) {
+    if (!target || !game.players[target] || !game.players[target].alive) continue
+    tally[target] = (tally[target] || 0) + 1
+  }
+  let executed = null
+  let maxVotes = 0
+  const tied = []
+  for (const [t, c] of Object.entries(tally)) {
+    if (c > maxVotes) { maxVotes = c; tied.length = 0; tied.push(t) }
+    else if (c === maxVotes) tied.push(t)
+  }
+  let resultMsg
+  if (tied.length === 1 && maxVotes > 0) {
+    executed = tied[0]
+    game.players[executed].alive = false
+    resultMsg = `⚖️ 투표 결과 ${game.players[executed].nickname}님이 처형됐어요. (${game.players[executed].roleName})`
+  } else {
+    resultMsg = '⚖️ 표가 갈리거나 투표가 없어서 아무도 처형되지 않았어요.'
+  }
+  game.votes = {}
+  game.lastResult = { type: 'day', message: resultMsg }
+
+  const winner = mfCheckWin(game)
+  if (winner) { mfEndGame(djId, mf, winner, resultMsg); return }
+
+  game.round += 1
+  game.phase = 'night'
+  game.nightActions = {}
+  game.phaseEndsAt = Date.now() + Math.max(10, Number(cfg.nightSec) || 60) * 1000
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-phase', djId, phase: 'night', round: game.round })
+  sendChatSplit(djId, `${resultMsg}\n🌙 ${game.round}일차 밤이 시작됐어요. (${Math.round((game.phaseEndsAt - Date.now()) / 1000)}초)`, 150, 300)
+}
+
+function mfEndGame(djId, mf, winner, lastMsg) {
+  const game = mf.game
+  const reveal = Object.values(game.players).map(p => `${p.nickname}(${p.roleName})`).join(', ')
+  game.phase = 'ended'
+  game.lastResult = { type: 'end', message: `${lastMsg}\n\n🏆 ${winner === 'mafia' ? '마피아팀' : '시민팀'} 승리! 전체 역할 공개: ${reveal}` }
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-phase', djId, phase: 'ended' })
+  sendChatSplit(djId, `${lastMsg}\n🏆 ${winner === 'mafia' ? '마피아팀' : '시민팀'} 승리!\n👥 전체 공개: ${reveal}`, 150, 300)
+}
+
+// 5초마다 모든 방송의 마피아 게임 페이즈 타이머를 확인해서, 시간이 지났으면 자동으로 다음 단계로 넘긴다.
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'mafia', djId)) continue
+    if (!settings.mafia || !settings.mafia.game) continue
+    const mf = getMafiaSettings(djId, settings)
+    const game = mf.game
+    if ((game.phase === 'night' || game.phase === 'day') && game.phaseEndsAt && Date.now() >= game.phaseEndsAt) {
+      if (game.phase === 'night') mfResolveNight(djId, mf)
+      else mfResolveDay(djId, mf)
+    }
+  }
+}, 5000)
+
+function mfHandleAuth(djId, mf, tag, author, code, game) {
+  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+  mfCleanExpiredKeys(mf)
+  const entry = mf.authKeys[code]
+  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
+  mf.webUsers[entry.webUserId] = tag
+  delete mf.authKeys[code]
+  let joinMsg = ''
+  if (game.phase === 'waiting') {
+    game.pool[tag] = author
+    joinMsg = ` 참가도 함께 처리했어요! (현재 ${Object.keys(game.pool).length}명 / ${mfTotalSlots(mf.config)}명)`
+  }
+  saveMafia(djId, mf)
+  return sendChatSplit(djId, `✅ ${author}님 웹페이지 인증 완료!${joinMsg}`, 150, 300)
+}
+
+async function handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'mafia', djId)) return
+  const mf = getMafiaSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const chatAct = getActivitySettings(djId, settings)
+  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  const canManage = isDj || isManager
+  const cfg = mf.config
+  const game = mf.game
+
+  if (!msg.startsWith('!')) {
+    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+      mfCleanExpiredKeys(mf)
+      if (mf.authKeys[rawCode]) return mfHandleAuth(djId, mf, tag, author, rawCode, game)
+      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요.', 150, 300)
+    }
+    return
+  }
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  if (cmd === cfg.cmdAuth) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+    const code = String(parts[1] || '').trim().toUpperCase()
+    if (!code) return sendChatSplit(djId, `사용법: ${cfg.cmdAuth} 코드6자리`, 150, 300)
+    return mfHandleAuth(djId, mf, tag, author, code, game)
+  }
+
+  if (cmd === cfg.cmdJoin) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요.', 150, 300)
+    if (!Object.values(mf.webUsers).includes(tag)) {
+      return sendChatSplit(djId, `⚠️ 먼저 웹페이지에서 인증해주세요. (${cfg.cmdAuth} 코드)`, 150, 300)
+    }
+    if (game.phase !== 'waiting') return sendChatSplit(djId, '⚠️ 지금은 참가할 수 없어요 (게임이 진행 중이거나 아직 시작 전이 아니에요).', 150, 300)
+    game.pool[tag] = author
+    saveMafia(djId, mf)
+    broadcast({ type: 'mafia-pool', djId, count: Object.keys(game.pool).length })
+    return sendChatSplit(djId, `✅ ${author}님 참가 완료! (현재 ${Object.keys(game.pool).length}명 / ${mfTotalSlots(cfg)}명)`, 150, 300)
+  }
+
+  if (cmd === cfg.cmdStart) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    if (game.phase !== 'waiting') return sendChatSplit(djId, '⚠️ 이미 게임이 진행 중이에요.', 150, 300)
+    const result = mfStartGame(djId, mf)
+    if (!result.ok) return sendChatSplit(djId, `⚠️ ${result.error}`, 150, 300)
+    return
+  }
+
+  if (cmd === cfg.cmdVote) {
+    if (game.phase !== 'day') return sendChatSplit(djId, '⚠️ 지금은 투표 시간이 아니에요.', 150, 300)
+    const voter = game.players[tag]
+    if (!voter || !voter.alive) return sendChatSplit(djId, '⚠️ 생존한 참가자만 투표할 수 있어요.', 150, 300)
+    const targetRaw = String(parts[1] || '').replace(/^@/, '').trim()
+    const targetTag = Object.keys(game.players).find(t => t.toLowerCase() === targetRaw.toLowerCase() || game.players[t].nickname === targetRaw)
+    if (!targetTag || !game.players[targetTag].alive) return sendChatSplit(djId, '⚠️ 대상을 찾을 수 없어요 (생존자만 지목할 수 있어요).', 150, 300)
+    game.votes[tag] = targetTag
+    saveMafia(djId, mf)
+    return sendChatSplit(djId, `🗳️ ${author}님이 ${game.players[targetTag].nickname}님에게 투표했어요.`, 150, 300)
+  }
+
+  if (cmd === cfg.cmdSkip) {
+    if (game.phase !== 'day') return
+    delete game.votes[tag]
+    saveMafia(djId, mf)
+    return sendChatSplit(djId, `${author}님이 기권했어요.`, 150, 300)
+  }
+
+  if (cmd === cfg.cmdStatus) {
+    if (game.phase === 'waiting') return sendChatSplit(djId, `🎭 참가 대기 중 (${Object.keys(game.pool).length}/${mfTotalSlots(cfg)}명)`, 150, 300)
+    if (game.phase === 'ended') return sendChatSplit(djId, '🎭 게임이 종료됐어요.', 150, 300)
+    const remain = Math.max(0, Math.round((game.phaseEndsAt - Date.now()) / 1000))
+    return sendChatSplit(djId, `🎭 ${game.round}일차 ${game.phase === 'night' ? '밤' : '낮'} · 생존 ${mfAliveTags(game).length}명 · 남은 시간 ${remain}초`, 150, 300)
+  }
+
+  if (cmd === cfg.cmdEnd) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    mf.game = mfDefaultGame()
+    saveMafia(djId, mf)
+    broadcast({ type: 'mafia-phase', djId, phase: 'waiting' })
+    return sendChatSplit(djId, '🛑 마피아 게임을 종료하고 초기화했어요. 다시 참가를 받을 수 있어요.', 150, 300)
+  }
+
+  if (cmd === cfg.cmdForce) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const result = mfForcePhase(djId, mf)
+    if (!result.ok) return sendChatSplit(djId, `⚠️ ${result.error}`, 150, 300)
+    return
+  }
+}
+
+// DJ가 타이머를 기다리지 않고 지금 바로 밤→낮 또는 낮→밤으로 강제 진행시킨다.
+function mfForcePhase(djId, mf) {
+  if (mf.game.phase !== 'night' && mf.game.phase !== 'day') return { ok: false, error: '지금은 진행 중인 밤/낮이 없어요.' }
+  if (mf.game.phase === 'night') mfResolveNight(djId, mf)
+  else mfResolveDay(djId, mf)
+  return { ok: true }
+}
+
 // 🎣 팝블리네 낚시대회 — 낚시 게임과는 완전히 별개인 신규 모듈.
 // DJ가 미끼목록과 미끼별 룰렛(1~10)을 채워두면, 관리자가 시청자에게 미끼(룰렛권)를
 // 지급하고 시청자는 미끼 사용 명령어로 룰렛을 돌려 어항(킵, 1~10)에 결과를 기록한다.
@@ -13218,6 +13799,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -14322,10 +14905,13 @@ app.post('/status-banner', auth.requireAuth, (req, res) => {
 // 📢 전체방 반복 공지
 app.get('/admin/global-announce', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  res.json({ success: true, data: store.getGlobalAnnounce() })
+  res.json({ success: true, data: getGlobalAnnounceSafe() })
 })
 app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  if (typeof store.setGlobalAnnounce !== 'function') {
+    return res.json({ success: false, error: 'store.js에 setGlobalAnnounce 함수가 아직 없어요. 서버 파일을 업데이트해주세요.' })
+  }
   const result = store.setGlobalAnnounce(req.body || {})
   if (!result.ok) return res.json({ success: false, error: result.error })
   startGlobalAnnounceTimer() // 간격/활성화 값이 바뀌었을 수 있으니 타이머 재시작
@@ -16061,6 +16647,32 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       ].filter(x => x.cmd)
     })
   }
+  if (on('webpickboard') && settings.webPickboard && settings.webPickboard.config) {
+    const wcfg = settings.webPickboard.config
+    groups.push({
+      key: 'webpickboard', icon: '🌐', label: '웹뽑기판', items: [
+        { cmd: wcfg.cmdAuth + ' 코드6자리', desc: '웹페이지에서 발급받은 인증코드로 계정 연결' },
+        { cmd: wcfg.cmdTicketGive, desc: '[고유닉] [수량] 뽑기권 지급 (관리자)' },
+        { cmd: wcfg.cmdTicketRemove, desc: '[고유닉] [수량] 뽑기권 차감 (관리자)' },
+        { cmd: wcfg.cmdMyTicket, desc: '내 보유 뽑기권 조회' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('mafia') && settings.mafia && settings.mafia.config) {
+    const mcfg = settings.mafia.config
+    groups.push({
+      key: 'mafia', icon: '🎭', label: '마피아 게임', items: [
+        { cmd: mcfg.cmdAuth + ' 코드6자리', desc: '웹페이지에서 발급받은 인증코드로 계정 연결(참가도 자동 처리)' },
+        { cmd: mcfg.cmdJoin, desc: '이번 판 참가 (인증된 계정만)' },
+        { cmd: mcfg.cmdStart, desc: '게임 시작 (관리자)' },
+        { cmd: mcfg.cmdVote + ' 고유닉', desc: '처형 투표 (낮에만)' },
+        { cmd: mcfg.cmdSkip, desc: '투표 기권' },
+        { cmd: mcfg.cmdStatus, desc: '진행 상황 확인' },
+        { cmd: mcfg.cmdForce, desc: '지금 바로 다음 단계로 강제 진행 (관리자)' },
+        { cmd: mcfg.cmdEnd, desc: '게임 종료/초기화 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
   if (on('couponcheck') && settings.couponCheck) {
     const cc = settings.couponCheck
     groups.push({
@@ -16432,6 +17044,428 @@ app.post('/pickboard/reset-users', auth.requireAuth, (req, res) => {
   pb.users = {}
   savePickboard(req.djId, pb)
   res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 관리자(DJ) 전용 설정 API. /webpickboard-admin 접두사를 써서 아래의 공개(비로그인)
+// API인 /webpickboard/:djId/* 와 경로가 겹치지 않게 분리했다.
+app.get('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({
+    success: true,
+    config: wpb.config,
+    grid: wpb.grid,
+    picked: wpb.picked,
+    userCount: Object.keys(wpb.users).length,
+    linkedCount: Object.keys(wpb.webUsers).length,
+    publicUrl: `/webpickboard/${req.djId}`,
+  })
+})
+app.post('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const body = req.body || {}
+
+  // 🔒 가로는 항상 10칸으로 고정 — 클라이언트가 뭘 보내든 무시한다. 세로만 최대 80까지 가변.
+  wpb.config.cols = WPB_FIXED_COLS
+  if (body.rows != null) wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(body.rows) || 7))
+  if (Array.isArray(body.ranks)) wpb.config.ranks = wpbNormalizeRanks(body.ranks)
+
+  const cmdKeys = ['cmdAuth', 'cmdTicketGive', 'cmdTicketRemove', 'cmdMyTicket']
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) wpb.config[k] = v.slice(0, 40) } })
+
+  wpb.grid = wpbBuildGrid(wpb.config) // 판 크기/등수 구성이 바뀌었을 수 있으니 저장할 때마다 다시 배치
+  wpb.picked = {} // 재배치되면 기존 "뽑힌 칸" 표시는 의미가 없어지므로 초기화
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+
+app.post('/webpickboard-admin/preset/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const name = String((req.body || {}).name || '').trim().slice(0, 15)
+  if (!name) return res.json({ success: false, error: '프리셋 이름을 입력해주세요' })
+  const preset = { id: 'preset_' + Date.now() + '_' + Math.random().toString(16).slice(2), name, cols: wpb.config.cols, rows: wpb.config.rows, ranks: wpb.config.ranks }
+  wpb.config.presets.push(preset)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/load', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  wpb.config.cols = WPB_FIXED_COLS // 🔒 옛날 프리셋에 다른 가로 값이 저장돼있어도 항상 10으로 고정
+  wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(preset.rows) || 7))
+  wpb.config.ranks = wpbNormalizeRanks(preset.ranks)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+app.post('/webpickboard-admin/preset/rename', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const { id, name } = req.body || {}
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  const clean = String(name || '').trim().slice(0, 15)
+  if (!clean) return res.json({ success: false, error: '이름을 입력해주세요' })
+  preset.name = clean
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  wpb.config.presets = wpb.config.presets.filter(p => p.id !== id)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+
+app.post('/webpickboard-admin/reset-board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  wpb.winners = []
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true })
+})
+app.post('/webpickboard-admin/reset-users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.users = {}
+  wpb.webUsers = {}
+  wpb.authKeys = {}
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true })
+})
+app.get('/webpickboard-admin/winners', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({ success: true, winners: wpb.winners.slice(0, 100) })
+})
+// 관리자가 웹 화면에서 직접 특정 고유닉에게 뽑기권을 지급/차감 (채팅 명령어와 별개의 편의 기능)
+app.post('/webpickboard-admin/ticket', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const target = String((req.body || {}).tag || '').replace(/^@/, '').trim()
+  const delta = Number((req.body || {}).delta) || 0
+  if (!target || !delta) return res.json({ success: false, error: '고유닉과 수량을 입력해주세요' })
+  const user = wpbGetUser(wpb, target)
+  wpbSetUser(wpb, target, user.nickname || target, user.tickets + delta)
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-ticket', djId: req.djId, tag: target, tickets: wpb.users[target].tickets })
+  res.json({ success: true, tickets: wpb.users[target].tickets })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 공개(로그인 없음) API. 시청자용 웹페이지가 아래 엔드포인트로 등록/인증확인/조회/뽑기를 진행한다.
+app.get('/webpickboard/:djId/board', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.status(404).json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  res.json({
+    success: true,
+    cols: wpb.config.cols,
+    rows: wpb.config.rows,
+    ranks: wpb.config.ranks.map(r => ({ rank: r.rank, name: r.name })),
+    picked: wpb.picked,
+    total: wpb.grid.length,
+  })
+})
+app.post('/webpickboard/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  wpbCleanExpiredKeys(wpb)
+  // 🔁 이 브라우저가 이미 발급받은(아직 채팅 인증 전인) webUserId를 갖고 있다면 그대로 재사용하고,
+  // 그 아이디로 예전에 발급했던 코드는 지금 새로 만드는 코드로 교체(삭제)한다. 이렇게 안 하면
+  // "코드 다시 발급받기"를 누른 뒤 화면에는 새 코드가 떠 있는데 사람이 예전에 복사해둔 옛날
+  // 코드를 채팅에 치는 바람에, 화면에는 안 보이는(이미 버려진) 세션에 엉뚱하게 연결되는 사고가 난다.
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !wpb.webUsers[webUserId]) {
+    for (const code of Object.keys(wpb.authKeys)) {
+      if (wpb.authKeys[code].webUserId === webUserId) delete wpb.authKeys[code]
+    }
+  } else {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = wpbGenAuthKey(wpb)
+  wpb.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + WPB_AUTH_KEY_TTL_MS }
+  saveWebPickboard(djId, wpb)
+  res.json({ success: true, webUserId, code, cmd: wpb.config.cmdAuth, expiresInSec: WPB_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/webpickboard/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = wpb.webUsers[webUserId]
+  if (tag) {
+    const user = wpbGetUser(wpb, tag)
+    return res.json({ success: true, linked: true, tag, nickname: user.nickname || tag, tickets: user.tickets })
+  }
+  wpbCleanExpiredKeys(wpb)
+  for (const [code, entry] of Object.entries(wpb.authKeys)) {
+    if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+  }
+  res.json({ success: true, linked: false, expired: true })
+})
+app.post('/webpickboard/:djId/pick', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const idx = Number((req.body || {}).index)
+  const tag = wpb.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 유저등록 및 채팅 인증을 완료해주세요.' })
+  if (!Number.isInteger(idx) || idx < 0 || idx >= wpb.grid.length) return res.json({ success: false, error: '잘못된 칸이에요.' })
+  if (wpb.picked[idx]) return res.json({ success: false, error: '이미 다른 분이 뽑은 칸이에요.' })
+  const user = wpbGetUser(wpb, tag)
+  if (user.tickets < 1) return res.json({ success: false, error: '보유한 뽑기권이 없어요.' })
+
+  const rankNum = wpb.grid[idx]
+  const rankInfo = wpb.config.ranks.find(r => r.rank === rankNum) || { rank: rankNum, name: '' }
+  const nickname = user.nickname || tag
+  wpbSetUser(wpb, tag, nickname, user.tickets - 1)
+  wpb.picked[idx] = { rank: rankInfo.rank, name: rankInfo.name, nickname, tag, at: Date.now() }
+  wpb.winners.unshift({ time: Date.now(), nickname, tag, index: idx, rank: rankInfo.rank, name: rankInfo.name })
+  if (wpb.winners.length > 300) wpb.winners.length = 300
+  saveWebPickboard(djId, wpb)
+  broadcast({ type: 'webpickboard-pick', djId, index: idx, rank: rankInfo.rank, name: rankInfo.name, nickname })
+  // 🔔 웹에서 뽑은 결과도 방송 채팅창에 그대로 안내해서, 시청자들이 누가 몇 등을 뽑았는지 같이 볼 수 있게 한다.
+  const prizeText = rankInfo.name ? `[${rankInfo.name}]` : ''
+  sendChatSplit(djId, `🎯 ${nickname}님이 웹뽑기판에서 ${rankInfo.rank}등 ${prizeText} 당첨!`, 150, 300)
+  res.json({ success: true, rank: rankInfo.rank, name: rankInfo.name, tickets: wpb.users[tag].tickets })
+})
+// 공개 웹뽑기판 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// board·register·me·pick 같은 하위 경로를 가로채지 않는다.
+app.get('/webpickboard/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/webpickboard.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🎭 마피아 게임 — 관리자(DJ) 전용 설정/제어 API
+app.get('/mafia-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  res.json({
+    success: true,
+    config: mf.config,
+    game: {
+      phase: mf.game.phase,
+      poolCount: Object.keys(mf.game.pool).length,
+      totalSlots: mfTotalSlots(mf.config),
+      round: mf.game.round,
+      aliveCount: mfAliveTags(mf.game).length,
+      playerCount: Object.keys(mf.game.players).length,
+      phaseEndsAt: mf.game.phaseEndsAt,
+      lastResult: mf.game.lastResult,
+    },
+    publicUrl: `/mafia/${req.djId}`,
+  })
+})
+app.post('/mafia-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mafia', req.djId)) return res.json({ success: false, error: '마피아 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mf = getMafiaSettings(req.djId, settings)
+  const body = req.body || {}
+  if (Array.isArray(body.roles)) mf.config.roles = mfNormalizeRoles(body.roles)
+  if (body.nightSec != null) mf.config.nightSec = Math.max(10, Math.min(600, Number(body.nightSec) || 60))
+  if (body.daySec != null) mf.config.daySec = Math.max(10, Math.min(600, Number(body.daySec) || 90))
+  const cmdKeys = ['cmdAuth', 'cmdJoin', 'cmdStart', 'cmdVote', 'cmdSkip', 'cmdStatus', 'cmdEnd', 'cmdForce']
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) mf.config[k] = v.slice(0, 40) } })
+  saveMafia(req.djId, mf)
+  res.json({ success: true, config: mf.config })
+})
+app.post('/mafia-admin/start', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mafia', req.djId)) return res.json({ success: false, error: '마피아 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mf = getMafiaSettings(req.djId, settings)
+  if (mf.game.phase !== 'waiting') return res.json({ success: false, error: '이미 게임이 진행 중이에요.' })
+  const result = mfStartGame(req.djId, mf)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+app.post('/mafia-admin/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  mf.game = mfDefaultGame()
+  saveMafia(req.djId, mf)
+  broadcast({ type: 'mafia-phase', djId: req.djId, phase: 'waiting' })
+  res.json({ success: true })
+})
+// DJ가 밤/낮 타이머를 안 기다리고 지금 바로 다음 단계로 강제 진행
+app.post('/mafia-admin/force-phase', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  const result = mfForcePhase(req.djId, mf)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+// 관리자는 진행 상황 확인용으로 전체 참가자의 역할까지 볼 수 있다 (시청자 웹페이지는 본인 것만 노출)
+app.get('/mafia-admin/state', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  res.json({
+    success: true,
+    phase: mf.game.phase,
+    round: mf.game.round,
+    pool: mf.game.pool,
+    players: mf.game.players,
+    lastResult: mf.game.lastResult,
+    phaseEndsAt: mf.game.phaseEndsAt,
+  })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎭 마피아 게임 — 공개(로그인 없음) API. 시청자용 웹페이지가 아래 엔드포인트로 등록/인증확인/
+// 참가/밤행동을 진행한다. 웹뽑기판과 동일한 register→code→채팅인증 패턴을 그대로 재사용한다.
+app.post('/mafia/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  mfCleanExpiredKeys(mf)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !mf.webUsers[webUserId]) {
+    for (const code of Object.keys(mf.authKeys)) { if (mf.authKeys[code].webUserId === webUserId) delete mf.authKeys[code] }
+  } else if (!webUserId || mf.webUsers[webUserId]) {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = mfGenAuthKey(mf)
+  mf.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MF_AUTH_KEY_TTL_MS }
+  saveMafia(djId, mf)
+  res.json({ success: true, webUserId, code, cmd: mf.config.cmdAuth, expiresInSec: MF_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/mafia/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const game = mf.game
+  const base = {
+    success: true,
+    phase: game.phase,
+    round: game.round,
+    phaseEndsAt: game.phaseEndsAt,
+    totalSlots: mfTotalSlots(mf.config),
+    poolCount: Object.keys(game.pool).length,
+    aliveList: mfAliveTags(game).map(t => game.players[t].nickname),
+    lastResult: game.lastResult,
+  }
+  if (!webUserId) return res.json({ ...base, linked: false })
+
+  const tag = mf.webUsers[webUserId]
+  if (!tag) {
+    mfCleanExpiredKeys(mf)
+    for (const [code, entry] of Object.entries(mf.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ ...base, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ ...base, linked: false, expired: true })
+  }
+
+  const inPool = !!game.pool[tag]
+  const player = game.players[tag]
+  const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
+  if (player) {
+    resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
+    if (game.phase === 'night') {
+      resp.myNightAction = game.nightActions[tag] || null
+      if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
+      // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
+      let candidates = mfAliveTags(game)
+      if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)
+      resp.targetableAlive = candidates.map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    } else if (game.phase === 'day') {
+      resp.myVote = game.votes[tag] || null
+      resp.targetableAlive = mfAliveTags(game).filter(t => t !== tag).map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    }
+  }
+  res.json(resp)
+})
+app.post('/mafia/:djId/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  if (mf.game.phase !== 'waiting') return res.json({ success: false, error: '지금은 참가할 수 없어요.' })
+  // 웹 "참가하기" 버튼으로 처음 들어오는 경우, 저장된 닉네임이 없으면 태그가 그대로 이름으로
+  // 보이는 문제가 있었다 — 방에서 최근에 확인된 실제 닉네임으로 채워준다.
+  const room = getRoom(djId)
+  mf.game.pool[tag] = mf.game.pool[tag] || resolveNicknameFromInput(room, tag)
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-pool', djId, count: Object.keys(mf.game.pool).length })
+  res.json({ success: true, poolCount: Object.keys(mf.game.pool).length })
+})
+app.post('/mafia/:djId/night-action', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const targetTag = String((req.body || {}).targetTag || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const game = mf.game
+  if (game.phase !== 'night') return res.json({ success: false, error: '지금은 밤이 아니에요.' })
+  const player = game.players[tag]
+  if (!player || !player.alive) return res.json({ success: false, error: '생존한 참가자만 행동할 수 있어요.' })
+  if (player.nightAction === 'none') return res.json({ success: false, error: '이 역할은 밤 능력이 없어요.' })
+  if (!targetTag || !game.players[targetTag]) return res.json({ success: false, error: '대상을 선택해주세요.' })
+  if (player.nightAction !== 'heal' && targetTag === tag) return res.json({ success: false, error: '본인은 지목할 수 없어요.' })
+  game.nightActions[tag] = targetTag
+  saveMafia(djId, mf)
+  res.json({ success: true })
+})
+// 낮 처형 투표를 웹에서 클릭으로도 할 수 있게 하는 공개 API (방송 채팅 명령어와 동일하게 동작)
+app.post('/mafia/:djId/vote', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const targetTag = String((req.body || {}).targetTag || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const game = mf.game
+  if (game.phase !== 'day') return res.json({ success: false, error: '지금은 투표 시간이 아니에요.' })
+  const voter = game.players[tag]
+  if (!voter || !voter.alive) return res.json({ success: false, error: '생존한 참가자만 투표할 수 있어요.' })
+  if (!targetTag || !game.players[targetTag] || !game.players[targetTag].alive) return res.json({ success: false, error: '대상을 선택해주세요 (생존자만 지목할 수 있어요).' })
+  game.votes[tag] = targetTag
+  saveMafia(djId, mf)
+  res.json({ success: true })
+})
+// 공개 마피아 게임 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// register·me·join·night-action 같은 하위 경로를 가로채지 않는다.
+app.get('/mafia/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/mafia.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>마피아 게임</title>
+<style>
+  :root{
+    --purple:#6b21d6; --purple2:#8b3cf0; --bg:#f4f1fb; --card:#ffffff;
+    --text:#1f1236; --text-dim:#7a6f92; --border:#e6def7;
+    --gray:#9ca3af; --danger:#ef4444; --mafia:#7c2d2d; --citizen:#1e5c8a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);padding-bottom:40px;overflow-x:hidden}
+  header{background:linear-gradient(135deg,#2b1230,#4a1f5c);color:#fff;padding:22px 18px 26px;text-align:center;border-radius:0 0 22px 22px}
+  header h1{margin:0;font-size:20px}
+  header p{margin:6px 0 0;font-size:12.5px;opacity:.85}
+  .wrap{max-width:520px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin-top:14px;box-shadow:0 2px 10px rgba(107,33,214,.05)}
+  .btn{display:inline-block;width:100%;padding:14px;border:none;border-radius:12px;background:var(--purple);color:#fff;font-size:15px;font-weight:700;cursor:pointer;text-align:center;margin-bottom:8px}
+  .btn:disabled{background:var(--gray);cursor:not-allowed}
+  .btn-gray{background:#efeafc;color:var(--purple)}
+  .hint{font-size:12.5px;color:var(--text-dim);line-height:1.6;margin:8px 0}
+  .code-box{font-size:26px;font-weight:800;letter-spacing:4px;text-align:center;background:#f7f2ff;border:2px dashed var(--purple2);border-radius:12px;padding:16px;margin:12px 0;color:var(--purple)}
+  .phase-pill{display:inline-block;font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px;margin-bottom:10px}
+  .phase-night{background:#2b1230;color:#dcc8f5}
+  .phase-day{background:#fff3d6;color:#8a5a00}
+  .phase-wait{background:#efeafc;color:var(--purple)}
+  .phase-end{background:#fde3e3;color:var(--danger)}
+  .role-card{border-radius:16px;padding:22px;text-align:center;margin-top:10px;color:#fff}
+  .role-card.team-mafia{background:linear-gradient(160deg,#9b3b3b,var(--mafia))}
+  .role-card.team-citizen{background:linear-gradient(160deg,#2f78ad,var(--citizen))}
+  .role-card .role-name{font-size:24px;font-weight:800;margin:6px 0}
+  .role-card .role-team{font-size:13px;opacity:.9}
+  .role-card .role-action{font-size:12.5px;margin-top:10px;opacity:.85}
+  .target-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .target-btn{width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:#fff;font-size:14px;cursor:pointer;text-align:left}
+  .target-btn.selected{border-color:var(--purple);background:#f7f2ff;font-weight:700}
+  .target-btn:disabled{opacity:.5;cursor:not-allowed}
+  .alive-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .alive-list span{font-size:12px;background:#f7f2ff;color:var(--purple);padding:4px 10px;border-radius:999px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f1236;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
+  .toast.show{opacity:1}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="djTitle">🎭 마피아 게임</h1>
+  <p>웹에서 참가하고, 방송 채팅으로 함께 즐기는 마피아 게임이에요</p>
+</header>
+
+<div class="wrap">
+
+  <!-- 미등록 상태 -->
+  <div class="card" id="registerCard">
+    <div class="hint">참가하려면 먼저 유저등록을 하고, 발급된 인증코드를 방송 채팅창에 입력해주세요.</div>
+    <button class="btn" onclick="mfRegister()">🙋 유저등록</button>
+  </div>
+
+  <!-- 인증 대기 상태 -->
+  <div class="card" id="authWaitCard" style="display:none">
+    <div class="hint">아래 코드를 방송 <b>채팅창</b>에 그대로 입력해주세요.</div>
+    <div class="code-box" id="authCodeBox">------</div>
+    <button class="btn btn-gray" onclick="mfCopyCode()">📋 코드 복사</button>
+    <div class="hint center" id="authCmdHint"></div>
+    <div class="hint center">⏳ 인증 확인 중... (자동으로 감지돼요)</div>
+    <button class="btn btn-gray" onclick="mfRegister()">코드 다시 발급받기</button>
+  </div>
+
+  <!-- 메인 상태 -->
+  <div class="card" id="mainCard" style="display:none">
+    <div id="phasePill" class="phase-pill phase-wait">대기 중</div>
+    <div id="statusText" class="hint"></div>
+
+    <div id="waitingBox" style="display:none">
+      <button class="btn" id="joinBtn" onclick="mfJoin()">🙋 이번 판 참가하기</button>
+    </div>
+
+    <div id="roleBox" style="display:none"></div>
+
+    <div id="nightActionBox" style="display:none">
+      <div class="hint" id="nightActionLabel"></div>
+      <div class="target-list" id="targetList"></div>
+    </div>
+
+    <div id="dayBox" style="display:none">
+      <div class="hint">☀️ 낮이에요. 처형할 대상을 선택하거나, 방송 채팅에서 투표 명령어로 투표해도 돼요.</div>
+      <div class="target-list" id="voteTargetList"></div>
+    </div>
+
+    <div id="endBox" style="display:none">
+      <div class="hint" id="endMessage"></div>
+    </div>
+
+    <div class="hint" style="margin-top:14px">생존자 목록</div>
+    <div class="alive-list" id="aliveList"></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const DJ_ID = location.pathname.split('/').filter(Boolean)[1] || '';
+const SERVER = location.origin;
+const LS_KEY = 'mf_webuserid_' + DJ_ID;
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let myTag = '', myTickets = 0;
+let pollTimer = null;
+let selectedTarget = null;
+let selectedVote = null;
+let lastPhase = null;
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function mfCopyCode(){
+  const code = document.getElementById('authCodeBox').textContent.trim();
+  if(!code || code === '------') return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(()=>showToast('코드를 복사했어요')).catch(()=>mfCopyFallback(code));
+  } else {
+    mfCopyFallback(code);
+  }
+}
+function mfCopyFallback(code){
+  const ta = document.createElement('textarea');
+  ta.value = code; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand('copy'); showToast('코드를 복사했어요'); }
+  catch(e){ showToast('복사에 실패했어요. 직접 입력해주세요'); }
+  document.body.removeChild(ta);
+}
+
+document.getElementById('djTitle').textContent = '🎭 ' + DJ_ID + '님의 마피아 게임';
+
+function showCard(which){
+  document.getElementById('registerCard').style.display = which==='register' ? 'block' : 'none';
+  document.getElementById('authWaitCard').style.display = which==='authwait' ? 'block' : 'none';
+  document.getElementById('mainCard').style.display = which==='main' ? 'block' : 'none';
+}
+
+async function mfRegister(){
+  try{
+    const res = await fetch(`${SERVER}/mafia/${DJ_ID}/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'등록에 실패했어요'); return; }
+    webUserId = d.webUserId;
+    localStorage.setItem(LS_KEY, webUserId);
+    document.getElementById('authCodeBox').textContent = d.code;
+    document.getElementById('authCmdHint').textContent = `채팅창에 "${d.code}" 라고 입력하시면 돼요`;
+    showCard('authwait');
+    startPolling();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function startPolling(){
+  clearInterval(pollTimer);
+  checkMe();
+  pollTimer = setInterval(checkMe, 3000);
+}
+
+async function checkMe(){
+  try{
+    const url = webUserId ? `${SERVER}/mafia/${DJ_ID}/me?webUserId=${encodeURIComponent(webUserId)}` : `${SERVER}/mafia/${DJ_ID}/me`;
+    const res = await fetch(url);
+    const d = await res.json();
+    if(!d.success) return;
+
+    if(!webUserId){ showCard('register'); return; }
+
+    if(!d.linked){
+      if(d.expired){
+        localStorage.removeItem(LS_KEY); webUserId=''; clearInterval(pollTimer); showCard('register');
+      } else if(d.code){
+        document.getElementById('authCodeBox').textContent = d.code;
+        showCard('authwait');
+        if(!pollTimer) startPolling();
+      }
+      return;
+    }
+
+    myTag = d.tag;
+    showCard('main');
+    renderMain(d);
+  }catch(e){ /* 조용히 재시도 */ }
+}
+
+function renderMain(d){
+  const pill = document.getElementById('phasePill');
+  const statusText = document.getElementById('statusText');
+  const waitingBox = document.getElementById('waitingBox');
+  const roleBox = document.getElementById('roleBox');
+  const nightBox = document.getElementById('nightActionBox');
+  const dayBox = document.getElementById('dayBox');
+  const endBox = document.getElementById('endBox');
+
+  waitingBox.style.display='none'; roleBox.style.display='none';
+  nightBox.style.display='none'; dayBox.style.display='none'; endBox.style.display='none';
+
+  if(d.phase !== lastPhase){ selectedTarget = null; selectedVote = null; lastPhase = d.phase; }
+
+  if(d.phase === 'waiting'){
+    pill.className='phase-pill phase-wait'; pill.textContent='🎭 참가 대기 중';
+    statusText.textContent = `현재 ${d.poolCount}명 / ${d.totalSlots}명`;
+    waitingBox.style.display='block';
+    const joinBtn = document.getElementById('joinBtn');
+    if(d.inPool){ joinBtn.textContent='✅ 참가 완료 (게임 시작을 기다려주세요)'; joinBtn.disabled=true; }
+    else { joinBtn.textContent='🙋 이번 판 참가하기'; joinBtn.disabled=false; }
+  } else if(d.phase === 'night'){
+    pill.className='phase-pill phase-night'; pill.textContent=`🌙 ${d.round}일차 밤`;
+    statusText.textContent = d.role ? '' : '이번 판에는 참가하지 않았어요. 다음 판을 기다려주세요.';
+    if(d.role){
+      renderRoleCard(d.role);
+      if(d.role.alive && d.role.nightAction !== 'none'){
+        renderNightAction(d);
+        nightBox.style.display='block';
+      } else if(!d.role.alive){
+        statusText.textContent='💀 사망했어요. 게임 결과를 계속 지켜볼 수 있어요.';
+      } else {
+        statusText.textContent='이 역할은 밤 능력이 없어요. 잠시 기다려주세요.';
+      }
+      roleBox.style.display='block';
+    }
+  } else if(d.phase === 'day'){
+    pill.className='phase-pill phase-day'; pill.textContent=`☀️ ${d.round}일차 낮`;
+    if(d.role){
+      renderRoleCard(d.role);
+      roleBox.style.display='block';
+      if(d.investigateResult){
+        statusText.textContent = `🔍 조사 결과: ${d.investigateResult.targetNickname}님은 ${d.investigateResult.team==='mafia'?'마피아팀':'시민팀'}이에요.`;
+      } else {
+        statusText.textContent = d.role.alive ? '' : '💀 사망했어요. 계속 지켜볼 수 있어요.';
+      }
+    }
+    if(d.role && !d.role.alive){
+      document.getElementById('voteTargetList').innerHTML = '<div class="hint">사망한 상태라 투표할 수 없어요.</div>';
+    } else {
+      renderVoteList(d);
+    }
+    dayBox.style.display='block';
+  } else if(d.phase === 'ended'){
+    pill.className='phase-pill phase-end'; pill.textContent='🏁 게임 종료';
+    if(d.lastResult) document.getElementById('endMessage').textContent = d.lastResult.message;
+    endBox.style.display='block';
+  }
+
+  const aliveWrap = document.getElementById('aliveList');
+  aliveWrap.innerHTML = (d.aliveList||[]).map(n=>`<span>${escapeHtml(n)}</span>`).join('') || '<span>-</span>';
+}
+
+function renderRoleCard(role){
+  const box = document.getElementById('roleBox');
+  const actionLabels = {kill:'🔪 암살 능력 보유',heal:'💊 치료 능력 보유',investigate:'🔍 조사 능력 보유',none:''};
+  box.innerHTML = `<div class="role-card team-${role.team}">
+    <div class="role-team">${role.team==='mafia'?'마피아팀':'시민팀'}</div>
+    <div class="role-name">${escapeHtml(role.name)}</div>
+    <div class="role-action">${actionLabels[role.nightAction]||''}${role.alive?'':' · 💀 사망'}</div>
+  </div>`;
+}
+
+function renderNightAction(d){
+  const label = document.getElementById('nightActionLabel');
+  const list = document.getElementById('targetList');
+  const actionText = {kill:'🔪 암살할 대상을 선택하세요',heal:'💊 치료할 대상을 선택하세요 (본인 포함 가능)',investigate:'🔍 조사할 대상을 선택하세요'};
+  label.textContent = actionText[d.role.nightAction] || '대상을 선택하세요';
+  const targets = d.targetableAlive || [];
+  const already = d.myNightAction;
+  list.innerHTML = targets.map(t => {
+    const sel = (selectedTarget===t.tag || (!selectedTarget && already===t.tag));
+    const isSelf = t.tag === myTag;
+    return `<button class="target-btn ${sel?'selected':''}" onclick="mfPickTarget('${t.tag}')">${escapeHtml(t.nickname)}${isSelf?' (나)':''}</button>`;
+  }).join('');
+  if(already && !selectedTarget) selectedTarget = already;
+  if(already){
+    const doneMsg = {kill:'선택 완료! 아침에 결과를 확인할 수 있어요.',heal:'선택 완료! 아침에 결과를 확인할 수 있어요.',investigate:'선택 완료! 아침이 되면 조사 결과가 이 화면에 표시돼요.'};
+    const el = document.createElement('div');
+    el.className = 'hint center';
+    el.textContent = doneMsg[d.role.nightAction] || '선택 완료!';
+    list.after(el);
+  }
+}
+
+function renderVoteList(d){
+  const list = document.getElementById('voteTargetList');
+  const targets = d.targetableAlive || [];
+  const already = d.myVote;
+  if(!targets.length){ list.innerHTML=''; return; }
+  list.innerHTML = targets.map(t => {
+    const sel = (selectedVote===t.tag || (!selectedVote && already===t.tag));
+    return `<button class="target-btn ${sel?'selected':''}" onclick="mfVote('${t.tag}')">${escapeHtml(t.nickname)}</button>`;
+  }).join('');
+  if(already && !selectedVote) selectedVote = already;
+}
+
+async function mfPickTarget(targetTag){
+  selectedTarget = targetTag;
+  try{
+    const res = await fetch(`${SERVER}/mafia/${DJ_ID}/night-action`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, targetTag })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패했어요'); return; }
+    showToast('선택했어요');
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function mfVote(targetTag){
+  selectedVote = targetTag;
+  try{
+    const res = await fetch(`${SERVER}/mafia/${DJ_ID}/vote`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, targetTag })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패했어요'); return; }
+    showToast('투표했어요');
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function mfJoin(){
+  try{
+    const res = await fetch(`${SERVER}/mafia/${DJ_ID}/join`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'참가에 실패했어요'); return; }
+    showToast('참가 완료!');
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function startSSE(){
+  try{
+    const es = new EventSource(`${SERVER}/events`);
+    es.onmessage = (e) => {
+      let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
+      if(d.djId && d.djId !== DJ_ID) return;
+      if(d.type === 'mafia-phase' || d.type === 'mafia-pool') checkMe();
+    };
+    es.onerror = () => setTimeout(startSSE, 3000);
+  }catch(e){}
+}
+
+checkMe();
+startSSE();
+</script>
+</body>
+</html>
