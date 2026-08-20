@@ -1173,6 +1173,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="number" id="entryCooldown" value="0" min="0" style="max-width:140px">
         </div>
 
+        <div class="card">
+          <div class="card-title"><span>🌡️ 온도 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveTempMilestone()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">시청자의 스푼 온도가 지정한 값에 도달하면, 자동으로 축하 멘트를 채팅에 보내요. 한 사람당 같은 구간은 한 번만 보내져요(온도가 계속 갱신돼도 중복 전송 안 됨).</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="tempMsEnabled"> 온도 설정 활성화</label>
+          <div id="tempMsList" style="margin-top:10px"></div>
+          <button class="btn-gray" style="width:100%;margin-top:8px" onclick="addTempMilestone()">+ 구간 추가</button>
+          <div class="hint" style="margin-top:8px">변수: {nickname}, {temp}(실제 도달 온도), {threshold}(설정한 기준 온도)</div>
+        </div>
+
         <div class="tab-bar" id="entryTabBar">
           <button class="tab-btn active" data-tab="entry" onclick="switchEntryTab('entry')">🚪 입장</button>
           <button class="tab-btn" data-tab="leave" onclick="switchEntryTab('leave')">🚶 퇴장</button>
@@ -4486,6 +4495,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); }
+  if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
@@ -13598,6 +13608,53 @@ async function saveUseDefaultEntryMessages(){
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({useDefaultEntryMessages:document.getElementById('useDefaultEntryMessages').checked})});
     showToast('저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
+/* ── 🌡️ 온도 설정 ── */
+let tempMsItems=[];
+async function loadTempMilestone(){
+  try{
+    const res=await fetch(SERVER+'/temp-milestone/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('tempMsEnabled').checked=!!d.settings.enabled;
+    tempMsItems=(d.settings.items||[]).map(x=>({...x}));
+    renderTempMsList();
+  }catch(e){}
+}
+function renderTempMsList(){
+  const wrap=document.getElementById('tempMsList');
+  if(!tempMsItems.length){
+    wrap.innerHTML='<div class="hint">등록된 구간이 없어요. "+ 구간 추가"로 만들어보세요.</div>';
+    return;
+  }
+  wrap.innerHTML=tempMsItems.map((it,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface2);margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="margin:0;flex-shrink:0">온도</label>
+        <input type="number" min="0" step="0.1" value="${it.temp!=null?it.temp:0}" style="width:100px" oninput="tempMsItems[${i}].temp=Number(this.value)||0">
+        <span style="flex-shrink:0">도 도달 시</span>
+        <button class="icon-btn danger" style="margin-left:auto" onclick="removeTempMilestoneAt(${i})" title="삭제">🗑</button>
+      </div>
+      <textarea style="height:56px" placeholder="예: 🔥 {nickname}님 온도가 {threshold}도를 넘었어요!" oninput="tempMsItems[${i}].message=this.value">${escapeHtml(it.message||'')}</textarea>
+    </div>
+  `).join('');
+}
+function addTempMilestone(){
+  tempMsItems.push({id:'new'+Date.now()+Math.floor(Math.random()*1000),temp:50,message:'🔥 {nickname}님 온도가 {threshold}도를 넘었어요!'});
+  renderTempMsList();
+}
+function removeTempMilestoneAt(i){
+  tempMsItems.splice(i,1);
+  renderTempMsList();
+}
+async function saveTempMilestone(){
+  try{
+    const res=await fetch(SERVER+'/temp-milestone/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:document.getElementById('tempMsEnabled').checked,items:tempMsItems})});
+    const d=await res.json();
+    if(d.success){ tempMsItems=(d.settings.items||[]).map(x=>({...x})); renderTempMsList(); showToast('저장 완료 ✓'); }
+    else showToast('저장 실패');
   }catch(e){showToast('저장 실패');}
 }
 
