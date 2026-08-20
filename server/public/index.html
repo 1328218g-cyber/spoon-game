@@ -655,7 +655,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="auction"><span class="ic ic-img"><img src="/icons/auction.png" alt=""></span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic ic-img"><img src="/icons/randombox.png" alt=""></span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="pickboard"><span class="ic ic-img"><img src="/icons/pickboard.png" alt=""></span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="webpickboard"><span class="ic ic-img"><img src="/icons/webpickboard.png" alt="" onerror="this.src='/icons/pickboard.png'"></span><span class="lbl">웹뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="webpickboard"><span class="ic ic-img"><img src="/icons/webpickboard.png" alt="" onerror="this.onerror=null;this.src='/icons/pickboard.png'"></span><span class="lbl">웹뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -4837,7 +4837,7 @@ function renderModuleMarket(){
     return `<div class="market-card ${on?'':'off'}" style="position:relative">
       ${isNew?'<span style="position:absolute;top:-8px;right:10px;background:linear-gradient(135deg,#fb923c,#f59e0b);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(245,158,11,.4)">NEW</span>':''}
       <div class="market-card-top">
-        <div class="market-card-icon">${MODULE_ICON_FILES[key]?`<img src="/icons/${MODULE_ICON_FILES[key]}" alt="">`:icon}</div>
+        <div class="market-card-icon">${MODULE_ICON_FILES[key]?`<img src="/icons/${MODULE_ICON_FILES[key]}" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'">`:icon}</div>
         <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}');renderModuleMarket()"><span class="slider"></span></label>
       </div>
       <div class="market-card-title">${escapeHtml(label)}</div>
