@@ -3407,6 +3407,42 @@ function handleTempRankCommand(djId, settings, text) {
 // 무조건 고유닉 기반: 매니저는 DJ가 직접 고유닉을 입력해서 등록/삭제하므로 API 조회가 필요 없다.
 // 권한: DJ, 이미 등록된 매니저(managers 목록에 있는 사람), 그리고 관리자 계정(고유닉 sum)만
 // 관리 명령어를 쓸 수 있다. 일반 시청자는 !매토, !설명서만 사용 가능.
+// 🌡️ 온도 설정 — 시청자의 스푼 온도(favoriteTemperature)가 지정한 값에 도달하면, 그 사람을
+// 축하하는 멘트를 자동으로 채팅에 보낸다. 같은 사람이 같은 구간을 여러 번 못 넘도록(채팅마다
+// 온도가 갱신되므로) announced에 "그 사람이 이미 받은 구간 id 목록"을 기록해둔다.
+function getTempMilestoneSettings(djId, settings) {
+  if (!settings.tempMilestone) {
+    settings.tempMilestone = {
+      enabled: false,
+      items: [], // { id, temp, message }
+      announced: {}, // key: 고유닉 → [넘은 구간 id 목록]
+    }
+    store.saveSettings(djId, { tempMilestone: settings.tempMilestone })
+  }
+  if (!Array.isArray(settings.tempMilestone.items)) settings.tempMilestone.items = []
+  if (!settings.tempMilestone.announced || typeof settings.tempMilestone.announced !== 'object') settings.tempMilestone.announced = {}
+  return settings.tempMilestone
+}
+
+function checkTempMilestones(djId, settings, author, tag, temp) {
+  const tm = getTempMilestoneSettings(djId, settings)
+  if (!tm.enabled || !tm.items.length) return
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return
+  if (!tm.announced[key]) tm.announced[key] = []
+  let changed = false
+  tm.items.forEach(item => {
+    const threshold = Number(item.temp)
+    if (isNaN(threshold) || temp < threshold) return
+    if (tm.announced[key].includes(item.id)) return // 이미 이 구간 축하 멘트를 받은 사람
+    tm.announced[key].push(item.id)
+    changed = true
+    const msg = String(item.message || '').replace(/{nickname}/g, author || '').replace(/{temp}/g, temp.toFixed(1)).replace(/{threshold}/g, String(threshold))
+    if (msg) setTimeout(() => sendChatToRoom(djId, msg), 400)
+  })
+  if (changed) settingsDirty = true // 채팅마다 도는 고빈도 갱신이라 즉시 저장 대신 dirty만 표시(위 온도랭킹과 동일한 방식)
+}
+
 function getManagerTokenSettings(djId, settings) {
   if (!settings.managerToken) {
     settings.managerToken = {
@@ -12865,6 +12901,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
+  if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, tag, Number(gen.favoriteTemperature))
 
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
@@ -13164,6 +13201,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
           updateTempRanking(djId, settings, author, actTag, gen) // 🌡️ 스푼 온도 기록
+          if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, actTag, Number(gen.favoriteTemperature))
           handleTempRankCommand(djId, settings, text)
           handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
           handleNoticeCommand(djId, room, settings, author, authorId, text)
@@ -14249,6 +14287,28 @@ app.get('/announcement/history', auth.requireAuth, (req, res) => {
 })
 
 // 🚨 서비스 상태 배너 — 점검/장애 등을 사이드바 상단에 계속 떠있는 배너로 표시
+// 🌡️ 온도 설정 — 지정한 온도에 도달한 시청자에게 자동으로 축하 멘트를 보내는 기능
+app.get('/temp-milestone/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tm = getTempMilestoneSettings(req.djId, settings)
+  res.json({ success: true, settings: { enabled: tm.enabled, items: tm.items } })
+})
+app.post('/temp-milestone/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tm = getTempMilestoneSettings(req.djId, settings)
+  const { enabled, items } = req.body || {}
+  if (enabled != null) tm.enabled = !!enabled
+  if (Array.isArray(items)) {
+    tm.items = items.map((it, i) => ({
+      id: it.id && !String(it.id).startsWith('new') ? it.id : ('tempms' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      temp: Math.max(0, Math.min(9999, Number(it.temp) || 0)),
+      message: String(it.message || '').trim().slice(0, 300),
+    })).filter(it => it.message)
+  }
+  store.saveSettings(req.djId, { tempMilestone: tm })
+  res.json({ success: true, settings: { enabled: tm.enabled, items: tm.items } })
+})
+
 app.get('/status-banner', auth.requireAuth, (req, res) => {
   res.json({ success: true, banner: store.getStatusBanner() })
 })
@@ -16671,6 +16731,14 @@ async function checkAdminAutoJoin() {
       for (const tag of tagList) {
         const status = await fetchUserStatusByTag(tag)
         if (status && status.is_live && status.current_live_id) {
+          // 🚫 이 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 이 계정은 입장시키지
+          // 않고 경고만 보낸 뒤 다음 고유닉으로 넘어간다.
+          const dupDjId = findActiveDjIdUsingTag(tag, djId)
+          if (dupDjId) {
+            console.log(`[자동입장:${djId}] @${tag} 는 이미 다른 계정에서 사용 중이라 건너뜀`)
+            broadcast({ type: 'autojoin', djId, status: 'duplicate', tag })
+            continue
+          }
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
           const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
@@ -16730,6 +16798,23 @@ function commitAutoJoinTagLock(djId, settings, newTags) {
   }
 }
 
+// 🚫 같은 고유닉(스푼 계정)을 서로 다른 두 에디봇 계정이 동시에 "입장중" 상태로 물고 있는
+// 상황을 막기 위한 체크. A 계정이 이미 그 고유닉의 방에 접속해 입장중이면, B 계정이 같은
+// 고유닉으로 (수동/자동)입장을 시도할 때 여기서 걸려서 B에게는 경고만 뜨고 입장은 막힌다.
+// 대소문자 차이는 같은 고유닉으로 취급한다.
+function findActiveDjIdUsingTag(tag, excludeDjId) {
+  const norm = String(tag || '').toLowerCase().trim()
+  if (!norm) return null
+  for (const djId of store.listDjIds()) {
+    if (djId === excludeDjId) continue
+    const room = getRoom(djId)
+    if (room.isConnected && room.watchingTag && String(room.watchingTag).toLowerCase().trim() === norm) {
+      return djId
+    }
+  }
+  return null
+}
+
 // 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
@@ -16784,6 +16869,13 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     if (!status || !status.is_live || !status.current_live_id) {
       broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
       return res.json({ success: false, error: '현재 방송 중이 아니에요' })
+    }
+
+    // 🚫 같은 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 입장을 막고 경고를 보낸다.
+    const dupDjId = findActiveDjIdUsingTag(cleanTag, djId)
+    if (dupDjId) {
+      broadcast({ type: 'autojoin', djId, status: 'duplicate', tag: cleanTag })
+      return res.json({ success: false, error: `⚠️ @${cleanTag} 고유닉은 이미 다른 계정에서 사용 중이에요. 동시에 같은 고유닉을 사용할 수 없어요.` })
     }
 
     const liveId = String(status.current_live_id)
