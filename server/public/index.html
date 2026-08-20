@@ -655,6 +655,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="auction"><span class="ic ic-img"><img src="/icons/auction.png" alt=""></span><span class="lbl">경매</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="randombox"><span class="ic ic-img"><img src="/icons/randombox.png" alt=""></span><span class="lbl">랜덤박스</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="pickboard"><span class="ic ic-img"><img src="/icons/pickboard.png" alt=""></span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="webpickboard"><span class="ic ic-img"><img src="/icons/pickboard.png" alt=""></span><span class="lbl">웹뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -3282,6 +3283,83 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🌐 웹뽑기판 -->
+      <div class="panel" data-panel="webpickboard">
+        <div class="card">
+          <div class="card-title"><span>⚙️ 뽑기판 크기</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wpbApplySize()">✔ 적용</button></div>
+          <p class="hint">시청자가 웹페이지(로그인 불필요)에서 직접 눌러서 뽑는 새로운 뽑기판이에요. 기존 채팅용 "뽑기판"과는 완전히 별개로 동작해요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>가로</label><input type="number" id="wpbCols" value="7" min="1" max="20"></div>
+            <div><label>세로</label><input type="number" id="wpbRows" value="7" min="1" max="20"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>💎 프리셋</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="wpbPresetSelect" style="flex:1;min-width:160px"><option value="">-- 프리셋 선택 --</option></select>
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="wpbLoadPreset()">불러오기</button>
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="wpbRenamePresetOpen()">이름 변경</button>
+            <button class="btn-shield-reset" style="padding:8px 14px;font-size:12.5px" onclick="wpbDeletePreset()">삭제</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="wpbPresetName" placeholder="새 프리셋 이름 (최대 15자)" maxlength="15" style="flex:1">
+            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="wpbSavePreset()">현재 설정 저장</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🏆 등수별 상품 / 개수</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveWpbSettings()">💾 저장</button></div>
+          <p class="hint">개수의 합이 판 크기(가로×세로)보다 적으면 남는 칸은 마지막 등수(7등)로 자동 채워지고, 많으면 초과분은 잘려요. 저장하면 판이 다시 무작위로 배치돼요.</p>
+          <div id="wpbRankList"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔤 명령어 이름 (! 제외하고 입력)</span></div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>웹 인증코드 입력</label><input type="text" id="wpbCmdAuth" value="뽑기인증"></div>
+            <div><label>뽑기권 지급 (관리자)</label><input type="text" id="wpbCmdTicketGive" value="뽑기권지급"></div>
+            <div><label>뽑기권 차감 (관리자)</label><input type="text" id="wpbCmdTicketRemove" value="뽑기권차감"></div>
+            <div><label>내 뽑기권 확인</label><input type="text" id="wpbCmdMyTicket" value="뽑기권확인"></div>
+          </div>
+          <div class="fish-tab-footer"><button class="btn-connect" onclick="saveWpbSettings()">저장</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔗 공개 페이지</span></div>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 유저등록 → 채팅 인증 → 뽑기까지 진행할 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="wpbPublicUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="wpbCopyPublicUrl()">복사</button>
+            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('wpbPublicUrl').value,'_blank')">열기</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>👁️ 배치 미리보기</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadWpbSettings()">🔄 새로고침</button></div>
+          <div id="wpbGridPreview" class="preview-box" style="display:grid;gap:6px;max-height:360px;overflow:auto"></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn-shield-reset" style="flex:1" onclick="wpbResetBoard()">🔄 뽑기판 리셋 (배치+뽑힌기록 초기화)</button>
+            <button class="btn-shield-reset" style="flex:1" onclick="wpbResetUsers()">🗑️ 전체 유저/인증 정보 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎫 뽑기권 수동 지급/차감</span></div>
+          <p class="hint">채팅 명령어(<code id="wpbCmdTicketGiveHint">!뽑기권지급</code>) 대신 여기서도 바로 지급/차감할 수 있어요. 음수를 입력하면 차감돼요.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="text" id="wpbTicketTag" placeholder="고유닉" style="flex:1;min-width:120px">
+            <input type="number" id="wpbTicketDelta" placeholder="수량 (음수=차감)" style="width:160px">
+            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="wpbGiveTicket()">적용</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🏆 최근 뽑기 기록</div>
+          <div id="wpbWinnersWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card" id="trophyEditorCard" style="display:none">
@@ -4470,6 +4548,7 @@ const PANEL_META={
   auction:['🔨 경매','!경매 참여로 등록한 시청자의 선물이 자동 누적되고, 누적 비율만큼 확률 추첨하는 래플형 경매입니다'],
   randombox:['🎁 랜덤박스','지정한 스티커·스푼을 받으면 등록해둔 내용물 중 하나를 랜덤으로 뽑아 알려줘요'],
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
+  webpickboard:['🌐 웹뽑기판','시청자가 로그인 없이 웹페이지에서 직접 눌러서 뽑는 등수형 뽑기판입니다 (기존 뽑기판과 별개)'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
@@ -4491,6 +4570,7 @@ function selectPanel(name){
   if(name==='requestmodules')renderRequestModulesPanel();
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
+  if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
@@ -4582,7 +4662,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -4596,7 +4676,7 @@ const MODULE_ICON_FILES={
   dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
-  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'pickboard.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
   'trophy-editor':'trophyeditor.png',
 };
@@ -4612,7 +4692,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','trophyboard','monstercatch','giftgallery','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','trophyboard','monstercatch','giftgallery','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
@@ -12033,6 +12113,209 @@ async function pbResetUsers(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+/* ══════════════════════════════════════════════════════
+   🌐 웹뽑기판 — 기존 뽑기판과 완전히 별개인 신규 모듈. 시청자가 로그인 없이 웹페이지에서
+   직접 눌러서 뽑는 등수형(1~7등) 뽑기판. */
+let wpbConfig=null, wpbGrid=[], wpbPicked={};
+const WPB_RANK_LABELS=['1등','2등','3등','4등','5등','6등','7등'];
+
+async function loadWpbSettings(){
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    wpbConfig=d.config; wpbGrid=d.grid||[]; wpbPicked=d.picked||{};
+    document.getElementById('wpbCols').value=wpbConfig.cols;
+    document.getElementById('wpbRows').value=wpbConfig.rows;
+    document.getElementById('wpbCmdAuth').value=(wpbConfig.cmdAuth||'').replace(/^!/,'');
+    document.getElementById('wpbCmdTicketGive').value=(wpbConfig.cmdTicketGive||'').replace(/^!/,'');
+    document.getElementById('wpbCmdTicketRemove').value=(wpbConfig.cmdTicketRemove||'').replace(/^!/,'');
+    document.getElementById('wpbCmdMyTicket').value=(wpbConfig.cmdMyTicket||'').replace(/^!/,'');
+    const hint=document.getElementById('wpbCmdTicketGiveHint'); if(hint)hint.textContent=wpbConfig.cmdTicketGive||'!뽑기권지급';
+    document.getElementById('wpbPublicUrl').value=location.origin+(d.publicUrl||'/webpickboard/'+djId);
+    wpbRenderRankList();
+    wpbRenderPresetSelect();
+    wpbRenderGridPreview();
+    wpbLoadWinners();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function wpbRenderRankList(){
+  const wrap=document.getElementById('wpbRankList');
+  if(!wpbConfig)return;
+  const total=(Number(wpbConfig.cols)||0)*(Number(wpbConfig.rows)||0);
+  const sum=wpbConfig.ranks.reduce((a,r)=>a+(Number(r.count)||0),0);
+  wrap.innerHTML=wpbConfig.ranks.map((r,i)=>`
+    <div class="btn-row" style="grid-template-columns:60px 1fr 100px;align-items:center;margin-bottom:8px">
+      <div style="font-weight:700">${WPB_RANK_LABELS[i]}</div>
+      <input type="text" placeholder="상품명" value="${escapeAttr(r.name||'')}" oninput="wpbConfig.ranks[${i}].name=this.value">
+      <input type="number" min="0" placeholder="개수" value="${r.count||0}" oninput="wpbConfig.ranks[${i}].count=Number(this.value)||0;wpbRenderRankSum()">
+    </div>`).join('')+`<div class="hint" id="wpbRankSum">현재 개수 합: ${sum}개 / 판 크기: ${total}칸</div>`;
+}
+function wpbRenderRankSum(){
+  const el=document.getElementById('wpbRankSum');
+  if(!el||!wpbConfig)return;
+  const total=(Number(document.getElementById('wpbCols').value)||0)*(Number(document.getElementById('wpbRows').value)||0);
+  const sum=wpbConfig.ranks.reduce((a,r)=>a+(Number(r.count)||0),0);
+  el.textContent=`현재 개수 합: ${sum}개 / 판 크기: ${total}칸`+(sum!==total?' ⚠️ 합이 판 크기와 달라요 (부족분은 7등으로 채워지고, 초과분은 잘려요)':'');
+}
+function wpbApplySize(){
+  wpbRenderRankSum();
+  showToast('아래 "저장"을 눌러야 실제로 적용돼요');
+}
+
+async function saveWpbSettings(){
+  if(!wpbConfig)return;
+  const body={
+    cols:Number(document.getElementById('wpbCols').value)||7,
+    rows:Number(document.getElementById('wpbRows').value)||7,
+    ranks:wpbConfig.ranks,
+    cmdAuth:document.getElementById('wpbCmdAuth').value,
+    cmdTicketGive:document.getElementById('wpbCmdTicketGive').value,
+    cmdTicketRemove:document.getElementById('wpbCmdTicketRemove').value,
+    cmdMyTicket:document.getElementById('wpbCmdMyTicket').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('저장 완료! 판이 새로 배치됐어요');
+    loadWpbSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+function wpbRenderGridPreview(){
+  const wrap=document.getElementById('wpbGridPreview');
+  if(!wrap||!wpbConfig)return;
+  const cols=Number(wpbConfig.cols)||7;
+  wrap.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+  wrap.innerHTML=wpbGrid.map((rank,i)=>{
+    const p=wpbPicked[i];
+    const rInfo=wpbConfig.ranks.find(r=>r.rank===rank);
+    const label=rInfo&&rInfo.name?`${rank}등`:'';
+    const bg=p?'var(--accent)':'var(--surface2)';
+    return `<div title="${p?escapeAttr((p.nickname||'')+' → '+rank+'등 '+(p.name||'')):('배치: '+rank+'등'+(label?(' '+escapeAttr(rInfo.name)):''))}" style="aspect-ratio:1;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;color:${p?'#fff':'var(--text-dim)'};text-align:center;padding:2px">${p?('✅'+rank+'등'):(rank+'등')}</div>`;
+  }).join('');
+}
+
+async function wpbResetBoard(){
+  if(!confirm('뽑기판을 다시 무작위로 배치하고, 뽑힌 기록도 모두 초기화할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/reset-board',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('뽑기판을 리셋했어요');
+    loadWpbSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function wpbResetUsers(){
+  if(!confirm('전체 유저의 뽑기권/인증 연결 정보를 모두 초기화할까요? 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/reset-users',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('전체 유저 정보를 초기화했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function wpbGiveTicket(){
+  const tag=document.getElementById('wpbTicketTag').value.trim();
+  const delta=Number(document.getElementById('wpbTicketDelta').value);
+  if(!tag||!delta)return showToast('고유닉과 수량을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/ticket',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag,delta})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast(`${tag}님 뽑기권: ${d.tickets}장`);
+    document.getElementById('wpbTicketDelta').value='';
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function wpbLoadWinners(){
+  const wrap=document.getElementById('wpbWinnersWrap');
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/winners',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.winners.length){wrap.innerHTML='<p class="hint">아직 뽑기 기록이 없어요.</p>';return;}
+    wrap.innerHTML=d.winners.slice(0,50).map(w=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <b>${escapeHtml(w.nickname)}</b> — ${w.rank}등 ${escapeHtml(w.name||'')} <span class="hint" style="margin:0">(${new Date(w.time).toLocaleString('ko-KR')})</span>
+    </div>`).join('');
+  }catch(e){wrap.innerHTML='<p class="hint">불러오기 실패</p>';}
+}
+
+function wpbCopyPublicUrl(){
+  const el=document.getElementById('wpbPublicUrl');
+  el.select(); el.setSelectionRange(0,99999);
+  try{ navigator.clipboard.writeText(el.value); showToast('링크를 복사했어요'); }
+  catch(e){ document.execCommand('copy'); showToast('링크를 복사했어요'); }
+}
+
+function wpbRenderPresetSelect(){
+  const sel=document.getElementById('wpbPresetSelect');
+  if(!sel||!wpbConfig)return;
+  const presets=wpbConfig.presets||[];
+  sel.innerHTML='<option value="">-- 프리셋 선택 --</option>'+presets.map(p=>`<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+}
+async function wpbSavePreset(){
+  const name=document.getElementById('wpbPresetName').value.trim();
+  if(!name)return showToast('프리셋 이름을 입력해주세요');
+  // 지금 화면에 입력된 값(아직 저장 안 했을 수도 있는) 기준으로 저장
+  wpbConfig.cols=Number(document.getElementById('wpbCols').value)||7;
+  wpbConfig.rows=Number(document.getElementById('wpbRows').value)||7;
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/preset/save',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({name})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    wpbConfig.presets=d.presets;
+    wpbRenderPresetSelect();
+    document.getElementById('wpbPresetName').value='';
+    showToast('프리셋을 저장했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function wpbLoadPreset(){
+  const id=document.getElementById('wpbPresetSelect').value;
+  if(!id)return showToast('불러올 프리셋을 선택해주세요');
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/preset/load',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('프리셋을 적용했어요');
+    loadWpbSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+function wpbRenamePresetOpen(){
+  const id=document.getElementById('wpbPresetSelect').value;
+  if(!id)return showToast('이름을 바꿀 프리셋을 선택해주세요');
+  const preset=(wpbConfig.presets||[]).find(p=>p.id===id);
+  const name=prompt('새 이름 (최대 15자)', preset?preset.name:'');
+  if(name==null)return;
+  wpbRenamePreset(id,name.trim().slice(0,15));
+}
+async function wpbRenamePreset(id,name){
+  if(!name)return showToast('이름을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/preset/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,name})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    wpbConfig.presets=d.presets;
+    wpbRenderPresetSelect();
+    showToast('이름을 변경했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function wpbDeletePreset(){
+  const id=document.getElementById('wpbPresetSelect').value;
+  if(!id)return showToast('삭제할 프리셋을 선택해주세요');
+  if(!confirm('이 프리셋을 삭제할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/webpickboard-admin/preset/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    wpbConfig.presets=d.presets;
+    wpbRenderPresetSelect();
+    showToast('삭제했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 function switchFtTab(t){
   document.querySelectorAll('#ftSideNav .ft-side-item').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
   document.querySelectorAll('[data-ftsec]').forEach(el=>el.style.display=el.dataset.ftsec===t?'block':'none');
@@ -13764,6 +14047,9 @@ function startSSE(){
     }
     else if(d.type==='giftgallery'){
       if(document.getElementById('ggGrid')){ ggData.items.unshift(d.item); renderGgGrid(); }
+    }
+    else if(d.type==='webpickboard-pick'||d.type==='webpickboard-reload'||d.type==='webpickboard-ticket'){
+      if(document.querySelector('.panel[data-panel="webpickboard"]')?.classList.contains('active')) loadWpbSettings();
     }
   };
   es.onerror=()=>setTimeout(startSSE,3000);

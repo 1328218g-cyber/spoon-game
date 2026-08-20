@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>웹뽑기판</title>
+<style>
+  :root{
+    --purple:#6b21d6; --purple2:#8b3cf0; --bg:#f4f1fb; --card:#ffffff;
+    --text:#1f1236; --text-dim:#7a6f92; --border:#e6def7;
+    --gray:#9ca3af; --danger:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);padding-bottom:40px}
+  header{background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;padding:22px 18px 26px;text-align:center;border-radius:0 0 22px 22px}
+  header h1{margin:0;font-size:20px}
+  header p{margin:6px 0 0;font-size:12.5px;opacity:.85}
+  .wrap{max-width:520px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin-top:14px;box-shadow:0 2px 10px rgba(107,33,214,.05)}
+  .btn{display:inline-block;width:100%;padding:14px;border:none;border-radius:12px;background:var(--purple);color:#fff;font-size:15px;font-weight:700;cursor:pointer;text-align:center}
+  .btn:disabled{background:var(--gray);cursor:not-allowed}
+  .btn-gray{background:#efeafc;color:var(--purple)}
+  .hint{font-size:12.5px;color:var(--text-dim);line-height:1.6;margin:8px 0}
+  .code-box{font-size:26px;font-weight:800;letter-spacing:4px;text-align:center;background:#f7f2ff;border:2px dashed var(--purple2);border-radius:12px;padding:16px;margin:12px 0;color:var(--purple)}
+  .status-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .ticket-pill{background:var(--purple);color:#fff;font-weight:700;font-size:13px;padding:6px 14px;border-radius:999px}
+  .grid{display:grid;gap:8px;margin-top:14px}
+  .cell{aspect-ratio:1;border-radius:14px;background:linear-gradient(160deg,var(--purple2),var(--purple));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;cursor:pointer;user-select:none;transition:transform .12s;border:none}
+  .cell:active{transform:scale(.92)}
+  .cell.picked{background:#e8e2f7;color:var(--purple);cursor:default;font-size:10px;font-weight:700;flex-direction:column;gap:2px;padding:2px}
+  .cell.disabled{opacity:.5;cursor:not-allowed}
+  .cell .rank-badge{font-size:11px;font-weight:800}
+  .cell .rank-name{font-size:9px;opacity:.85;text-align:center;line-height:1.2}
+  .modal-bg{position:fixed;inset:0;background:rgba(20,10,40,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal-bg.show{display:flex}
+  .modal{background:#fff;border-radius:20px;padding:28px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+  .modal .trophy{font-size:44px;margin-bottom:8px}
+  .modal .rank{font-size:26px;font-weight:800;color:var(--danger);margin-bottom:6px}
+  .modal .prize{font-size:17px;font-weight:600;color:var(--text);margin-bottom:20px}
+  .modal button{width:100%;padding:14px;border:none;border-radius:12px;background:var(--danger);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f1236;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
+  .toast.show{opacity:1}
+  .legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .legend span{font-size:11px;background:#f7f2ff;color:var(--purple);padding:4px 9px;border-radius:999px}
+  .center{text-align:center}
+  input.code-input{width:100%;font-size:20px;letter-spacing:4px;text-align:center;padding:12px;border:1px solid var(--border);border-radius:10px;margin:10px 0;text-transform:uppercase}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="djTitle">🎯 웹뽑기판</h1>
+  <p>웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요</p>
+</header>
+
+<div class="wrap">
+
+  <!-- 미등록 상태 -->
+  <div class="card" id="registerCard">
+    <div class="hint">뽑기에 참여하려면 먼저 유저등록을 하고, 발급된 인증코드를 방송 채팅창에 입력해주세요.</div>
+    <button class="btn" id="registerBtn" onclick="wpRegister()">🙋 유저등록</button>
+  </div>
+
+  <!-- 인증 대기 상태 -->
+  <div class="card" id="authWaitCard" style="display:none">
+    <div class="hint">아래 코드를 방송 <b>채팅창</b>에 그대로 입력해주세요.</div>
+    <div class="code-box" id="authCodeBox">------</div>
+    <div class="hint center" id="authCmdHint"></div>
+    <div class="hint center">⏳ 인증 확인 중... (자동으로 감지돼요)</div>
+    <button class="btn btn-gray" onclick="wpRegister()">코드 다시 발급받기</button>
+  </div>
+
+  <!-- 등록 완료 상태 -->
+  <div class="card" id="mainCard" style="display:none">
+    <div class="status-row">
+      <div><b id="myNickname">-</b>님</div>
+      <div class="ticket-pill">🎫 <span id="myTickets">0</span>장</div>
+    </div>
+    <div class="hint">뽑기권이 있으면 아래 판에서 별을 눌러 뽑을 수 있어요. 이미 뽑힌 칸은 결과가 그대로 보여요.</div>
+    <div class="legend" id="rankLegend"></div>
+    <div class="grid" id="boardGrid"></div>
+  </div>
+
+</div>
+
+<div class="modal-bg" id="resultModalBg">
+  <div class="modal">
+    <div class="trophy">🏆</div>
+    <div class="rank" id="resultRank">1등</div>
+    <div class="prize" id="resultPrize">아이스크림</div>
+    <button onclick="closeResultModal()">확인</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const DJ_ID = location.pathname.split('/').filter(Boolean)[1] || '';
+const SERVER = location.origin;
+const LS_KEY = 'wpb_webuserid_' + DJ_ID;
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let myTag = '', myNickname = '', myTickets = 0;
+let boardCols = 7, boardRows = 7, boardTotal = 49, boardPicked = {}, rankNames = [];
+let pollTimer = null;
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+document.getElementById('djTitle').textContent = '🎯 ' + DJ_ID + '님의 웹뽑기판';
+
+async function init(){
+  await loadBoard();
+  if(webUserId){
+    await checkMe();
+  } else {
+    showCard('register');
+  }
+}
+
+function showCard(which){
+  document.getElementById('registerCard').style.display = which==='register' ? 'block' : 'none';
+  document.getElementById('authWaitCard').style.display = which==='authwait' ? 'block' : 'none';
+  document.getElementById('mainCard').style.display = which==='main' ? 'block' : 'none';
+}
+
+async function wpRegister(){
+  try{
+    const res = await fetch(`${SERVER}/webpickboard/${DJ_ID}/register`, { method:'POST' });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'등록에 실패했어요'); return; }
+    webUserId = d.webUserId;
+    localStorage.setItem(LS_KEY, webUserId);
+    document.getElementById('authCodeBox').textContent = d.code;
+    document.getElementById('authCmdHint').textContent = `채팅창에 "${d.cmd} ${d.code}" 라고 입력하시면 돼요`;
+    showCard('authwait');
+    startPolling();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function startPolling(){
+  clearInterval(pollTimer);
+  pollTimer = setInterval(checkMe, 3000);
+}
+
+async function checkMe(){
+  if(!webUserId) return;
+  try{
+    const res = await fetch(`${SERVER}/webpickboard/${DJ_ID}/me?webUserId=${encodeURIComponent(webUserId)}`);
+    const d = await res.json();
+    if(!d.success) return;
+    if(d.linked){
+      clearInterval(pollTimer);
+      myTag = d.tag; myNickname = d.nickname; myTickets = d.tickets;
+      document.getElementById('myNickname').textContent = myNickname;
+      document.getElementById('myTickets').textContent = myTickets;
+      showCard('main');
+      renderBoard();
+    } else if(d.expired){
+      // 코드가 만료되었거나 알 수 없는 상태 → 다시 등록하도록 초기화
+      localStorage.removeItem(LS_KEY);
+      webUserId = '';
+      clearInterval(pollTimer);
+      showCard('register');
+    } else if(d.code){
+      document.getElementById('authCodeBox').textContent = d.code;
+      showCard('authwait');
+      if(!pollTimer) startPolling();
+    }
+  }catch(e){ /* 조용히 재시도 */ }
+}
+
+async function loadBoard(){
+  try{
+    const res = await fetch(`${SERVER}/webpickboard/${DJ_ID}/board`);
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'뽑기판을 불러올 수 없어요'); return; }
+    boardCols = d.cols; boardRows = d.rows; boardTotal = d.total;
+    boardPicked = d.picked || {};
+    rankNames = d.ranks || [];
+    renderLegend();
+    renderBoard();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function renderLegend(){
+  const wrap = document.getElementById('rankLegend');
+  wrap.innerHTML = rankNames.filter(r=>r.name).map(r=>`<span>${r.rank}등 ${escapeHtml(r.name)}</span>`).join('');
+}
+
+function renderBoard(){
+  const grid = document.getElementById('boardGrid');
+  grid.style.gridTemplateColumns = `repeat(${boardCols}, 1fr)`;
+  let html = '';
+  for(let i=0;i<boardTotal;i++){
+    const p = boardPicked[i];
+    if(p){
+      html += `<div class="cell picked"><span class="rank-badge">${p.rank}등</span><span class="rank-name">${escapeHtml(p.name||'')}</span></div>`;
+    } else {
+      const disabled = myTickets < 1 ? 'disabled' : '';
+      html += `<button class="cell ${disabled}" onclick="pickCell(${i})">⭐</button>`;
+    }
+  }
+  grid.innerHTML = html;
+}
+
+async function pickCell(index){
+  if(myTickets < 1){ showToast('보유한 뽑기권이 없어요'); return; }
+  if(boardPicked[index]){ return; }
+  try{
+    const res = await fetch(`${SERVER}/webpickboard/${DJ_ID}/pick`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, index })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'뽑기에 실패했어요'); return; }
+    myTickets = d.tickets;
+    document.getElementById('myTickets').textContent = myTickets;
+    boardPicked[index] = { rank:d.rank, name:d.name, nickname:myNickname };
+    renderBoard();
+    showResultModal(d.rank, d.name);
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function showResultModal(rank, name){
+  document.getElementById('resultRank').textContent = rank + '등';
+  document.getElementById('resultPrize').textContent = name || '꽝';
+  document.getElementById('resultModalBg').classList.add('show');
+}
+function closeResultModal(){
+  document.getElementById('resultModalBg').classList.remove('show');
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// 🔴 실시간 반영 — 다른 사람이 뽑는 것도 SSE로 즉시 화면에 반영된다.
+function startSSE(){
+  try{
+    const es = new EventSource(`${SERVER}/events`);
+    es.onmessage = (e) => {
+      let d; try{ d = JSON.parse(e.data); }catch(err){ return; }
+      if(d.djId && d.djId !== DJ_ID) return;
+      if(d.type === 'webpickboard-pick'){
+        boardPicked[d.index] = { rank: d.rank, name: d.name, nickname: d.nickname };
+        renderBoard();
+      } else if(d.type === 'webpickboard-reload'){
+        loadBoard();
+      } else if(d.type === 'webpickboard-ticket' && d.tag === myTag){
+        myTickets = d.tickets;
+        document.getElementById('myTickets').textContent = myTickets;
+        renderBoard();
+      }
+    };
+    es.onerror = () => setTimeout(startSSE, 3000);
+  }catch(e){}
+}
+
+init();
+startSSE();
+</script>
+</body>
+</html>

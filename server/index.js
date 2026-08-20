@@ -613,7 +613,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftgallery'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'dashboard', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftgallery'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -5550,6 +5550,160 @@ setInterval(() => {
     }
   }
 }, 20000)
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 기존 채팅전용 "뽑기판"과는 완전히 별개인 신규 모듈. 시청자가 채팅 명령어 없이
+// 웹페이지(/webpickboard/:djId)에서 직접 판을 눌러 뽑기를 진행한다. 1등~7등 등수별로 상품명과
+// 개수를 정해서 가로x세로 크기의 판에 무작위 배치해두고, DJ/매니저가 채팅으로
+// "!뽑기권지급 [고유닉] [수량]"을 치면 그 고유닉에게 뽑기권이 쌓인다.
+// 시청자 쪽 흐름: 웹페이지에서 "유저등록" → 6자리 인증코드 발급 → 그 코드를 방송 채팅창에
+// "!뽑기인증 코드"로 입력 → 봇이 그 채팅(고유닉)과 웹페이지 세션(webUserId)을 자동으로 연결.
+// 그 다음부터는 그 브라우저에서 로그인 없이 계속 본인 뽑기권으로 웹 화면에서 뽑기를 할 수 있다.
+// ══════════════════════════════════════════════════════
+const WPB_RANK_COUNT = 7
+function wpbDefaultRanks() {
+  return Array.from({ length: WPB_RANK_COUNT }, (_, i) => ({ rank: i + 1, name: '', count: 0 }))
+}
+function wpbDefaultConfig() {
+  return {
+    cols: 7, rows: 7,
+    ranks: wpbDefaultRanks(),
+    presets: [], // { id, name, cols, rows, ranks }
+    cmdAuth: '!뽑기인증', cmdTicketGive: '!뽑기권지급', cmdTicketRemove: '!뽑기권차감', cmdMyTicket: '!뽑기권확인',
+  }
+}
+function wpbCellTotal(cfg) { return Math.max(1, Number(cfg.cols) || 1) * Math.max(1, Number(cfg.rows) || 1) }
+function wpbRand(max) { return Math.floor(Math.random() * max) }
+// 등수별 개수만큼 배치용 풀을 만들고 무작위로 섞는다. 개수 합이 판 크기보다 적으면 남는 칸은
+// 마지막 등수(보통 "꽝"에 해당하는 가장 많은 등수)로 채우고, 많으면 넘치는 만큼 잘라낸다 —
+// 그래야 관리자가 개수를 판 크기와 정확히 안 맞춰도 화면이 깨지지 않는다.
+function wpbBuildGrid(cfg) {
+  const total = wpbCellTotal(cfg)
+  const pool = []
+  for (const r of cfg.ranks) {
+    const cnt = Math.max(0, Number(r.count) || 0)
+    for (let i = 0; i < cnt; i++) pool.push(r.rank)
+  }
+  const fillRank = cfg.ranks[cfg.ranks.length - 1]?.rank || WPB_RANK_COUNT
+  while (pool.length < total) pool.push(fillRank)
+  if (pool.length > total) pool.length = total
+  for (let i = pool.length - 1; i > 0; i--) { const j = wpbRand(i + 1);[pool[i], pool[j]] = [pool[j], pool[i]] }
+  return pool
+}
+function wpbNormalizeRanks(raw) {
+  const list = Array.from({ length: WPB_RANK_COUNT }, (_, i) => {
+    const src = Array.isArray(raw) ? raw.find(r => Number(r.rank) === i + 1) : null
+    return { rank: i + 1, name: String((src && src.name) || '').trim().slice(0, 30), count: Math.max(0, Number(src && src.count) || 0) }
+  })
+  return list
+}
+function getWebPickboardSettings(djId, settings) {
+  if (!settings.webPickboard) {
+    const config = wpbDefaultConfig()
+    settings.webPickboard = { config, grid: wpbBuildGrid(config), picked: {}, users: {}, webUsers: {}, authKeys: {}, winners: [] }
+    store.saveSettings(djId, { webPickboard: settings.webPickboard })
+  }
+  const wpb = settings.webPickboard
+  wpb.config = { ...wpbDefaultConfig(), ...(wpb.config || {}) }
+  wpb.config.ranks = wpbNormalizeRanks(wpb.config.ranks)
+  if (!Array.isArray(wpb.config.presets)) wpb.config.presets = []
+  if (!Array.isArray(wpb.grid) || wpb.grid.length !== wpbCellTotal(wpb.config)) wpb.grid = wpbBuildGrid(wpb.config)
+  if (!wpb.picked || typeof wpb.picked !== 'object') wpb.picked = {}
+  if (!wpb.users || typeof wpb.users !== 'object') wpb.users = {}
+  if (!wpb.webUsers || typeof wpb.webUsers !== 'object') wpb.webUsers = {}
+  if (!wpb.authKeys || typeof wpb.authKeys !== 'object') wpb.authKeys = {}
+  if (!Array.isArray(wpb.winners)) wpb.winners = []
+  return wpb
+}
+function saveWebPickboard(djId, wpb) { store.saveSettings(djId, { webPickboard: wpb }) }
+
+function wpbGetUser(wpb, tag) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  return wpb.users[clean] || { nickname: '', tickets: 0 }
+}
+function wpbSetUser(wpb, tag, nickname, tickets) {
+  const clean = String(tag || '').replace(/^@/, '').trim()
+  if (!clean) return
+  const cur = wpb.users[clean] || { nickname: '', tickets: 0 }
+  wpb.users[clean] = { nickname: nickname || cur.nickname, tickets: Math.max(0, Number(tickets) || 0) }
+}
+
+// 인증코드는 헷갈리는 0/O/1/I를 뺀 6자리 영숫자, 10분 유효.
+const WPB_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function wpbGenAuthKey(wpb) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[wpbRand(chars.length)]).join('') } while (wpb.authKeys[key])
+  return key
+}
+function wpbCleanExpiredKeys(wpb) {
+  const now = Date.now()
+  for (const k of Object.keys(wpb.authKeys)) {
+    if (!wpb.authKeys[k] || wpb.authKeys[k].expiresAt < now) delete wpb.authKeys[k]
+  }
+}
+
+async function handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'webpickboard', djId)) return
+  const wpb = getWebPickboardSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const chatAct = getActivitySettings(djId, settings)
+  const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  const canManage = isDj || isManager
+
+  if (!msg.startsWith('!')) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+
+  // 🔑 웹에서 발급받은 인증코드를 채팅으로 입력 → 이 채팅 계정(고유닉)과 웹 세션을 연결
+  if (cmd === wpb.config.cmdAuth) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+    const code = String(parts[1] || '').trim().toUpperCase()
+    if (!code) return sendChatSplit(djId, `사용법: ${wpb.config.cmdAuth} 코드6자리`, 150, 300)
+    wpbCleanExpiredKeys(wpb)
+    const entry = wpb.authKeys[code]
+    if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
+    wpb.webUsers[entry.webUserId] = tag
+    delete wpb.authKeys[code]
+    const cur = wpbGetUser(wpb, tag)
+    wpbSetUser(wpb, tag, author, cur.tickets)
+    saveWebPickboard(djId, wpb)
+    return sendChatSplit(djId, `✅ ${author}님 웹페이지 인증 완료! 이제 웹에서 뽑기를 진행할 수 있어요.`, 150, 300)
+  }
+
+  if (cmd === wpb.config.cmdTicketGive) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = String(parts[1] || '').replace(/^@/, '').trim()
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, `사용법: ${wpb.config.cmdTicketGive} 고유닉 수량`, 150, 300)
+    const user = wpbGetUser(wpb, target)
+    wpbSetUser(wpb, target, user.nickname || target, user.tickets + count)
+    saveWebPickboard(djId, wpb)
+    broadcast({ type: 'webpickboard-ticket', djId, tag: target, tickets: wpb.users[target].tickets })
+    return sendChatSplit(djId, `🎫 ${target}님에게 뽑기권 ${count}장을 지급했어요. (보유: ${wpb.users[target].tickets}장)`, 150, 300)
+  }
+
+  if (cmd === wpb.config.cmdTicketRemove) {
+    if (!canManage) return sendChatSplit(djId, '⚠️ 매니저 이상만 사용할 수 있습니다.', 150, 300)
+    const target = String(parts[1] || '').replace(/^@/, '').trim()
+    const count = Math.max(1, Number(parts[2]) || 1)
+    if (!target) return sendChatSplit(djId, `사용법: ${wpb.config.cmdTicketRemove} 고유닉 수량`, 150, 300)
+    const user = wpbGetUser(wpb, target)
+    const nextTickets = Math.max(0, user.tickets - count)
+    wpbSetUser(wpb, target, user.nickname || target, nextTickets)
+    saveWebPickboard(djId, wpb)
+    broadcast({ type: 'webpickboard-ticket', djId, tag: target, tickets: nextTickets })
+    return sendChatSplit(djId, `🎫 ${target}님의 뽑기권을 ${count}장 차감했어요. (남은: ${nextTickets}장)`, 150, 300)
+  }
+
+  if (cmd === wpb.config.cmdMyTicket) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요.', 150, 300)
+    const user = wpbGetUser(wpb, tag)
+    return sendChatSplit(djId, `🎫 ${author}님 보유 뽑기권: ${user.tickets}장`, 150, 300)
+  }
+}
 
 // ══════════════════════════════════════════════════════
 // 🎣 팝블리네 낚시대회 — 낚시 게임과는 완전히 별개인 신규 모듈.
@@ -13218,6 +13372,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -16061,6 +16216,17 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       ].filter(x => x.cmd)
     })
   }
+  if (on('webpickboard') && settings.webPickboard && settings.webPickboard.config) {
+    const wcfg = settings.webPickboard.config
+    groups.push({
+      key: 'webpickboard', icon: '🌐', label: '웹뽑기판', items: [
+        { cmd: wcfg.cmdAuth + ' 코드6자리', desc: '웹페이지에서 발급받은 인증코드로 계정 연결' },
+        { cmd: wcfg.cmdTicketGive, desc: '[고유닉] [수량] 뽑기권 지급 (관리자)' },
+        { cmd: wcfg.cmdTicketRemove, desc: '[고유닉] [수량] 뽑기권 차감 (관리자)' },
+        { cmd: wcfg.cmdMyTicket, desc: '내 보유 뽑기권 조회' },
+      ].filter(x => x.cmd)
+    })
+  }
   if (on('couponcheck') && settings.couponCheck) {
     const cc = settings.couponCheck
     groups.push({
@@ -16432,6 +16598,208 @@ app.post('/pickboard/reset-users', auth.requireAuth, (req, res) => {
   pb.users = {}
   savePickboard(req.djId, pb)
   res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 관리자(DJ) 전용 설정 API. /webpickboard-admin 접두사를 써서 아래의 공개(비로그인)
+// API인 /webpickboard/:djId/* 와 경로가 겹치지 않게 분리했다.
+app.get('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({
+    success: true,
+    config: wpb.config,
+    grid: wpb.grid,
+    picked: wpb.picked,
+    userCount: Object.keys(wpb.users).length,
+    linkedCount: Object.keys(wpb.webUsers).length,
+    publicUrl: `/webpickboard/${req.djId}`,
+  })
+})
+app.post('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const body = req.body || {}
+
+  if (body.cols != null) wpb.config.cols = Math.max(1, Math.min(20, Number(body.cols) || 7))
+  if (body.rows != null) wpb.config.rows = Math.max(1, Math.min(20, Number(body.rows) || 7))
+  if (Array.isArray(body.ranks)) wpb.config.ranks = wpbNormalizeRanks(body.ranks)
+
+  const cmdKeys = ['cmdAuth', 'cmdTicketGive', 'cmdTicketRemove', 'cmdMyTicket']
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) wpb.config[k] = v.slice(0, 40) } })
+
+  wpb.grid = wpbBuildGrid(wpb.config) // 판 크기/등수 구성이 바뀌었을 수 있으니 저장할 때마다 다시 배치
+  wpb.picked = {} // 재배치되면 기존 "뽑힌 칸" 표시는 의미가 없어지므로 초기화
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+
+app.post('/webpickboard-admin/preset/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const name = String((req.body || {}).name || '').trim().slice(0, 15)
+  if (!name) return res.json({ success: false, error: '프리셋 이름을 입력해주세요' })
+  const preset = { id: 'preset_' + Date.now() + '_' + Math.random().toString(16).slice(2), name, cols: wpb.config.cols, rows: wpb.config.rows, ranks: wpb.config.ranks }
+  wpb.config.presets.push(preset)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/load', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  wpb.config.cols = preset.cols
+  wpb.config.rows = preset.rows
+  wpb.config.ranks = wpbNormalizeRanks(preset.ranks)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+app.post('/webpickboard-admin/preset/rename', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const { id, name } = req.body || {}
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  const clean = String(name || '').trim().slice(0, 15)
+  if (!clean) return res.json({ success: false, error: '이름을 입력해주세요' })
+  preset.name = clean
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  wpb.config.presets = wpb.config.presets.filter(p => p.id !== id)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+
+app.post('/webpickboard-admin/reset-board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  wpb.winners = []
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true })
+})
+app.post('/webpickboard-admin/reset-users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.users = {}
+  wpb.webUsers = {}
+  wpb.authKeys = {}
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true })
+})
+app.get('/webpickboard-admin/winners', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({ success: true, winners: wpb.winners.slice(0, 100) })
+})
+// 관리자가 웹 화면에서 직접 특정 고유닉에게 뽑기권을 지급/차감 (채팅 명령어와 별개의 편의 기능)
+app.post('/webpickboard-admin/ticket', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const target = String((req.body || {}).tag || '').replace(/^@/, '').trim()
+  const delta = Number((req.body || {}).delta) || 0
+  if (!target || !delta) return res.json({ success: false, error: '고유닉과 수량을 입력해주세요' })
+  const user = wpbGetUser(wpb, target)
+  wpbSetUser(wpb, target, user.nickname || target, user.tickets + delta)
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-ticket', djId: req.djId, tag: target, tickets: wpb.users[target].tickets })
+  res.json({ success: true, tickets: wpb.users[target].tickets })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 공개(로그인 없음) API. 시청자용 웹페이지가 아래 엔드포인트로 등록/인증확인/조회/뽑기를 진행한다.
+app.get('/webpickboard/:djId/board', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.status(404).json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  res.json({
+    success: true,
+    cols: wpb.config.cols,
+    rows: wpb.config.rows,
+    ranks: wpb.config.ranks.map(r => ({ rank: r.rank, name: r.name })),
+    picked: wpb.picked,
+    total: wpb.grid.length,
+  })
+})
+app.post('/webpickboard/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  wpbCleanExpiredKeys(wpb)
+  const webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  const code = wpbGenAuthKey(wpb)
+  wpb.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + WPB_AUTH_KEY_TTL_MS }
+  saveWebPickboard(djId, wpb)
+  res.json({ success: true, webUserId, code, cmd: wpb.config.cmdAuth, expiresInSec: WPB_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/webpickboard/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = wpb.webUsers[webUserId]
+  if (tag) {
+    const user = wpbGetUser(wpb, tag)
+    return res.json({ success: true, linked: true, tag, nickname: user.nickname || tag, tickets: user.tickets })
+  }
+  wpbCleanExpiredKeys(wpb)
+  for (const [code, entry] of Object.entries(wpb.authKeys)) {
+    if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+  }
+  res.json({ success: true, linked: false, expired: true })
+})
+app.post('/webpickboard/:djId/pick', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const idx = Number((req.body || {}).index)
+  const tag = wpb.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 유저등록 및 채팅 인증을 완료해주세요.' })
+  if (!Number.isInteger(idx) || idx < 0 || idx >= wpb.grid.length) return res.json({ success: false, error: '잘못된 칸이에요.' })
+  if (wpb.picked[idx]) return res.json({ success: false, error: '이미 다른 분이 뽑은 칸이에요.' })
+  const user = wpbGetUser(wpb, tag)
+  if (user.tickets < 1) return res.json({ success: false, error: '보유한 뽑기권이 없어요.' })
+
+  const rankNum = wpb.grid[idx]
+  const rankInfo = wpb.config.ranks.find(r => r.rank === rankNum) || { rank: rankNum, name: '' }
+  const nickname = user.nickname || tag
+  wpbSetUser(wpb, tag, nickname, user.tickets - 1)
+  wpb.picked[idx] = { rank: rankInfo.rank, name: rankInfo.name, nickname, tag, at: Date.now() }
+  wpb.winners.unshift({ time: Date.now(), nickname, tag, index: idx, rank: rankInfo.rank, name: rankInfo.name })
+  if (wpb.winners.length > 300) wpb.winners.length = 300
+  saveWebPickboard(djId, wpb)
+  broadcast({ type: 'webpickboard-pick', djId, index: idx, rank: rankInfo.rank, name: rankInfo.name, nickname })
+  res.json({ success: true, rank: rankInfo.rank, name: rankInfo.name, tickets: wpb.users[tag].tickets })
+})
+// 공개 웹뽑기판 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// board·register·me·pick 같은 하위 경로를 가로채지 않는다.
+app.get('/webpickboard/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/webpickboard.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
