@@ -11,7 +11,7 @@
     --gray:#9ca3af; --danger:#ef4444;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);padding-bottom:40px}
+  body{margin:0;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);padding-bottom:40px;overflow-x:hidden}
   header{background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;padding:22px 18px 26px;text-align:center;border-radius:0 0 22px 22px}
   header h1{margin:0;font-size:20px}
   header p{margin:6px 0 0;font-size:12.5px;opacity:.85}
@@ -24,10 +24,11 @@
   .code-box{font-size:26px;font-weight:800;letter-spacing:4px;text-align:center;background:#f7f2ff;border:2px dashed var(--purple2);border-radius:12px;padding:16px;margin:12px 0;color:var(--purple)}
   .status-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   .ticket-pill{background:var(--purple);color:#fff;font-weight:700;font-size:13px;padding:6px 14px;border-radius:999px}
-  .grid{display:grid;gap:8px;margin-top:14px}
-  .cell{aspect-ratio:1;border-radius:14px;background:linear-gradient(160deg,var(--purple2),var(--purple));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;cursor:pointer;user-select:none;transition:transform .12s;border:none}
+  .grid{display:grid;gap:6px;margin-top:14px;width:100%}
+  .cell{aspect-ratio:1;min-width:0;width:100%;border-radius:14px;background:linear-gradient(160deg,var(--purple2),var(--purple));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;cursor:pointer;user-select:none;transition:transform .12s;border:none;padding:0}
   .cell:active{transform:scale(.92)}
   .cell.picked{background:#e8e2f7;color:var(--purple);cursor:default;font-size:10px;font-weight:700;flex-direction:column;gap:2px;padding:2px}
+  .cell.cell-dense{font-size:11px}
   .cell.disabled{opacity:.5;cursor:not-allowed}
   .cell .rank-badge{font-size:11px;font-weight:800}
   .cell .rank-name{font-size:9px;opacity:.85;text-align:center;line-height:1.2}
@@ -199,7 +200,12 @@ function renderLegend(){
 
 function renderBoard(){
   const grid = document.getElementById('boardGrid');
-  grid.style.gridTemplateColumns = `repeat(${boardCols}, 1fr)`;
+  grid.style.gridTemplateColumns = `repeat(${boardCols}, minmax(0, 1fr))`;
+  // 칸 수가 많을수록(특히 가로) 한 칸 폭이 좁아지니, 모바일에서 옆으로 안 밀리도록
+  // 여백/글자 크기를 같이 줄여준다.
+  const dense = boardCols > 12;
+  grid.style.gap = dense ? '3px' : '6px';
+  const cellClass = 'cell' + (dense ? ' cell-dense' : '');
   let html = '';
   for(let i=0;i<boardTotal;i++){
     const p = boardPicked[i];
@@ -207,7 +213,7 @@ function renderBoard(){
       html += `<div class="cell picked"><span class="rank-badge">${p.rank}등</span><span class="rank-name">${escapeHtml(p.name||'')}</span></div>`;
     } else {
       const disabled = myTickets < 1 ? 'disabled' : '';
-      html += `<button class="cell ${disabled}" onclick="pickCell(${i})">⭐</button>`;
+      html += `<button class="${cellClass} ${disabled}" onclick="pickCell(${i})">⭐</button>`;
     }
   }
   grid.innerHTML = html;

@@ -3289,8 +3289,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title"><span>⚙️ 뽑기판 크기</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wpbApplySize()">✔ 적용</button></div>
           <p class="hint">시청자가 웹페이지(로그인 불필요)에서 직접 눌러서 뽑는 새로운 뽑기판이에요. 기존 채팅용 "뽑기판"과는 완전히 별개로 동작해요.</p>
           <div class="btn-row" style="grid-template-columns:1fr 1fr">
-            <div><label>가로</label><input type="number" id="wpbCols" value="7" min="1" max="20"></div>
-            <div><label>세로</label><input type="number" id="wpbRows" value="7" min="1" max="20"></div>
+            <div><label>가로</label><input type="number" id="wpbCols" value="7" min="1" max="60"></div>
+            <div><label>세로</label><input type="number" id="wpbRows" value="7" min="1" max="60"></div>
           </div>
         </div>
 
@@ -12166,9 +12166,11 @@ function wpbApplySize(){
 
 async function saveWpbSettings(){
   if(!wpbConfig)return;
+  const reqCols=Number(document.getElementById('wpbCols').value)||7;
+  const reqRows=Number(document.getElementById('wpbRows').value)||7;
   const body={
-    cols:Number(document.getElementById('wpbCols').value)||7,
-    rows:Number(document.getElementById('wpbRows').value)||7,
+    cols:reqCols,
+    rows:reqRows,
     ranks:wpbConfig.ranks,
     cmdAuth:document.getElementById('wpbCmdAuth').value,
     cmdTicketGive:document.getElementById('wpbCmdTicketGive').value,
@@ -12179,7 +12181,11 @@ async function saveWpbSettings(){
     const res=await fetch(SERVER+'/webpickboard-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
     if(!d.success)return showToast(d.error||'실패');
-    showToast('저장 완료! 판이 새로 배치됐어요');
+    if(d.config.cols!==reqCols||d.config.rows!==reqRows){
+      showToast(`⚠️ 가로/세로는 최대 60까지예요. ${d.config.cols}x${d.config.rows}로 저장됐어요`);
+    }else{
+      showToast('저장 완료! 판이 새로 배치됐어요');
+    }
     loadWpbSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -12188,13 +12194,13 @@ function wpbRenderGridPreview(){
   const wrap=document.getElementById('wpbGridPreview');
   if(!wrap||!wpbConfig)return;
   const cols=Number(wpbConfig.cols)||7;
-  wrap.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+  wrap.style.gridTemplateColumns=`repeat(${cols}, minmax(0, 1fr))`;
   wrap.innerHTML=wpbGrid.map((rank,i)=>{
     const p=wpbPicked[i];
     const rInfo=wpbConfig.ranks.find(r=>r.rank===rank);
     const label=rInfo&&rInfo.name?`${rank}등`:'';
     const bg=p?'var(--accent)':'var(--surface2)';
-    return `<div title="${p?escapeAttr((p.nickname||'')+' → '+rank+'등 '+(p.name||'')):('배치: '+rank+'등'+(label?(' '+escapeAttr(rInfo.name)):''))}" style="aspect-ratio:1;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;color:${p?'#fff':'var(--text-dim)'};text-align:center;padding:2px">${p?('✅'+rank+'등'):(rank+'등')}</div>`;
+    return `<div title="${p?escapeAttr((p.nickname||'')+' → '+rank+'등 '+(p.name||'')):('배치: '+rank+'등'+(label?(' '+escapeAttr(rInfo.name)):''))}" style="aspect-ratio:1;min-width:0;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:11px;color:${p?'#fff':'var(--text-dim)'};text-align:center;padding:2px;overflow:hidden">${p?('✅'+rank+'등'):(rank+'등')}</div>`;
   }).join('');
 }
 
