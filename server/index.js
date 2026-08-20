@@ -223,6 +223,39 @@ function tokenDjIdFor(djId) {
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 
+// 🔗 buly.kr 단축 URL 연동 — Railway 환경변수에 BULY_CUSTOMER_ID(buly 로그인 아이디)와
+// BULY_API_KEY(buly에서 발급받은 Access Key)를 등록해두면, 공개 페이지 링크(웹뽑기판/마피아
+// 게임 등)를 서버가 대신 buly.kr에 요청해서 짧게 줄여준다. 키 값은 절대 프론트엔드 코드에
+// 직접 넣지 않고, 이 함수를 통해서만 서버 쪽에서 호출한다.
+const BULY_CUSTOMER_ID = process.env.BULY_CUSTOMER_ID || ''
+const BULY_API_KEY = process.env.BULY_API_KEY || ''
+async function shortenUrlViaBuly(longUrl) {
+  if (!BULY_CUSTOMER_ID || !BULY_API_KEY) {
+    return { success: false, error: 'buly.kr 연동 정보가 설정되지 않았어요. Railway 환경변수에 BULY_CUSTOMER_ID, BULY_API_KEY를 등록해주세요.' }
+  }
+  try {
+    const body = new URLSearchParams({ customer_id: BULY_CUSTOMER_ID, partner_api_id: BULY_API_KEY, org_url: longUrl })
+    const res = await fetch('https://www.buly.kr/api/shoturl.siso', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    const data = await res.json()
+    const ok = data.result === true || data.result === 'Y' || data.result === 'y'
+    if (!ok) return { success: false, error: data.message || '단축 URL 생성에 실패했어요.' }
+    return { success: true, shortUrl: data.url }
+  } catch (e) {
+    return { success: false, error: '요청 중 오류: ' + e.message }
+  }
+}
+app.post('/shorten-url', auth.requireAuth, async (req, res) => {
+  const longUrl = String((req.body || {}).url || '').trim()
+  if (!longUrl) return res.json({ success: false, error: 'URL을 입력해주세요' })
+  if (!/^https?:\/\//.test(longUrl)) return res.json({ success: false, error: 'http(s):// 로 시작하는 URL만 단축할 수 있어요' })
+  const result = await shortenUrlViaBuly(longUrl)
+  res.json(result)
+})
+
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
 const rooms = {}
 function getRoom(djId) {

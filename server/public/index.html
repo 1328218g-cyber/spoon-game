@@ -3340,6 +3340,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="wpbCopyPublicUrl()">복사</button>
             <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('wpbPublicUrl').value,'_blank')">열기</button>
           </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="wpbShortUrl" placeholder="짧은 링크 만들기를 누르면 여기 표시돼요" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="makeShortUrl(document.getElementById('wpbPublicUrl').value,'wpbShortUrl')">🔗 짧은 링크 만들기</button>
+          </div>
         </div>
 
         <div class="card">
@@ -3421,6 +3425,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="text" id="mfPublicUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="mfCopyPublicUrl()">복사</button>
             <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('mfPublicUrl').value,'_blank')">열기</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="mfShortUrl" placeholder="짧은 링크 만들기를 누르면 여기 표시돼요" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="makeShortUrl(document.getElementById('mfPublicUrl').value,'mfShortUrl')">🔗 짧은 링크 만들기</button>
           </div>
         </div>
       </div>
@@ -12509,6 +12517,24 @@ function mfCopyPublicUrl(){
   el.select(); el.setSelectionRange(0,99999);
   try{ navigator.clipboard.writeText(el.value); showToast('링크를 복사했어요'); }
   catch(e){ document.execCommand('copy'); showToast('링크를 복사했어요'); }
+}
+
+// 🔗 buly.kr 단축 URL — 공개 페이지 링크(웹뽑기판/마피아 등)를 서버를 통해 짧게 줄인다.
+async function makeShortUrl(fullUrl, resultInputId){
+  if(!fullUrl){ showToast('먼저 링크를 불러와주세요'); return; }
+  const el=document.getElementById(resultInputId);
+  if(el){ el.value='단축 중...'; }
+  try{
+    const res=await fetch(SERVER+'/shorten-url',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({url:fullUrl})});
+    const d=await res.json();
+    if(!d.success){ if(el)el.value=''; showToast(d.error||'단축에 실패했어요'); return; }
+    if(el){
+      el.value=d.shortUrl;
+      el.readOnly=false; el.onclick=function(){ this.select(); this.setSelectionRange(0,99999); try{navigator.clipboard.writeText(this.value); showToast('복사했어요');}catch(e){document.execCommand('copy'); showToast('복사했어요');} };
+      el.readOnly=true;
+    }
+    showToast('짧은 링크를 만들었어요! (눌러서 복사)');
+  }catch(e){ if(el)el.value=''; showToast('오류: '+e.message); }
 }
 
 function switchFtTab(t){
