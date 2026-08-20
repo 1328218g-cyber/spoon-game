@@ -13791,6 +13791,7 @@ function updateAutoJoinStatus(d){
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
   else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}
   else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
+  else if(d.status==='duplicate'){el.textContent='⚠️ @'+d.tag+' 고유닉은 이미 다른 계정에서 사용 중이에요';showToast('⚠️ 이 고유닉은 이미 다른 계정에서 사용 중이에요');}
   else if(d.status==='error')el.textContent='❌ '+d.msg;
 }
 </script>

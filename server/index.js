@@ -16731,6 +16731,14 @@ async function checkAdminAutoJoin() {
       for (const tag of tagList) {
         const status = await fetchUserStatusByTag(tag)
         if (status && status.is_live && status.current_live_id) {
+          // 🚫 이 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 이 계정은 입장시키지
+          // 않고 경고만 보낸 뒤 다음 고유닉으로 넘어간다.
+          const dupDjId = findActiveDjIdUsingTag(tag, djId)
+          if (dupDjId) {
+            console.log(`[자동입장:${djId}] @${tag} 는 이미 다른 계정에서 사용 중이라 건너뜀`)
+            broadcast({ type: 'autojoin', djId, status: 'duplicate', tag })
+            continue
+          }
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
           const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
@@ -16790,6 +16798,23 @@ function commitAutoJoinTagLock(djId, settings, newTags) {
   }
 }
 
+// 🚫 같은 고유닉(스푼 계정)을 서로 다른 두 에디봇 계정이 동시에 "입장중" 상태로 물고 있는
+// 상황을 막기 위한 체크. A 계정이 이미 그 고유닉의 방에 접속해 입장중이면, B 계정이 같은
+// 고유닉으로 (수동/자동)입장을 시도할 때 여기서 걸려서 B에게는 경고만 뜨고 입장은 막힌다.
+// 대소문자 차이는 같은 고유닉으로 취급한다.
+function findActiveDjIdUsingTag(tag, excludeDjId) {
+  const norm = String(tag || '').toLowerCase().trim()
+  if (!norm) return null
+  for (const djId of store.listDjIds()) {
+    if (djId === excludeDjId) continue
+    const room = getRoom(djId)
+    if (room.isConnected && room.watchingTag && String(room.watchingTag).toLowerCase().trim() === norm) {
+      return djId
+    }
+  }
+  return null
+}
+
 // 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
 app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
@@ -16844,6 +16869,13 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     if (!status || !status.is_live || !status.current_live_id) {
       broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
       return res.json({ success: false, error: '현재 방송 중이 아니에요' })
+    }
+
+    // 🚫 같은 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 입장을 막고 경고를 보낸다.
+    const dupDjId = findActiveDjIdUsingTag(cleanTag, djId)
+    if (dupDjId) {
+      broadcast({ type: 'autojoin', djId, status: 'duplicate', tag: cleanTag })
+      return res.json({ success: false, error: `⚠️ @${cleanTag} 고유닉은 이미 다른 계정에서 사용 중이에요. 동시에 같은 고유닉을 사용할 수 없어요.` })
     }
 
     const liveId = String(status.current_live_id)
