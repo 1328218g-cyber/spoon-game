@@ -1916,7 +1916,7 @@ function getMonsterCatchSettings(djId, settings) {
       // {cmdBossJoin}으로 참여하면 각자 가장 강한 몬스터의 공격력이 보스 체력에 더해지고,
       // 참여 시간이 끝나면 자동으로 격파 처리되며(체력 = 참여자 총 공격력) 가장 강한 공격력을
       // 기여한 사람이 MVP로 랜덤 이로치 몬스터 1마리를 받는다.
-      bossEnabled: false,
+      bossEnabled: true,
       bossMonsterName: '풀잎',
       bossIntervalMin: 60,
       bossJoinWindowSec: 90,
@@ -1988,7 +1988,7 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveUsage == null) mc.msgBallGiveUsage = '⚠️ 사용법: {cmdBallGive} [고유닉] [수량] (음수 입력 시 차감)'
   if (mc.msgBallGiveNoAuth == null) mc.msgBallGiveNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
-  if (mc.bossEnabled == null) mc.bossEnabled = false
+  if (mc.bossEnabled == null) mc.bossEnabled = true
   if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
   if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
   if (mc.bossJoinWindowSec == null) mc.bossJoinWindowSec = 90
