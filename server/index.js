@@ -5643,6 +5643,20 @@ function wpbCleanExpiredKeys(wpb) {
   }
 }
 
+// 🔑 인증코드 처리 공용 함수 — "!뽑기인증 코드"로 치든, 명령어 없이 코드만 딱 치든 동일하게 동작.
+function wpbHandleAuth(djId, wpb, tag, author, code) {
+  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+  wpbCleanExpiredKeys(wpb)
+  const entry = wpb.authKeys[code]
+  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
+  wpb.webUsers[entry.webUserId] = tag
+  delete wpb.authKeys[code]
+  const cur = wpbGetUser(wpb, tag)
+  wpbSetUser(wpb, tag, author, cur.tickets)
+  saveWebPickboard(djId, wpb)
+  return sendChatSplit(djId, `✅ ${author}님 웹페이지 인증 완료! 이제 웹에서 뽑기를 진행할 수 있어요.`, 150, 300)
+}
+
 async function handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
   if (!isModuleOn(settings, 'webpickboard', djId)) return
   const wpb = getWebPickboardSettings(djId, settings)
@@ -5653,7 +5667,17 @@ async function handleWebPickboardCommand(djId, room, settings, author, authorId,
   const isManager = !isDj && (chatAct.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
   const canManage = isDj || isManager
 
-  if (!msg.startsWith('!')) return
+  // 🔑 "!뽑기인증 코드"처럼 명령어를 안 붙이고, 헷갈리지 않게 인증코드만 딱 쳐도 인식되게 처리.
+  // (영문/숫자 6자리이고, 실제로 발급되어 대기중인 코드와 정확히 일치할 때만 동작하므로 일반
+  //  채팅과 혼동될 일이 거의 없다)
+  if (!msg.startsWith('!')) {
+    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+      wpbCleanExpiredKeys(wpb)
+      if (wpb.authKeys[rawCode]) return wpbHandleAuth(djId, wpb, tag, author, rawCode)
+    }
+    return
+  }
   const parts = msg.split(/\s+/)
   const cmd = parts[0]
 
@@ -5662,15 +5686,7 @@ async function handleWebPickboardCommand(djId, room, settings, author, authorId,
     if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
     const code = String(parts[1] || '').trim().toUpperCase()
     if (!code) return sendChatSplit(djId, `사용법: ${wpb.config.cmdAuth} 코드6자리`, 150, 300)
-    wpbCleanExpiredKeys(wpb)
-    const entry = wpb.authKeys[code]
-    if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
-    wpb.webUsers[entry.webUserId] = tag
-    delete wpb.authKeys[code]
-    const cur = wpbGetUser(wpb, tag)
-    wpbSetUser(wpb, tag, author, cur.tickets)
-    saveWebPickboard(djId, wpb)
-    return sendChatSplit(djId, `✅ ${author}님 웹페이지 인증 완료! 이제 웹에서 뽑기를 진행할 수 있어요.`, 150, 300)
+    return wpbHandleAuth(djId, wpb, tag, author, code)
   }
 
   if (cmd === wpb.config.cmdTicketGive) {
@@ -16746,7 +16762,19 @@ app.post('/webpickboard/:djId/register', (req, res) => {
   if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
   const wpb = getWebPickboardSettings(djId, settings)
   wpbCleanExpiredKeys(wpb)
-  const webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  // 🔁 이 브라우저가 이미 발급받은(아직 채팅 인증 전인) webUserId를 갖고 있다면 그대로 재사용하고,
+  // 그 아이디로 예전에 발급했던 코드는 지금 새로 만드는 코드로 교체(삭제)한다. 이렇게 안 하면
+  // "코드 다시 발급받기"를 누른 뒤 화면에는 새 코드가 떠 있는데 사람이 예전에 복사해둔 옛날
+  // 코드를 채팅에 치는 바람에, 화면에는 안 보이는(이미 버려진) 세션에 엉뚱하게 연결되는 사고가 난다.
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !wpb.webUsers[webUserId]) {
+    for (const code of Object.keys(wpb.authKeys)) {
+      if (wpb.authKeys[code].webUserId === webUserId) delete wpb.authKeys[code]
+    }
+  } else {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
   const code = wpbGenAuthKey(wpb)
   wpb.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + WPB_AUTH_KEY_TTL_MS }
   saveWebPickboard(djId, wpb)
@@ -16794,6 +16822,9 @@ app.post('/webpickboard/:djId/pick', (req, res) => {
   if (wpb.winners.length > 300) wpb.winners.length = 300
   saveWebPickboard(djId, wpb)
   broadcast({ type: 'webpickboard-pick', djId, index: idx, rank: rankInfo.rank, name: rankInfo.name, nickname })
+  // 🔔 웹에서 뽑은 결과도 방송 채팅창에 그대로 안내해서, 시청자들이 누가 몇 등을 뽑았는지 같이 볼 수 있게 한다.
+  const prizeText = rankInfo.name ? `[${rankInfo.name}]` : ''
+  sendChatSplit(djId, `🎯 ${nickname}님이 웹뽑기판에서 ${rankInfo.rank}등 ${prizeText} 당첨!`, 150, 300)
   res.json({ success: true, rank: rankInfo.rank, name: rankInfo.name, tickets: wpb.users[tag].tickets })
 })
 // 공개 웹뽑기판 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
