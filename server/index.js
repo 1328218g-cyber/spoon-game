@@ -223,61 +223,50 @@ function tokenDjIdFor(djId) {
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 
-// 🔗 buly.kr 단축 URL 연동 — Railway 환경변수에 BULY_CUSTOMER_ID(buly 로그인 아이디)와
-// BULY_API_KEY(buly에서 발급받은 Access Key)를 등록해두면, 공개 페이지 링크(웹뽑기판/마피아
-// 게임 등)를 서버가 대신 buly.kr에 요청해서 짧게 줄여준다. 키 값은 절대 프론트엔드 코드에
-// 직접 넣지 않고, 이 함수를 통해서만 서버 쪽에서 호출한다.
-const BULY_CUSTOMER_ID = process.env.BULY_CUSTOMER_ID || ''
-const BULY_API_KEY = process.env.BULY_API_KEY || ''
-async function shortenUrlViaBuly(longUrl) {
-  if (!BULY_CUSTOMER_ID || !BULY_API_KEY) {
-    return { success: false, error: 'buly.kr 연동 정보가 설정되지 않았어요. Railway 환경변수에 BULY_CUSTOMER_ID, BULY_API_KEY를 등록해주세요.' }
-  }
+// 🔗 자체 단축 URL 시스템 — buly.kr 같은 외부 서비스는 클라우드 서버(Railway) IP에서 오는
+// 요청을 조용히 막는(응답 자체를 안 주는) 경우가 있어서, 외부 서비스에 의존하지 않고
+// 에디봇 서버 자체에서 짧은 링크를 만들어 저장해뒀다가 리다이렉트해준다.
+const SHORTLINKS_FILE = path.join(store.DATA_DIR, 'shortlinks.json')
+let shortlinksCache = null
+function loadShortlinks() {
+  if (shortlinksCache) return shortlinksCache
   try {
-    const body = new URLSearchParams({ customer_id: BULY_CUSTOMER_ID, partner_api_id: BULY_API_KEY, org_url: longUrl })
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000) // 10초 넘게 응답 없으면 포기
-    let res
-    try {
-      res = await fetch('https://www.buly.kr/api/shoturl.siso', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': CHROME_UA, // buly.kr이 브라우저 흉내 없는 요청(User-Agent 없음)은 막을 수 있어서 추가
-          'Accept': 'application/json, text/plain, */*',
-        },
-        body: body.toString(),
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeout)
-    }
-    const raw = await res.text()
-    if (!res.ok) {
-      console.log(`[buly.kr] HTTP ${res.status} — ${raw.slice(0, 300)}`)
-      return { success: false, error: `buly.kr 응답 오류 (HTTP ${res.status})` }
-    }
-    let data
-    try { data = JSON.parse(raw) } catch (e) {
-      console.log('[buly.kr] JSON 파싱 실패 — 응답 원문:', raw.slice(0, 300))
-      return { success: false, error: 'buly.kr 응답을 해석할 수 없어요 (JSON이 아니에요).' }
-    }
-    const ok = data.result === true || data.result === 'Y' || data.result === 'y'
-    if (!ok) return { success: false, error: data.message || '단축 URL 생성에 실패했어요.' }
-    return { success: true, shortUrl: data.url }
+    shortlinksCache = JSON.parse(fs.readFileSync(SHORTLINKS_FILE, 'utf8'))
   } catch (e) {
-    // Node의 fetch는 실제 원인(DNS 실패/연결 거부/TLS 오류 등)을 e.cause에 담아서 던진다.
-    const detail = (e && e.cause && e.cause.message) ? e.cause.message : e.message
-    console.log('[buly.kr] 요청 실패:', detail)
-    return { success: false, error: '요청 중 오류: ' + detail }
+    shortlinksCache = {}
+  }
+  return shortlinksCache
+}
+function saveShortlinks() {
+  try {
+    fs.mkdirSync(path.dirname(SHORTLINKS_FILE), { recursive: true })
+    fs.writeFileSync(SHORTLINKS_FILE, JSON.stringify(shortlinksCache, null, 2))
+  } catch (e) {
+    console.log('[단축링크] 저장 실패:', e.message)
   }
 }
-app.post('/shorten-url', auth.requireAuth, async (req, res) => {
+function makeShortCode() {
+  const chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' // 헷갈리는 0/O/1/I/l 제외
+  const map = loadShortlinks()
+  let code
+  do { code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') } while (map[code])
+  return code
+}
+app.post('/shorten-url', auth.requireAuth, (req, res) => {
   const longUrl = String((req.body || {}).url || '').trim()
   if (!longUrl) return res.json({ success: false, error: 'URL을 입력해주세요' })
   if (!/^https?:\/\//.test(longUrl)) return res.json({ success: false, error: 'http(s):// 로 시작하는 URL만 단축할 수 있어요' })
-  const result = await shortenUrlViaBuly(longUrl)
-  res.json(result)
+  const map = loadShortlinks()
+  const existingCode = Object.keys(map).find(c => map[c].url === longUrl) // 같은 주소는 코드 재사용
+  const code = existingCode || makeShortCode()
+  if (!existingCode) { map[code] = { url: longUrl, createdAt: Date.now(), djId: req.djId }; saveShortlinks() }
+  res.json({ success: true, shortUrl: `${req.protocol}://${req.get('host')}/s/${code}` })
+})
+app.get('/s/:code', (req, res) => {
+  const map = loadShortlinks()
+  const entry = map[req.params.code]
+  if (!entry) return res.status(404).send('존재하지 않거나 만료된 링크예요.')
+  res.redirect(entry.url)
 })
 
 // 디제이별 방(연결) 상태. djId -> { ws, isConnected, streamName, roomToken, autoJoinedFor, checking }
