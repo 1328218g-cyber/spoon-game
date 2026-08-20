@@ -235,17 +235,41 @@ async function shortenUrlViaBuly(longUrl) {
   }
   try {
     const body = new URLSearchParams({ customer_id: BULY_CUSTOMER_ID, partner_api_id: BULY_API_KEY, org_url: longUrl })
-    const res = await fetch('https://www.buly.kr/api/shoturl.siso', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    })
-    const data = await res.json()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000) // 10초 넘게 응답 없으면 포기
+    let res
+    try {
+      res = await fetch('https://www.buly.kr/api/shoturl.siso', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': CHROME_UA, // buly.kr이 브라우저 흉내 없는 요청(User-Agent 없음)은 막을 수 있어서 추가
+          'Accept': 'application/json, text/plain, */*',
+        },
+        body: body.toString(),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+    const raw = await res.text()
+    if (!res.ok) {
+      console.log(`[buly.kr] HTTP ${res.status} — ${raw.slice(0, 300)}`)
+      return { success: false, error: `buly.kr 응답 오류 (HTTP ${res.status})` }
+    }
+    let data
+    try { data = JSON.parse(raw) } catch (e) {
+      console.log('[buly.kr] JSON 파싱 실패 — 응답 원문:', raw.slice(0, 300))
+      return { success: false, error: 'buly.kr 응답을 해석할 수 없어요 (JSON이 아니에요).' }
+    }
     const ok = data.result === true || data.result === 'Y' || data.result === 'y'
     if (!ok) return { success: false, error: data.message || '단축 URL 생성에 실패했어요.' }
     return { success: true, shortUrl: data.url }
   } catch (e) {
-    return { success: false, error: '요청 중 오류: ' + e.message }
+    // Node의 fetch는 실제 원인(DNS 실패/연결 거부/TLS 오류 등)을 e.cause에 담아서 던진다.
+    const detail = (e && e.cause && e.cause.message) ? e.cause.message : e.message
+    console.log('[buly.kr] 요청 실패:', detail)
+    return { success: false, error: '요청 중 오류: ' + detail }
   }
 }
 app.post('/shorten-url', auth.requireAuth, async (req, res) => {
@@ -2179,13 +2203,22 @@ function mcPickStrongest(collection, monsters) {
 // 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
 // 같은 문구를 채팅으로 뿌린다. 서버 전체에 딱 하나만 도는 전역 타이머(방마다 따로 있는 게 아님).
 let globalAnnounceTimer = null
+// 🛡️ store.js에 getGlobalAnnounce/setGlobalAnnounce가 아직 없는 배포본에서도 서버가
+// 죽지 않도록(uncaughtException) 안전하게 감싼 함수. store.js에 실제 함수가 추가되면
+// 자동으로 그쪽을 우선 사용한다.
+function getGlobalAnnounceSafe() {
+  if (typeof store.getGlobalAnnounce === 'function') {
+    try { return store.getGlobalAnnounce() } catch (e) { console.log('[전체방 공지] store.getGlobalAnnounce 호출 실패:', e.message) }
+  }
+  return { enabled: false, message: '', intervalMin: 30, excludeDjIds: [] }
+}
 function startGlobalAnnounceTimer() {
   if (globalAnnounceTimer) { clearInterval(globalAnnounceTimer); globalAnnounceTimer = null }
-  const cfg = store.getGlobalAnnounce()
+  const cfg = getGlobalAnnounceSafe()
   if (!cfg.enabled || !cfg.message) { console.log('[전체방 공지] 타이머 시작 안 함 — 꺼져있거나 문구가 비어있어요'); return }
   const intervalMs = Math.max(1, Math.min(720, parseInt(cfg.intervalMin, 10) || 30)) * 60 * 1000
   globalAnnounceTimer = setInterval(() => {
-    const cur = store.getGlobalAnnounce() // 매번 최신 설정으로 다시 읽어서, 중간에 문구/제외목록이 바뀌어도 바로 반영
+    const cur = getGlobalAnnounceSafe() // 매번 최신 설정으로 다시 읽어서, 중간에 문구/제외목록이 바뀌어도 바로 반영
     if (!cur.enabled || !cur.message) return
     const excludeSet = new Set((cur.excludeDjIds || []).map(x => String(x).trim().toLowerCase()))
     let sentCount = 0
@@ -14868,10 +14901,13 @@ app.post('/status-banner', auth.requireAuth, (req, res) => {
 // 📢 전체방 반복 공지
 app.get('/admin/global-announce', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  res.json({ success: true, data: store.getGlobalAnnounce() })
+  res.json({ success: true, data: getGlobalAnnounceSafe() })
 })
 app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  if (typeof store.setGlobalAnnounce !== 'function') {
+    return res.json({ success: false, error: 'store.js에 setGlobalAnnounce 함수가 아직 없어요. 서버 파일을 업데이트해주세요.' })
+  }
   const result = store.setGlobalAnnounce(req.body || {})
   if (!result.ok) return res.json({ success: false, error: result.error })
   startGlobalAnnounceTimer() // 간격/활성화 값이 바뀌었을 수 있으니 타이머 재시작
