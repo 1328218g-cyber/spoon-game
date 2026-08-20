@@ -5675,6 +5675,9 @@ async function handleWebPickboardCommand(djId, room, settings, author, authorId,
     if (/^[A-Z0-9]{6}$/.test(rawCode)) {
       wpbCleanExpiredKeys(wpb)
       if (wpb.authKeys[rawCode]) return wpbHandleAuth(djId, wpb, tag, author, rawCode)
+      // 형식은 인증코드 같은데(6자리 영숫자) 실제로 대기중인 코드가 아니면 조용히 넘기지 않고
+      // 바로 안내해준다 — 그래야 사람이 "인증이 안 된다"며 막막해하지 않는다.
+      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 "코드 다시 발급받기"로 새로 받아주세요.', 150, 300)
     }
     return
   }
