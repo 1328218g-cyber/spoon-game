@@ -12646,6 +12646,27 @@ function renderLiveRankView(d){
   const updated=d.updatedAt?new Date(d.updatedAt).toLocaleString('ko-KR'):'-';
   let html='';
 
+  function neighborCard(n,label,arrow,cls){
+    if(!n) return `<div class="card" style="padding:10px 16px;text-align:center"><span class="hint" style="margin:0">${label} — 없음(${arrow==='▲'?'1위':'꼴찌'})</span></div>`;
+    return `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        ${lrAvatarHtml(n.photo,36)}
+        <div style="flex:1;min-width:0">
+          <div class="hint" style="margin:0">${arrow} ${label} (${n.rank}위)</div>
+          <div style="font-size:13.5px;font-weight:700">${escapeHtml(n.nickname)}</div>
+          <div class="hint" style="margin:0">@${escapeHtml(n.tag)}</div>
+        </div>
+        <div style="font-size:15px;font-weight:800;color:${cls}">${lrFmtDiff(n.diff)}</div>
+      </div>
+    </div>`;
+  }
+
+  // 위 → 내 순위 → 아래, 세로로 감싸는 순서로 배치해서 바로 비교되게 한다.
+  if(d.above){
+    const cls=(d.above.diff==null)?'':(d.above.diff>=0?'#dc2626':'#16a34a'); // 위 등수와의 격차: 클수록(양수) 따라잡아야 할 차이가 큼
+    html+=neighborCard(d.above,'바로 위','▲',cls);
+  }
+
   html+=`<div class="card"><div class="card-title"><span>🙋 내 순위</span></div>
     <div style="display:flex;align-items:center;gap:14px">
       ${lrAvatarHtml(d.photo,52)}
@@ -12660,6 +12681,11 @@ function renderLiveRankView(d){
       <div style="font-size:28px;font-weight:800;color:var(--accent);text-align:right">${d.rank}<span style="display:block;font-size:10px;color:var(--muted);font-weight:500">현재 순위</span></div>
     </div>
   </div>`;
+
+  if(d.below){
+    const cls=(d.below.diff==null)?'':(d.below.diff>=0?'#16a34a':'#dc2626'); // 아래 등수와의 여유분: 양수면 안전권
+    html+=neighborCard(d.below,'바로 아래','▼',cls);
+  }
 
   html+=`<div class="hint" style="text-align:center;margin-top:4px">전체 ${d.total}명 · 마지막 갱신: ${updated}</div>`;
 
