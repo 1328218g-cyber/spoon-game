@@ -657,6 +657,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="pickboard"><span class="ic ic-img"><img src="/icons/pickboard.png" alt=""></span><span class="lbl">뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="webpickboard"><span class="ic ic-img"><img src="/icons/webpickboard.png" alt="" onerror="this.onerror=null;this.src='/icons/pickboard.png'"></span><span class="lbl">웹뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="mafia"><span class="ic ic-img"><img src="/icons/mafia.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">마피아 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">실시간 랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -3430,6 +3431,36 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🔴 실시간 랭킹 -->
+      <div class="panel" data-panel="liverank">
+        <div class="card">
+          <div class="card-title"><span>🔴 실시간 랭킹</span></div>
+          <p class="hint">스푼 초이스 월간 랭킹에서 등록한 고유닉의 현재 순위와, 바로 위/아래 등수 DJ와의 점수 차이를 보여주는 시청자용 웹페이지예요. 10분마다 자동 갱신되고, 갱신될 때마다 순위 변화도 기록돼요.</p>
+          <label>내 고유닉 (스푼 아이디)</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="lrDjTag" placeholder="예: sum123" style="flex:1">
+            <button class="btn-connect" style="padding:8px 16px;font-size:12.5px" onclick="saveLiveRankSettings()">저장</button>
+          </div>
+          <div class="hint" id="lrStatus" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔗 공개 페이지</span></div>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 내 실시간 랭킹을 볼 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="lrHubUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('lrHubUrl')">복사</button>
+          </div>
+          <input type="text" id="lrPublicUrl" style="display:none">
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔄 랭킹 데이터</span></div>
+          <p class="hint">랭킹 데이터는 서버가 10분마다 자동으로 갱신하고, 갱신될 때마다 순위 변화 기록도 같이 남아요. 지금 바로 갱신하고 싶으면 아래 버튼을 눌러주세요.</p>
+          <button class="btn-gray" style="width:100%;padding:10px" onclick="liveRankRefreshNow()">🔄 지금 바로 갱신</button>
+        </div>
+      </div>
+
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card" id="trophyEditorCard" style="display:none">
@@ -4620,6 +4651,7 @@ const PANEL_META={
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
   webpickboard:['🌐 웹뽑기판','시청자가 로그인 없이 웹페이지에서 직접 눌러서 뽑는 등수형 뽑기판입니다 (기존 뽑기판과 별개)'],
   mafia:['🎭 마피아 게임','DJ가 역할을 자유롭게 구성하고, 시청자가 웹페이지+채팅인증으로 참가해 진행하는 마피아 게임입니다'],
+  liverank:['🔴 실시간 랭킹','스푼 초이스 월간 랭킹에서 내 순위와 위/아래 DJ와의 점수 차이, 순위 변화 흐름을 보여주는 시청자용 웹페이지입니다'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
@@ -4643,6 +4675,7 @@ function selectPanel(name){
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
+  if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
@@ -4734,7 +4767,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -4748,7 +4781,7 @@ const MODULE_ICON_FILES={
   dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
-  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
   'trophy-editor':'trophyeditor.png',
 };
@@ -4764,7 +4797,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -12555,6 +12588,39 @@ function copyHubUrl(inputId){
   el.select(); el.setSelectionRange(0,99999);
   try{ navigator.clipboard.writeText(el.value); showToast('허브 링크를 복사했어요'); }
   catch(e){ document.execCommand('copy'); showToast('허브 링크를 복사했어요'); }
+}
+
+/* 🔴 실시간 랭킹 */
+async function loadLiveRankSettings(){
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('lrDjTag').value=d.djTag||'';
+    document.getElementById('lrPublicUrl').value=location.origin+(d.publicUrl||'/liverank/'+djId);
+    document.getElementById('lrHubUrl').value=location.origin+'/play/'+djId;
+    document.getElementById('lrStatus').textContent=d.djTag?`현재 등록된 고유닉: ${d.djTag} (기록 ${d.historyCount}건)`:'⚠️ 아직 고유닉이 등록되지 않았어요';
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function saveLiveRankSettings(){
+  const djTag=document.getElementById('lrDjTag').value.trim();
+  if(!djTag)return showToast('고유닉을 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djTag})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('저장했어요');
+    loadLiveRankSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function liveRankRefreshNow(){
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/refresh-now',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('랭킹 데이터를 갱신했어요');
+    loadLiveRankSettings();
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 function switchFtTab(t){

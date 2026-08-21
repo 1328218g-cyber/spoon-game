@@ -659,7 +659,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4093,15 +4093,21 @@ async function refreshDashboardRankFor(djId, settings) {
 const DASH_RANK_AUTO_REFRESH_MS = 10 * 60 * 1000
 setInterval(async () => {
   const targets = []
+  const liveRankTargets = []
   for (const djId of store.listDjIds()) {
     const room = getRoom(djId)
     if (!room.isConnected) continue
     const settings = store.getSettings(djId) || {}
-    if (!isModuleOn(settings, 'dashboard', djId)) continue
-    const dash = getDashboardData(djId, settings)
-    if (dash.djTag) targets.push(djId)
+    if (isModuleOn(settings, 'dashboard', djId)) {
+      const dash = getDashboardData(djId, settings)
+      if (dash.djTag) targets.push(djId)
+    }
+    if (isModuleOn(settings, 'liverank', djId)) {
+      const lr = getLiveRankSettings(djId, settings)
+      if (lr.djTag) liveRankTargets.push(djId)
+    }
   }
-  if (!targets.length) return
+  if (!targets.length && !liveRankTargets.length) return
   const scanResult = await scanDashRank()
   if (!scanResult.success) { console.log('[대시보드랭킹] 자동 갱신 스캔 실패:', scanResult.error); return }
   for (const djId of targets) {
@@ -4112,8 +4118,67 @@ setInterval(async () => {
     else dash.rankData = { nickname: '', tag: dash.djTag, ranks: {}, updatedAt: Date.now(), notFound: true }
     store.saveSettings(djId, { dashboard: dash })
   }
-  console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
+  for (const djId of liveRankTargets) {
+    const settings = store.getSettings(djId) || {}
+    const lr = getLiveRankSettings(djId, settings)
+    recordLiveRankHistory(djId, lr)
+  }
+  if (targets.length) console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
+  if (liveRankTargets.length) console.log(`[실시간랭킹] 자동 갱신 완료 (${liveRankTargets.length}개 계정)`)
 }, DASH_RANK_AUTO_REFRESH_MS)
+
+// ══════════════════════════════════════════════════════
+// 🔴 실시간 랭킹 — 스푼 초이스(next_choice) 월간 랭킹에서 등록한 고유닉의 현재 순위와,
+// 바로 위/아래 등수 DJ와의 점수 차이를 보여주는 독립 모듈. 스캔할 때마다(자동 10분 주기 +
+// 수동 새로고침) 순위 스냅샷을 기록해서 "순위 변화" 흐름도 같이 보여준다.
+// ⚠️ "컷" 점수 필드명은 스푼 응답 원문을 직접 확인 못해서 여러 후보 필드명을 순서대로
+// 시도한다 — 값이 하나도 안 잡히면 순위(신뢰도 100%)만 정상 표시되고 점수차만 "-"로 나온다.
+function getLiveRankSettings(djId, settings) {
+  if (!settings.liveRank) {
+    settings.liveRank = { djTag: '', history: [] }
+    store.saveSettings(djId, { liveRank: settings.liveRank })
+  }
+  if (settings.liveRank.djTag == null) settings.liveRank.djTag = ''
+  if (!Array.isArray(settings.liveRank.history)) settings.liveRank.history = []
+  return settings.liveRank
+}
+function liveRankCutValue(item) {
+  if (!item) return null
+  const candidates = ['score', 'cut_score', 'next_choice_score', 'choice_score', 'total_score', 'cut', 'value', 'point', 'points']
+  for (const key of candidates) {
+    const v = item[key]
+    if (v != null && !isNaN(Number(v))) return Number(v)
+  }
+  return null
+}
+function buildLiveRankSnapshot(djTag) {
+  const list = dashRankCache.next_choice || []
+  if (!list.length) return { success: false, error: '랭킹 데이터가 아직 없어요. 잠시 후 다시 시도해주세요.' }
+  const idx = list.findIndex(x => x.author && x.author.tag === djTag)
+  if (idx === -1) return { success: false, error: '이번 달 초이스 랭킹에서 등록한 고유닉을 찾지 못했어요.', total: list.length }
+  const rank = idx + 1
+  const item = list[idx]
+  const cut = liveRankCutValue(item)
+  const above = idx > 0 ? list[idx - 1] : null
+  const below = idx < list.length - 1 ? list[idx + 1] : null
+  const aboveCut = above ? liveRankCutValue(above) : null
+  const belowCut = below ? liveRankCutValue(below) : null
+  return {
+    success: true,
+    rank, cut, nickname: (item.author && item.author.nickname) || '', total: list.length,
+    above: above ? { rank: rank - 1, nickname: (above.author && above.author.nickname) || '', tag: (above.author && above.author.tag) || '', cut: aboveCut, diff: (cut != null && aboveCut != null) ? aboveCut - cut : null } : null,
+    below: below ? { rank: rank + 1, nickname: (below.author && below.author.nickname) || '', tag: (below.author && below.author.tag) || '', cut: belowCut, diff: (cut != null && belowCut != null) ? cut - belowCut : null } : null,
+  }
+}
+// 매 스캔 직후 호출 — 순위 스냅샷을 히스토리에 남긴다 (최근 50개까지만 보관)
+function recordLiveRankHistory(djId, lr) {
+  if (!lr.djTag) return
+  const snap = buildLiveRankSnapshot(lr.djTag)
+  if (!snap.success) return
+  lr.history.push({ ts: Date.now(), rank: snap.rank, cut: snap.cut })
+  if (lr.history.length > 50) lr.history = lr.history.slice(-50)
+  store.saveSettings(djId, { liveRank: lr })
+}
 
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
@@ -17483,10 +17548,77 @@ app.get('/play/:djId/list', (req, res) => {
   const settings = store.getSettings(djId) || {}
   const items = WEB_HUB_FEATURES
     .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
+  // 🔴 실시간 랭킹은 모듈 켜짐 + 고유닉 등록 여부까지 같이 확인해야 해서 별도로 추가한다.
+  const lr = getLiveRankSettings(djId, settings)
+  items.push({ icon: '🔴', title: '실시간 랭킹', desc: '스푼 초이스 랭킹에서 내 순위와 위/아래 DJ와의 점수 차이를 볼 수 있어요', url: `/liverank/${djId}`, enabled: isModuleOn(settings, 'liverank', djId) && !!lr.djTag })
   res.json({ success: true, djId, items })
 })
 app.get('/play/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/play.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🔴 실시간 랭킹 — 관리자(DJ) 전용 설정 API
+app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const lr = getLiveRankSettings(req.djId, settings)
+  res.json({ success: true, djTag: lr.djTag, historyCount: lr.history.length, publicUrl: `/liverank/${req.djId}` })
+})
+app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '실시간 랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const lr = getLiveRankSettings(req.djId, settings)
+  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  if (newTag !== lr.djTag) lr.history = [] // 고유닉이 바뀌면 예전 계정의 순위 기록은 의미가 없으니 초기화
+  lr.djTag = newTag
+  store.saveSettings(req.djId, { liveRank: lr })
+  res.json({ success: true, djTag: lr.djTag })
+})
+app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
+  const scanResult = await scanDashRank()
+  if (scanResult.success) {
+    const settings = store.getSettings(req.djId) || {}
+    const lr = getLiveRankSettings(req.djId, settings)
+    recordLiveRankHistory(req.djId, lr)
+  }
+  res.json(scanResult)
+})
+
+// 🔴 실시간 랭킹 — 공개(로그인 없음) 페이지. dashRankCache는 서버 전체가 공유하는 캐시라서
+// (디제이별로 안 나뉨) 남용 방지로 수동 새로고침은 최소 간격을 둔다.
+let liveRankLastManualRefresh = 0
+app.get('/liverank/:djId/data', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '실시간 랭킹을 찾을 수 없어요.' })
+  const lr = getLiveRankSettings(djId, settings)
+  if (!lr.djTag) return res.json({ success: false, error: '등록된 고유닉이 없어요. 관리자 패널의 실시간 랭킹 메뉴에서 먼저 등록해주세요.' })
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) {
+      console.log(`[실시간랭킹] ${djId} 스캔 실패:`, scanResult.error)
+      return res.json({ success: false, error: scanResult.error })
+    }
+  }
+  const snap = buildLiveRankSnapshot(lr.djTag)
+  if (!snap.success) console.log(`[실시간랭킹] ${djId} — 고유닉 "${lr.djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
+})
+app.post('/liverank/:djId/refresh', async (req, res) => {
+  const waitMs = 60000 - (Date.now() - liveRankLastManualRefresh)
+  if (waitMs > 0) return res.json({ success: false, error: `너무 빨라요. ${Math.ceil(waitMs / 1000)}초 뒤 다시 시도해주세요.` })
+  liveRankLastManualRefresh = Date.now()
+  const scanResult = await scanDashRank()
+  if (scanResult.success) {
+    const djId = req.params.djId
+    const settings = store.getSettings(djId) || {}
+    const lr = getLiveRankSettings(djId, settings)
+    recordLiveRankHistory(djId, lr)
+  }
+  res.json(scanResult)
+})
+app.get('/liverank/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/liverank.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
