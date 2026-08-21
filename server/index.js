@@ -4151,6 +4151,24 @@ function liveRankCutValue(item) {
   }
   return null
 }
+const LIVE_RANK_CHECKPOINTS = [1, 10, 110, 410]
+function liveRankBracketLabel(rank) {
+  for (let i = 0; i < LIVE_RANK_CHECKPOINTS.length; i++) {
+    const cur = LIVE_RANK_CHECKPOINTS[i]
+    const next = LIVE_RANK_CHECKPOINTS[i + 1]
+    if (rank <= cur) return `~${cur}위 구간`
+    if (!next) return `${cur}위 이하 구간`
+    if (rank > cur && rank <= next) return `${cur + 1}~${next}위 구간`
+  }
+  return ''
+}
+// 랭킹 API의 author 객체에서 프로필 사진 URL을 뽑아낸다. 다른 스푼 API(검색/멤버 프로필)와
+// 마찬가지로 필드명이 응답마다 조금씩 다를 수 있어서 여러 후보를 순서대로 시도한다.
+function liveRankPhotoUrl(item) {
+  const a = item && item.author
+  if (!a) return ''
+  return a.profile_url || a.profileUrl || a.image_url || a.imageUrl || a.thumbnail_url || a.thumbnailUrl || a.photo_url || ''
+}
 function buildLiveRankSnapshot(djTag) {
   const list = dashRankCache.next_choice || []
   if (!list.length) return { success: false, error: '랭킹 데이터가 아직 없어요. 잠시 후 다시 시도해주세요.' }
@@ -4163,11 +4181,35 @@ function buildLiveRankSnapshot(djTag) {
   const below = idx < list.length - 1 ? list[idx + 1] : null
   const aboveCut = above ? liveRankCutValue(above) : null
   const belowCut = below ? liveRankCutValue(below) : null
+
+  // 🏆 주요 랭킹 컷(1/10/110/410위)
+  const cuts = LIVE_RANK_CHECKPOINTS.map(r => {
+    const it = list[r - 1]
+    return { rank: r, cut: liveRankCutValue(it), nickname: (it && it.author && it.author.nickname) || '', tag: (it && it.author && it.author.tag) || '', photo: liveRankPhotoUrl(it) }
+  })
+  // 나보다 순위 숫자가 큰(더 낮은) 체크포인트 대비 여유분
+  const comparisons = LIVE_RANK_CHECKPOINTS
+    .filter(cp => cp > rank)
+    .map(cp => {
+      const cpCut = (cuts.find(c => c.rank === cp) || {}).cut
+      return { rank: cp, cut: cpCut, diff: (cut != null && cpCut != null) ? cut - cpCut : null }
+    })
+  // 내 주변 순위 (앞뒤 10명씩)
+  const nearbyStart = Math.max(0, idx - 10)
+  const nearbyEnd = Math.min(list.length, idx + 11)
+  const nearby = list.slice(nearbyStart, nearbyEnd).map((it, i) => {
+    const r = nearbyStart + i + 1
+    return { rank: r, nickname: (it.author && it.author.nickname) || '', tag: (it.author && it.author.tag) || '', cut: liveRankCutValue(it), photo: liveRankPhotoUrl(it), isMe: r === rank }
+  })
+
   return {
     success: true,
-    rank, cut, nickname: (item.author && item.author.nickname) || '', total: list.length,
+    rank, cut, nickname: (item.author && item.author.nickname) || '', tag: djTag, total: list.length,
+    photo: liveRankPhotoUrl(item),
+    bracketLabel: liveRankBracketLabel(rank),
     above: above ? { rank: rank - 1, nickname: (above.author && above.author.nickname) || '', tag: (above.author && above.author.tag) || '', cut: aboveCut, diff: (cut != null && aboveCut != null) ? aboveCut - cut : null } : null,
     below: below ? { rank: rank + 1, nickname: (below.author && below.author.nickname) || '', tag: (below.author && below.author.tag) || '', cut: belowCut, diff: (cut != null && belowCut != null) ? cut - belowCut : null } : null,
+    cuts, comparisons, nearby,
   }
 }
 // 매 스캔 직후 호출 — 순위 스냅샷을 히스토리에 남긴다 (최근 50개까지만 보관)
