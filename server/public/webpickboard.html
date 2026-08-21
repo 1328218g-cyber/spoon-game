@@ -51,6 +51,7 @@
 <header>
   <h1 id="djTitle">🎯 웹뽑기판</h1>
   <p>웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요</p>
+  <a id="hubLink" href="#" style="display:inline-block;margin-top:10px;font-size:12px;color:#fff;opacity:.85;text-decoration:underline">← 다른 게임 보기</a>
 </header>
 
 <div class="wrap">
@@ -99,6 +100,7 @@
 const DJ_ID = location.pathname.split('/').filter(Boolean)[1] || '';
 const SERVER = location.origin;
 const LS_KEY = 'wpb_webuserid_' + DJ_ID;
+document.getElementById('hubLink').href = `${SERVER}/play/${DJ_ID}`;
 
 let webUserId = localStorage.getItem(LS_KEY) || '';
 let myTag = '', myNickname = '', myTickets = 0;

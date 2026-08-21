@@ -42,15 +42,28 @@
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f1236;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
   .toast.show{opacity:1}
   .center{text-align:center}
+  .guide-box{background:var(--card);border:1px solid var(--border);border-radius:16px;margin-top:14px;overflow:hidden}
+  .guide-box summary{padding:16px 18px;font-weight:700;font-size:14px;color:var(--purple);cursor:pointer;list-style:none}
+  .guide-box summary::-webkit-details-marker{display:none}
+  .guide-box summary::before{content:'▸ ';display:inline-block}
+  .guide-box[open] summary::before{content:'▾ '}
+  .guide-box img{width:100%;display:block;border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
 <header>
   <h1 id="djTitle">🎭 마피아 게임</h1>
   <p>웹에서 참가하고, 방송 채팅으로 함께 즐기는 마피아 게임이에요</p>
+  <a id="hubLink" href="#" style="display:inline-block;margin-top:10px;font-size:12px;color:#fff;opacity:.85;text-decoration:underline">← 다른 게임 보기</a>
 </header>
 
 <div class="wrap">
+
+  <!-- 📖 이용 안내 (접었다 펼치기, JS 없이 details/summary로 구현) -->
+  <details class="guide-box">
+    <summary>📖 처음이신가요? 이용 안내 보기</summary>
+    <img src="/mafia-guide.png" alt="마피아 게임 이용 안내" onerror="this.parentElement.style.display='none'">
+  </details>
 
   <!-- 미등록 상태 -->
   <div class="card" id="registerCard">
@@ -105,9 +118,10 @@
 const DJ_ID = location.pathname.split('/').filter(Boolean)[1] || '';
 const SERVER = location.origin;
 const LS_KEY = 'mf_webuserid_' + DJ_ID;
+document.getElementById('hubLink').href = `${SERVER}/play/${DJ_ID}`;
 
 let webUserId = localStorage.getItem(LS_KEY) || '';
-let myTag = '', myTickets = 0;
+let myTag = '', myNickname = '', myTickets = 0;
 let pollTimer = null;
 let selectedTarget = null;
 let selectedVote = null;
@@ -190,6 +204,7 @@ async function checkMe(){
     }
 
     myTag = d.tag;
+    myNickname = d.nickname || myTag;
     showCard('main');
     renderMain(d);
   }catch(e){ /* 조용히 재시도 */ }
