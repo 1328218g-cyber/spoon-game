@@ -13569,6 +13569,34 @@ function registerJoinSnapshot(room, nickname, tag, prevKey) {
 
 // 입장설정(entryData)의 입장/좋아요/퇴장 메시지 중, 대상 지정된 게 있으면 그걸 우선하고
 // 없으면 첫 번째 활성 메시지를 돌려준다. 이 메시지에 음원(soundData)이 붙어있으면 재생 신호를 보낸다.
+// 🔊 효과음 여러 개 등록 + 재생 방식(랜덤/순서대로/하나만) 지원. 예전 방식(entry.soundUrl /
+// entry.soundData 단일 필드)도 그대로 인식해서 자동으로 1개짜리 sounds 배열처럼 취급한다(하위호환).
+function entrySoundPool(entry) {
+  if (Array.isArray(entry.sounds) && entry.sounds.length) return entry.sounds
+  if (entry.soundUrl || entry.soundData) return [{ id: 'legacy', url: entry.soundUrl || '', data: entry.soundData || '', volume: entry.soundVolume != null ? entry.soundVolume : 100 }]
+  return []
+}
+function pickEntrySoundIndex(entry, pool) {
+  const mode = entry.soundMode || 'single'
+  if (mode === 'random') return Math.floor(Math.random() * pool.length)
+  if (mode === 'sequential') {
+    const idx = (entry._soundSeq || 0) % pool.length
+    entry._soundSeq = idx + 1
+    return idx
+  }
+  return 0 // 'single' — 항상 등록된 첫 번째 음원만 재생
+}
+// 위 5곳(입장/퇴장/좋아요/팔로우/선물)에서 공통으로 쓰는 효과음 발생 함수.
+// 순서대로(sequential) 모드는 다음 차례를 기억해야 해서 재생할 때마다 상태를 저장해준다.
+function fireEntrySound(djId, settings, category, entry) {
+  if (!entry) return
+  const pool = entrySoundPool(entry)
+  if (!pool.length) return
+  const idx = pickEntrySoundIndex(entry, pool)
+  if (entry.soundMode === 'sequential') store.saveSettings(djId, { entryData: settings.entryData })
+  broadcast({ type: 'entrysound', djId, category, id: entry.id, soundIndex: idx })
+}
+
 function pickEntryMessage(entryData, type, author, tag) {
   const list = (entryData && entryData[type]) || []
   const enabled = list.filter(m => m.enabled !== false)
@@ -13594,7 +13622,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
     setTimeout(() => sendChatToRoom(djId, text), 200)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
-  if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
+  fireEntrySound(djId, settings, 'leave', em)
 }
 
 // 👋 입장 인사 — 웹소켓 RoomJoin 이벤트(매니저만 옴)랑, 시청자 명단 폴링 기반 감지(일반 시청자
@@ -13632,7 +13660,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   }
   if (isModuleOn(settings, 'entrysettings', djId)) {
     const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
-    if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
+    fireEntrySound(djId, settings, 'entry', em)
   }
 }
 
@@ -13989,7 +14017,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
           const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
-          if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
+          fireEntrySound(djId, settings, 'like', em)
         }
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
 
@@ -14012,7 +14040,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             const text = fm.text.replace(/{nickname}/g, author).replace(/{tag}/g, followTag ? `@${followTag}` : `@${author}`)
             setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(fm.delay) || 0) * 1000 || 500)
           }
-          if (fm && (fm.soundUrl || fm.soundData)) broadcast({ type: 'entrysound', djId, category: 'follow', id: fm.id })
+          fireEntrySound(djId, settings, 'follow', fm)
         }
 
       } else if (eventName === 'LiveItemUse' || eventName === 'live_item_use') {
@@ -14095,7 +14123,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount).replace(/{amount}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
-            if (gm && (gm.soundUrl || gm.soundData)) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
+            fireEntrySound(djId, settings, 'gift', gm)
           }
 
           if (isModuleOn(settings, 'tts', djId)) {

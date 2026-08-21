@@ -5608,10 +5608,26 @@ function renderEntryList(){
       · {choice_rank}, {like_rank}, {time_rank}: 초이스/좋아요/방송시간 개별 순위<br>
       · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해야 값이 채워져요.</b> (등록 안 하면 "[대시보드에 고유닉 미등록]"으로 나가요) 방송하는 DJ 본인 랭킹이에요 — 입장/좋아요/퇴장한 시청자 개인 랭킹이 아니에요.
       </div>`:''}
-      <div class="sound-row">
-        <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
-        <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
-        ${m.sound ? `<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="playEntrySoundById('${entryTab}',${m.id})">▶️ 미리듣기</button><button class="icon-btn danger" onclick="removeEntrySound(${m.id})" title="음원 제거">🗑</button>` : ''}
+      <div class="sound-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 추가</button>
+          ${getEntrySounds(m).length>1?`
+          <span class="hint" style="margin:0">재생:</span>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${(m.soundMode||'single')==='single'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','single')"> 하나만</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${m.soundMode==='random'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','random')"> 랜덤</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${m.soundMode==='sequential'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','sequential')"> 순서대로</label>
+          `:''}
+        </div>
+        ${getEntrySounds(m).length?getEntrySounds(m).map((s,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:6px 10px">
+            <span style="font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎵 ${escapeHtml(s.name||('음원'+(i+1)))}</span>
+            <span style="font-size:11px;color:var(--muted)">볼륨</span>
+            <input type="range" min="0" max="100" value="${s.volume??100}" style="width:70px" oninput="updateEntrySoundVolume(${m.id},'${s.id}',this.value);this.nextElementSibling.textContent=this.value+'%'">
+            <span style="font-size:11px;width:32px;color:var(--muted)">${s.volume??100}%</span>
+            <button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="previewEntrySound('${escapeAttr(s.url||'')}','${escapeAttr(s.data||'')}',${s.volume??100})">▶️</button>
+            <button class="icon-btn danger" onclick="removeEntrySound(${m.id},'${s.id}')" title="음원 제거">🗑</button>
+          </div>
+        `).join(''):'<span class="hint" style="margin:0">첨부된 음원 없음 (선택 사항)</span>'}
       </div>
     </div>
   `).join('');
@@ -5621,7 +5637,7 @@ function addEntryMessage(){
   if(entryTab==='repeat'){
     entryData.repeat.push({id:entryIdSeq++,enabled:true,text:'',intervalMin:10,intervalSec:0});
   } else {
-    entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+    entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sounds:[],soundMode:'single'});
   }
   renderEntryList();
 }
@@ -5653,6 +5669,19 @@ function chooseEntrySound(id){
   entrySoundTargetId=id;
   document.getElementById('entrySoundFileInput').click();
 }
+// 예전 방식(entry.sound/soundUrl/soundData 단일 필드)도 그대로 인식해서 1개짜리 배열처럼 취급한다(하위호환).
+function getEntrySounds(m){
+  if(Array.isArray(m.sounds))return m.sounds;
+  if(m.sound||m.soundUrl||m.soundData)return[{id:'legacy',name:m.sound||'음원',url:m.soundUrl||'',data:m.soundData||'',volume:100}];
+  return[];
+}
+function ensureEntrySoundsArray(m){
+  if(!Array.isArray(m.sounds)){
+    m.sounds=(m.sound||m.soundUrl||m.soundData)?[{id:'snd'+Date.now(),name:m.sound||'음원',url:m.soundUrl||'',data:m.soundData||'',volume:100}]:[];
+    delete m.sound;delete m.soundUrl;delete m.soundData;
+  }
+  return m.sounds;
+}
 async function handleEntrySoundFile(input){
   const file=input.files&&input.files[0];
   if(!file||entrySoundTargetId==null)return;
@@ -5666,21 +5695,39 @@ async function handleEntrySoundFile(input){
       const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
       const d=await res.json();
       if(!d.success){showToast(d.error||'업로드 실패');return;}
-      updateEntryMsg(targetId,'sound',file.name);
-      updateEntryMsg(targetId,'soundUrl',d.url);
-      updateEntryMsg(targetId,'soundData',''); // 예전 base64 흔적이 있었다면 정리
+      const m=entryData[entryTab].find(x=>x.id===targetId);
+      if(!m)return;
+      const sounds=ensureEntrySoundsArray(m);
+      sounds.push({id:'snd'+Date.now()+Math.random().toString(36).slice(2,7),name:file.name,url:d.url,data:'',volume:100});
       renderEntryList();
-      showToast('음원을 첨부했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
+      showToast('음원을 추가했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
     }catch(e){showToast('업로드 오류: '+e.message);}
   };
   reader.readAsDataURL(file);
   input.value='';
 }
-function removeEntrySound(id){
-  updateEntryMsg(id,'sound','');
-  updateEntryMsg(id,'soundUrl','');
-  updateEntryMsg(id,'soundData','');
+function removeEntrySound(entryId,soundId){
+  const m=entryData[entryTab].find(x=>x.id===entryId);
+  if(!m)return;
+  const sounds=ensureEntrySoundsArray(m);
+  m.sounds=sounds.filter(s=>s.id!==soundId);
   renderEntryList();
+}
+function updateEntrySoundVolume(entryId,soundId,value){
+  const m=entryData[entryTab].find(x=>x.id===entryId);
+  if(!m)return;
+  const sounds=ensureEntrySoundsArray(m);
+  const s=sounds.find(x=>x.id===soundId);
+  if(s)s.volume=Math.max(0,Math.min(100,Number(value)||0));
+}
+function previewEntrySound(url,data,volume){
+  const src=url?(SERVER+url):data;
+  if(!src)return;
+  try{
+    const audio=new Audio(src);
+    audio.volume=Math.max(0,Math.min(1,(Number(volume)||100)/100));
+    audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
+  }catch(e){}
 }
 
 function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -13761,14 +13808,19 @@ async function resetSwordDefaults(){
 
 
 
-function playEntrySoundById(category,id){
+function playEntrySoundById(category,id,soundIndex){
   const list=(entryData && entryData[category])||[];
   const item=list.find(m=>String(m.id)===String(id));
   if(!item)return;
-  const src=item.soundUrl?(SERVER+item.soundUrl):item.soundData;
+  const pool=getEntrySounds(item);
+  if(!pool.length)return;
+  const idx=(soundIndex!=null && pool[soundIndex])?soundIndex:0;
+  const snd=pool[idx];
+  const src=snd.url?(SERVER+snd.url):snd.data;
   if(!src)return;
   try{
     const audio=new Audio(src);
+    audio.volume=Math.max(0,Math.min(1,(snd.volume!=null?snd.volume:100)/100));
     audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
   }catch(e){}
 }
@@ -14387,7 +14439,7 @@ function startSSE(){
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert();
-    else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
+    else if(d.type==='entrysound')playEntrySoundById(d.category,d.id,d.soundIndex);
     else if(d.type==='greetsound')playGreetSoundById(d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
     else if(d.type==='ttsrevoke'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); renderTtsActiveList(); }
