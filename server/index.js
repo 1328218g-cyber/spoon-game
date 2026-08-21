@@ -3988,12 +3988,24 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
       })
-      const json = await res.json().catch(() => null)
-      if (!json || !json.results) break
+      const rawText = await res.text()
+      if (!res.ok) {
+        console.log(`[랭킹허브] ${type} 요청 실패 HTTP ${res.status}: ${rawText.slice(0, 300)}`)
+        break
+      }
+      let json
+      try { json = JSON.parse(rawText) } catch (e) {
+        console.log(`[랭킹허브] ${type} JSON 파싱 실패: ${rawText.slice(0, 300)}`)
+        break
+      }
+      if (!json || !json.results) {
+        console.log(`[랭킹허브] ${type} 응답에 results 필드가 없어요: ${JSON.stringify(json).slice(0, 300)}`)
+        break
+      }
       list = list.concat(json.results)
       address = json.next || null
     }
-  } catch (e) { /* 지금까지 모은 것만이라도 반환 */ }
+  } catch (e) { console.log(`[랭킹허브] ${type} fetch 오류: ${e.message}`) }
   return list
 }
 
@@ -4001,6 +4013,7 @@ async function scanDashRank() {
   const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
   if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
   try {
+    let anyData = false
     for (const type of ['next_choice', 'free_like', 'live_time']) {
       // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
       const prevMap = {}
@@ -4009,9 +4022,17 @@ async function scanDashRank() {
       dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
       // 🩺 "컷" 점수 필드명이 실제로 뭔지 확실치 않아서, 스캔할 때마다 첫 항목의 키 구조를
       // 한 번씩 로그로 남겨둔다 — 화면에 컷 숫자가 안 뜨면 이 로그를 보고 필드명을 알아낼 수 있다.
-      if (dashRankCache[type][0]) console.log(`[랭킹허브] ${type} 응답 샘플 키:`, Object.keys(dashRankCache[type][0]))
+      if (dashRankCache[type][0]) {
+        console.log(`[랭킹허브] ${type} 응답 샘플 키: ${Object.keys(dashRankCache[type][0]).join(', ')}`)
+        anyData = true
+      } else {
+        console.log(`[랭킹허브] ${type} 결과가 0건이에요 (위의 실패 로그를 확인해주세요)`)
+      }
     }
     dashRankCache.lastScanned = Date.now()
+    // 🩺 세 종류 다 0건이면 API 호출 자체가 다 실패한 거라, "성공"으로 조용히 넘기지 않고
+    // 명확한 에러로 알려준다 (그래야 화면에 원인 모를 "데이터 없음"만 계속 뜨는 걸 막을 수 있다).
+    if (!anyData) return { success: false, error: '스푼 랭킹 API에서 데이터를 하나도 못 받아왔어요. Railway 로그의 [랭킹허브] 줄을 확인해주세요.' }
     return { success: true }
   } catch (e) {
     return { success: false, error: e.message }
@@ -17603,9 +17624,15 @@ app.get('/rank/:djId/data', async (req, res) => {
   const type = ['next_choice', 'free_like', 'live_time'].includes(req.query.type) ? req.query.type : 'next_choice'
   if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
     const scanResult = await scanDashRank()
-    if (!scanResult.success) return res.json({ success: false, error: scanResult.error })
+    if (!scanResult.success) {
+      console.log(`[랭킹허브] ${djId} 스캔 실패:`, scanResult.error)
+      return res.json({ success: false, error: scanResult.error })
+    }
   }
   const hub = buildRankHub(type, rh.djTag)
+  if (hub.success && !hub.me) {
+    console.log(`[랭킹허브] ${djId} — 고유닉 "${rh.djTag}"을(를) ${type} 랭킹(${(dashRankCache[type] || []).length}명) 안에서 못 찾음`)
+  }
   res.json(hub)
 })
 app.post('/rank/:djId/refresh', async (req, res) => {
