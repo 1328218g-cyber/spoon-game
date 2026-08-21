@@ -3971,7 +3971,7 @@ function getDashboardData(djId, settings) {
 // 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간) — 특정 방송의 데이터가 아니라
 // 스푼 플랫폼 전체 기준이라 djId별로 나누지 않고 서버 전체에서 하나만 캐싱해서 공유한다.
 // (로컬 에디봇의 rank:scan / rank:search 를 그대로 이식)
-let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0 }
+let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0, prevRank: { next_choice: {}, free_like: {}, live_time: {} } }
 const DASH_RANK_PATH_MAP = {
   next_choice: '/ranks/v2/dj/live/?sub-type=monthly',
   free_like: '/ranks/v2/dj/live-free-like/?sub-type=monthly',
@@ -4002,7 +4002,19 @@ async function scanDashRank() {
   if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
   try {
     for (const type of ['next_choice', 'free_like', 'live_time']) {
+      // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
+      const prevMap = {}
+      dashRankCache[type].forEach((item, i) => { const t = item && item.author && item.author.tag; if (t) prevMap[t] = i + 1 })
+      if (Object.keys(prevMap).length) dashRankCache.prevRank[type] = prevMap
       dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
+      // 🩺 "컷" 점수 필드명이 실제로 뭔지 확실치 않아서, 스캔할 때마다 1위 항목의 원본 키/값
+      // 구조를 통째로 로그에 남긴다 — 화면에 컷 숫자가 안 맞거나 "-"로 나오면 이 로그를 보고
+      // 정확한 필드명을 알아내서 liveRankCutValue의 candidates 배열에 그대로 추가하면 된다.
+      if (dashRankCache[type][0]) {
+        console.log(`[월간DJ컷랭킹] ${type} 1위 항목 원본 구조:`, JSON.stringify(dashRankCache[type][0]).slice(0, 800))
+      } else {
+        console.log(`[월간DJ컷랭킹] ${type} 결과가 0건이에요 (API 응답 자체를 못 받았을 수 있어요)`)
+      }
     }
     dashRankCache.lastScanned = Date.now()
     return { success: true }
@@ -4135,14 +4147,17 @@ setInterval(async () => {
 // 시도한다 — 값이 하나도 안 잡히면 순위(신뢰도 100%)만 정상 표시되고 점수차만 "-"로 나온다.
 function getLiveRankSettings(djId, settings) {
   if (!settings.liveRank) {
-    settings.liveRank = { history: [] }
+    settings.liveRank = { history: [], manualTag: '' }
     store.saveSettings(djId, { liveRank: settings.liveRank })
   }
   if (!Array.isArray(settings.liveRank.history)) settings.liveRank.history = []
+  if (settings.liveRank.manualTag == null) settings.liveRank.manualTag = ''
   return settings.liveRank
 }
-// 🔗 별도로 고유닉을 입력받지 않고, 이미 "자동입장" 메뉴에 등록해둔 고유닉을 그대로 재사용한다.
+// 기본은 "자동입장"에 등록해둔 고유닉을 그대로 재사용하지만, 수동으로 직접 등록해둔 고유닉이
+// 있으면(예: 자동입장과 다른 계정의 랭킹을 보고 싶을 때) 그걸 우선한다.
 function getLiveRankDjTag(settings) {
+  if (settings.liveRank && settings.liveRank.manualTag) return String(settings.liveRank.manualTag).trim()
   if (settings.autoJoinTag) return String(settings.autoJoinTag).trim()
   if (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags.length) return String(settings.autoJoinTags[0]).trim()
   return ''
@@ -4199,12 +4214,16 @@ function buildLiveRankSnapshot(djTag) {
       const cpCut = (cuts.find(c => c.rank === cp) || {}).cut
       return { rank: cp, cut: cpCut, diff: (cut != null && cpCut != null) ? cut - cpCut : null }
     })
-  // 내 주변 순위 (앞뒤 10명씩)
+  // 내 주변 순위 (앞뒤 10명씩) — 직전 스캔 대비 순위 변동(🔺상승/🔻하락)도 같이 계산한다.
   const nearbyStart = Math.max(0, idx - 10)
   const nearbyEnd = Math.min(list.length, idx + 11)
+  const prevRankMap = dashRankCache.prevRank.next_choice || {}
   const nearby = list.slice(nearbyStart, nearbyEnd).map((it, i) => {
     const r = nearbyStart + i + 1
-    return { rank: r, nickname: (it.author && it.author.nickname) || '', tag: (it.author && it.author.tag) || '', cut: liveRankCutValue(it), photo: liveRankPhotoUrl(it), isMe: r === rank }
+    const t = (it.author && it.author.tag) || ''
+    const prevR = prevRankMap[t] || null
+    const change = prevR ? prevR - r : null // 양수 = 순위 상승(숫자가 작아짐), 음수 = 하락
+    return { rank: r, nickname: (it.author && it.author.nickname) || '', tag: t, cut: liveRankCutValue(it), photo: liveRankPhotoUrl(it), isMe: r === rank, change }
   })
 
   return {
@@ -17602,13 +17621,23 @@ app.get('/play/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 고유닉은 따로 입력받지 않고 "자동입장" 메뉴에
-// 이미 등록해둔 고유닉을 그대로 재사용한다.
+// 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 기본은 "자동입장"에 등록해둔 고유닉을 그대로
+// 재사용하고, 수동으로 다른 고유닉을 등록해두면 그걸 우선해서 쓴다.
 app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const lr = getLiveRankSettings(req.djId, settings)
-  const djTag = getLiveRankDjTag(settings)
-  res.json({ success: true, djTag, historyCount: lr.history.length })
+  const autoTag = settings.autoJoinTag || (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags[0]) || ''
+  res.json({ success: true, djTag: getLiveRankDjTag(settings), manualTag: lr.manualTag, autoTag, historyCount: lr.history.length })
+})
+app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const lr = getLiveRankSettings(req.djId, settings)
+  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  if (newTag !== lr.manualTag) lr.history = [] // 기준 고유닉이 바뀌면 예전 순위 기록은 의미가 없으니 초기화
+  lr.manualTag = newTag
+  store.saveSettings(req.djId, { liveRank: lr })
+  res.json({ success: true, djTag: getLiveRankDjTag(settings) })
 })
 app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
   const scanResult = await scanDashRank()

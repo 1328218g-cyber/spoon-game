@@ -3435,7 +3435,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="liverank">
         <div class="card">
           <div class="card-title"><span>🏆 월간 DJ 컷랭킹</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="liveRankRefreshNow()">🔄 새로고침</button></div>
-          <p class="hint">스푼 초이스 월간 랭킹에서 "자동입장"에 등록해둔 고유닉의 현재 순위, 주요 컷, 바로 위/아래 등수 DJ와의 점수 차이를 여기서 바로 볼 수 있어요. 10분마다 서버가 자동으로 갱신해요.</p>
+          <p class="hint">스푼 초이스 월간 랭킹에서 현재 순위, 주요 컷, 바로 위/아래 등수 DJ와의 점수 차이를 여기서 바로 볼 수 있어요. 기본은 "자동입장"에 등록해둔 고유닉을 그대로 쓰고, 다른 고유닉을 보고 싶으면 아래에서 수동 등록하면 돼요. 10분마다 서버가 자동으로 갱신해요.</p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="lrDjTag" placeholder="수동 등록할 고유닉 (비워두면 자동입장 값 사용)" style="flex:1">
+            <button class="btn-connect" style="padding:8px 16px;font-size:12.5px" onclick="saveLiveRankSettings()">등록</button>
+          </div>
           <div class="hint" id="lrStatus" style="margin-top:8px"></div>
         </div>
 
@@ -4509,8 +4513,7 @@ function enterApp(){
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
-  initApp();
-  selectPanel(isAdmin ? 'session' : 'entrysettings');
+  initApp().then(()=>selectPanel('liverank'));
   maybeAutoShowTutorial();
 }
 
@@ -12576,9 +12579,31 @@ async function loadLiveRankSettings(){
   try{
     const res=await fetch(SERVER+'/liverank-admin/settings',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success)return;
-    document.getElementById('lrStatus').textContent=d.djTag?`자동입장 등록 고유닉 사용 중: ${d.djTag}`:'⚠️ 자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 등록해주세요.';
+    if(!d.success){
+      document.getElementById('lrStatus').textContent=d.error?`⚠️ ${d.error}`:'⚠️ 불러오지 못했어요. 새로고침해주세요.';
+      return;
+    }
+    document.getElementById('lrDjTag').value=d.manualTag||'';
+    if(d.manualTag){
+      document.getElementById('lrStatus').textContent=`수동 등록 고유닉 사용 중: ${d.djTag}`;
+    }else if(d.djTag){
+      document.getElementById('lrStatus').textContent=`자동입장 등록 고유닉 사용 중: ${d.djTag}`;
+    }else{
+      document.getElementById('lrStatus').textContent='⚠️ 사용할 고유닉이 없어요. 자동입장에 등록하거나, 위에서 직접 등록해주세요.';
+    }
     if(d.djTag) loadLiveRankView(); else document.getElementById('lrViewWrap').innerHTML='';
+  }catch(e){
+    document.getElementById('lrStatus').textContent='⚠️ 불러오지 못했어요: '+e.message;
+  }
+}
+async function saveLiveRankSettings(){
+  const djTag=document.getElementById('lrDjTag').value.trim();
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djTag})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast(djTag?'수동으로 등록했어요':'자동입장 값으로 되돌렸어요');
+    loadLiveRankSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
 async function liveRankRefreshNow(){
@@ -12687,12 +12712,19 @@ function renderLiveRankView(d){
 
   if(d.nearby&&d.nearby.length){
     html+=`<div class="card"><div class="card-title"><span>👥 내 주변 순위</span></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px;font-size:11px;color:var(--muted)">순위</th><th style="text-align:left;padding:8px;font-size:11px;color:var(--muted)">DJ</th><th style="text-align:right;padding:8px;font-size:11px;color:var(--muted)">환산 컷</th></tr></thead><tbody>`;
+      <thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px;font-size:11px;color:var(--muted)">순위</th><th style="text-align:left;padding:8px;font-size:11px;color:var(--muted)">DJ</th><th style="text-align:right;padding:8px;font-size:11px;color:var(--muted)">환산 컷</th><th style="text-align:right;padding:8px;font-size:11px;color:var(--muted)">변동</th></tr></thead><tbody>`;
     d.nearby.forEach(n=>{
+      let changeHtml='<span style="color:var(--muted);font-size:11.5px">-</span>';
+      if(n.change!=null){
+        if(n.change>0) changeHtml=`<span style="color:#16a34a;font-size:11.5px;font-weight:700">🔺${n.change}</span>`;
+        else if(n.change<0) changeHtml=`<span style="color:#dc2626;font-size:11.5px;font-weight:700">🔻${-n.change}</span>`;
+        else changeHtml='<span style="color:var(--muted);font-size:11.5px">-</span>';
+      }
       html+=`<tr style="border-bottom:1px solid var(--border);${n.isMe?'background:rgba(224,81,122,.08)':''}">
         <td style="padding:8px;font-weight:700">${n.rank}</td>
         <td style="padding:8px"><div style="display:flex;align-items:center;gap:8px">${lrAvatarHtml(n.photo,28)}<div><div style="font-size:13px">${escapeHtml(n.nickname)}${n.isMe?' <span style="color:#e0517a;font-size:10px">(나)</span>':''}</div><div class="hint" style="margin:0">@${escapeHtml(n.tag)}</div></div></div></td>
         <td style="padding:8px;text-align:right">${lrFmtNum(n.cut)}</td>
+        <td style="padding:8px;text-align:right">${changeHtml}</td>
       </tr>`;
     });
     html+=`</tbody></table></div></div>`;
