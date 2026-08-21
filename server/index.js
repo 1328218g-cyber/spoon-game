@@ -13654,6 +13654,14 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
   if (greetKey) room._greetedKeys.add(greetKey)
 
+  // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
+  // 들어와도 효과음이 반복 재생되지 않도록 막는다. 채팅 인사 문구는 쿨다운과 무관하게 그대로 나간다.
+  if (!room._lastGreetSoundAt) room._lastGreetSoundAt = new Map()
+  const cooldownSec = Math.max(0, Number(settings.entryCooldown) || 0)
+  const nowTs = Date.now()
+  const lastSoundAt = greetKey ? (room._lastGreetSoundAt.get(greetKey) || 0) : 0
+  const soundCooldownOk = cooldownSec <= 0 || !greetKey || (nowTs - lastSoundAt) >= cooldownSec * 1000
+
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
@@ -13666,7 +13674,10 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
     setTimeout(() => sendChatToRoom(djId, text), 200)
-    if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
+    if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
+      broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
+    }
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
@@ -13675,9 +13686,10 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
   }
-  if (isModuleOn(settings, 'entrysettings', djId)) {
+  if (isModuleOn(settings, 'entrysettings', djId) && soundCooldownOk) {
     const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
     fireEntrySound(djId, settings, 'entry', em)
+    if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
   }
 }
 
