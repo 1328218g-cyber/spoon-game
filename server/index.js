@@ -659,7 +659,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2901,6 +2901,17 @@ function handleLottoRankJoin(djId, room, settings, author, tag) {
 }
 
 // ══════════════════════════════════════════════════════
+// 🔔 리액션 타이머 기본 알림음 — 볼륨/서버 볼륨과 무관하게 항상 재생 가능하도록 파일 경로가
+// 아니라 base64로 코드에 직접 심어뒀다 (재배포/볼륨 초기화와도 무관하게 항상 동작).
+// DJ가 관리자 패널에서 다른 음원으로 바꾸면 그때부터는 그 커스텀 음원이 우선 사용된다.
+const DEFAULT_REACTION_SOUND_B64 = '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'
+const DEFAULT_REACTION_SOUND_BUFFER = Buffer.from(DEFAULT_REACTION_SOUND_B64, 'base64')
+app.get('/sounds/reaction-timer-default.mp3', (req, res) => {
+  res.setHeader('Content-Type', 'audio/mpeg')
+  res.setHeader('Cache-Control', 'public, max-age=604800')
+  res.send(DEFAULT_REACTION_SOUND_BUFFER)
+})
+
 // ⏰ 리액션 타이머 — "[명령어] [분] [내용]"으로 등록하면 그 시간 후에 채팅으로 알려준다.
 // 등록된 타이머 목록은 명령어만 입력하면 확인할 수 있다. (누구나 등록 가능, 방 재접속 시 초기화됨)
 
@@ -2910,9 +2921,13 @@ function getReminderSettings(djId, settings) {
       cmd: '!리액션',
       registerMsg: '⏰ {min}분 후 알림: {content}',
       alertMsg: '🔔 {content} 시간이 됐습니다!',
+      soundUrl: '', // 비어있으면 기본 알림음(DEFAULT_REACTION_SOUND_BUFFER) 사용
+      soundVolume: 100,
     }
     store.saveSettings(djId, { reminderTimer: settings.reminderTimer })
   }
+  if (settings.reminderTimer.soundVolume == null) settings.reminderTimer.soundVolume = 100
+  if (settings.reminderTimer.soundUrl == null) settings.reminderTimer.soundUrl = ''
   return settings.reminderTimer
 }
 
@@ -2970,8 +2985,10 @@ function handleReminderCommand(djId, room, settings, author, authorId, text) {
       if (idx >= 0) room.reminderTimers.splice(idx, 1)
       const alertText = (cfg.alertMsg || '🔔 {content} 시간이 됐습니다!').replace(/\{content\}/g, content)
       sendChatToRoom(djId, alertText)
-      // 🔔 타이머가 실제로 울릴 때, 방송 화면(웹)을 보고 있는 브라우저에서 기본 알림음을 2번 재생한다.
-      broadcast({ type: 'reactiontimersound', djId })
+      // 🔔 타이머가 실제로 울릴 때, 방송 화면(웹)을 보고 있는 브라우저에서 알림음을 2번 재생한다.
+      // 커스텀 음원을 등록해뒀으면 그걸, 아니면 기본 내장음을 쓰도록 URL/볼륨을 같이 실어보낸다.
+      const soundUrl = cfg.soundUrl || '/sounds/reaction-timer-default.mp3'
+      broadcast({ type: 'reactiontimersound', djId, soundUrl, volume: cfg.soundVolume != null ? cfg.soundVolume : 100 })
     }, min * 60000)
     room.reminderTimers.push({ id, content, author, dueAt, handle })
     const regText = (cfg.registerMsg || '⏰ {min}분 후 알림: {content}').replace(/\{min\}/g, min).replace(/\{content\}/g, content)
@@ -3971,7 +3988,7 @@ function getDashboardData(djId, settings) {
 // 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간) — 특정 방송의 데이터가 아니라
 // 스푼 플랫폼 전체 기준이라 djId별로 나누지 않고 서버 전체에서 하나만 캐싱해서 공유한다.
 // (로컬 에디봇의 rank:scan / rank:search 를 그대로 이식)
-let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0 }
+let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0, prevRank: { next_choice: {}, free_like: {}, live_time: {} } }
 const DASH_RANK_PATH_MAP = {
   next_choice: '/ranks/v2/dj/live/?sub-type=monthly',
   free_like: '/ranks/v2/dj/live-free-like/?sub-type=monthly',
@@ -4002,7 +4019,19 @@ async function scanDashRank() {
   if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
   try {
     for (const type of ['next_choice', 'free_like', 'live_time']) {
+      // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
+      const prevMap = {}
+      dashRankCache[type].forEach((item, i) => { const t = item && item.author && item.author.tag; if (t) prevMap[t] = i + 1 })
+      if (Object.keys(prevMap).length) dashRankCache.prevRank[type] = prevMap
       dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
+      // 🩺 "컷" 점수 필드명이 실제로 뭔지 확실치 않아서, 스캔할 때마다 1위 항목의 원본 키/값
+      // 구조를 통째로 로그에 남긴다 — 화면에 컷 숫자가 안 맞거나 "-"로 나오면 이 로그를 보고
+      // 정확한 필드명을 알아내서 liveRankCutValue의 candidates 배열에 그대로 추가하면 된다.
+      if (dashRankCache[type][0]) {
+        console.log(`[월간DJ컷랭킹] ${type} 1위 항목 원본 구조:`, JSON.stringify(dashRankCache[type][0]).slice(0, 800))
+      } else {
+        console.log(`[월간DJ컷랭킹] ${type} 결과가 0건이에요 (API 응답 자체를 못 받았을 수 있어요)`)
+      }
     }
     dashRankCache.lastScanned = Date.now()
     return { success: true }
@@ -4093,15 +4122,21 @@ async function refreshDashboardRankFor(djId, settings) {
 const DASH_RANK_AUTO_REFRESH_MS = 10 * 60 * 1000
 setInterval(async () => {
   const targets = []
+  const liveRankTargets = []
   for (const djId of store.listDjIds()) {
     const room = getRoom(djId)
     if (!room.isConnected) continue
     const settings = store.getSettings(djId) || {}
-    if (!isModuleOn(settings, 'dashboard', djId)) continue
-    const dash = getDashboardData(djId, settings)
-    if (dash.djTag) targets.push(djId)
+    if (isModuleOn(settings, 'dashboard', djId)) {
+      const dash = getDashboardData(djId, settings)
+      if (dash.djTag) targets.push(djId)
+    }
+    if (isModuleOn(settings, 'liverank', djId)) {
+      const tag = getLiveRankDjTag(settings)
+      if (tag) liveRankTargets.push(djId)
+    }
   }
-  if (!targets.length) return
+  if (!targets.length && !liveRankTargets.length) return
   const scanResult = await scanDashRank()
   if (!scanResult.success) { console.log('[대시보드랭킹] 자동 갱신 스캔 실패:', scanResult.error); return }
   for (const djId of targets) {
@@ -4112,8 +4147,121 @@ setInterval(async () => {
     else dash.rankData = { nickname: '', tag: dash.djTag, ranks: {}, updatedAt: Date.now(), notFound: true }
     store.saveSettings(djId, { dashboard: dash })
   }
-  console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
+  for (const djId of liveRankTargets) {
+    const settings = store.getSettings(djId) || {}
+    const lr = getLiveRankSettings(djId, settings)
+    recordLiveRankHistory(djId, lr, getLiveRankDjTag(settings))
+  }
+  if (targets.length) console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
+  if (liveRankTargets.length) console.log(`[월간DJ컷랭킹] 자동 갱신 완료 (${liveRankTargets.length}개 계정)`)
 }, DASH_RANK_AUTO_REFRESH_MS)
+
+// ══════════════════════════════════════════════════════
+// 🔴 실시간 랭킹 — 스푼 초이스(next_choice) 월간 랭킹에서 등록한 고유닉의 현재 순위와,
+// 바로 위/아래 등수 DJ와의 점수 차이를 보여주는 독립 모듈. 스캔할 때마다(자동 10분 주기 +
+// 수동 새로고침) 순위 스냅샷을 기록해서 "순위 변화" 흐름도 같이 보여준다.
+// ⚠️ "컷" 점수 필드명은 스푼 응답 원문을 직접 확인 못해서 여러 후보 필드명을 순서대로
+// 시도한다 — 값이 하나도 안 잡히면 순위(신뢰도 100%)만 정상 표시되고 점수차만 "-"로 나온다.
+function getLiveRankSettings(djId, settings) {
+  if (!settings.liveRank) {
+    settings.liveRank = { history: [], manualTag: '' }
+    store.saveSettings(djId, { liveRank: settings.liveRank })
+  }
+  if (!Array.isArray(settings.liveRank.history)) settings.liveRank.history = []
+  if (settings.liveRank.manualTag == null) settings.liveRank.manualTag = ''
+  return settings.liveRank
+}
+// 기본은 "자동입장"에 등록해둔 고유닉을 그대로 재사용하지만, 수동으로 직접 등록해둔 고유닉이
+// 있으면(예: 자동입장과 다른 계정의 랭킹을 보고 싶을 때) 그걸 우선한다.
+function getLiveRankDjTag(settings) {
+  if (settings.liveRank && settings.liveRank.manualTag) return String(settings.liveRank.manualTag).trim()
+  if (settings.autoJoinTag) return String(settings.autoJoinTag).trim()
+  if (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags.length) return String(settings.autoJoinTags[0]).trim()
+  return ''
+}
+function liveRankCutValue(item) {
+  if (!item) return null
+  const candidates = ['score', 'cut_score', 'next_choice_score', 'choice_score', 'total_score', 'cut', 'value', 'point', 'points']
+  for (const key of candidates) {
+    const v = item[key]
+    if (v != null && !isNaN(Number(v))) return Number(v)
+  }
+  return null
+}
+const LIVE_RANK_CHECKPOINTS = [1, 10, 110, 410]
+function liveRankBracketLabel(rank) {
+  for (let i = 0; i < LIVE_RANK_CHECKPOINTS.length; i++) {
+    const cur = LIVE_RANK_CHECKPOINTS[i]
+    const next = LIVE_RANK_CHECKPOINTS[i + 1]
+    if (rank <= cur) return `~${cur}위 구간`
+    if (!next) return `${cur}위 이하 구간`
+    if (rank > cur && rank <= next) return `${cur + 1}~${next}위 구간`
+  }
+  return ''
+}
+// 랭킹 API의 author 객체에서 프로필 사진 URL을 뽑아낸다. 다른 스푼 API(검색/멤버 프로필)와
+// 마찬가지로 필드명이 응답마다 조금씩 다를 수 있어서 여러 후보를 순서대로 시도한다.
+function liveRankPhotoUrl(item) {
+  const a = item && item.author
+  if (!a) return ''
+  return a.profile_url || a.profileUrl || a.image_url || a.imageUrl || a.thumbnail_url || a.thumbnailUrl || a.photo_url || ''
+}
+function buildLiveRankSnapshot(djTag) {
+  const list = dashRankCache.next_choice || []
+  if (!list.length) return { success: false, error: '랭킹 데이터가 아직 없어요. 잠시 후 다시 시도해주세요.' }
+  const idx = list.findIndex(x => x.author && x.author.tag === djTag)
+  if (idx === -1) return { success: false, error: '이번 달 초이스 랭킹에서 등록한 고유닉을 찾지 못했어요.', total: list.length }
+  const rank = idx + 1
+  const item = list[idx]
+  const cut = liveRankCutValue(item)
+  const above = idx > 0 ? list[idx - 1] : null
+  const below = idx < list.length - 1 ? list[idx + 1] : null
+  const aboveCut = above ? liveRankCutValue(above) : null
+  const belowCut = below ? liveRankCutValue(below) : null
+
+  // 🏆 주요 랭킹 컷(1/10/110/410위)
+  const cuts = LIVE_RANK_CHECKPOINTS.map(r => {
+    const it = list[r - 1]
+    return { rank: r, cut: liveRankCutValue(it), nickname: (it && it.author && it.author.nickname) || '', tag: (it && it.author && it.author.tag) || '', photo: liveRankPhotoUrl(it) }
+  })
+  // 나보다 순위 숫자가 큰(더 낮은) 체크포인트 대비 여유분
+  const comparisons = LIVE_RANK_CHECKPOINTS
+    .filter(cp => cp > rank)
+    .map(cp => {
+      const cpCut = (cuts.find(c => c.rank === cp) || {}).cut
+      return { rank: cp, cut: cpCut, diff: (cut != null && cpCut != null) ? cut - cpCut : null }
+    })
+  // 내 주변 순위 (앞뒤 10명씩) — 직전 스캔 대비 순위 변동(🔺상승/🔻하락)도 같이 계산한다.
+  const nearbyStart = Math.max(0, idx - 10)
+  const nearbyEnd = Math.min(list.length, idx + 11)
+  const prevRankMap = dashRankCache.prevRank.next_choice || {}
+  const nearby = list.slice(nearbyStart, nearbyEnd).map((it, i) => {
+    const r = nearbyStart + i + 1
+    const t = (it.author && it.author.tag) || ''
+    const prevR = prevRankMap[t] || null
+    const change = prevR ? prevR - r : null // 양수 = 순위 상승(숫자가 작아짐), 음수 = 하락
+    return { rank: r, nickname: (it.author && it.author.nickname) || '', tag: t, cut: liveRankCutValue(it), photo: liveRankPhotoUrl(it), isMe: r === rank, change }
+  })
+
+  return {
+    success: true,
+    rank, cut, nickname: (item.author && item.author.nickname) || '', tag: djTag, total: list.length,
+    photo: liveRankPhotoUrl(item),
+    bracketLabel: liveRankBracketLabel(rank),
+    above: above ? { rank: rank - 1, nickname: (above.author && above.author.nickname) || '', tag: (above.author && above.author.tag) || '', cut: aboveCut, photo: liveRankPhotoUrl(above), diff: (cut != null && aboveCut != null) ? aboveCut - cut : null } : null,
+    below: below ? { rank: rank + 1, nickname: (below.author && below.author.nickname) || '', tag: (below.author && below.author.tag) || '', cut: belowCut, photo: liveRankPhotoUrl(below), diff: (cut != null && belowCut != null) ? cut - belowCut : null } : null,
+    cuts, comparisons, nearby,
+  }
+}
+// 매 스캔 직후 호출 — 순위 스냅샷을 히스토리에 남긴다 (최근 50개까지만 보관)
+function recordLiveRankHistory(djId, lr, djTag) {
+  if (!djTag) return
+  const snap = buildLiveRankSnapshot(djTag)
+  if (!snap.success) return
+  lr.history.push({ ts: Date.now(), rank: snap.rank, cut: snap.cut })
+  if (lr.history.length > 50) lr.history = lr.history.slice(-50)
+  store.saveSettings(djId, { liveRank: lr })
+}
 
 // 선물을 받으면 오늘 날짜의 스푼 로그에 유저별로 누적 기록한다.
 function recordDashboardSpoon(djId, settings, nickname, tag, amount, comboCount) {
@@ -13438,6 +13586,34 @@ function registerJoinSnapshot(room, nickname, tag, prevKey) {
 
 // 입장설정(entryData)의 입장/좋아요/퇴장 메시지 중, 대상 지정된 게 있으면 그걸 우선하고
 // 없으면 첫 번째 활성 메시지를 돌려준다. 이 메시지에 음원(soundData)이 붙어있으면 재생 신호를 보낸다.
+// 🔊 효과음 여러 개 등록 + 재생 방식(랜덤/순서대로/하나만) 지원. 예전 방식(entry.soundUrl /
+// entry.soundData 단일 필드)도 그대로 인식해서 자동으로 1개짜리 sounds 배열처럼 취급한다(하위호환).
+function entrySoundPool(entry) {
+  if (Array.isArray(entry.sounds) && entry.sounds.length) return entry.sounds
+  if (entry.soundUrl || entry.soundData) return [{ id: 'legacy', url: entry.soundUrl || '', data: entry.soundData || '', volume: entry.soundVolume != null ? entry.soundVolume : 100 }]
+  return []
+}
+function pickEntrySoundIndex(entry, pool) {
+  const mode = entry.soundMode || 'single'
+  if (mode === 'random') return Math.floor(Math.random() * pool.length)
+  if (mode === 'sequential') {
+    const idx = (entry._soundSeq || 0) % pool.length
+    entry._soundSeq = idx + 1
+    return idx
+  }
+  return 0 // 'single' — 항상 등록된 첫 번째 음원만 재생
+}
+// 위 5곳(입장/퇴장/좋아요/팔로우/선물)에서 공통으로 쓰는 효과음 발생 함수.
+// 순서대로(sequential) 모드는 다음 차례를 기억해야 해서 재생할 때마다 상태를 저장해준다.
+function fireEntrySound(djId, settings, category, entry) {
+  if (!entry) return
+  const pool = entrySoundPool(entry)
+  if (!pool.length) return
+  const idx = pickEntrySoundIndex(entry, pool)
+  if (entry.soundMode === 'sequential') store.saveSettings(djId, { entryData: settings.entryData })
+  broadcast({ type: 'entrysound', djId, category, id: entry.id, soundIndex: idx })
+}
+
 function pickEntryMessage(entryData, type, author, tag) {
   const list = (entryData && entryData[type]) || []
   const enabled = list.filter(m => m.enabled !== false)
@@ -13463,7 +13639,7 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
     setTimeout(() => sendChatToRoom(djId, text), 200)
   }
   const em = pickEntryMessage(settings.entryData, 'leave', nickname, tag || null)
-  if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'leave', id: em.id })
+  fireEntrySound(djId, settings, 'leave', em)
 }
 
 // 👋 입장 인사 — 웹소켓 RoomJoin 이벤트(매니저만 옴)랑, 시청자 명단 폴링 기반 감지(일반 시청자
@@ -13501,7 +13677,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   }
   if (isModuleOn(settings, 'entrysettings', djId)) {
     const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
-    if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'entry', id: em.id })
+    fireEntrySound(djId, settings, 'entry', em)
   }
 }
 
@@ -13858,7 +14034,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         }
         if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
           const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
-          if (em && (em.soundUrl || em.soundData)) broadcast({ type: 'entrysound', djId, category: 'like', id: em.id })
+          fireEntrySound(djId, settings, 'like', em)
         }
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
 
@@ -13881,7 +14057,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             const text = fm.text.replace(/{nickname}/g, author).replace(/{tag}/g, followTag ? `@${followTag}` : `@${author}`)
             setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(fm.delay) || 0) * 1000 || 500)
           }
-          if (fm && (fm.soundUrl || fm.soundData)) broadcast({ type: 'entrysound', djId, category: 'follow', id: fm.id })
+          fireEntrySound(djId, settings, 'follow', fm)
         }
 
       } else if (eventName === 'LiveItemUse' || eventName === 'live_item_use') {
@@ -13964,7 +14140,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
               const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount).replace(/{amount}/g, totalCount)
               setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
             }
-            if (gm && (gm.soundUrl || gm.soundData)) broadcast({ type: 'entrysound', djId, category: 'gift', id: gm.id })
+            fireEntrySound(djId, settings, 'gift', gm)
           }
 
           if (isModuleOn(settings, 'tts', djId)) {
@@ -15640,10 +15816,12 @@ app.post('/reaction/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'reactiontimer', req.djId)) return res.json({ success: false, error: '리액션 타이머 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const cfg = getReminderSettings(req.djId, settings)
-  const { cmd, registerMsg, alertMsg } = req.body || {}
+  const { cmd, registerMsg, alertMsg, soundUrl, soundVolume } = req.body || {}
   if (cmd != null) cfg.cmd = String(cmd).trim() || '!리액션'
   if (registerMsg != null) cfg.registerMsg = registerMsg
   if (alertMsg != null) cfg.alertMsg = alertMsg
+  if (soundUrl != null) cfg.soundUrl = String(soundUrl).trim() // 비우면(빈 문자열) 기본 알림음으로 되돌아감
+  if (soundVolume != null) cfg.soundVolume = Math.max(0, Math.min(100, Number(soundVolume) || 0))
   store.saveSettings(req.djId, { reminderTimer: cfg })
   res.json({ success: true })
 })
@@ -17487,6 +17665,58 @@ app.get('/play/:djId/list', (req, res) => {
 })
 app.get('/play/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/play.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 기본은 "자동입장"에 등록해둔 고유닉을 그대로
+// 재사용하고, 수동으로 다른 고유닉을 등록해두면 그걸 우선해서 쓴다.
+app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const lr = getLiveRankSettings(req.djId, settings)
+  const autoTag = settings.autoJoinTag || (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags[0]) || ''
+  res.json({ success: true, djTag: getLiveRankDjTag(settings), manualTag: lr.manualTag, autoTag, historyCount: lr.history.length })
+})
+app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const lr = getLiveRankSettings(req.djId, settings)
+  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  if (newTag !== lr.manualTag) lr.history = [] // 기준 고유닉이 바뀌면 예전 순위 기록은 의미가 없으니 초기화
+  lr.manualTag = newTag
+  store.saveSettings(req.djId, { liveRank: lr })
+  res.json({ success: true, djTag: getLiveRankDjTag(settings) })
+})
+app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
+  const scanResult = await scanDashRank()
+  if (scanResult.success) {
+    const settings = store.getSettings(req.djId) || {}
+    const lr = getLiveRankSettings(req.djId, settings)
+    recordLiveRankHistory(req.djId, lr, getLiveRankDjTag(settings))
+  }
+  res.json(scanResult)
+})
+
+// 🏆 월간 DJ 컷랭킹 — /liverank/:djId/data 는 관리자 화면(liverank 패널)이 인증된 상태에서
+// fetch로 불러다 그 자리에서 바로 그려주는 용도의 JSON API. 예전엔 시청자용 공개 페이지
+// (/liverank/:djId, liverank.html)로도 열 수 있었지만, 이제 외부에서 여는 방식은 없애고
+// 관리자 화면 안에서만 보이도록 정리했다.
+app.get('/liverank/:djId/data', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
+  const lr = getLiveRankSettings(djId, settings)
+  const djTag = getLiveRankDjTag(settings)
+  if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) {
+      console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
+      return res.json({ success: false, error: scanResult.error })
+    }
+  }
+  const snap = buildLiveRankSnapshot(djTag)
+  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {

@@ -600,6 +600,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="autofollow"><span class="ic ic-img"><img src="/icons/autofollow.png" alt=""></span><span class="lbl">고정매니저신청</span></div>
+    <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
@@ -2080,6 +2081,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="hint" style="margin-top:10px">변수: {min} = 분, {content} = 내용 · 누구나 등록 가능하고, 최대 20개까지 동시에 걸어둘 수 있어요.</div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔔 알림음</span></div>
+          <p class="hint">타이머가 울릴 때 방송 화면(웹)에서 재생되는 알림음이에요. 기본음이 이미 등록돼있고, 원하면 다른 음원으로 바꿀 수 있어요.</p>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn-gray" onclick="chooseReminderSound()">🎵 음원 변경</button>
+            <span class="hint" id="reminderSoundLabel" style="margin:0">기본 알림음 사용 중</span>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewReminderSound()">▶️ 미리듣기</button>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px;display:none" id="reminderSoundResetBtn" onclick="resetReminderSound()">↩️ 기본음으로</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+            <span class="hint" style="margin:0">볼륨</span>
+            <input type="range" min="0" max="100" id="reminderSoundVolume" value="100" style="flex:1;max-width:220px" oninput="document.getElementById('reminderSoundVolumeLabel').textContent=this.value+'%'">
+            <span class="hint" id="reminderSoundVolumeLabel" style="margin:0;width:36px">100%</span>
+          </div>
+          <input type="file" id="reminderSoundFileInput" accept="audio/*" style="display:none" onchange="handleReminderSoundFile(this)">
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏰ 지금 걸려있는 타이머</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadReminderData()">🔄 새로고침</button></div>
           <div id="reminderActiveWrap"><p class="hint">불러오는 중...</p></div>
         </div>
@@ -3430,6 +3447,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🔴 실시간 랭킹 -->
+      <div class="panel" data-panel="liverank">
+        <div class="card">
+          <div class="card-title"><span>🏆 월간 DJ 컷랭킹</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="liveRankRefreshNow()">🔄 새로고침</button></div>
+          <p class="hint">스푼 초이스 월간 랭킹에서 현재 순위, 주요 컷, 바로 위/아래 등수 DJ와의 점수 차이를 여기서 바로 볼 수 있어요. 기본은 "자동입장"에 등록해둔 고유닉을 그대로 쓰고, 다른 고유닉을 보고 싶으면 아래에서 수동 등록하면 돼요. 10분마다 서버가 자동으로 갱신해요.</p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="lrDjTag" placeholder="수동 등록할 고유닉 (비워두면 자동입장 값 사용)" style="flex:1">
+            <button class="btn-connect" style="padding:8px 16px;font-size:12.5px" onclick="saveLiveRankSettings()">등록</button>
+          </div>
+          <div class="hint" id="lrStatus" style="margin-top:8px"></div>
+        </div>
+
+        <div id="lrViewWrap"></div>
+      </div>
+
       <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card" id="trophyEditorCard" style="display:none">
@@ -4497,8 +4529,7 @@ function enterApp(){
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
-  initApp();
-  selectPanel(isAdmin ? 'session' : 'entrysettings');
+  initApp().then(()=>selectPanel('liverank'));
   maybeAutoShowTutorial();
 }
 
@@ -4620,6 +4651,7 @@ const PANEL_META={
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
   webpickboard:['🌐 웹뽑기판','시청자가 로그인 없이 웹페이지에서 직접 눌러서 뽑는 등수형 뽑기판입니다 (기존 뽑기판과 별개)'],
   mafia:['🎭 마피아 게임','DJ가 역할을 자유롭게 구성하고, 시청자가 웹페이지+채팅인증으로 참가해 진행하는 마피아 게임입니다'],
+  liverank:['🏆 월간 DJ 컷랭킹','스푼 초이스 월간 랭킹에서 내 순위, 주요 컷, 위/아래 DJ와의 점수 차이를 관리자 화면에서 바로 볼 수 있습니다'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
@@ -4643,6 +4675,7 @@ function selectPanel(name){
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
+  if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
@@ -4734,7 +4767,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -4748,7 +4781,7 @@ const MODULE_ICON_FILES={
   dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
-  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
   'trophy-editor':'trophyeditor.png',
 };
@@ -4764,7 +4797,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -5591,10 +5624,26 @@ function renderEntryList(){
       · {choice_rank}, {like_rank}, {time_rank}: 초이스/좋아요/방송시간 개별 순위<br>
       · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해야 값이 채워져요.</b> (등록 안 하면 "[대시보드에 고유닉 미등록]"으로 나가요) 방송하는 DJ 본인 랭킹이에요 — 입장/좋아요/퇴장한 시청자 개인 랭킹이 아니에요.
       </div>`:''}
-      <div class="sound-row">
-        <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 선택</button>
-        <span class="hint">${m.sound ? '🎵 '+escapeHtml(m.sound) : '첨부된 음원 없음 (선택 사항)'}</span>
-        ${m.sound ? `<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="playEntrySoundById('${entryTab}',${m.id})">▶️ 미리듣기</button><button class="icon-btn danger" onclick="removeEntrySound(${m.id})" title="음원 제거">🗑</button>` : ''}
+      <div class="sound-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button class="btn-gray" onclick="chooseEntrySound(${m.id})">🎵 음원 추가</button>
+          ${getEntrySounds(m).length>1?`
+          <span class="hint" style="margin:0">재생:</span>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${(m.soundMode||'single')==='single'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','single')"> 하나만</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${m.soundMode==='random'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','random')"> 랜덤</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="radio" name="soundMode-${m.id}" ${m.soundMode==='sequential'?'checked':''} onchange="updateEntryMsg(${m.id},'soundMode','sequential')"> 순서대로</label>
+          `:''}
+        </div>
+        ${getEntrySounds(m).length?getEntrySounds(m).map((s,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:6px 10px">
+            <span style="font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎵 ${escapeHtml(s.name||('음원'+(i+1)))}</span>
+            <span style="font-size:11px;color:var(--muted)">볼륨</span>
+            <input type="range" min="0" max="100" value="${s.volume??100}" style="width:70px" oninput="updateEntrySoundVolume(${m.id},'${s.id}',this.value);this.nextElementSibling.textContent=this.value+'%'">
+            <span style="font-size:11px;width:32px;color:var(--muted)">${s.volume??100}%</span>
+            <button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="previewEntrySound('${escapeAttr(s.url||'')}','${escapeAttr(s.data||'')}',${s.volume??100})">▶️</button>
+            <button class="icon-btn danger" onclick="removeEntrySound(${m.id},'${s.id}')" title="음원 제거">🗑</button>
+          </div>
+        `).join(''):'<span class="hint" style="margin:0">첨부된 음원 없음 (선택 사항)</span>'}
       </div>
     </div>
   `).join('');
@@ -5604,7 +5653,7 @@ function addEntryMessage(){
   if(entryTab==='repeat'){
     entryData.repeat.push({id:entryIdSeq++,enabled:true,text:'',intervalMin:10,intervalSec:0});
   } else {
-    entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sound:''});
+    entryData[entryTab].push({id:entryIdSeq++,enabled:true,target:'',text:'',delay:1,sounds:[],soundMode:'single'});
   }
   renderEntryList();
 }
@@ -5636,6 +5685,19 @@ function chooseEntrySound(id){
   entrySoundTargetId=id;
   document.getElementById('entrySoundFileInput').click();
 }
+// 예전 방식(entry.sound/soundUrl/soundData 단일 필드)도 그대로 인식해서 1개짜리 배열처럼 취급한다(하위호환).
+function getEntrySounds(m){
+  if(Array.isArray(m.sounds))return m.sounds;
+  if(m.sound||m.soundUrl||m.soundData)return[{id:'legacy',name:m.sound||'음원',url:m.soundUrl||'',data:m.soundData||'',volume:100}];
+  return[];
+}
+function ensureEntrySoundsArray(m){
+  if(!Array.isArray(m.sounds)){
+    m.sounds=(m.sound||m.soundUrl||m.soundData)?[{id:'snd'+Date.now(),name:m.sound||'음원',url:m.soundUrl||'',data:m.soundData||'',volume:100}]:[];
+    delete m.sound;delete m.soundUrl;delete m.soundData;
+  }
+  return m.sounds;
+}
 async function handleEntrySoundFile(input){
   const file=input.files&&input.files[0];
   if(!file||entrySoundTargetId==null)return;
@@ -5649,21 +5711,39 @@ async function handleEntrySoundFile(input){
       const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
       const d=await res.json();
       if(!d.success){showToast(d.error||'업로드 실패');return;}
-      updateEntryMsg(targetId,'sound',file.name);
-      updateEntryMsg(targetId,'soundUrl',d.url);
-      updateEntryMsg(targetId,'soundData',''); // 예전 base64 흔적이 있었다면 정리
+      const m=entryData[entryTab].find(x=>x.id===targetId);
+      if(!m)return;
+      const sounds=ensureEntrySoundsArray(m);
+      sounds.push({id:'snd'+Date.now()+Math.random().toString(36).slice(2,7),name:file.name,url:d.url,data:'',volume:100});
       renderEntryList();
-      showToast('음원을 첨부했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
+      showToast('음원을 추가했어요 (아래 "저장" 버튼을 눌러야 최종 저장돼요)');
     }catch(e){showToast('업로드 오류: '+e.message);}
   };
   reader.readAsDataURL(file);
   input.value='';
 }
-function removeEntrySound(id){
-  updateEntryMsg(id,'sound','');
-  updateEntryMsg(id,'soundUrl','');
-  updateEntryMsg(id,'soundData','');
+function removeEntrySound(entryId,soundId){
+  const m=entryData[entryTab].find(x=>x.id===entryId);
+  if(!m)return;
+  const sounds=ensureEntrySoundsArray(m);
+  m.sounds=sounds.filter(s=>s.id!==soundId);
   renderEntryList();
+}
+function updateEntrySoundVolume(entryId,soundId,value){
+  const m=entryData[entryTab].find(x=>x.id===entryId);
+  if(!m)return;
+  const sounds=ensureEntrySoundsArray(m);
+  const s=sounds.find(x=>x.id===soundId);
+  if(s)s.volume=Math.max(0,Math.min(100,Number(value)||0));
+}
+function previewEntrySound(url,data,volume){
+  const src=url?(SERVER+url):data;
+  if(!src)return;
+  try{
+    const audio=new Audio(src);
+    audio.volume=Math.max(0,Math.min(1,(Number(volume)||100)/100));
+    audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
+  }catch(e){}
 }
 
 function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -8153,6 +8233,11 @@ async function loadReminderData(){
     document.getElementById('reminderCmd').value=d.settings.cmd||'!리액션';
     document.getElementById('reminderRegisterMsg').value=d.settings.registerMsg||'';
     document.getElementById('reminderAlertMsg').value=d.settings.alertMsg||'';
+    reminderSoundUrl=d.settings.soundUrl||'';
+    document.getElementById('reminderSoundVolume').value=d.settings.soundVolume??100;
+    document.getElementById('reminderSoundVolumeLabel').textContent=(d.settings.soundVolume??100)+'%';
+    document.getElementById('reminderSoundLabel').textContent=reminderSoundUrl?'🎵 커스텀 음원 사용 중':'기본 알림음 사용 중';
+    document.getElementById('reminderSoundResetBtn').style.display=reminderSoundUrl?'inline-block':'none';
     const wrap=document.getElementById('reminderActiveWrap');
     if(!d.active||!d.active.length){ wrap.innerHTML='<p class="hint">지금 걸려있는 타이머가 없어요.</p>'; return; }
     wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+d.active.map(t=>{
@@ -8169,6 +8254,8 @@ async function saveReminderSettings(){
     cmd:document.getElementById('reminderCmd').value,
     registerMsg:document.getElementById('reminderRegisterMsg').value,
     alertMsg:document.getElementById('reminderAlertMsg').value,
+    soundUrl:reminderSoundUrl,
+    soundVolume:document.getElementById('reminderSoundVolume').value,
   };
   try{
     const res=await fetch(SERVER+'/reaction/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
@@ -8176,6 +8263,43 @@ async function saveReminderSettings(){
     if(d.success){showToast('설정 저장 완료 ✓');loadReminderData();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* 🔔 리액션 타이머 알림음 변경 */
+let reminderSoundUrl='';
+function chooseReminderSound(){
+  document.getElementById('reminderSoundFileInput').click();
+}
+async function handleReminderSoundFile(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
+  if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    showToast('음원 업로드 중...');
+    try{
+      const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){showToast(d.error||'업로드 실패');return;}
+      reminderSoundUrl=d.url;
+      document.getElementById('reminderSoundLabel').textContent='🎵 커스텀 음원 사용 중 ('+file.name+')';
+      document.getElementById('reminderSoundResetBtn').style.display='inline-block';
+      showToast('음원을 변경했어요 (위 "저장" 버튼을 눌러야 최종 저장돼요)');
+    }catch(e){showToast('업로드 오류: '+e.message);}
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function resetReminderSound(){
+  reminderSoundUrl='';
+  document.getElementById('reminderSoundLabel').textContent='기본 알림음 사용 중';
+  document.getElementById('reminderSoundResetBtn').style.display='none';
+  showToast('기본 알림음으로 되돌렸어요 (위 "저장" 버튼을 눌러야 최종 저장돼요)');
+}
+function previewReminderSound(){
+  const vol=Number(document.getElementById('reminderSoundVolume').value)||100;
+  playReactionTimerAlert(reminderSoundUrl,vol);
 }
 
 /* ── 📅 디데이 ── */
@@ -10010,9 +10134,11 @@ function playSoundFxById(id){
 
 // ⏰ 리액션 타이머가 실제로 울리는 순간, 기본 알림음을 2번 재생한다 (방송 화면을 보고 있는
 // 브라우저에서만 들려요 — 채팅 알림 메시지랑 별개로 시각/청각 둘 다 챙기는 용도).
-function playReactionTimerAlert(){
+function playReactionTimerAlert(soundUrl,volume){
+  const src=soundUrl?(soundUrl.startsWith('http')?soundUrl:SERVER+soundUrl):(SERVER+'/sounds/reaction-timer-default.mp3');
+  const vol=Math.max(0,Math.min(1,(volume!=null?volume:100)/100));
   const play=()=>{
-    try{ const audio=new Audio(SERVER+'/sounds/reaction-timer-alert.mp3'); audio.play().catch(()=>{}); }catch(e){}
+    try{ const audio=new Audio(src); audio.volume=vol; audio.play().catch(()=>{}); }catch(e){}
   };
   play();
   setTimeout(play,900);
@@ -12557,6 +12683,128 @@ function copyHubUrl(inputId){
   catch(e){ document.execCommand('copy'); showToast('허브 링크를 복사했어요'); }
 }
 
+/* 🔴 실시간 랭킹 */
+async function loadLiveRankSettings(){
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){
+      document.getElementById('lrStatus').textContent=d.error?`⚠️ ${d.error}`:'⚠️ 불러오지 못했어요. 새로고침해주세요.';
+      return;
+    }
+    document.getElementById('lrDjTag').value=d.manualTag||'';
+    if(d.manualTag){
+      document.getElementById('lrStatus').textContent=`수동 등록 고유닉 사용 중: ${d.djTag}`;
+    }else if(d.djTag){
+      document.getElementById('lrStatus').textContent=`자동입장 등록 고유닉 사용 중: ${d.djTag}`;
+    }else{
+      document.getElementById('lrStatus').textContent='⚠️ 사용할 고유닉이 없어요. 자동입장에 등록하거나, 위에서 직접 등록해주세요.';
+    }
+    if(d.djTag) loadLiveRankView(); else document.getElementById('lrViewWrap').innerHTML='';
+  }catch(e){
+    document.getElementById('lrStatus').textContent='⚠️ 불러오지 못했어요: '+e.message;
+  }
+}
+async function saveLiveRankSettings(){
+  const djTag=document.getElementById('lrDjTag').value.trim();
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djTag})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast(djTag?'수동으로 등록했어요':'자동입장 값으로 되돌렸어요');
+    loadLiveRankSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function liveRankRefreshNow(){
+  try{
+    const res=await fetch(SERVER+'/liverank-admin/refresh-now',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('랭킹 데이터를 갱신했어요');
+    loadLiveRankSettings();
+  }catch(e){showToast('오류: '+e.message);}
+}
+function lrFmtNum(n){ return n==null?'-':Number(n).toLocaleString('ko-KR'); }
+function lrFmtDiff(n){ return n==null?'-':(n>=0?'+':'')+Number(n).toLocaleString('ko-KR'); }
+function lrAvatarHtml(url,size,emoji){
+  emoji=emoji||'🎙️';
+  const safeUrl=url?escapeAttr(url):'';
+  return `<span style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;display:inline-block">
+    ${safeUrl?`<img src="${safeUrl}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:''}
+    <div style="width:${size}px;height:${size}px;border-radius:50%;background:linear-gradient(160deg,#ddd,#ccc);display:${safeUrl?'none':'flex'};align-items:center;justify-content:center;font-size:${Math.round(size*0.4)}px;position:absolute;top:0;left:0">${emoji}</div>
+  </span>`;
+}
+async function loadLiveRankView(){
+  const wrap=document.getElementById('lrViewWrap');
+  if(!wrap)return;
+  wrap.innerHTML='<div class="card"><p class="hint">불러오는 중...</p></div>';
+  try{
+    const res=await fetch(SERVER+'/liverank/'+djId+'/data');
+    const d=await res.json();
+    if(!d.success){
+      wrap.innerHTML=`<div class="card"><p class="hint">${escapeHtml(d.error||'불러오지 못했어요')}</p></div>`;
+      return;
+    }
+    renderLiveRankView(d);
+  }catch(e){
+    wrap.innerHTML='<div class="card"><p class="hint">불러오지 못했어요.</p></div>';
+  }
+}
+function renderLiveRankView(d){
+  const wrap=document.getElementById('lrViewWrap');
+  const updated=d.updatedAt?new Date(d.updatedAt).toLocaleString('ko-KR'):'-';
+  let html='';
+
+  function neighborCard(n,label,arrow,diffColor,bgColor,borderColor){
+    if(!n) return `<div class="card" style="padding:14px 16px;text-align:center"><span class="hint" style="margin:0">${label} — 없음 (${arrow==='▲'?'현재 1위예요!':'전체 꼴찌예요'})</span></div>`;
+    return `<div class="card" style="padding:14px 18px;background:${bgColor};border:1.5px solid ${borderColor}">
+      <div style="display:flex;align-items:center;gap:12px">
+        ${lrAvatarHtml(n.photo,40)}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11.5px;font-weight:700;color:${diffColor}">${arrow} ${label} · ${n.rank}위</div>
+          <div style="font-size:14px;font-weight:700;margin-top:2px">${escapeHtml(n.nickname)}</div>
+          <div class="hint" style="margin:0">@${escapeHtml(n.tag)} · 컷 <b>${lrFmtNum(n.cut)}</b></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:18px;font-weight:800;color:${diffColor}">${lrFmtDiff(n.diff)}</div>
+          <div style="font-size:10px;color:var(--muted)">점수차</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // 위 → 내 순위 → 아래, 세로로 감싸는 순서로 배치해서 바로 비교되게 한다.
+  if(d.above){
+    // 위 등수와의 격차: 내가 따라잡아야 할 점수라 위험(빨강)으로 강조
+    html+=neighborCard(d.above,'바로 위','▲','#dc2626','rgba(220,38,38,.06)','rgba(220,38,38,.35)');
+  }
+
+  html+=`<div class="card" style="padding:22px;background:linear-gradient(135deg,rgba(14,165,233,.14),rgba(14,165,233,.03));border:2px solid var(--accent);box-shadow:0 4px 16px rgba(14,165,233,.15)">
+    <div class="card-title" style="margin-bottom:12px"><span style="font-size:15px">🙋 내 순위</span></div>
+    <div style="display:flex;align-items:center;gap:16px">
+      ${lrAvatarHtml(d.photo,60)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:800;font-size:17px">${escapeHtml(d.nickname)}</div>
+        <div class="hint" style="margin:2px 0">@${escapeHtml(d.tag||djId)}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+          <span style="font-size:15px">현재 컷 <b style="font-size:17px;color:var(--accent)">${lrFmtNum(d.cut)}</b></span>
+          <span style="font-size:11px;background:var(--accent);color:#fff;padding:4px 10px;border-radius:999px;font-weight:700">${escapeHtml(d.bracketLabel||'')}</span>
+        </div>
+      </div>
+      <div style="font-size:38px;font-weight:900;color:var(--accent);text-align:right;line-height:1">${d.rank}<span style="display:block;font-size:11px;color:var(--muted);font-weight:600;margin-top:4px">현재 순위</span></div>
+    </div>
+  </div>`;
+
+  if(d.below){
+    // 아래 등수와의 여유분: 내가 안전하게 앞서있는 격차라 안전(초록)으로 강조
+    html+=neighborCard(d.below,'바로 아래','▼','#16a34a','rgba(22,163,74,.06)','rgba(22,163,74,.35)');
+  }
+
+  html+=`<div class="hint" style="text-align:center;margin-top:4px">전체 ${d.total}명 · 마지막 갱신: ${updated}</div>`;
+
+  wrap.innerHTML=html;
+}
+
 function switchFtTab(t){
   document.querySelectorAll('#ftSideNav .ft-side-item').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
 
@@ -13622,14 +13870,19 @@ async function resetSwordDefaults(){
 
 
 
-function playEntrySoundById(category,id){
+function playEntrySoundById(category,id,soundIndex){
   const list=(entryData && entryData[category])||[];
   const item=list.find(m=>String(m.id)===String(id));
   if(!item)return;
-  const src=item.soundUrl?(SERVER+item.soundUrl):item.soundData;
+  const pool=getEntrySounds(item);
+  if(!pool.length)return;
+  const idx=(soundIndex!=null && pool[soundIndex])?soundIndex:0;
+  const snd=pool[idx];
+  const src=snd.url?(SERVER+snd.url):snd.data;
   if(!src)return;
   try{
     const audio=new Audio(src);
+    audio.volume=Math.max(0,Math.min(1,(snd.volume!=null?snd.volume:100)/100));
     audio.play().catch(()=>{ showToast('🔊 음원 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
   }catch(e){}
 }
@@ -14247,8 +14500,8 @@ function startSSE(){
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
-    else if(d.type==='reactiontimersound')playReactionTimerAlert();
-    else if(d.type==='entrysound')playEntrySoundById(d.category,d.id);
+    else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
+    else if(d.type==='entrysound')playEntrySoundById(d.category,d.id,d.soundIndex);
     else if(d.type==='greetsound')playGreetSoundById(d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
     else if(d.type==='ttsrevoke'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); renderTtsActiveList(); }
