@@ -17462,10 +17462,31 @@ app.post('/mafia/:djId/vote', (req, res) => {
   saveMafia(djId, mf)
   res.json({ success: true })
 })
+
 // 공개 마피아 게임 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
 // register·me·join·night-action 같은 하위 경로를 가로채지 않는다.
 app.get('/mafia/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/mafia.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🏠 시청자용 허브 페이지 — 웹뽑기판/마피아처럼 "로그인 없는 시청자 웹페이지"를 가진 기능들을
+// 개별 링크로 따로 공유하지 않고, 하나의 허브 링크(/play/:djId)에서 켜져있는 기능만 모아서
+// 보여준다. 앞으로 이런 웹 기능을 새로 추가할 때는 이 목록에 한 줄만 추가하면 자동으로
+// 허브에도 반영된다 (module 키가 꺼져있으면 그 카드는 목록에서 자동으로 빠진다).
+const WEB_HUB_FEATURES = [
+  { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
+  { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
+]
+app.get('/play/:djId/list', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const items = WEB_HUB_FEATURES
+    .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
+  res.json({ success: true, djId, items })
+})
+app.get('/play/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/play.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
