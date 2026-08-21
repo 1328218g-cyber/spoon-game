@@ -659,7 +659,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'rankhub', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -17552,9 +17552,9 @@ app.get('/play/:djId/list', (req, res) => {
   const settings = store.getSettings(djId) || {}
   const items = WEB_HUB_FEATURES
     .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
-  // 🏆 랭킹 허브는 대시보드 메뉴 켜짐 + 고유닉 등록 여부까지 같이 확인해야 해서 별도로 추가한다.
-  const dash = getDashboardData(djId, settings)
-  items.push({ icon: '🏆', title: '월간 DJ 랭킹', desc: '이달의 초이스/좋아요/방송시간 랭킹 컷과 내 순위를 볼 수 있어요', url: `/rank/${djId}`, enabled: isModuleOn(settings, 'dashboard', djId) && !!dash.djTag })
+  // 🏆 랭킹 허브는 모듈 켜짐 + 고유닉 등록 여부까지 같이 확인해야 해서 별도로 추가한다.
+  const rh = getRankHubSettings(djId, settings)
+  items.push({ icon: '🏆', title: '월간 DJ 랭킹', desc: '이달의 초이스/좋아요/방송시간 랭킹 컷과 내 순위를 볼 수 있어요', url: `/rank/${djId}`, enabled: isModuleOn(settings, 'rankhub', djId) && !!rh.djTag })
   res.json({ success: true, djId, items })
 })
 app.get('/play/:djId', (req, res) => {
@@ -17562,21 +17562,50 @@ app.get('/play/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 🏆 월간 DJ 랭킹 허브 — 공개(로그인 없음) 페이지. dashRankCache는 서버 전체가 공유하는
+// 🏆 월간 DJ 랭킹 — 대시보드와는 별개인 독립 모듈. 순위 데이터 자체는 dashRankCache(서버 전체
+// 공유 캐시)를 그대로 재사용하지만, 사이드바 ON/OFF와 등록 고유닉은 이 모듈만의 설정으로
+// 따로 관리한다.
+function getRankHubSettings(djId, settings) {
+  if (!settings.rankHub) {
+    settings.rankHub = { djTag: '' }
+    store.saveSettings(djId, { rankHub: settings.rankHub })
+  }
+  if (settings.rankHub.djTag == null) settings.rankHub.djTag = ''
+  return settings.rankHub
+}
+app.get('/rankhub-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rh = getRankHubSettings(req.djId, settings)
+  res.json({ success: true, djTag: rh.djTag, publicUrl: `/rank/${req.djId}` })
+})
+app.post('/rankhub-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'rankhub', req.djId)) return res.json({ success: false, error: '월간 DJ 랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const rh = getRankHubSettings(req.djId, settings)
+  rh.djTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  store.saveSettings(req.djId, { rankHub: rh })
+  res.json({ success: true, djTag: rh.djTag })
+})
+app.post('/rankhub-admin/refresh-now', auth.requireAuth, async (req, res) => {
+  const scanResult = await scanDashRank()
+  res.json(scanResult)
+})
+
+// 🏆 월간 DJ 랭킹 — 공개(로그인 없음) 페이지. dashRankCache는 서버 전체가 공유하는
 // 캐시라서(디제이별로 안 나뉨) 남용 방지로 수동 새로고침은 최소 간격을 둔다.
 let rankHubLastManualRefresh = 0
 app.get('/rank/:djId/data', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'dashboard', djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요.' })
-  const dash = getDashboardData(djId, settings)
-  if (!dash.djTag) return res.json({ success: false, error: '대시보드에 고유닉이 등록되지 않았어요. 관리자 패널의 대시보드 메뉴에서 먼저 등록해주세요.' })
+  if (!isModuleOn(settings, 'rankhub', djId)) return res.json({ success: false, error: '월간 DJ 랭킹을 찾을 수 없어요.' })
+  const rh = getRankHubSettings(djId, settings)
+  if (!rh.djTag) return res.json({ success: false, error: '등록된 고유닉이 없어요. 관리자 패널의 월간 DJ 랭킹 메뉴에서 먼저 등록해주세요.' })
   const type = ['next_choice', 'free_like', 'live_time'].includes(req.query.type) ? req.query.type : 'next_choice'
   if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
     const scanResult = await scanDashRank()
     if (!scanResult.success) return res.json({ success: false, error: scanResult.error })
   }
-  const hub = buildRankHub(type, dash.djTag)
+  const hub = buildRankHub(type, rh.djTag)
   res.json(hub)
 })
 app.post('/rank/:djId/refresh', async (req, res) => {
