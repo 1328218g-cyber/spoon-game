@@ -3971,7 +3971,7 @@ function getDashboardData(djId, settings) {
 // 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간) — 특정 방송의 데이터가 아니라
 // 스푼 플랫폼 전체 기준이라 djId별로 나누지 않고 서버 전체에서 하나만 캐싱해서 공유한다.
 // (로컬 에디봇의 rank:scan / rank:search 를 그대로 이식)
-let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0 }
+let dashRankCache = { next_choice: [], free_like: [], live_time: [], lastScanned: 0, prevRank: { next_choice: {}, free_like: {}, live_time: {} } }
 const DASH_RANK_PATH_MAP = {
   next_choice: '/ranks/v2/dj/live/?sub-type=monthly',
   free_like: '/ranks/v2/dj/live-free-like/?sub-type=monthly',
@@ -4002,7 +4002,14 @@ async function scanDashRank() {
   if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
   try {
     for (const type of ['next_choice', 'free_like', 'live_time']) {
+      // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
+      const prevMap = {}
+      dashRankCache[type].forEach((item, i) => { const t = item && item.author && item.author.tag; if (t) prevMap[t] = i + 1 })
+      if (Object.keys(prevMap).length) dashRankCache.prevRank[type] = prevMap
       dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
+      // 🩺 "컷" 점수 필드명이 실제로 뭔지 확실치 않아서, 스캔할 때마다 첫 항목의 키 구조를
+      // 한 번씩 로그로 남겨둔다 — 화면에 컷 숫자가 안 뜨면 이 로그를 보고 필드명을 알아낼 수 있다.
+      if (dashRankCache[type][0]) console.log(`[랭킹허브] ${type} 응답 샘플 키:`, Object.keys(dashRankCache[type][0]))
     }
     dashRankCache.lastScanned = Date.now()
     return { success: true }
@@ -4032,6 +4039,68 @@ function formatRankSummary(ranks) {
   if (!ranks) return ''
   const fmt = v => (v ? v + '위' : '순위없음')
   return `✨초이스: ${fmt(ranks.next_choice)} | ❤️좋아요: ${fmt(ranks.free_like)} | ⏱시간: ${fmt(ranks.live_time)}`
+}
+
+// ══════════════════════════════════════════════════════
+// 🏆 월간 DJ 랭킹 허브 — dashRankCache(이미 10분마다 자동 갱신되는 캐시)를 그대로 활용해서
+// 특정 순위(1/10/110/410위)의 "컷" 점수, 내 순위/구간, 다음 구간 대비 여유분, 내 주변 순위를
+// 계산해서 보여준다. ⚠️ "컷" 점수 필드명은 스푼 응답 원문을 직접 확인하지 못해 여러 후보
+// 필드명을 순서대로 시도한다 — 값이 하나도 안 잡히면 scanDashRank가 남기는 로그로 실제
+// 필드명을 확인해서 후보 목록에 추가하면 된다.
+function rankHubCutValue(item) {
+  if (!item) return null
+  const candidates = ['score', 'cut_score', 'next_choice_score', 'choice_score', 'total_score', 'cut', 'value', 'point', 'points']
+  for (const key of candidates) {
+    const v = item[key]
+    if (v != null && !isNaN(Number(v))) return Number(v)
+  }
+  return null
+}
+const RANK_HUB_CHECKPOINTS = [1, 10, 110, 410]
+function rankHubBracketLabel(rank) {
+  for (let i = 0; i < RANK_HUB_CHECKPOINTS.length; i++) {
+    const cur = RANK_HUB_CHECKPOINTS[i]
+    const next = RANK_HUB_CHECKPOINTS[i + 1]
+    if (rank <= cur) return `~${cur}위 구간`
+    if (!next) return `${cur}위 이하 구간`
+    if (rank > cur && rank <= next) return `${cur + 1}~${next}위 구간`
+  }
+  return ''
+}
+function buildRankHub(type, djTag) {
+  const list = dashRankCache[type] || []
+  if (!list.length) return { success: false, error: '랭킹 데이터가 아직 없어요. 잠시 후 다시 시도해주세요.' }
+  const cuts = RANK_HUB_CHECKPOINTS.map(rank => {
+    const item = list[rank - 1]
+    return { rank, cut: rankHubCutValue(item), nickname: (item && item.author && item.author.nickname) || '', tag: (item && item.author && item.author.tag) || '' }
+  })
+
+  let me = null
+  if (djTag) {
+    const idx = list.findIndex(x => x.author && x.author.tag === djTag)
+    if (idx !== -1) {
+      const item = list[idx]
+      const rank = idx + 1
+      const cut = rankHubCutValue(item)
+      const comparisons = RANK_HUB_CHECKPOINTS
+        .filter(cp => cp > rank) // 나보다 순위 숫자가 큰(=더 낮은 순위) 체크포인트만, 여유분 표시용
+        .map(cp => {
+          const cpCut = (cuts.find(c => c.rank === cp) || {}).cut
+          return { rank: cp, cut: cpCut, diff: (cut != null && cpCut != null) ? cut - cpCut : null }
+        })
+      const prevRank = (dashRankCache.prevRank[type] || {})[djTag] || null
+      const nearbyStart = Math.max(0, idx - 10)
+      const nearbyEnd = Math.min(list.length, idx + 11)
+      const nearby = list.slice(nearbyStart, nearbyEnd).map((it, i) => {
+        const r = nearbyStart + i + 1
+        const t = (it.author && it.author.tag) || ''
+        const pr = (dashRankCache.prevRank[type] || {})[t] || null
+        return { rank: r, nickname: (it.author && it.author.nickname) || '', tag: t, cut: rankHubCutValue(it), change: pr ? pr - r : null, isMe: t === djTag }
+      })
+      me = { rank, cut, nickname: (item.author && item.author.nickname) || '', bracketLabel: rankHubBracketLabel(rank), comparisons, prevRank, change: prevRank ? prevRank - rank : null, nearby }
+    }
+  }
+  return { success: true, cuts, me, updatedAt: dashRankCache.lastScanned, total: list.length }
 }
 
 // 반복문구/단축키 명령어에서 쓰는 {nickname}{tag}{rank}{choice_rank}{like_rank}{time_rank}
@@ -17483,10 +17552,42 @@ app.get('/play/:djId/list', (req, res) => {
   const settings = store.getSettings(djId) || {}
   const items = WEB_HUB_FEATURES
     .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
+  // 🏆 랭킹 허브는 대시보드 메뉴 켜짐 + 고유닉 등록 여부까지 같이 확인해야 해서 별도로 추가한다.
+  const dash = getDashboardData(djId, settings)
+  items.push({ icon: '🏆', title: '월간 DJ 랭킹', desc: '이달의 초이스/좋아요/방송시간 랭킹 컷과 내 순위를 볼 수 있어요', url: `/rank/${djId}`, enabled: isModuleOn(settings, 'dashboard', djId) && !!dash.djTag })
   res.json({ success: true, djId, items })
 })
 app.get('/play/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/play.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🏆 월간 DJ 랭킹 허브 — 공개(로그인 없음) 페이지. dashRankCache는 서버 전체가 공유하는
+// 캐시라서(디제이별로 안 나뉨) 남용 방지로 수동 새로고침은 최소 간격을 둔다.
+let rankHubLastManualRefresh = 0
+app.get('/rank/:djId/data', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'dashboard', djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요.' })
+  const dash = getDashboardData(djId, settings)
+  if (!dash.djTag) return res.json({ success: false, error: '대시보드에 고유닉이 등록되지 않았어요. 관리자 패널의 대시보드 메뉴에서 먼저 등록해주세요.' })
+  const type = ['next_choice', 'free_like', 'live_time'].includes(req.query.type) ? req.query.type : 'next_choice'
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) return res.json({ success: false, error: scanResult.error })
+  }
+  const hub = buildRankHub(type, dash.djTag)
+  res.json(hub)
+})
+app.post('/rank/:djId/refresh', async (req, res) => {
+  const waitMs = 60000 - (Date.now() - rankHubLastManualRefresh)
+  if (waitMs > 0) return res.json({ success: false, error: `너무 빨라요. ${Math.ceil(waitMs / 1000)}초 뒤 다시 시도해주세요.` })
+  rankHubLastManualRefresh = Date.now()
+  const scanResult = await scanDashRank()
+  res.json(scanResult)
+})
+app.get('/rank/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/rank.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
