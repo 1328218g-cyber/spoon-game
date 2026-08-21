@@ -17590,9 +17590,6 @@ app.get('/play/:djId/list', (req, res) => {
   const settings = store.getSettings(djId) || {}
   const items = WEB_HUB_FEATURES
     .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
-  // 🔴 실시간 랭킹은 모듈 켜짐 + 고유닉 등록 여부까지 같이 확인해야 해서 별도로 추가한다.
-  const lr = getLiveRankSettings(djId, settings)
-  items.push({ icon: '🔴', title: '실시간 랭킹', desc: '스푼 초이스 랭킹에서 내 순위와 위/아래 DJ와의 점수 차이를 볼 수 있어요', url: `/liverank/${djId}`, enabled: isModuleOn(settings, 'liverank', djId) && !!lr.djTag })
   res.json({ success: true, djId, items })
 })
 app.get('/play/:djId', (req, res) => {
@@ -17626,41 +17623,26 @@ app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
   res.json(scanResult)
 })
 
-// 🔴 실시간 랭킹 — 공개(로그인 없음) 페이지. dashRankCache는 서버 전체가 공유하는 캐시라서
-// (디제이별로 안 나뉨) 남용 방지로 수동 새로고침은 최소 간격을 둔다.
-let liveRankLastManualRefresh = 0
+// 🏆 월간 DJ 컷랭킹 — /liverank/:djId/data 는 관리자 화면(liverank 패널)이 인증된 상태에서
+// fetch로 불러다 그 자리에서 바로 그려주는 용도의 JSON API. 예전엔 시청자용 공개 페이지
+// (/liverank/:djId, liverank.html)로도 열 수 있었지만, 이제 외부에서 여는 방식은 없애고
+// 관리자 화면 안에서만 보이도록 정리했다.
 app.get('/liverank/:djId/data', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '실시간 랭킹을 찾을 수 없어요.' })
+  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
   const lr = getLiveRankSettings(djId, settings)
-  if (!lr.djTag) return res.json({ success: false, error: '등록된 고유닉이 없어요. 관리자 패널의 실시간 랭킹 메뉴에서 먼저 등록해주세요.' })
+  if (!lr.djTag) return res.json({ success: false, error: '등록된 고유닉이 없어요. 위에서 먼저 등록해주세요.' })
   if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
     const scanResult = await scanDashRank()
     if (!scanResult.success) {
-      console.log(`[실시간랭킹] ${djId} 스캔 실패:`, scanResult.error)
+      console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
       return res.json({ success: false, error: scanResult.error })
     }
   }
   const snap = buildLiveRankSnapshot(lr.djTag)
-  if (!snap.success) console.log(`[실시간랭킹] ${djId} — 고유닉 "${lr.djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${lr.djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
   res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
-})
-app.post('/liverank/:djId/refresh', async (req, res) => {
-  const waitMs = 60000 - (Date.now() - liveRankLastManualRefresh)
-  if (waitMs > 0) return res.json({ success: false, error: `너무 빨라요. ${Math.ceil(waitMs / 1000)}초 뒤 다시 시도해주세요.` })
-  liveRankLastManualRefresh = Date.now()
-  const scanResult = await scanDashRank()
-  if (scanResult.success) {
-    const djId = req.params.djId
-    const settings = store.getSettings(djId) || {}
-    const lr = getLiveRankSettings(djId, settings)
-    recordLiveRankHistory(djId, lr)
-  }
-  res.json(scanResult)
-})
-app.get('/liverank/:djId', (req, res) => {
-  res.sendFile(__dirname + '/public/liverank.html')
 })
 
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
