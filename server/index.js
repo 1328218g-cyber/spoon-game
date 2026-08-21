@@ -4103,8 +4103,8 @@ setInterval(async () => {
       if (dash.djTag) targets.push(djId)
     }
     if (isModuleOn(settings, 'liverank', djId)) {
-      const lr = getLiveRankSettings(djId, settings)
-      if (lr.djTag) liveRankTargets.push(djId)
+      const tag = getLiveRankDjTag(settings)
+      if (tag) liveRankTargets.push(djId)
     }
   }
   if (!targets.length && !liveRankTargets.length) return
@@ -4121,10 +4121,10 @@ setInterval(async () => {
   for (const djId of liveRankTargets) {
     const settings = store.getSettings(djId) || {}
     const lr = getLiveRankSettings(djId, settings)
-    recordLiveRankHistory(djId, lr)
+    recordLiveRankHistory(djId, lr, getLiveRankDjTag(settings))
   }
   if (targets.length) console.log(`[대시보드랭킹] 자동 갱신 완료 (${targets.length}개 계정)`)
-  if (liveRankTargets.length) console.log(`[실시간랭킹] 자동 갱신 완료 (${liveRankTargets.length}개 계정)`)
+  if (liveRankTargets.length) console.log(`[월간DJ컷랭킹] 자동 갱신 완료 (${liveRankTargets.length}개 계정)`)
 }, DASH_RANK_AUTO_REFRESH_MS)
 
 // ══════════════════════════════════════════════════════
@@ -4135,12 +4135,17 @@ setInterval(async () => {
 // 시도한다 — 값이 하나도 안 잡히면 순위(신뢰도 100%)만 정상 표시되고 점수차만 "-"로 나온다.
 function getLiveRankSettings(djId, settings) {
   if (!settings.liveRank) {
-    settings.liveRank = { djTag: '', history: [] }
+    settings.liveRank = { history: [] }
     store.saveSettings(djId, { liveRank: settings.liveRank })
   }
-  if (settings.liveRank.djTag == null) settings.liveRank.djTag = ''
   if (!Array.isArray(settings.liveRank.history)) settings.liveRank.history = []
   return settings.liveRank
+}
+// 🔗 별도로 고유닉을 입력받지 않고, 이미 "자동입장" 메뉴에 등록해둔 고유닉을 그대로 재사용한다.
+function getLiveRankDjTag(settings) {
+  if (settings.autoJoinTag) return String(settings.autoJoinTag).trim()
+  if (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags.length) return String(settings.autoJoinTags[0]).trim()
+  return ''
 }
 function liveRankCutValue(item) {
   if (!item) return null
@@ -4207,15 +4212,15 @@ function buildLiveRankSnapshot(djTag) {
     rank, cut, nickname: (item.author && item.author.nickname) || '', tag: djTag, total: list.length,
     photo: liveRankPhotoUrl(item),
     bracketLabel: liveRankBracketLabel(rank),
-    above: above ? { rank: rank - 1, nickname: (above.author && above.author.nickname) || '', tag: (above.author && above.author.tag) || '', cut: aboveCut, diff: (cut != null && aboveCut != null) ? aboveCut - cut : null } : null,
-    below: below ? { rank: rank + 1, nickname: (below.author && below.author.nickname) || '', tag: (below.author && below.author.tag) || '', cut: belowCut, diff: (cut != null && belowCut != null) ? cut - belowCut : null } : null,
+    above: above ? { rank: rank - 1, nickname: (above.author && above.author.nickname) || '', tag: (above.author && above.author.tag) || '', cut: aboveCut, photo: liveRankPhotoUrl(above), diff: (cut != null && aboveCut != null) ? aboveCut - cut : null } : null,
+    below: below ? { rank: rank + 1, nickname: (below.author && below.author.nickname) || '', tag: (below.author && below.author.tag) || '', cut: belowCut, photo: liveRankPhotoUrl(below), diff: (cut != null && belowCut != null) ? cut - belowCut : null } : null,
     cuts, comparisons, nearby,
   }
 }
 // 매 스캔 직후 호출 — 순위 스냅샷을 히스토리에 남긴다 (최근 50개까지만 보관)
-function recordLiveRankHistory(djId, lr) {
-  if (!lr.djTag) return
-  const snap = buildLiveRankSnapshot(lr.djTag)
+function recordLiveRankHistory(djId, lr, djTag) {
+  if (!djTag) return
+  const snap = buildLiveRankSnapshot(djTag)
   if (!snap.success) return
   lr.history.push({ ts: Date.now(), rank: snap.rank, cut: snap.cut })
   if (lr.history.length > 50) lr.history = lr.history.slice(-50)
@@ -17597,28 +17602,20 @@ app.get('/play/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 🔴 실시간 랭킹 — 관리자(DJ) 전용 설정 API
+// 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 고유닉은 따로 입력받지 않고 "자동입장" 메뉴에
+// 이미 등록해둔 고유닉을 그대로 재사용한다.
 app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const lr = getLiveRankSettings(req.djId, settings)
-  res.json({ success: true, djTag: lr.djTag, historyCount: lr.history.length, publicUrl: `/liverank/${req.djId}` })
-})
-app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '실시간 랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
-  const lr = getLiveRankSettings(req.djId, settings)
-  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
-  if (newTag !== lr.djTag) lr.history = [] // 고유닉이 바뀌면 예전 계정의 순위 기록은 의미가 없으니 초기화
-  lr.djTag = newTag
-  store.saveSettings(req.djId, { liveRank: lr })
-  res.json({ success: true, djTag: lr.djTag })
+  const djTag = getLiveRankDjTag(settings)
+  res.json({ success: true, djTag, historyCount: lr.history.length })
 })
 app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
   const scanResult = await scanDashRank()
   if (scanResult.success) {
     const settings = store.getSettings(req.djId) || {}
     const lr = getLiveRankSettings(req.djId, settings)
-    recordLiveRankHistory(req.djId, lr)
+    recordLiveRankHistory(req.djId, lr, getLiveRankDjTag(settings))
   }
   res.json(scanResult)
 })
@@ -17632,7 +17629,8 @@ app.get('/liverank/:djId/data', async (req, res) => {
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
   const lr = getLiveRankSettings(djId, settings)
-  if (!lr.djTag) return res.json({ success: false, error: '등록된 고유닉이 없어요. 위에서 먼저 등록해주세요.' })
+  const djTag = getLiveRankDjTag(settings)
+  if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
   if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
     const scanResult = await scanDashRank()
     if (!scanResult.success) {
@@ -17640,8 +17638,8 @@ app.get('/liverank/:djId/data', async (req, res) => {
       return res.json({ success: false, error: scanResult.error })
     }
   }
-  const snap = buildLiveRankSnapshot(lr.djTag)
-  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${lr.djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  const snap = buildLiveRankSnapshot(djTag)
+  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
   res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
 })
 
