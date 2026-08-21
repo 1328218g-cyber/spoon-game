@@ -3334,21 +3334,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔗 공개 페이지</span></div>
-          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 유저등록 → 채팅 인증 → 뽑기까지 진행할 수 있어요.</p>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 켜져있는 기능(웹뽑기판·마피아 등)을 골라 들어갈 수 있어요.</p>
           <div style="display:flex;gap:8px">
-            <input type="text" id="wpbPublicUrl" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="wpbCopyPublicUrl()">복사</button>
-            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('wpbPublicUrl').value,'_blank')">열기</button>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <input type="text" id="wpbShortUrl" placeholder="짧은 링크 만들기를 누르면 여기 표시돼요" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="makeShortUrl(document.getElementById('wpbPublicUrl').value,'wpbShortUrl')">🔗 짧은 링크 만들기</button>
-          </div>
-          <div class="hint" style="margin-top:12px">💡 웹뽑기판/마피아 등 여러 웹 기능을 하나로 모아 보여주는 허브 링크도 있어요. 이 링크 하나만 공유해도 켜져있는 기능이 자동으로 목록에 떠요.</div>
-          <div style="display:flex;gap:8px;margin-top:6px">
             <input type="text" id="wpbHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('wpbHubUrl')">복사</button>
           </div>
+          <input type="text" id="wpbPublicUrl" style="display:none">
+          <input type="text" id="wpbShortUrl" style="display:none">
         </div>
 
         <div class="card">
@@ -3427,22 +3419,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔗 공개 페이지</span></div>
-          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 참가 → 채팅 인증 → 역할 확인까지 진행할 수 있어요.</p>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 켜져있는 기능(웹뽑기판·마피아 등)을 골라 들어갈 수 있어요.</p>
           <div style="display:flex;gap:8px">
-            <input type="text" id="mfPublicUrl" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="mfCopyPublicUrl()">복사</button>
-            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('mfPublicUrl').value,'_blank')">열기</button>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <input type="text" id="mfShortUrl" placeholder="짧은 링크 만들기를 누르면 여기 표시돼요" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="makeShortUrl(document.getElementById('mfPublicUrl').value,'mfShortUrl')">🔗 짧은 링크 만들기</button>
-          </div>
-          <button class="btn-gray" style="width:100%;margin-top:8px;padding:10px" onclick="window.open('/mafia-guide.png','_blank')">📖 시청자용 이용 안내 이미지 보기</button>
-          <div class="hint" style="margin-top:12px">💡 웹뽑기판/마피아 등 여러 웹 기능을 하나로 모아 보여주는 허브 링크도 있어요. 이 링크 하나만 공유해도 켜져있는 기능이 자동으로 목록에 떠요.</div>
-          <div style="display:flex;gap:8px;margin-top:6px">
             <input type="text" id="mfHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('mfHubUrl')">복사</button>
           </div>
+          <button class="btn-gray" style="width:100%;margin-top:8px;padding:10px" onclick="window.open('/mafia-guide.png','_blank')">📖 시청자용 이용 안내 이미지 보기</button>
+          <input type="text" id="mfPublicUrl" style="display:none">
+          <input type="text" id="mfShortUrl" style="display:none">
         </div>
       </div>
 
