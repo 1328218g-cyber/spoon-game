@@ -2081,6 +2081,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="hint" style="margin-top:10px">변수: {min} = 분, {content} = 내용 · 누구나 등록 가능하고, 최대 20개까지 동시에 걸어둘 수 있어요.</div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔔 알림음</span></div>
+          <p class="hint">타이머가 울릴 때 방송 화면(웹)에서 재생되는 알림음이에요. 기본음이 이미 등록돼있고, 원하면 다른 음원으로 바꿀 수 있어요.</p>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn-gray" onclick="chooseReminderSound()">🎵 음원 변경</button>
+            <span class="hint" id="reminderSoundLabel" style="margin:0">기본 알림음 사용 중</span>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewReminderSound()">▶️ 미리듣기</button>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px;display:none" id="reminderSoundResetBtn" onclick="resetReminderSound()">↩️ 기본음으로</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+            <span class="hint" style="margin:0">볼륨</span>
+            <input type="range" min="0" max="100" id="reminderSoundVolume" value="100" style="flex:1;max-width:220px" oninput="document.getElementById('reminderSoundVolumeLabel').textContent=this.value+'%'">
+            <span class="hint" id="reminderSoundVolumeLabel" style="margin:0;width:36px">100%</span>
+          </div>
+          <input type="file" id="reminderSoundFileInput" accept="audio/*" style="display:none" onchange="handleReminderSoundFile(this)">
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏰ 지금 걸려있는 타이머</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadReminderData()">🔄 새로고침</button></div>
           <div id="reminderActiveWrap"><p class="hint">불러오는 중...</p></div>
         </div>
@@ -8217,6 +8233,11 @@ async function loadReminderData(){
     document.getElementById('reminderCmd').value=d.settings.cmd||'!리액션';
     document.getElementById('reminderRegisterMsg').value=d.settings.registerMsg||'';
     document.getElementById('reminderAlertMsg').value=d.settings.alertMsg||'';
+    reminderSoundUrl=d.settings.soundUrl||'';
+    document.getElementById('reminderSoundVolume').value=d.settings.soundVolume??100;
+    document.getElementById('reminderSoundVolumeLabel').textContent=(d.settings.soundVolume??100)+'%';
+    document.getElementById('reminderSoundLabel').textContent=reminderSoundUrl?'🎵 커스텀 음원 사용 중':'기본 알림음 사용 중';
+    document.getElementById('reminderSoundResetBtn').style.display=reminderSoundUrl?'inline-block':'none';
     const wrap=document.getElementById('reminderActiveWrap');
     if(!d.active||!d.active.length){ wrap.innerHTML='<p class="hint">지금 걸려있는 타이머가 없어요.</p>'; return; }
     wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+d.active.map(t=>{
@@ -8233,6 +8254,8 @@ async function saveReminderSettings(){
     cmd:document.getElementById('reminderCmd').value,
     registerMsg:document.getElementById('reminderRegisterMsg').value,
     alertMsg:document.getElementById('reminderAlertMsg').value,
+    soundUrl:reminderSoundUrl,
+    soundVolume:document.getElementById('reminderSoundVolume').value,
   };
   try{
     const res=await fetch(SERVER+'/reaction/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
@@ -8240,6 +8263,43 @@ async function saveReminderSettings(){
     if(d.success){showToast('설정 저장 완료 ✓');loadReminderData();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* 🔔 리액션 타이머 알림음 변경 */
+let reminderSoundUrl='';
+function chooseReminderSound(){
+  document.getElementById('reminderSoundFileInput').click();
+}
+async function handleReminderSoundFile(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
+  if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    showToast('음원 업로드 중...');
+    try{
+      const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){showToast(d.error||'업로드 실패');return;}
+      reminderSoundUrl=d.url;
+      document.getElementById('reminderSoundLabel').textContent='🎵 커스텀 음원 사용 중 ('+file.name+')';
+      document.getElementById('reminderSoundResetBtn').style.display='inline-block';
+      showToast('음원을 변경했어요 (위 "저장" 버튼을 눌러야 최종 저장돼요)');
+    }catch(e){showToast('업로드 오류: '+e.message);}
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function resetReminderSound(){
+  reminderSoundUrl='';
+  document.getElementById('reminderSoundLabel').textContent='기본 알림음 사용 중';
+  document.getElementById('reminderSoundResetBtn').style.display='none';
+  showToast('기본 알림음으로 되돌렸어요 (위 "저장" 버튼을 눌러야 최종 저장돼요)');
+}
+function previewReminderSound(){
+  const vol=Number(document.getElementById('reminderSoundVolume').value)||100;
+  playReactionTimerAlert(reminderSoundUrl,vol);
 }
 
 /* ── 📅 디데이 ── */
@@ -10074,9 +10134,11 @@ function playSoundFxById(id){
 
 // ⏰ 리액션 타이머가 실제로 울리는 순간, 기본 알림음을 2번 재생한다 (방송 화면을 보고 있는
 // 브라우저에서만 들려요 — 채팅 알림 메시지랑 별개로 시각/청각 둘 다 챙기는 용도).
-function playReactionTimerAlert(){
+function playReactionTimerAlert(soundUrl,volume){
+  const src=soundUrl?(soundUrl.startsWith('http')?soundUrl:SERVER+soundUrl):(SERVER+'/sounds/reaction-timer-default.mp3');
+  const vol=Math.max(0,Math.min(1,(volume!=null?volume:100)/100));
   const play=()=>{
-    try{ const audio=new Audio(SERVER+'/sounds/reaction-timer-alert.mp3'); audio.play().catch(()=>{}); }catch(e){}
+    try{ const audio=new Audio(src); audio.volume=vol; audio.play().catch(()=>{}); }catch(e){}
   };
   play();
   setTimeout(play,900);
@@ -14438,7 +14500,7 @@ function startSSE(){
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
-    else if(d.type==='reactiontimersound')playReactionTimerAlert();
+    else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id,d.soundIndex);
     else if(d.type==='greetsound')playGreetSoundById(d.id);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }
