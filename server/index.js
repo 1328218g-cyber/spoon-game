@@ -17826,7 +17826,7 @@ app.get('/monsterdex/:djId/data', (req, res) => {
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
     }
   })
-  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, dex })
+  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
 })
 // mc.collections는 djId별 settings 안에 있지만 실제로는 전역 공유 객체를 참조하고 있어서
 // (getMonsterCatchSettings 안에서 store.loadGlobalMonsterDex()로 채워짐), 아무 djId나
@@ -17909,7 +17909,9 @@ app.post('/monsterdex/:djId/levelup', (req, res) => {
   d.levels[tag][monsterId] = { level: curLevel + 1, exp: 0 }
   d.points[tag] = points - cost
   mcSaveWebData()
-  res.json({ success: true, level: curLevel + 1, points: d.points[tag] })
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  res.json({ success: true, level: curLevel + 1, points: d.points[tag], power: resolved ? resolved.power : null, gainedPower: MC_LEVEL_ATTACK_BONUS })
 })
 // 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
 // register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.
