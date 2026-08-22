@@ -1964,15 +1964,17 @@ function getMonsterCatchSettings(djId, settings) {
       // 기여한 사람이 MVP로 랜덤 이로치 몬스터 1마리를 받는다.
       bossEnabled: true,
       bossMonsterName: '풀잎',
+      bossPower: 100, // ⚔️ 보스 공격력(체력 역할) — 참여자 총 공격력이 이걸 넘어야 처치 성공
       bossIntervalMin: 60,
       bossJoinWindowSec: 90,
       cmdBossJoin: '!참여',
-      msgBossSpawn: '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+      msgBossSpawn: '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
       msgBossJoin: '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})',
       msgBossAlreadyJoined: '⚠️ {nickname}님은 이미 참여했어요!',
       msgBossNoMonsters: '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!',
       msgBossNoActive: '⚠️ 지금 진행 중인 보스전이 없어요.',
       msgBossNoParticipants: '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...',
+      msgBossFail: '💔 참여 {count}명 · 총 공격력 {totalPower}(으)로는 보스 [{monster}](공격력 {bossPower})를 처치하지 못했어요...',
       msgBossResult: '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
@@ -2036,10 +2038,12 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
   if (mc.bossEnabled == null) mc.bossEnabled = true
   if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
+  if (mc.bossPower == null) mc.bossPower = 100
   if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
   if (mc.bossJoinWindowSec == null) mc.bossJoinWindowSec = 90
   if (mc.cmdBossJoin == null) mc.cmdBossJoin = '!참여'
-  if (mc.msgBossSpawn == null) mc.msgBossSpawn = '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)'
+  if (mc.msgBossSpawn == null) mc.msgBossSpawn = '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)'
+  if (mc.msgBossFail == null) mc.msgBossFail = '💔 참여 {count}명 · 총 공격력 {totalPower}(으)로는 보스 [{monster}](공격력 {bossPower})를 처치하지 못했어요...'
   if (mc.msgBossJoin == null) mc.msgBossJoin = '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})'
   if (mc.msgBossAlreadyJoined == null) mc.msgBossAlreadyJoined = '⚠️ {nickname}님은 이미 참여했어요!'
   if (mc.msgBossNoMonsters == null) mc.msgBossNoMonsters = '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!'
@@ -2151,42 +2155,139 @@ const MC_SHINY_CHANCE = 0.1      // 희귀상자를 열었을 때 이로치가 �
 function mcIsShinyId(id) { return typeof id === 'string' && id.startsWith(MC_SHINY_PREFIX) }
 function mcBaseIdFromShiny(id) { return mcIsShinyId(id) ? id.slice(MC_SHINY_PREFIX.length) : id }
 // id(이로치 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
-function mcResolveMonster(id, monsters) {
+function mcResolveMonster(id, monsters, tag) {
   const shiny = mcIsShinyId(id)
   const baseId = mcBaseIdFromShiny(id)
   const m = (monsters || []).find(mm => mm.id === baseId)
   if (!m) return null
   const basePower = Number(m.power) || 10
+  let power = shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower
+  if (tag) power += mcLevelBonus(mcMonsterLevel(tag, id)) // 🆙 웹 도감에서 레벨업한 만큼 공격력 보너스
   return {
     monster: m,
     shiny,
     name: shiny ? `🌈이로치 ${m.name}` : m.name,
-    power: shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower,
+    power,
   }
 }
 
-function mcPickStrongest(collection, monsters) {
+function mcPickStrongest(collection, monsters, tag) {
   const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
   if (!owned.length) return null
+  // 🥊 웹 도감에서 "대결할 몬스터"로 직접 선택해둔 게 있으면(보유 중인 한) 그걸 최우선으로 쓴다.
+  if (tag) {
+    const selected = mcGetWebData().selected[tag]
+    if (selected && owned.includes(String(selected))) {
+      const resolved = mcResolveMonster(selected, monsters, tag)
+      if (resolved) return { ...resolved.monster, name: resolved.name, power: resolved.power }
+    }
+  }
   // ✨ 대결(배틀) 시 전설 몬스터를 1순위로 사용한다 — 보유한 전설 몬스터가 있으면 그중 가장 강한
   // 걸 쓰고, 전설이 하나도 없을 때만 기존처럼 전체 보유 몬스터 중 가장 강한 걸 쓴다.
   // (이로치 여부와 무관하게 "전설 원본 몬스터의 이로치"도 전설 취급한다)
   const pickStrongestFrom = (idList) => {
     let best = null
     idList.forEach(id => {
-      const resolved = mcResolveMonster(id, monsters)
+      const resolved = mcResolveMonster(id, monsters, tag)
       if (!resolved) return
       if (!best || resolved.power > best.power) best = { id, resolved }
     })
     return best ? { ...best.resolved.monster, name: best.resolved.name, power: best.resolved.power } : null
   }
   const legendaryOwned = owned.filter(id => {
-    const resolved = mcResolveMonster(id, monsters)
+    const resolved = mcResolveMonster(id, monsters, tag)
     return resolved && resolved.monster.legendary
   })
   if (legendaryOwned.length) return pickStrongestFrom(legendaryOwned)
   return pickStrongestFrom(owned)
 }
+
+// ══════════════════════════════════════════════════════
+// 🐾 몬스터 웹 도감 — 웹뽑기판/마피아와 같은 register→code→채팅인증 패턴을 그대로 재사용해서,
+// 시청자가 웹페이지에서 로그인 없이 "본인 도감"을 확인하고, 대결에 쓸 몬스터를 직접 고르고,
+// 중복 몬스터를 분해해서 나온 포인트(경험치)로 원하는 몬스터를 레벨업(공격력 강화)할 수 있다.
+// 몬스터잡기 자체가 디제이 구분 없는 전체 플랫폼 공용 시스템이라(어느 방에서 잡든 같은 도감),
+// 이 웹 도감 데이터도 djId로 안 나누고 파일 하나에 전부 저장한다. store.js의 정확한 저장
+// 스키마에 의존하지 않도록 이 기능 전용 파일을 따로 둔다.
+const MC_WEB_FILE = path.join(store.DATA_DIR, 'monsterWebData.json')
+let mcWebDataCache = null
+function mcGetWebData() {
+  if (mcWebDataCache) return mcWebDataCache
+  try {
+    mcWebDataCache = JSON.parse(fs.readFileSync(MC_WEB_FILE, 'utf8'))
+  } catch (e) {
+    mcWebDataCache = {}
+  }
+  if (!mcWebDataCache.levels) mcWebDataCache.levels = {} // { tag: { monsterId: { level, exp } } }
+  if (!mcWebDataCache.selected) mcWebDataCache.selected = {} // { tag: monsterId }
+  if (!mcWebDataCache.points) mcWebDataCache.points = {} // { tag: number } — 분해로 모은 경험치 포인트
+  if (!mcWebDataCache.webUsers) mcWebDataCache.webUsers = {} // { webUserId: tag }
+  if (!mcWebDataCache.authKeys) mcWebDataCache.authKeys = {} // { code: { webUserId, expiresAt } }
+  return mcWebDataCache
+}
+function mcSaveWebData() {
+  try {
+    fs.mkdirSync(path.dirname(MC_WEB_FILE), { recursive: true })
+    fs.writeFileSync(MC_WEB_FILE, JSON.stringify(mcWebDataCache, null, 2))
+  } catch (e) {
+    console.log('[몬스터 웹도감] 저장 실패:', e.message)
+  }
+}
+const MC_LEVEL_ATTACK_BONUS = 3 // 레벨 1당 공격력 +3
+function mcLevelBonus(level) { return Math.max(0, (Number(level) || 1) - 1) * MC_LEVEL_ATTACK_BONUS }
+function mcMonsterLevel(tag, monsterId) {
+  const d = mcGetWebData()
+  const entry = d.levels[tag] && d.levels[tag][monsterId]
+  return entry ? entry.level : 1
+}
+function mcLevelUpCost(currentLevel) { return currentLevel * 10 } // 레벨이 높을수록 다음 레벨 비용이 커진다
+function mcDismantlePoints(basePower, shiny) { return Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 3 : 1) }
+const MC_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function mcGenAuthKey(d) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') } while (d.authKeys[key])
+  return key
+}
+function mcCleanExpiredKeys(d) {
+  const now = Date.now()
+  for (const k of Object.keys(d.authKeys)) { if (!d.authKeys[k] || d.authKeys[k].expiresAt < now) delete d.authKeys[k] }
+}
+// 💬 웹 도감 인증 — 몬스터잡기 모듈이 켜져있는 어느 방에서든(도감이 전체 공용이라) 채팅으로
+// "!도감인증 코드"(또는 코드만 딱)를 치면 그 채팅 계정(고유닉)과 웹 세션을 연결해준다.
+async function handleMonsterDexCommand(djId, settings, author, actTag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const msg = String(text || '').trim()
+  const d = mcGetWebData()
+
+  const tryAuth = (code) => {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+    mcCleanExpiredKeys(d)
+    const entry = d.authKeys[code]
+    if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹 도감 페이지에서 다시 발급받아주세요.', 150, 300)
+    d.webUsers[entry.webUserId] = tag
+    delete d.authKeys[code]
+    mcSaveWebData()
+    return sendChatSplit(djId, `✅ ${author}님 웹 도감 인증 완료! 이제 웹에서 본인 도감을 확인할 수 있어요.`, 150, 300)
+  }
+
+  if (msg.startsWith('!')) {
+    const parts = msg.split(/\s+/)
+    if (parts[0] === '!도감인증') {
+      const code = String(parts[1] || '').trim().toUpperCase()
+      if (!code) return sendChatSplit(djId, '사용법: !도감인증 코드6자리', 150, 300)
+      return tryAuth(code)
+    }
+    return
+  }
+  const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+  if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+    mcCleanExpiredKeys(d)
+    if (d.authKeys[rawCode]) return tryAuth(rawCode)
+  }
+}
+
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
 // 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
@@ -2406,7 +2507,8 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
       const isLegendary = !!((mon && mon.legendary) || (catalog[baseId] && catalog[baseId].legendary))
       const displayName = isLegendary ? `✨${name}` : name
-      return `${displayName} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
+      const level = mcMonsterLevel(key, baseId)
+      return `${displayName} (${count}/${need}) Lv.${level}${canEvolve ? ' 진화가능' : ''}`
     }).join('\n')
 
     let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
@@ -2536,10 +2638,11 @@ function spawnBoss(djId) {
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.bossEnabled) return
   if (room.currentBoss && room.currentBoss.active) return // 이미 보스전 진행 중이면 중복 등장 방지
+  const bossPower = Math.max(1, Number(mc.bossPower) || 100)
   const monster = { name: mc.bossMonsterName || '풀잎' } // 랜덤이 아니라 DJ가 지정한 고정 보스 이름
   const windowSec = Math.max(10, Math.min(1800, parseInt(mc.bossJoinWindowSec, 10) || 90))
-  room.currentBoss = { active: true, monster, participants: {}, spawnedAt: Date.now() }
-  sendChatToRoom(djId, mcFormat(mc.msgBossSpawn, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec }))
+  room.currentBoss = { active: true, monster, power: bossPower, participants: {}, spawnedAt: Date.now() }
+  sendChatToRoom(djId, mcFormat(mc.msgBossSpawn, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec, bossPower }))
   room.bossResolveTimeout = setTimeout(() => {
     try { resolveBoss(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 결과 처리 중 오류:`, e && e.stack || e) }
   }, windowSec * 1000)
@@ -2554,7 +2657,7 @@ function handleBossJoinCommand(djId, room, settings, author, tag, text) {
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return
   if (room.currentBoss.participants[key]) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossAlreadyJoined, { nickname: author })), 300); return }
-  const myMon = mcPickStrongest(mc.collections[key], mc.monsters)
+  const myMon = mcPickStrongest(mc.collections[key], mc.monsters, key)
   if (!myMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossNoMonsters, { nickname: author })), 300); return }
   const power = Number(myMon.power) || 10
   room.currentBoss.participants[key] = { nickname: author, power }
@@ -2575,9 +2678,13 @@ function resolveBoss(djId) {
     sendChatToRoom(djId, mcFormat(mc.msgBossNoParticipants, { monster: boss.monster.name }))
     return
   }
-  // 🌿 보스 체력은 참여자들의 총 공격력에 비례해서 자동으로 정해진다 — 참여한 만큼 확실히
-  // 잡히는 구조라서, 별도의 "실패" 판정 없이 참여자 수/화력에 맞춰 격파된다.
+  // 🌿 보스 체력(공격력)을 참여자들의 총 공격력이 넘어야 처치 성공. 못 넘으면 보상 없이 실패 처리.
   const totalPower = participants.reduce((s, p) => s + p.power, 0)
+  const bossPower = Math.max(1, Number(boss.power) || 100)
+  if (totalPower < bossPower) {
+    sendChatToRoom(djId, mcFormat(mc.msgBossFail, { monster: boss.monster.name, count: participants.length, totalPower, bossPower }))
+    return
+  }
   let mvp = participants[0]
   participants.forEach(p => { if (p.power > mvp.power) mvp = p })
 
@@ -2602,6 +2709,92 @@ function resolveBoss(djId) {
     reward: rewardName,
   }))
 }
+
+// ══════════════════════════════════════════════════════
+// 🌍 월드보스 — 관리자(sum) 계정에서 딱 한 번만 설정해두면, 지금 방송 연결되어있고
+// 몬스터잡기가 켜져있는 "모든 방"에 정해진 간격마다 동시에 같은 보스가 등장한다. 각 방의
+// 참여/처치 로직은 기존 보스 시스템(room.currentBoss, resolveBoss)을 그대로 재사용하고,
+// 참여 명령어도 그 방 DJ가 이미 설정해둔 것(mc.cmdBossJoin)을 그대로 쓴다 — 시청자 입장에서는
+// "이번엔 좀 더 강한 보스가 나왔다" 정도로만 느껴지고 새로 배울 명령어가 없다.
+function getWorldBossSettings() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.worldBoss) {
+    settings.worldBoss = {
+      enabled: false,
+      monsterName: '월드보스',
+      power: 500,
+      intervalMin: 60,
+      joinWindowSec: 90,
+      spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+    }
+    store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
+  }
+  return settings.worldBoss
+}
+function spawnWorldBoss(djId, wb) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return false
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (room.currentBoss && room.currentBoss.active) return false // 이미 그 방에 보스전이 진행 중이면 건너뜀
+  const bossPower = Math.max(1, Number(wb.power) || 500)
+  const monster = { name: wb.monsterName || '월드보스' }
+  const windowSec = Math.max(10, Math.min(1800, parseInt(wb.joinWindowSec, 10) || 90))
+  room.currentBoss = { active: true, monster, power: bossPower, participants: {}, spawnedAt: Date.now(), isWorldBoss: true }
+  sendChatToRoom(djId, mcFormat(wb.spawnMsg, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec, bossPower }))
+  room.bossResolveTimeout = setTimeout(() => {
+    try { resolveBoss(djId) } catch (e) { console.log(`[월드보스][${djId}] 결과 처리 중 오류:`, e && e.stack || e) }
+  }, windowSec * 1000)
+  return true
+}
+function spawnWorldBossEverywhere() {
+  const wb = getWorldBossSettings()
+  if (!wb.enabled) return 0
+  let count = 0
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'monstercatch', djId)) continue
+    if (spawnWorldBoss(djId, wb)) count++
+  }
+  console.log(`[월드보스] 동시 등장 처리 완료 — ${count}개 방`)
+  return count
+}
+let worldBossTimer = null
+function startWorldBossTimer() {
+  if (worldBossTimer) { clearInterval(worldBossTimer); worldBossTimer = null }
+  const wb = getWorldBossSettings()
+  if (!wb.enabled) { console.log('[월드보스] 타이머 시작 안 함 — 비활성화 상태'); return }
+  const min = Math.max(1, Math.min(720, parseInt(wb.intervalMin, 10) || 60))
+  worldBossTimer = setInterval(() => {
+    try { spawnWorldBossEverywhere() } catch (e) { console.log('[월드보스] 등장 처리 중 오류:', e && e.stack || e) }
+  }, min * 60 * 1000)
+  console.log(`[월드보스] 타이머 시작됨 — ${min}분마다 전체 방 동시 등장`)
+}
+app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: getWorldBossSettings() })
+})
+app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const wb = getWorldBossSettings()
+  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg } = req.body || {}
+  if (enabled != null) wb.enabled = !!enabled
+  if (monsterName != null) wb.monsterName = String(monsterName).trim() || '월드보스'
+  if (power != null) wb.power = Math.max(1, Math.min(1000000, parseInt(power, 10) || 500))
+  if (intervalMin != null) wb.intervalMin = Math.max(1, Math.min(720, parseInt(intervalMin, 10) || 60))
+  if (joinWindowSec != null) wb.joinWindowSec = Math.max(10, Math.min(1800, parseInt(joinWindowSec, 10) || 90))
+  if (spawnMsg != null) wb.spawnMsg = spawnMsg
+  store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: wb })
+  startWorldBossTimer() // 활성화/간격이 바뀌었을 수 있으니 타이머 재시작
+  res.json({ success: true, data: wb })
+})
+app.post('/worldboss-admin/spawn-now', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const count = spawnWorldBossEverywhere()
+  res.json({ success: true, count })
+})
 
 function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
   if (!mc.autoEvolve) return
@@ -2785,9 +2978,9 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
   const targetKey = targetNick.toLowerCase()
   if (key === targetKey) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleSelfError, { nickname: author })), 400); return }
 
-  const myMon = mcPickStrongest(mc.collections[key], mc.monsters)
+  const myMon = mcPickStrongest(mc.collections[key], mc.monsters, key)
   if (!myMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleNoMonsters, { nickname: author, cmdCatch: mc.cmdCatch || '!잡기' })), 400); return }
-  const targetMon = mcPickStrongest(mc.collections[targetKey], mc.monsters)
+  const targetMon = mcPickStrongest(mc.collections[targetKey], mc.monsters, targetKey)
   if (!targetMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleTargetNoMonsters, { nickname: author, target: targetNick })), 400); return }
 
   const myPower = Math.max(1, Number(myMon.power) || 10)
@@ -13654,6 +13847,14 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
   if (greetKey) room._greetedKeys.add(greetKey)
 
+  // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
+  // 들어와도 효과음이 반복 재생되지 않도록 막는다. 채팅 인사 문구는 쿨다운과 무관하게 그대로 나간다.
+  if (!room._lastGreetSoundAt) room._lastGreetSoundAt = new Map()
+  const cooldownSec = Math.max(0, Number(settings.entryCooldown) || 0)
+  const nowTs = Date.now()
+  const lastSoundAt = greetKey ? (room._lastGreetSoundAt.get(greetKey) || 0) : 0
+  const soundCooldownOk = cooldownSec <= 0 || !greetKey || (nowTs - lastSoundAt) >= cooldownSec * 1000
+
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
@@ -13666,7 +13867,10 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
     setTimeout(() => sendChatToRoom(djId, text), 200)
-    if (greeting.soundUrl || greeting.soundData) broadcast({ type: 'greetsound', djId, id: greeting.id })
+    if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
+      broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
+    }
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
@@ -13675,9 +13879,10 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
   }
-  if (isModuleOn(settings, 'entrysettings', djId)) {
+  if (isModuleOn(settings, 'entrysettings', djId) && soundCooldownOk) {
     const em = pickEntryMessage(settings.entryData, 'entry', author, tag)
     fireEntrySound(djId, settings, 'entry', em)
+    if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
   }
 }
 
@@ -13977,6 +14182,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleMonsterDexCommand(djId, settings, author, actTag, text)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -14611,7 +14817,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
-    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossResult } = req.body || {}
+    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, bossPower, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossFail, msgBossResult } = req.body || {}
   if (enabled != null) mc.enabled = !!enabled
   if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
   if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
@@ -14684,6 +14890,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgAutoEvolve != null) mc.msgAutoEvolve = msgAutoEvolve
   if (bossEnabled != null) mc.bossEnabled = !!bossEnabled
   if (bossMonsterName != null) mc.bossMonsterName = String(bossMonsterName).trim() || '풀잎'
+  if (bossPower != null) mc.bossPower = Math.max(1, Math.min(1000000, parseInt(bossPower, 10) || 100))
   if (bossIntervalMin != null) mc.bossIntervalMin = Math.max(1, Math.min(720, parseInt(bossIntervalMin, 10) || 60))
   if (bossJoinWindowSec != null) mc.bossJoinWindowSec = Math.max(10, Math.min(1800, parseInt(bossJoinWindowSec, 10) || 90))
   if (cmdBossJoin != null) mc.cmdBossJoin = String(cmdBossJoin).trim() || '!참여'
@@ -14693,6 +14900,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgBossNoMonsters != null) mc.msgBossNoMonsters = msgBossNoMonsters
   if (msgBossNoActive != null) mc.msgBossNoActive = msgBossNoActive
   if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
+  if (msgBossFail != null) mc.msgBossFail = msgBossFail
   if (msgBossResult != null) mc.msgBossResult = msgBossResult
   if (Array.isArray(monsters)) {
     mc.monsters = monsters.map((m, i) => ({
@@ -17648,6 +17856,168 @@ app.get('/mafia/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
+// 🐾 몬스터 웹 도감 — 공개(로그인 없음) API. 몬스터잡기는 디제이 구분 없는 전체 공용 시스템이라
+// 이 라우트들도 특정 djId 설정에 안 묶이고(URL의 djId는 "어느 방 채팅에 인증코드를 쳐야 하는지"
+// 안내하는 용도로만 쓰인다), mcGetWebData()의 전역 파일 하나만 본다.
+function mcCatalog(djId) {
+  // 전역 몬스터 카탈로그는 디제이별 settings.monsterCatch.monsters에 저장돼있지만 다 같은
+  // 목록을 공유하므로, 이 djId가 켜져있으면 그 카탈로그를 그대로 쓴다. 못 찾으면 다른 아무
+  // djId나 monstercatch가 켜진 곳에서라도 카탈로그를 찾아본다(다들 같은 목록이라 안전).
+  const settings = store.getSettings(djId) || {}
+  if (isModuleOn(settings, 'monstercatch', djId)) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    if (mc.monsters && mc.monsters.length) return mc.monsters
+  }
+  for (const otherId of store.listDjIds()) {
+    const s = store.getSettings(otherId) || {}
+    if (!isModuleOn(s, 'monstercatch', otherId)) continue
+    const mc = getMonsterCatchSettings(otherId, s)
+    if (mc.monsters && mc.monsters.length) return mc.monsters
+  }
+  return []
+}
+app.post('/monsterdex/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const d = mcGetWebData()
+  mcCleanExpiredKeys(d)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !d.webUsers[webUserId]) {
+    for (const code of Object.keys(d.authKeys)) { if (d.authKeys[code].webUserId === webUserId) delete d.authKeys[code] }
+  } else {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = mcGenAuthKey(d)
+  d.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MC_AUTH_KEY_TTL_MS }
+  mcSaveWebData()
+  res.json({ success: true, webUserId, code, cmd: '!도감인증', expiresInSec: MC_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/monsterdex/:djId/data', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const d = mcGetWebData()
+  const catalog = mcCatalog(djId)
+  const base = { success: true }
+  if (!webUserId) return res.json({ ...base, linked: false })
+  const tag = d.webUsers[webUserId]
+  if (!tag) {
+    mcCleanExpiredKeys(d)
+    for (const [code, entry] of Object.entries(d.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ ...base, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ ...base, linked: false, expired: true })
+  }
+  const collection = mc_collectionsForTag(djId, tag)
+  const owned = collection || {}
+  const dex = catalog.map(m => {
+    const count = owned[m.id] || 0
+    const shinyCount = owned[MC_SHINY_PREFIX + m.id] || 0
+    const level = mcMonsterLevel(tag, m.id)
+    const resolved = count > 0 ? mcResolveMonster(m.id, catalog, tag) : null
+    return {
+      id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
+      count, shinyCount, level, power: resolved ? resolved.power : null,
+      selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
+    }
+  })
+  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
+})
+// mc.collections는 djId별 settings 안에 있지만 실제로는 전역 공유 객체를 참조하고 있어서
+// (getMonsterCatchSettings 안에서 store.loadGlobalMonsterDex()로 채워짐), 아무 djId나
+// monstercatch가 켜진 곳에서 조회해도 같은 값을 본다.
+function mc_collectionsForTag(djId, tag) {
+  const settings = store.getSettings(djId) || {}
+  let mc = isModuleOn(settings, 'monstercatch', djId) ? getMonsterCatchSettings(djId, settings) : null
+  if (!mc) {
+    for (const otherId of store.listDjIds()) {
+      const s = store.getSettings(otherId) || {}
+      if (!isModuleOn(s, 'monstercatch', otherId)) continue
+      mc = getMonsterCatchSettings(otherId, s)
+      break
+    }
+  }
+  return mc ? mc.collections[tag] : null
+}
+app.post('/monsterdex/:djId/select', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  d.selected[tag] = String(monsterId)
+  mcSaveWebData()
+  res.json({ success: true })
+})
+app.post('/monsterdex/:djId/dismantle', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const count = Math.max(1, Number((req.body || {}).count) || 1)
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mcSettings = (() => {
+    let s = store.getSettings(djId) || {}
+    return isModuleOn(s, 'monstercatch', djId) ? getMonsterCatchSettings(djId, s) : null
+  })()
+  if (!mcSettings) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const collection = mcSettings.collections[tag] || {}
+  const owned = collection[monsterId] || 0
+  if (owned < count) return res.json({ success: false, error: '보유 수량이 부족해요.' })
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
+  const basePower = Number(resolved.monster.power) || 10
+  const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+  collection[monsterId] = owned - count
+  if (collection[monsterId] <= 0) delete collection[monsterId]
+  mcSettings.collections[tag] = collection
+  store.saveSettings(djId, { monsterCatch: mcSettings })
+  d.points[tag] = (d.points[tag] || 0) + gained
+  mcSaveWebData()
+  res.json({ success: true, gained, points: d.points[tag], remaining: collection[monsterId] || 0 })
+})
+app.post('/monsterdex/:djId/levelup', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  const curLevel = mcMonsterLevel(tag, monsterId)
+  const cost = mcLevelUpCost(curLevel)
+  const points = d.points[tag] || 0
+  if (points < cost) return res.json({ success: false, error: `포인트가 부족해요. (필요 ${cost} / 보유 ${points})` })
+  if (!d.levels[tag]) d.levels[tag] = {}
+  d.levels[tag][monsterId] = { level: curLevel + 1, exp: 0 }
+  d.points[tag] = points - cost
+  mcSaveWebData()
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  res.json({ success: true, level: curLevel + 1, points: d.points[tag], power: resolved ? resolved.power : null, gainedPower: MC_LEVEL_ATTACK_BONUS })
+})
+// 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.
+app.get('/monsterdex/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/monsterdex.html')
+})
+
+// ══════════════════════════════════════════════════════
 // 🏠 시청자용 허브 페이지 — 웹뽑기판/마피아처럼 "로그인 없는 시청자 웹페이지"를 가진 기능들을
 // 개별 링크로 따로 공유하지 않고, 하나의 허브 링크(/play/:djId)에서 켜져있는 기능만 모아서
 // 보여준다. 앞으로 이런 웹 기능을 새로 추가할 때는 이 목록에 한 줄만 추가하면 자동으로
@@ -17655,6 +18025,7 @@ app.get('/mafia/:djId', (req, res) => {
 const WEB_HUB_FEATURES = [
   { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
+  { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
   const djId = req.params.djId
@@ -18305,6 +18676,8 @@ app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
   // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
   startGlobalAnnounceTimer()
+  // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
+  startWorldBossTimer()
 
   // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
   // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가

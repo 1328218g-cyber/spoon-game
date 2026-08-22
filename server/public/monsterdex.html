@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>몬스터 도감</title>
+<style>
+  :root{
+    --bg:#0d1220; --card:#161d2e; --border:#2a3348;
+    --text:#eef2fb; --text-dim:#8a93ab; --purple:#6b21d6; --purple2:#8b3cf0;
+    --green:#3ddc84; --red:#ff5c72; --gold:#f9c74f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);padding-bottom:50px}
+  header{background:linear-gradient(135deg,var(--purple),var(--purple2));padding:22px 18px 26px;text-align:center;border-radius:0 0 22px 22px}
+  header h1{margin:0;font-size:19px;color:#fff}
+  header p{margin:6px 0 0;font-size:12px;color:#e4d8fb}
+  .wrap{max-width:640px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin-top:14px}
+  .btn{display:block;width:100%;padding:14px;border:none;border-radius:12px;background:var(--purple);color:#fff;font-size:15px;font-weight:700;cursor:pointer;text-align:center;margin-bottom:8px}
+  .btn:disabled{background:#3a3f52;cursor:not-allowed}
+  .btn-gray{background:#232b40;color:var(--text)}
+  .hint{font-size:12px;color:var(--text-dim);line-height:1.6;margin:6px 0}
+  .code-box{font-size:26px;font-weight:800;letter-spacing:4px;text-align:center;background:#1c2440;border:2px dashed var(--purple2);border-radius:12px;padding:16px;margin:12px 0;color:#c9a8ff}
+  .top-stats{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .points-pill{background:linear-gradient(135deg,var(--gold),#f0932b);color:#3a2600;font-weight:800;font-size:13px;padding:6px 14px;border-radius:999px}
+  .tabs{display:flex;gap:6px;margin:14px 0}
+  .tab-btn{flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text-dim);font-size:12.5px;font-weight:700;cursor:pointer;text-align:center}
+  .tab-btn.active{background:var(--purple);color:#fff;border-color:var(--purple)}
+  .dex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+  .dex-cell{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px 4px;text-align:center;cursor:pointer;position:relative}
+  .dex-cell.owned{background:#182338;border-color:#2f4d6b}
+  .dex-cell.selected{border-color:var(--green);box-shadow:0 0 0 2px rgba(61,220,132,.35)}
+  .dex-cell.legendary.owned{border-color:var(--gold)}
+  .dex-cell img{width:56px;height:56px;object-fit:contain}
+  .dex-cell .q{width:56px;height:56px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto}
+  .dex-cell .num{font-size:9.5px;color:var(--text-dim);margin-top:3px}
+  .dex-cell .nm{font-size:10.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dex-cell .lv{font-size:9px;color:var(--gold);margin-top:1px}
+  .dex-cell .cnt{position:absolute;top:2px;right:4px;font-size:9px;background:var(--purple);color:#fff;border-radius:999px;padding:1px 5px}
+  .detail-card{display:none}
+  .detail-card.show{display:block}
+  .detail-header{display:flex;align-items:center;gap:14px}
+  .detail-header img{width:88px;height:88px;object-fit:contain}
+  .detail-header .q{width:88px;height:88px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800}
+  .detail-info{flex:1}
+  .detail-info .nm{font-size:16px;font-weight:800}
+  .detail-info .meta{font-size:12px;color:var(--text-dim);margin-top:2px}
+  .row-btns{display:flex;gap:8px;margin-top:14px}
+  .row-btns .btn{margin-bottom:0}
+  .stepper{display:flex;align-items:center;gap:10px;justify-content:center;margin:10px 0}
+  .stepper button{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:#fff;font-size:16px;cursor:pointer}
+  .stepper .n{font-size:18px;font-weight:800;min-width:40px;text-align:center}
+  .empty{text-align:center;color:var(--text-dim);font-size:13px;padding:40px 20px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#fff;color:#111;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="pageTitle">🐾 몬스터 도감</h1>
+  <p>내가 잡은 몬스터를 확인하고, 대결할 몬스터를 고르거나 분해해서 레벨업할 수 있어요</p>
+</header>
+
+<div class="wrap">
+
+  <div class="card" id="registerCard">
+    <div class="hint">본인 도감을 보려면 먼저 유저등록을 하고, 발급된 인증코드를 방송 채팅창에 입력해주세요.</div>
+    <button class="btn" onclick="mdRegister()">🙋 유저등록</button>
+  </div>
+
+  <div class="card" id="authWaitCard" style="display:none">
+    <div class="hint">아래 코드를 방송 <b>채팅창</b>에 그대로 입력해주세요.</div>
+    <div class="code-box" id="authCodeBox">------</div>
+    <button class="btn btn-gray" onclick="mdCopyCode()">📋 코드 복사</button>
+    <div class="hint" style="text-align:center" id="authCmdHint"></div>
+    <div class="hint" style="text-align:center">⏳ 인증 확인 중... (자동으로 감지돼요)</div>
+    <button class="btn btn-gray" onclick="mdRegister()">코드 다시 발급받기</button>
+  </div>
+
+  <div id="mainWrap" style="display:none">
+    <div class="card">
+      <div class="top-stats">
+        <div style="font-size:14px;font-weight:700" id="myNickLabel"></div>
+        <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
+      </div>
+      <div class="hint" style="margin:0">P는 몬스터 분해로 얻는 포인트예요. 레벨업에 사용해요.</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab-btn active" id="tabDex" onclick="mdSwitchTab('dex')">📖 도감</div>
+      <div class="tab-btn" id="tabDetail" onclick="mdSwitchTab('detail')">🔍 상세</div>
+    </div>
+
+    <div class="card" id="dexTabCard">
+      <div class="dex-grid" id="dexGrid"></div>
+    </div>
+
+    <div class="card detail-card" id="detailTabCard">
+      <div id="detailEmpty" class="empty">도감에서 몬스터를 눌러서 선택하세요.</div>
+      <div id="detailBody" style="display:none">
+        <div class="detail-header">
+          <div id="detailImgWrap"></div>
+          <div class="detail-info">
+            <div class="nm" id="detailName"></div>
+            <div class="meta" id="detailMeta"></div>
+          </div>
+        </div>
+        <div class="row-btns">
+          <button class="btn" id="selectBtn" onclick="mdSelectBattle()">⚔️ 대결 몬스터로 선택</button>
+        </div>
+        <div class="hint" style="margin-top:14px">🔨 분해하기 (중복분 정리하고 포인트 획득)</div>
+        <div class="stepper">
+          <button onclick="mdChangeDismantle(-1)">−</button>
+          <div class="n" id="dismantleCount">1</div>
+          <button onclick="mdChangeDismantle(1)">+</button>
+        </div>
+        <button class="btn btn-gray" onclick="mdDismantle()">🔨 분해하기</button>
+        <div class="hint" style="margin-top:14px">⬆️ 레벨업 (공격력 +3 per 레벨)</div>
+        <div id="levelUpDetailBox" style="background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:12px;margin:6px 0"></div>
+        <button class="btn btn-gray" onclick="mdLevelUp()">⬆️ 레벨업</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const DJ_ID = location.pathname.split('/').filter(Boolean)[1] || '';
+const SERVER = location.origin;
+const LS_KEY = 'md_webuserid_' + DJ_ID;
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let myTag = '', myPoints = 0, dexList = [];
+let levelBonus = 3; // 서버가 알려주는 실제 값으로 매 새로고침마다 갱신됨
+let pollTimer = null;
+let selectedMonster = null;
+let dismantleCount = 1;
+
+document.getElementById('pageTitle').textContent = '🐾 ' + DJ_ID + '님 방송의 몬스터 도감';
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function showCard(which){
+  document.getElementById('registerCard').style.display = which==='register' ? 'block' : 'none';
+  document.getElementById('authWaitCard').style.display = which==='authwait' ? 'block' : 'none';
+  document.getElementById('mainWrap').style.display = which==='main' ? 'block' : 'none';
+}
+
+function mdCopyCode(){
+  const code = document.getElementById('authCodeBox').textContent.trim();
+  if(!code || code === '------') return;
+  const done = ()=>showToast('코드를 복사했어요');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(done).catch(()=>mdCopyFallback(code));
+  } else { mdCopyFallback(code); }
+}
+function mdCopyFallback(code){
+  const ta = document.createElement('textarea');
+  ta.value = code; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand('copy'); showToast('코드를 복사했어요'); }catch(e){}
+  document.body.removeChild(ta);
+}
+
+async function mdRegister(){
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'등록에 실패했어요'); return; }
+    webUserId = d.webUserId;
+    localStorage.setItem(LS_KEY, webUserId);
+    document.getElementById('authCodeBox').textContent = d.code;
+    document.getElementById('authCmdHint').textContent = `채팅창에 "${d.code}" 라고 입력하시면 돼요 (또는 "${d.cmd} ${d.code}")`;
+    showCard('authwait');
+    startPolling();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function startPolling(){
+  clearInterval(pollTimer);
+  checkMe();
+  pollTimer = setInterval(checkMe, 3000);
+}
+
+async function checkMe(){
+  try{
+    const url = webUserId ? `${SERVER}/monsterdex/${DJ_ID}/data?webUserId=${encodeURIComponent(webUserId)}` : `${SERVER}/monsterdex/${DJ_ID}/data`;
+    const res = await fetch(url);
+    const d = await res.json();
+    if(!d.success) return;
+    if(!webUserId){ showCard('register'); return; }
+    if(!d.linked){
+      if(d.expired){ localStorage.removeItem(LS_KEY); webUserId=''; clearInterval(pollTimer); showCard('register'); }
+      else if(d.code){
+        document.getElementById('authCodeBox').textContent = d.code;
+        showCard('authwait');
+        if(!pollTimer) startPolling();
+      }
+      return;
+    }
+    clearInterval(pollTimer); pollTimer=null;
+    myTag = d.tag; myPoints = d.points; dexList = d.dex; levelBonus = d.levelBonus || 3;
+    document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
+    document.getElementById('myPoints').textContent = myPoints;
+    showCard('main');
+    renderDex();
+    if(selectedMonster){
+      const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.id));
+      if(fresh) renderDetail(fresh);
+    }
+  }catch(e){ /* 조용히 재시도 */ }
+}
+
+function renderDex(){
+  const grid = document.getElementById('dexGrid');
+  grid.innerHTML = dexList.map(m=>{
+    const owned = m.count>0;
+    const cls = 'dex-cell'+(owned?' owned':'')+(m.legendary?' legendary':'')+(m.selected?' selected':'');
+    const inner = owned
+      ? `<img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="q" style="display:none">?</div>`
+      : `<div class="q">?</div>`;
+    return `<div class="${cls}" onclick="mdPick('${escapeHtml(String(m.id))}')">
+      ${owned&&m.count>1?`<span class="cnt">x${m.count}</span>`:''}
+      ${inner}
+      <div class="nm">${owned?escapeHtml(m.name):'???'}</div>
+      ${owned?`<div class="lv">Lv.${m.level}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function mdPick(id){
+  const m = dexList.find(x=>String(x.id)===String(id));
+  if(!m || m.count<=0){ showToast('아직 잡지 못한 몬스터예요'); return; }
+  selectedMonster = m;
+  dismantleCount = 1;
+  renderDetail(m);
+  mdSwitchTab('detail');
+}
+
+function renderDetail(m){
+  document.getElementById('detailEmpty').style.display='none';
+  document.getElementById('detailBody').style.display='block';
+  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain" onerror="this.style.display='none'">`;
+  document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.id;
+  document.getElementById('detailMeta').textContent = `보유 ${m.count}마리 · Lv.${m.level} · 공격력 ${m.power??'-'}`;
+  const selBtn = document.getElementById('selectBtn');
+  selBtn.textContent = m.selected ? '✅ 현재 대결 몬스터예요' : '⚔️ 대결 몬스터로 선택';
+  selBtn.disabled = m.selected;
+  dismantleCount = Math.min(dismantleCount, m.count);
+  document.getElementById('dismantleCount').textContent = dismantleCount;
+  const curPower = m.power ?? 0;
+  const nextPower = curPower + levelBonus;
+  const cost = m.level*10;
+  const canAfford = myPoints >= cost;
+  document.getElementById('levelUpDetailBox').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+      <span>⚔️ 현재 공격력</span><b>${curPower}</b>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-top:4px;color:var(--green)">
+      <span>⬆️ 레벨업 시 (Lv.${m.level+1})</span><b>${nextPower} <span style="font-size:11px">(+${levelBonus})</span></b>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:8px;color:${canAfford?'var(--text-dim)':'var(--red)'}">
+      <span>필요 포인트</span><b>${cost}P (보유 ${myPoints}P)</b>
+    </div>`;
+}
+
+function mdSwitchTab(tab){
+  document.getElementById('tabDex').classList.toggle('active', tab==='dex');
+  document.getElementById('tabDetail').classList.toggle('active', tab==='detail');
+  document.getElementById('dexTabCard').style.display = tab==='dex' ? 'block' : 'none';
+  document.getElementById('detailTabCard').classList.toggle('show', tab==='detail');
+  // 🔍 상세 탭을 열었는데 아직 아무것도 선택 안 했으면, 현재 대표(대결) 몬스터를 기본으로 보여준다.
+  if(tab==='detail' && !selectedMonster){
+    const battleMon = dexList.find(m=>m.selected);
+    if(battleMon){ selectedMonster=battleMon; dismantleCount=1; renderDetail(battleMon); }
+  }
+}
+
+function mdChangeDismantle(delta){
+  if(!selectedMonster) return;
+  dismantleCount = Math.max(1, Math.min(selectedMonster.count, dismantleCount+delta));
+  document.getElementById('dismantleCount').textContent = dismantleCount;
+}
+
+async function mdSelectBattle(){
+  if(!selectedMonster) return;
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/select`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, monsterId: selectedMonster.id })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패'); return; }
+    showToast('대결 몬스터로 선택했어요!');
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function mdDismantle(){
+  if(!selectedMonster) return;
+  if(!confirm(`[${selectedMonster.name}] ${dismantleCount}마리를 분해할까요? 되돌릴 수 없어요.`)) return;
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dismantle`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, monsterId: selectedMonster.id, count: dismantleCount })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패'); return; }
+    showToast(`+${d.gained}P 획득! (보유 ${d.points}P)`);
+    dismantleCount = 1;
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function mdLevelUp(){
+  if(!selectedMonster) return;
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/levelup`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, monsterId: selectedMonster.id })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패'); return; }
+    showToast(`⬆️ Lv.${d.level} 달성! 공격력 +${d.gainedPower} → 현재 ${d.power} (남은 ${d.points}P)`);
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+checkMe();
+</script>
+</body>
+</html>
