@@ -1964,15 +1964,17 @@ function getMonsterCatchSettings(djId, settings) {
       // 기여한 사람이 MVP로 랜덤 이로치 몬스터 1마리를 받는다.
       bossEnabled: true,
       bossMonsterName: '풀잎',
+      bossPower: 100, // ⚔️ 보스 공격력(체력 역할) — 참여자 총 공격력이 이걸 넘어야 처치 성공
       bossIntervalMin: 60,
       bossJoinWindowSec: 90,
       cmdBossJoin: '!참여',
-      msgBossSpawn: '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+      msgBossSpawn: '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
       msgBossJoin: '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})',
       msgBossAlreadyJoined: '⚠️ {nickname}님은 이미 참여했어요!',
       msgBossNoMonsters: '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!',
       msgBossNoActive: '⚠️ 지금 진행 중인 보스전이 없어요.',
       msgBossNoParticipants: '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...',
+      msgBossFail: '💔 참여 {count}명 · 총 공격력 {totalPower}(으)로는 보스 [{monster}](공격력 {bossPower})를 처치하지 못했어요...',
       msgBossResult: '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
@@ -2036,10 +2038,12 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
   if (mc.bossEnabled == null) mc.bossEnabled = true
   if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
+  if (mc.bossPower == null) mc.bossPower = 100
   if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
   if (mc.bossJoinWindowSec == null) mc.bossJoinWindowSec = 90
   if (mc.cmdBossJoin == null) mc.cmdBossJoin = '!참여'
-  if (mc.msgBossSpawn == null) mc.msgBossSpawn = '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)'
+  if (mc.msgBossSpawn == null) mc.msgBossSpawn = '🌿 야생의 보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)'
+  if (mc.msgBossFail == null) mc.msgBossFail = '💔 참여 {count}명 · 총 공격력 {totalPower}(으)로는 보스 [{monster}](공격력 {bossPower})를 처치하지 못했어요...'
   if (mc.msgBossJoin == null) mc.msgBossJoin = '⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})'
   if (mc.msgBossAlreadyJoined == null) mc.msgBossAlreadyJoined = '⚠️ {nickname}님은 이미 참여했어요!'
   if (mc.msgBossNoMonsters == null) mc.msgBossNoMonsters = '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!'
@@ -2503,7 +2507,8 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
       const isLegendary = !!((mon && mon.legendary) || (catalog[baseId] && catalog[baseId].legendary))
       const displayName = isLegendary ? `✨${name}` : name
-      return `${displayName} (${count}/${need})${canEvolve ? ' 진화가능' : ''}`
+      const level = mcMonsterLevel(key, baseId)
+      return `${displayName} (${count}/${need}) Lv.${level}${canEvolve ? ' 진화가능' : ''}`
     }).join('\n')
 
     let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
@@ -2633,10 +2638,11 @@ function spawnBoss(djId) {
   const mc = getMonsterCatchSettings(djId, settings)
   if (!mc.bossEnabled) return
   if (room.currentBoss && room.currentBoss.active) return // 이미 보스전 진행 중이면 중복 등장 방지
+  const bossPower = Math.max(1, Number(mc.bossPower) || 100)
   const monster = { name: mc.bossMonsterName || '풀잎' } // 랜덤이 아니라 DJ가 지정한 고정 보스 이름
   const windowSec = Math.max(10, Math.min(1800, parseInt(mc.bossJoinWindowSec, 10) || 90))
-  room.currentBoss = { active: true, monster, participants: {}, spawnedAt: Date.now() }
-  sendChatToRoom(djId, mcFormat(mc.msgBossSpawn, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec }))
+  room.currentBoss = { active: true, monster, power: bossPower, participants: {}, spawnedAt: Date.now() }
+  sendChatToRoom(djId, mcFormat(mc.msgBossSpawn, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec, bossPower }))
   room.bossResolveTimeout = setTimeout(() => {
     try { resolveBoss(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 결과 처리 중 오류:`, e && e.stack || e) }
   }, windowSec * 1000)
@@ -2672,9 +2678,13 @@ function resolveBoss(djId) {
     sendChatToRoom(djId, mcFormat(mc.msgBossNoParticipants, { monster: boss.monster.name }))
     return
   }
-  // 🌿 보스 체력은 참여자들의 총 공격력에 비례해서 자동으로 정해진다 — 참여한 만큼 확실히
-  // 잡히는 구조라서, 별도의 "실패" 판정 없이 참여자 수/화력에 맞춰 격파된다.
+  // 🌿 보스 체력(공격력)을 참여자들의 총 공격력이 넘어야 처치 성공. 못 넘으면 보상 없이 실패 처리.
   const totalPower = participants.reduce((s, p) => s + p.power, 0)
+  const bossPower = Math.max(1, Number(boss.power) || 100)
+  if (totalPower < bossPower) {
+    sendChatToRoom(djId, mcFormat(mc.msgBossFail, { monster: boss.monster.name, count: participants.length, totalPower, bossPower }))
+    return
+  }
   let mvp = participants[0]
   participants.forEach(p => { if (p.power > mvp.power) mvp = p })
 
@@ -2699,6 +2709,92 @@ function resolveBoss(djId) {
     reward: rewardName,
   }))
 }
+
+// ══════════════════════════════════════════════════════
+// 🌍 월드보스 — 관리자(sum) 계정에서 딱 한 번만 설정해두면, 지금 방송 연결되어있고
+// 몬스터잡기가 켜져있는 "모든 방"에 정해진 간격마다 동시에 같은 보스가 등장한다. 각 방의
+// 참여/처치 로직은 기존 보스 시스템(room.currentBoss, resolveBoss)을 그대로 재사용하고,
+// 참여 명령어도 그 방 DJ가 이미 설정해둔 것(mc.cmdBossJoin)을 그대로 쓴다 — 시청자 입장에서는
+// "이번엔 좀 더 강한 보스가 나왔다" 정도로만 느껴지고 새로 배울 명령어가 없다.
+function getWorldBossSettings() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.worldBoss) {
+    settings.worldBoss = {
+      enabled: false,
+      monsterName: '월드보스',
+      power: 500,
+      intervalMin: 60,
+      joinWindowSec: 90,
+      spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+    }
+    store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
+  }
+  return settings.worldBoss
+}
+function spawnWorldBoss(djId, wb) {
+  const room = getRoom(djId)
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return false
+  const mc = getMonsterCatchSettings(djId, settings)
+  if (room.currentBoss && room.currentBoss.active) return false // 이미 그 방에 보스전이 진행 중이면 건너뜀
+  const bossPower = Math.max(1, Number(wb.power) || 500)
+  const monster = { name: wb.monsterName || '월드보스' }
+  const windowSec = Math.max(10, Math.min(1800, parseInt(wb.joinWindowSec, 10) || 90))
+  room.currentBoss = { active: true, monster, power: bossPower, participants: {}, spawnedAt: Date.now(), isWorldBoss: true }
+  sendChatToRoom(djId, mcFormat(wb.spawnMsg, { monster: monster.name, cmdBossJoin: mc.cmdBossJoin, sec: windowSec, bossPower }))
+  room.bossResolveTimeout = setTimeout(() => {
+    try { resolveBoss(djId) } catch (e) { console.log(`[월드보스][${djId}] 결과 처리 중 오류:`, e && e.stack || e) }
+  }, windowSec * 1000)
+  return true
+}
+function spawnWorldBossEverywhere() {
+  const wb = getWorldBossSettings()
+  if (!wb.enabled) return 0
+  let count = 0
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (!isModuleOn(settings, 'monstercatch', djId)) continue
+    if (spawnWorldBoss(djId, wb)) count++
+  }
+  console.log(`[월드보스] 동시 등장 처리 완료 — ${count}개 방`)
+  return count
+}
+let worldBossTimer = null
+function startWorldBossTimer() {
+  if (worldBossTimer) { clearInterval(worldBossTimer); worldBossTimer = null }
+  const wb = getWorldBossSettings()
+  if (!wb.enabled) { console.log('[월드보스] 타이머 시작 안 함 — 비활성화 상태'); return }
+  const min = Math.max(1, Math.min(720, parseInt(wb.intervalMin, 10) || 60))
+  worldBossTimer = setInterval(() => {
+    try { spawnWorldBossEverywhere() } catch (e) { console.log('[월드보스] 등장 처리 중 오류:', e && e.stack || e) }
+  }, min * 60 * 1000)
+  console.log(`[월드보스] 타이머 시작됨 — ${min}분마다 전체 방 동시 등장`)
+}
+app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: getWorldBossSettings() })
+})
+app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const wb = getWorldBossSettings()
+  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg } = req.body || {}
+  if (enabled != null) wb.enabled = !!enabled
+  if (monsterName != null) wb.monsterName = String(monsterName).trim() || '월드보스'
+  if (power != null) wb.power = Math.max(1, Math.min(1000000, parseInt(power, 10) || 500))
+  if (intervalMin != null) wb.intervalMin = Math.max(1, Math.min(720, parseInt(intervalMin, 10) || 60))
+  if (joinWindowSec != null) wb.joinWindowSec = Math.max(10, Math.min(1800, parseInt(joinWindowSec, 10) || 90))
+  if (spawnMsg != null) wb.spawnMsg = spawnMsg
+  store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: wb })
+  startWorldBossTimer() // 활성화/간격이 바뀌었을 수 있으니 타이머 재시작
+  res.json({ success: true, data: wb })
+})
+app.post('/worldboss-admin/spawn-now', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const count = spawnWorldBossEverywhere()
+  res.json({ success: true, count })
+})
 
 function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
   if (!mc.autoEvolve) return
@@ -14721,7 +14817,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
-    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossResult } = req.body || {}
+    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, bossPower, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossFail, msgBossResult } = req.body || {}
   if (enabled != null) mc.enabled = !!enabled
   if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
   if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
@@ -14794,6 +14890,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgAutoEvolve != null) mc.msgAutoEvolve = msgAutoEvolve
   if (bossEnabled != null) mc.bossEnabled = !!bossEnabled
   if (bossMonsterName != null) mc.bossMonsterName = String(bossMonsterName).trim() || '풀잎'
+  if (bossPower != null) mc.bossPower = Math.max(1, Math.min(1000000, parseInt(bossPower, 10) || 100))
   if (bossIntervalMin != null) mc.bossIntervalMin = Math.max(1, Math.min(720, parseInt(bossIntervalMin, 10) || 60))
   if (bossJoinWindowSec != null) mc.bossJoinWindowSec = Math.max(10, Math.min(1800, parseInt(bossJoinWindowSec, 10) || 90))
   if (cmdBossJoin != null) mc.cmdBossJoin = String(cmdBossJoin).trim() || '!참여'
@@ -14803,6 +14900,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgBossNoMonsters != null) mc.msgBossNoMonsters = msgBossNoMonsters
   if (msgBossNoActive != null) mc.msgBossNoActive = msgBossNoActive
   if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
+  if (msgBossFail != null) mc.msgBossFail = msgBossFail
   if (msgBossResult != null) mc.msgBossResult = msgBossResult
   if (Array.isArray(monsters)) {
     mc.monsters = monsters.map((m, i) => ({
@@ -18578,6 +18676,8 @@ app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
   // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
   startGlobalAnnounceTimer()
+  // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
+  startWorldBossTimer()
 
   // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
   // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가

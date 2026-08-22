@@ -919,6 +919,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGlobalAnnounce()">💾 저장</button>
           <div class="hint" id="gaStatusHint" style="margin-top:8px"></div>
         </div>
+        <div class="card">
+          <div class="card-title"><span>🌍 월드보스</span></div>
+          <p class="hint" style="margin-bottom:12px">지금 방송 연결되어있고 몬스터잡기가 켜져있는 <b>모든 방</b>에, 정해진 간격마다 동시에 같은 보스가 등장해요. 참여는 그 방의 기존 보스 참여 명령어(각 디제이가 설정한 것)를 그대로 써요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="wbEnabled"> 월드보스 켜기</label>
+          <label style="margin-top:10px">보스 이름</label>
+          <input type="text" id="wbMonsterName" value="월드보스" style="max-width:220px">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>보스 공격력(체력)</label><input type="number" id="wbPower" value="500" min="1" max="1000000"></div>
+            <div><label>등장 주기 (분)</label><input type="number" id="wbIntervalMin" value="60" min="1" max="720"></div>
+          </div>
+          <label style="margin-top:10px">참여 마감 시간 (초)</label>
+          <input type="number" id="wbJoinWindowSec" value="90" min="10" max="1800">
+          <label style="margin-top:10px">등장 안내 문구</label>
+          <textarea id="wbSpawnMsg" rows="3" placeholder="🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)"></textarea>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:12px">
+            <button class="btn-connect" onclick="saveWorldBoss()">💾 저장</button>
+            <button class="btn-gray" onclick="spawnWorldBossNow()">⚡ 지금 바로 등장시키기</button>
+          </div>
+          <div class="hint" id="wbStatusHint" style="margin-top:8px"></div>
+        </div>
       </div>
 
       <!-- 🛰️ 이벤트 뷰어 -->
@@ -3736,18 +3756,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title">🌿 보스 몬스터</div>
-          <p class="hint" style="margin-bottom:12px">정해진 시간마다 지정한 이름의 보스가 자동 등장해요. 참여 명령어로 함께 싸우면 각자 가장 강한 몬스터의 공격력이 보스 체력에 더해지고, 참여 시간이 끝나면 자동으로 격파돼요(체력 = 참여자 총 공격력). 가장 강한 공격력을 기여한 사람이 MVP로 랜덤 🌈이로치 몬스터 1마리를 받아요.</p>
+          <p class="hint" style="margin-bottom:12px">정해진 시간마다 지정한 이름의 보스가 자동 등장해요. 참여 명령어로 함께 싸우면 각자 가장 강한 몬스터의 공격력이 합산되고, 참여 시간이 끝났을 때 총 공격력이 보스 공격력을 넘으면 처치 성공! 못 넘으면 실패로 끝나요. 성공하면 가장 강한 공격력을 기여한 사람이 MVP로 랜덤 🌈이로치 몬스터 1마리를 받아요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="mcBossEnabled"> 보스 몬스터 활성화</label>
           <label style="margin-top:10px">보스 이름</label>
           <input type="text" id="mcBossMonsterName" value="풀잎" style="max-width:220px">
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>보스 공격력(체력)</label><input type="number" id="mcBossPower" value="100" min="1" max="1000000"></div>
             <div><label>등장 주기 (분)</label><input type="number" id="mcBossIntervalMin" value="60" min="1" max="720"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr;margin-top:10px">
             <div><label>참여 마감 시간 (초)</label><input type="number" id="mcBossJoinWindowSec" value="90" min="10" max="1800"></div>
           </div>
           <label style="margin-top:10px">참여 명령어</label>
           <input type="text" id="mcCmdBossJoin" value="!참여" style="max-width:220px">
           <label style="margin-top:10px">보스 등장 안내</label>
-          <textarea id="mcMsgBossSpawn" style="height:56px">🌿 야생의 보스 [{monster}]이(가) 나타났습니다! {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)</textarea>
+          <textarea id="mcMsgBossSpawn" style="height:56px">🌿 야생의 보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)</textarea>
           <label style="margin-top:10px">참여 성공</label>
           <textarea id="mcMsgBossJoin" style="height:44px">⚔️ {nickname}님이 보스전에 참여했어요! (공격력 {power})</textarea>
           <label style="margin-top:10px">이미 참여함</label>
@@ -4526,7 +4549,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -4684,7 +4707,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); }
+  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); }
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -6185,6 +6208,43 @@ async function saveGlobalAnnounce(){
     const d=await res.json();
     if(d.success){ showToast('저장 완료 ✓'); loadGlobalAnnounce(); }
     else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadWorldBoss(){
+  try{
+    const res=await fetch(SERVER+'/worldboss-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('wbEnabled').checked=!!d.data.enabled;
+    document.getElementById('wbMonsterName').value=d.data.monsterName||'월드보스';
+    document.getElementById('wbPower').value=d.data.power||500;
+    document.getElementById('wbIntervalMin').value=d.data.intervalMin||60;
+    document.getElementById('wbJoinWindowSec').value=d.data.joinWindowSec||90;
+    document.getElementById('wbSpawnMsg').value=d.data.spawnMsg||'';
+    document.getElementById('wbStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전체 방 동시 등장 중`:'⏸️ 꺼짐';
+  }catch(e){}
+}
+async function saveWorldBoss(){
+  const enabled=document.getElementById('wbEnabled').checked;
+  const monsterName=document.getElementById('wbMonsterName').value.trim()||'월드보스';
+  const power=Number(document.getElementById('wbPower').value)||500;
+  const intervalMin=Number(document.getElementById('wbIntervalMin').value)||60;
+  const joinWindowSec=Number(document.getElementById('wbJoinWindowSec').value)||90;
+  const spawnMsg=document.getElementById('wbSpawnMsg').value;
+  try{
+    const res=await fetch(SERVER+'/worldboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,monsterName,power,intervalMin,joinWindowSec,spawnMsg})});
+    const d=await res.json();
+    if(d.success){ showToast('저장 완료 ✓'); loadWorldBoss(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function spawnWorldBossNow(){
+  try{
+    const res=await fetch(SERVER+'/worldboss-admin/spawn-now',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success) showToast(`⚡ 지금 바로 등장시켰어요! (${d.count}개 방)`);
+    else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -9677,6 +9737,7 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgEvolveUsage').value=s.msgEvolveUsage||'';
     document.getElementById('mcBossEnabled').checked=!!s.bossEnabled;
     document.getElementById('mcBossMonsterName').value=s.bossMonsterName||'풀잎';
+    document.getElementById('mcBossPower').value=s.bossPower||100;
     document.getElementById('mcBossIntervalMin').value=s.bossIntervalMin||60;
     document.getElementById('mcBossJoinWindowSec').value=s.bossJoinWindowSec||90;
     document.getElementById('mcCmdBossJoin').value=s.cmdBossJoin||'!참여';
@@ -9958,6 +10019,7 @@ async function saveMonsterCatch(){
     msgEvolveUsage:document.getElementById('mcMsgEvolveUsage').value,
     bossEnabled:document.getElementById('mcBossEnabled').checked,
     bossMonsterName:document.getElementById('mcBossMonsterName').value,
+    bossPower:document.getElementById('mcBossPower').value,
     bossIntervalMin:document.getElementById('mcBossIntervalMin').value,
     bossJoinWindowSec:document.getElementById('mcBossJoinWindowSec').value,
     cmdBossJoin:document.getElementById('mcCmdBossJoin').value,
