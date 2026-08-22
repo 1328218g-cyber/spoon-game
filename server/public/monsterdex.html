@@ -230,7 +230,7 @@ function renderDex(){
     const inner = owned
       ? `<img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="q" style="display:none">?</div>`
       : `<div class="q">?</div>`;
-    return `<div class="${cls}" onclick="mdPick(${m.id})">
+    return `<div class="${cls}" onclick="mdPick('${escapeHtml(String(m.id))}')">
       ${owned&&m.count>1?`<span class="cnt">x${m.count}</span>`:''}
       ${inner}
       <div class="num">#${m.id}</div>
@@ -241,7 +241,7 @@ function renderDex(){
 }
 
 function mdPick(id){
-  const m = dexList.find(x=>x.id===id);
+  const m = dexList.find(x=>String(x.id)===String(id));
   if(!m || m.count<=0){ showToast('아직 잡지 못한 몬스터예요'); return; }
   selectedMonster = m;
   dismantleCount = 1;
