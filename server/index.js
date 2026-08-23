@@ -18035,12 +18035,15 @@ app.get('/monsterdex/:djId/data', (req, res) => {
     const shinyLevel = mcMonsterLevel(tag, shinyId)
     const resolved = count > 0 ? mcResolveMonster(m.id, catalog, tag) : null
     const shinyResolved = shinyCount > 0 ? mcResolveMonster(shinyId, catalog, tag) : null
+    const basePower = Number(m.power) || 10
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
       count, level, power: resolved ? resolved.power : null,
       shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
       shinySelected: d.selected[tag] === shinyId,
+      dismantlePoints: mcDismantlePoints(basePower, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
+      shinyDismantlePoints: mcDismantlePoints(basePower, true),
     }
   })
   res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
@@ -18106,6 +18109,52 @@ app.post('/monsterdex/:djId/dismantle', (req, res) => {
   d.points[tag] = (d.points[tag] || 0) + gained
   mcSaveWebData()
   res.json({ success: true, gained, points: d.points[tag], remaining: collection[monsterId] || 0 })
+})
+// 🔨 여러 종류의 몬스터를 한 번에 골라서 한 번에 분해 — 각 항목을 검증해서, 하나라도 보유
+// 수량이 부족하면(다른 항목도 포함해서) 전부 취소하고 아무것도 안 깎는다(부분 실패 방지).
+app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const items = Array.isArray((req.body || {}).items) ? (req.body || {}).items : []
+  if (!items.length) return res.json({ success: false, error: '분해할 몬스터를 선택해주세요.' })
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mcSettings = (() => {
+    let s = store.getSettings(djId) || {}
+    return isModuleOn(s, 'monstercatch', djId) ? getMonsterCatchSettings(djId, s) : null
+  })()
+  if (!mcSettings) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const catalog = mcCatalog(djId)
+  const collection = mcSettings.collections[tag] || {}
+
+  // 먼저 전체를 검증 — 하나라도 문제가 있으면 아무것도 반영하지 않고 바로 실패로 반환한다.
+  const plan = []
+  for (const it of items) {
+    const monsterId = it && it.monsterId
+    const count = Math.max(1, Number(it && it.count) || 1)
+    const owned = collection[monsterId] || 0
+    if (owned < count) return res.json({ success: false, error: `${monsterId} 보유 수량이 부족해요.` })
+    const resolved = mcResolveMonster(monsterId, catalog, tag)
+    if (!resolved) return res.json({ success: false, error: `알 수 없는 몬스터예요. (${monsterId})` })
+    const basePower = Number(resolved.monster.power) || 10
+    const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+    plan.push({ monsterId, count, gained, name: resolved.name })
+  }
+
+  let totalGained = 0
+  plan.forEach(p => {
+    collection[p.monsterId] = (collection[p.monsterId] || 0) - p.count
+    if (collection[p.monsterId] <= 0) delete collection[p.monsterId]
+    totalGained += p.gained
+  })
+  mcSettings.collections[tag] = collection
+  store.saveSettings(djId, { monsterCatch: mcSettings })
+  d.points[tag] = (d.points[tag] || 0) + totalGained
+  mcSaveWebData()
+  res.json({ success: true, totalGained, points: d.points[tag], results: plan })
 })
 app.post('/monsterdex/:djId/levelup', (req, res) => {
   const djId = req.params.djId
