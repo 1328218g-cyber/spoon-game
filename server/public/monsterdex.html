@@ -32,6 +32,9 @@
   .dex-cell.owned{background:#182338;border-color:#2f4d6b}
   .dex-cell.selected{border-color:var(--green);box-shadow:0 0 0 2px rgba(61,220,132,.35)}
   .dex-cell.legendary.owned{border-color:var(--gold)}
+  .dex-cell.shiny-cell.owned{background:linear-gradient(160deg,#1f2e1c,#182338);border-color:#f9c74f;box-shadow:0 0 0 1px rgba(249,199,79,.25)}
+  .dex-cell.shiny-cell img{filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)}
+  .shiny-badge{position:absolute;top:2px;left:4px;font-size:11px}
   .dex-cell img{width:56px;height:56px;object-fit:contain}
   .dex-cell .q{width:56px;height:56px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto}
   .dex-cell .num{font-size:9.5px;color:var(--text-dim);margin-top:3px}
@@ -93,6 +96,10 @@
     </div>
 
     <div class="card" id="dexTabCard">
+      <div class="tabs" style="margin:0 0 12px">
+        <div class="tab-btn active" id="dexModeNormal" onclick="mdSwitchDexMode('normal')">📖 일반 도감</div>
+        <div class="tab-btn" id="dexModeShiny" onclick="mdSwitchDexMode('shiny')">✨ 이로치 도감</div>
+      </div>
       <div class="dex-grid" id="dexGrid"></div>
     </div>
 
@@ -217,43 +224,76 @@ async function checkMe(){
     showCard('main');
     renderDex();
     if(selectedMonster){
-      const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.id));
-      if(fresh) renderDetail(fresh);
+      const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.displayId));
+      if(fresh){ selectedMonster = buildSelectedMonsterObj(fresh, selectedMonster.isShiny); renderDetail(selectedMonster); }
     }
   }catch(e){ /* 조용히 재시도 */ }
 }
 
+let dexMode = 'normal'; // 'normal' | 'shiny'
+function mdSwitchDexMode(mode){
+  dexMode = mode;
+  document.getElementById('dexModeNormal').classList.toggle('active', mode==='normal');
+  document.getElementById('dexModeShiny').classList.toggle('active', mode==='shiny');
+  renderDex();
+}
+
+// 일반/이로치 어느 쪽이든 공통으로 다루기 쉽게, 원본 dexList 항목을 화면/서버 호출에
+// 그대로 쓸 수 있는 하나의 형태로 합쳐준다. 이로치는 서버에 보낼 id에 "shiny_" 접두사를 붙인다.
+function buildSelectedMonsterObj(m, isShiny){
+  return {
+    id: isShiny ? ('shiny_'+m.id) : String(m.id),
+    displayId: m.id,
+    name: (isShiny?'🌈이로치 ':'') + m.name,
+    image: m.image,
+    legendary: m.legendary,
+    count: isShiny ? m.shinyCount : m.count,
+    level: isShiny ? m.shinyLevel : m.level,
+    power: isShiny ? m.shinyPower : m.power,
+    selected: isShiny ? m.shinySelected : m.selected,
+    isShiny,
+  };
+}
+
 function renderDex(){
   const grid = document.getElementById('dexGrid');
+  const shiny = dexMode==='shiny';
   grid.innerHTML = dexList.map(m=>{
-    const owned = m.count>0;
-    const cls = 'dex-cell'+(owned?' owned':'')+(m.legendary?' legendary':'')+(m.selected?' selected':'');
+    const count = shiny ? m.shinyCount : m.count;
+    const level = shiny ? m.shinyLevel : m.level;
+    const selected = shiny ? m.shinySelected : m.selected;
+    const owned = count>0;
+    const cls = 'dex-cell'+(owned?' owned':'')+(m.legendary?' legendary':'')+(selected?' selected':'')+(shiny?' shiny-cell':'');
     const inner = owned
       ? `<img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="q" style="display:none">?</div>`
       : `<div class="q">?</div>`;
-    return `<div class="${cls}" onclick="mdPick('${escapeHtml(String(m.id))}')">
-      ${owned&&m.count>1?`<span class="cnt">x${m.count}</span>`:''}
+    const effId = shiny ? ('shiny_'+m.id) : String(m.id);
+    return `<div class="${cls}" onclick="mdPick('${escapeHtml(effId)}',${shiny})">
+      ${owned&&count>1?`<span class="cnt">x${count}</span>`:''}
+      ${shiny&&owned?'<span class="shiny-badge">✨</span>':''}
       ${inner}
-      <div class="nm">${owned?escapeHtml(m.name):'???'}</div>
-      ${owned?`<div class="lv">Lv.${m.level}</div>`:''}
+      <div class="nm">${owned?escapeHtml((shiny?'🌈':'')+m.name):'???'}</div>
+      ${owned?`<div class="lv">Lv.${level}</div>`:''}
     </div>`;
   }).join('');
 }
 
-function mdPick(id){
-  const m = dexList.find(x=>String(x.id)===String(id));
-  if(!m || m.count<=0){ showToast('아직 잡지 못한 몬스터예요'); return; }
-  selectedMonster = m;
+function mdPick(effId, isShiny){
+  const baseId = isShiny ? String(effId).replace(/^shiny_/,'') : effId;
+  const m = dexList.find(x=>String(x.id)===String(baseId));
+  const count = m ? (isShiny ? m.shinyCount : m.count) : 0;
+  if(!m || count<=0){ showToast('아직 잡지 못한 몬스터예요'); return; }
+  selectedMonster = buildSelectedMonsterObj(m, isShiny);
   dismantleCount = 1;
-  renderDetail(m);
+  renderDetail(selectedMonster);
   mdSwitchTab('detail');
 }
 
 function renderDetail(m){
   document.getElementById('detailEmpty').style.display='none';
   document.getElementById('detailBody').style.display='block';
-  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain" onerror="this.style.display='none'">`;
-  document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.id;
+  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain;${m.isShiny?'filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)':''}" onerror="this.style.display='none'">`;
+  document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.displayId;
   document.getElementById('detailMeta').textContent = `보유 ${m.count}마리 · Lv.${m.level} · 공격력 ${m.power??'-'}`;
   const selBtn = document.getElementById('selectBtn');
   selBtn.textContent = m.selected ? '✅ 현재 대결 몬스터예요' : '⚔️ 대결 몬스터로 선택';
@@ -282,9 +322,12 @@ function mdSwitchTab(tab){
   document.getElementById('dexTabCard').style.display = tab==='dex' ? 'block' : 'none';
   document.getElementById('detailTabCard').classList.toggle('show', tab==='detail');
   // 🔍 상세 탭을 열었는데 아직 아무것도 선택 안 했으면, 현재 대표(대결) 몬스터를 기본으로 보여준다.
+  // 일반/이로치 어느 쪽이 대결 몬스터로 지정돼있는지 순서대로 확인한다.
   if(tab==='detail' && !selectedMonster){
-    const battleMon = dexList.find(m=>m.selected);
-    if(battleMon){ selectedMonster=battleMon; dismantleCount=1; renderDetail(battleMon); }
+    let battleMon = dexList.find(m=>m.selected);
+    let isShinyBattle = false;
+    if(!battleMon){ battleMon = dexList.find(m=>m.shinySelected); isShinyBattle = true; }
+    if(battleMon){ selectedMonster = buildSelectedMonsterObj(battleMon, isShinyBattle); dismantleCount=1; renderDetail(selectedMonster); }
   }
 }
 

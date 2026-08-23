@@ -2244,7 +2244,7 @@ function mcMonsterLevel(tag, monsterId) {
   return entry ? entry.level : 1
 }
 function mcLevelUpCost(currentLevel) { return currentLevel * 10 } // 레벨이 높을수록 다음 레벨 비용이 커진다
-function mcDismantlePoints(basePower, shiny) { return Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 3 : 1) }
+function mcDismantlePoints(basePower, shiny) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 1.1 : 1)) }
 const MC_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function mcGenAuthKey(d) {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -2562,7 +2562,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       return resolveNicknameFromInput(room, t) || t
     }
     const fmtList = (list) => list.length
-      ? list.slice(0, 5).map((r, i) => `${i + 1}위\n${nameOfTag(r.tag)}\n${r.ace.name} Lv${r.ace.level} (공격력:${r.ace.power})`).join('\n')
+      ? list.slice(0, 5).map((r, i) => `${i + 1}위 ${nameOfTag(r.tag)}\n${r.ace.name} Lv${r.ace.level} (공격력:${r.ace.power})`).join('\n')
       : '(아직 데이터가 없어요)'
 
     const out = `🏆 트레이너 랭킹 (가장 강한 몬스터 공격력 기준)\n\n🌍 월드 랭킹\n${fmtList(globalRanking)}\n\n🏠 우리방 랭킹\n${fmtList(roomRanking)}`
@@ -18028,14 +18028,19 @@ app.get('/monsterdex/:djId/data', (req, res) => {
   const collection = mc_collectionsForTag(djId, tag)
   const owned = collection || {}
   const dex = catalog.map(m => {
+    const shinyId = MC_SHINY_PREFIX + m.id
     const count = owned[m.id] || 0
-    const shinyCount = owned[MC_SHINY_PREFIX + m.id] || 0
+    const shinyCount = owned[shinyId] || 0
     const level = mcMonsterLevel(tag, m.id)
+    const shinyLevel = mcMonsterLevel(tag, shinyId)
     const resolved = count > 0 ? mcResolveMonster(m.id, catalog, tag) : null
+    const shinyResolved = shinyCount > 0 ? mcResolveMonster(shinyId, catalog, tag) : null
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
-      count, shinyCount, level, power: resolved ? resolved.power : null,
+      count, level, power: resolved ? resolved.power : null,
+      shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
+      shinySelected: d.selected[tag] === shinyId,
     }
   })
   res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
