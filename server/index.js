@@ -1891,6 +1891,7 @@ function getMonsterCatchSettings(djId, settings) {
       catchMode: 'first', // 'first' | 'all'
       cmdCatch: '!잡기',
       cmdDex: '!도감',
+      cmdRanking: '!랭킹', // 🏆 트레이너 랭킹 (가장 강한 몬스터 공격력 기준, 전체/이 방 상위 5명)
       spawnMsg: '🐾 야생의 [{monster}]이(가) 나타났습니다! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
       legendarySpawnMsg: '✨전설 등장✨ 전설의 [{monster}]이(가) 나타났습니다!! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
       catchSuccessMsg: '🎉 {nickname}님이 [{monster}]을(를) 잡았습니다! (도감 {count}번째 · 남은 포획볼 {balls}개)',
@@ -2037,6 +2038,7 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveNoAuth == null) mc.msgBallGiveNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
   if (mc.bossEnabled == null) mc.bossEnabled = true
+  if (mc.cmdRanking == null) mc.cmdRanking = '!랭킹'
   if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
   if (mc.bossPower == null) mc.bossPower = 100
   if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
@@ -2134,6 +2136,7 @@ function mcFormat(tpl, data) {
     .replace(/{totalPower}/g, v(data.totalPower))
     .replace(/{mvpNickname}/g, data.mvpNickname || '')
     .replace(/{mvpPower}/g, v(data.mvpPower))
+    .replace(/{bossPower}/g, v(data.bossPower))
 }
 
 function mcPickMonster(mc) {
@@ -2521,6 +2524,48 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     // 📏 채팅 글자수 제한 때문에 한 번에 다 못 보내는 문제가 있어서, sendChatSplit으로 글자수
     // 기준(150자)으로 자동으로 여러 메시지로 잘라서 순차 전송한다. (13마리씩 페이지로 나눈 것과
     // 별개로, 한 페이지 자체가 길면 이 단계에서 또 한번 안전하게 잘라줌)
+    sendChatSplit(djId, out, 150, 500)
+    return
+  }
+
+  // 🏆 !랭킹 — 각 트레이너가 보유한 몬스터 중 "가장 강한 몬스터의 공격력"(대결에 실제로 쓰이는
+  // 값, mcPickStrongest와 동일 기준)을 기준으로 순위를 매긴다. mc.collections는 djId별 설정
+  // 안에 있지만 실제로는 전역 공유 데이터라서, 여기서 계산한 전체 랭킹은 어느 방에서든
+  // 몬스터를 잡은 모든 트레이너를 다 포함한다(=현재 방 유저만이 아니라 전체 플랫폼 기준).
+  // "현재 방 랭킹"은 이 방의 애청지수(활동 기록)에 등록된 사람들로만 한 번 더 좁혀서 계산한다.
+  const cmdRanking = mc.cmdRanking || '!랭킹'
+  if (msg === cmdRanking) {
+    const computeTrainerAce = (collection, mTag) => {
+      const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
+      let best = null
+      owned.forEach(id => {
+        const resolved = mcResolveMonster(id, mc.monsters, mTag)
+        if (resolved && (!best || resolved.power > best.power)) {
+          best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(mTag, mcBaseIdFromShiny(id)) }
+        }
+      })
+      return best
+    }
+    const allTags = Object.keys(mc.collections || {})
+    const globalRanking = allTags
+      .map(t => ({ tag: t, ace: computeTrainerAce(mc.collections[t], t) }))
+      .filter(r => r.ace)
+      .sort((a, b) => b.ace.power - a.ace.power)
+
+    const act = getActivitySettings(djId, settings)
+    const roomTagSet = new Set(Object.values(act.users || {}).map(u => (u.tag || '').toLowerCase()).filter(Boolean))
+    const roomRanking = globalRanking.filter(r => roomTagSet.has(r.tag.toLowerCase()))
+
+    const nameOfTag = (t) => {
+      const actEntry = Object.values(act.users || {}).find(u => (u.tag || '').toLowerCase() === t.toLowerCase())
+      if (actEntry && actEntry.nickname) return actEntry.nickname
+      return resolveNicknameFromInput(room, t) || t
+    }
+    const fmtList = (list) => list.length
+      ? list.slice(0, 5).map((r, i) => `${i + 1}위\n${nameOfTag(r.tag)}\n${r.ace.name} Lv${r.ace.level} (공격력:${r.ace.power})`).join('\n')
+      : '(아직 데이터가 없어요)'
+
+    const out = `🏆 트레이너 랭킹 (가장 강한 몬스터 공격력 기준)\n\n🌍 월드 랭킹\n${fmtList(globalRanking)}\n\n🏠 우리방 랭킹\n${fmtList(roomRanking)}`
     sendChatSplit(djId, out, 150, 500)
     return
   }
@@ -6135,14 +6180,14 @@ async function handleWebPickboardCommand(djId, room, settings, author, authorId,
   // 🔑 "!뽑기인증 코드"처럼 명령어를 안 붙이고, 헷갈리지 않게 인증코드만 딱 쳐도 인식되게 처리.
   // (영문/숫자 6자리이고, 실제로 발급되어 대기중인 코드와 정확히 일치할 때만 동작하므로 일반
   //  채팅과 혼동될 일이 거의 없다)
+  // ⚠️ 웹뽑기판/마피아/몬스터도감 등 여러 모듈이 같은 "코드만 딱 치면 인식" 방식을 같이 쓰기
+  // 때문에, 여기서 못 찾았다고 바로 "잘못된 코드"라고 단정하면 안 된다 — 그 코드가 사실은
+  // 다른 모듈용일 수도 있어서, 조용히 넘겨서 뒤에 있는 다른 모듈 핸들러가 확인하게 둔다.
   if (!msg.startsWith('!')) {
     const rawCode = msg.replace(/\s+/g, '').toUpperCase()
     if (/^[A-Z0-9]{6}$/.test(rawCode)) {
       wpbCleanExpiredKeys(wpb)
       if (wpb.authKeys[rawCode]) return wpbHandleAuth(djId, wpb, tag, author, rawCode)
-      // 형식은 인증코드 같은데(6자리 영숫자) 실제로 대기중인 코드가 아니면 조용히 넘기지 않고
-      // 바로 안내해준다 — 그래야 사람이 "인증이 안 된다"며 막막해하지 않는다.
-      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 "코드 다시 발급받기"로 새로 받아주세요.', 150, 300)
     }
     return
   }
@@ -6450,12 +6495,14 @@ async function handleMafiaCommand(djId, room, settings, author, authorId, liveId
   const cfg = mf.config
   const game = mf.game
 
+  // ⚠️ 웹뽑기판/마피아/몬스터도감 등 여러 모듈이 같은 "코드만 딱 치면 인식" 방식을 같이 쓰기
+  // 때문에, 여기서 못 찾았다고 바로 "잘못된 코드"라고 단정하면 안 된다 — 다른 모듈용 코드일
+  // 수도 있어서, 조용히 넘겨서 뒤에 있는 다른 모듈 핸들러가 확인하게 둔다.
   if (!msg.startsWith('!')) {
     const rawCode = msg.replace(/\s+/g, '').toUpperCase()
     if (/^[A-Z0-9]{6}$/.test(rawCode)) {
       mfCleanExpiredKeys(mf)
       if (mf.authKeys[rawCode]) return mfHandleAuth(djId, mf, tag, author, rawCode, game)
-      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요.', 150, 300)
     }
     return
   }
@@ -14878,7 +14925,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'monstercatch', req.djId)) return res.json({ success: false, error: '몬스터 잡기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const mc = getMonsterCatchSettings(req.djId, settings)
-  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
+  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, cmdRanking, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
@@ -14889,6 +14936,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (catchMode === 'first' || catchMode === 'all') mc.catchMode = catchMode
   if (cmdCatch != null) mc.cmdCatch = String(cmdCatch).trim() || '!잡기'
   if (cmdDex != null) mc.cmdDex = String(cmdDex).trim() || '!도감'
+  if (cmdRanking != null) mc.cmdRanking = String(cmdRanking).trim() || '!랭킹'
   if (spawnMsg != null) mc.spawnMsg = spawnMsg
   if (legendarySpawnMsg != null) mc.legendarySpawnMsg = legendarySpawnMsg
   if (catchSuccessMsg != null) mc.catchSuccessMsg = catchSuccessMsg
@@ -17155,6 +17203,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
         { cmd: mc.cmdCatch || '!잡기', desc: '등장한 몬스터 잡기' },
         { cmd: '!모험시작', desc: '몬스터잡기 시작 (포획볼 지급)' },
         { cmd: mc.cmdDex || '!도감', desc: '내 도감 확인 (페이지: !도감2, !도감3...)' },
+        { cmd: mc.cmdRanking || '!랭킹', desc: '가장 강한 몬스터 공격력 기준 트레이너 랭킹 TOP5 (전체/이 방)' },
         { cmd: '!포획볼구매', desc: '포획볼 구매' },
         { cmd: mc.cmdEvolve || '!진화', desc: '[몬스터이름] 진화시키기' },
         { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
