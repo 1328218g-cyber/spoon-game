@@ -18031,15 +18031,19 @@ app.get('/monsterdex/:djId/data', (req, res) => {
     const shinyId = MC_SHINY_PREFIX + m.id
     const count = owned[m.id] || 0
     const shinyCount = owned[shinyId] || 0
+    // 🐾 "지금 몇 마리 있는지"(count)와 "한 번이라도 잡아본 적 있는지"(discovered)는 다르다.
+    // 분해해서 0마리가 돼도 discovered는 계속 true로 남아있어서 도감 이미지가 안 사라진다.
+    const discovered = Object.prototype.hasOwnProperty.call(owned, m.id)
+    const shinyDiscovered = Object.prototype.hasOwnProperty.call(owned, shinyId)
     const level = mcMonsterLevel(tag, m.id)
     const shinyLevel = mcMonsterLevel(tag, shinyId)
-    const resolved = count > 0 ? mcResolveMonster(m.id, catalog, tag) : null
-    const shinyResolved = shinyCount > 0 ? mcResolveMonster(shinyId, catalog, tag) : null
+    const resolved = discovered ? mcResolveMonster(m.id, catalog, tag) : null
+    const shinyResolved = shinyDiscovered ? mcResolveMonster(shinyId, catalog, tag) : null
     const basePower = Number(m.power) || 10
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
-      count, level, power: resolved ? resolved.power : null,
-      shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null,
+      count, level, power: resolved ? resolved.power : null, discovered,
+      shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null, shinyDiscovered,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
       shinySelected: d.selected[tag] === shinyId,
       dismantlePoints: mcDismantlePoints(basePower, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
@@ -18102,8 +18106,9 @@ app.post('/monsterdex/:djId/dismantle', (req, res) => {
   if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
   const basePower = Number(resolved.monster.power) || 10
   const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+  // 🐾 0마리가 돼도 도감 항목 자체는 지우지 않는다(0으로만 남겨둔다) — 그래야 "한 번이라도
+  // 잡았던 기록"이 도감에 계속 남아서, 이미지가 다시 안 사라지고 "분해 불가"로만 표시된다.
   collection[monsterId] = owned - count
-  if (collection[monsterId] <= 0) delete collection[monsterId]
   mcSettings.collections[tag] = collection
   store.saveSettings(djId, { monsterCatch: mcSettings })
   d.points[tag] = (d.points[tag] || 0) + gained
@@ -18146,8 +18151,8 @@ app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
 
   let totalGained = 0
   plan.forEach(p => {
+    // 🐾 여기서도 마찬가지로 0이 되어도 항목을 지우지 않고 0으로 남겨서 도감 기록을 유지한다.
     collection[p.monsterId] = (collection[p.monsterId] || 0) - p.count
-    if (collection[p.monsterId] <= 0) delete collection[p.monsterId]
     totalGained += p.gained
   })
   mcSettings.collections[tag] = collection
