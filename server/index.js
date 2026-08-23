@@ -2687,17 +2687,23 @@ function resolveBoss(djId) {
   }
   let mvp = participants[0]
   participants.forEach(p => { if (p.power > mvp.power) mvp = p })
-
-  // 🌈 MVP는 랜덤 이로치 몬스터 1마리를 받는다 (희귀상자/잡기랑 같은 이로치 개념, 여기선 100% 확정 지급)
-  const picked = mcPickMonster(mc)
   const mvpKey = Object.keys(boss.participants).find(k => boss.participants[k] === mvp)
+
   let rewardName = '(보상 없음)'
-  if (picked && mvpKey) {
-    const grantId = MC_SHINY_PREFIX + picked.id
-    if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
-    mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
-    rewardName = picked.name
+  if (boss.isWorldBoss) {
+    // 🏆 월드보스는 관리자가 설정해둔 보상 목록(복권/이로치몬스터/포획볼/고급볼 등)을 그대로 지급한다.
+    if (mvpKey) rewardName = grantWorldBossRewards(djId, settings, mc, mvpKey, mvp.nickname)
     mcSaveUserData()
+  } else {
+    // 🌈 (기존 방식) 일반 보스는 MVP에게 랜덤 이로치 몬스터 1마리를 준다.
+    const picked = mcPickMonster(mc)
+    if (picked && mvpKey) {
+      const grantId = MC_SHINY_PREFIX + picked.id
+      if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+      mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+      rewardName = picked.name
+      mcSaveUserData()
+    }
   }
 
   sendChatToRoom(djId, mcFormat(mc.msgBossResult, {
@@ -2726,10 +2732,54 @@ function getWorldBossSettings() {
       intervalMin: 60,
       joinWindowSec: 90,
       spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+      // 🏆 처치 성공 시 MVP(1등, 총 공격력 가장 많이 기여한 사람)에게만 자동 지급되는 보상 목록.
+      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
+      rewards: [],
     }
     store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
   }
+  if (!Array.isArray(settings.worldBoss.rewards)) settings.worldBoss.rewards = []
   return settings.worldBoss
+}
+// 🏆 월드보스 처치 시 MVP(1등)에게만 설정해둔 보상을 그대로 지급한다. 지급은 그 보스가 등장한
+// "그 방"의 경제(포획볼/고급볼/복권/도감)에 반영된다 — 월드보스가 여러 방에서 동시에 등장해도
+// 각 방은 독립적으로 처리되므로 자연스럽게 방마다 따로 지급된다.
+function grantWorldBossRewards(djId, settings, mc, mvpKey, mvpNickname) {
+  const wb = getWorldBossSettings()
+  const rewards = wb.rewards || []
+  if (!rewards.length) return '(보상 없음)'
+  const parts = []
+  let actChanged = false
+  let act = null
+  for (const r of rewards) {
+    if (r.type === 'lotto') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      if (!act) act = getActivitySettings(djId, settings)
+      const key = findActUserKey(act, mvpKey) || mvpKey
+      actEnsureUser(act, key, mvpNickname, mvpKey)
+      act.users[key].lotto = (act.users[key].lotto || 0) + amount
+      parts.push(`🎟️복권 ${amount}장`)
+      actChanged = true
+    } else if (r.type === 'shinyMonster') {
+      const picked = r.monsterId ? mc.monsters.find(m => String(m.id) === String(r.monsterId)) : mcPickMonster(mc)
+      if (picked) {
+        const grantId = MC_SHINY_PREFIX + picked.id
+        if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+        mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+        parts.push(`🌈이로치 ${picked.name}`)
+      }
+    } else if (r.type === 'ball') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      mc.bags[mvpKey] = (mc.bags[mvpKey] || 0) + amount
+      parts.push(`🎒포획볼 ${amount}개`)
+    } else if (r.type === 'greatBall') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      mc.greatBags[mvpKey] = (mc.greatBags[mvpKey] || 0) + amount
+      parts.push(`⚡고급볼 ${amount}개`)
+    }
+  }
+  if (actChanged) store.saveSettings(djId, { activity: act })
+  return parts.length ? parts.join(', ') : '(보상 없음)'
 }
 function spawnWorldBoss(djId, wb) {
   const room = getRoom(djId)
@@ -2776,16 +2826,31 @@ app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   res.json({ success: true, data: getWorldBossSettings() })
 })
+app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const catalog = mcCatalog(SHARED_TOKEN_DJID)
+  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+})
 app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const wb = getWorldBossSettings()
-  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg } = req.body || {}
+  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg, rewards } = req.body || {}
   if (enabled != null) wb.enabled = !!enabled
   if (monsterName != null) wb.monsterName = String(monsterName).trim() || '월드보스'
   if (power != null) wb.power = Math.max(1, Math.min(1000000, parseInt(power, 10) || 500))
   if (intervalMin != null) wb.intervalMin = Math.max(1, Math.min(720, parseInt(intervalMin, 10) || 60))
   if (joinWindowSec != null) wb.joinWindowSec = Math.max(10, Math.min(1800, parseInt(joinWindowSec, 10) || 90))
   if (spawnMsg != null) wb.spawnMsg = spawnMsg
+  if (Array.isArray(rewards)) {
+    wb.rewards = rewards
+      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall'].includes(r.type))
+      .map(r => ({
+        type: r.type,
+        amount: r.type === 'shinyMonster' ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
+        monsterId: r.type === 'shinyMonster' ? String(r.monsterId || '').trim() : undefined,
+      }))
+      .slice(0, 20)
+  }
   store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: wb })
   startWorldBossTimer() // 활성화/간격이 바뀌었을 수 있으니 타이머 재시작
   res.json({ success: true, data: wb })
@@ -16505,7 +16570,7 @@ app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
   try {
     const upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'User-Agent': CHROME_UA, 'Accept': 'application/json, audio/*, */*' },
       body: JSON.stringify({
         voice_id: voiceId,
         text: cleanText,

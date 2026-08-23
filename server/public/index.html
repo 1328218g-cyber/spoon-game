@@ -933,6 +933,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="number" id="wbJoinWindowSec" value="90" min="10" max="1800">
           <label style="margin-top:10px">등장 안내 문구</label>
           <textarea id="wbSpawnMsg" rows="3" placeholder="🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)"></textarea>
+
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+            <div class="card-title" style="padding:0"><span>🏆 처치 보상 (1등 MVP에게만 자동 지급)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="wbAddReward()">+ 보상 추가</button></div>
+            <p class="hint">보스를 처치하면(총 공격력이 보스 공격력을 넘으면) 가장 공격력을 많이 기여한 1명에게만 아래 보상이 전부 지급돼요.</p>
+            <div id="wbRewardList"></div>
+          </div>
+
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:12px">
             <button class="btn-connect" onclick="saveWorldBoss()">💾 저장</button>
             <button class="btn-gray" onclick="spawnWorldBossNow()">⚡ 지금 바로 등장시키기</button>
@@ -6211,8 +6218,15 @@ async function saveGlobalAnnounce(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+let wbMonsterCatalog=[];
+let wbRewards=[];
 async function loadWorldBoss(){
   try{
+    if(!wbMonsterCatalog.length){
+      const cres=await fetch(SERVER+'/worldboss-admin/monster-catalog',{headers:authHeaders()});
+      const cd=await cres.json();
+      if(cd.success) wbMonsterCatalog=cd.monsters||[];
+    }
     const res=await fetch(SERVER+'/worldboss-admin/settings',{headers:authHeaders()});
     const d=await res.json();
     if(!d.success)return;
@@ -6222,8 +6236,40 @@ async function loadWorldBoss(){
     document.getElementById('wbIntervalMin').value=d.data.intervalMin||60;
     document.getElementById('wbJoinWindowSec').value=d.data.joinWindowSec||90;
     document.getElementById('wbSpawnMsg').value=d.data.spawnMsg||'';
+    wbRewards=(d.data.rewards||[]).map(r=>({...r}));
+    renderWbRewardList();
     document.getElementById('wbStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전체 방 동시 등장 중`:'⏸️ 꺼짐';
   }catch(e){}
+}
+const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼'};
+function renderWbRewardList(){
+  const wrap=document.getElementById('wbRewardList');
+  if(!wrap)return;
+  if(!wbRewards.length){ wrap.innerHTML='<p class="hint">등록된 보상이 없어요. "+ 보상 추가"를 눌러 추가해보세요.</p>'; return; }
+  wrap.innerHTML=wbRewards.map((r,i)=>{
+    const typeOpts=Object.keys(WB_REWARD_TYPE_LABEL).map(t=>`<option value="${t}" ${r.type===t?'selected':''}>${WB_REWARD_TYPE_LABEL[t]}</option>`).join('');
+    if(r.type==='shinyMonster'){
+      const monsterOpts='<option value="">랜덤</option>'+wbMonsterCatalog.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
+      return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
+        <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
+        <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
+        <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
+      </div>`;
+    }
+    return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
+      <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
+      <input type="number" min="1" placeholder="개수" value="${r.amount||1}" oninput="wbRewards[${i}].amount=Number(this.value)||1">
+      <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function wbAddReward(){
+  wbRewards.push({type:'lotto',amount:10});
+  renderWbRewardList();
+}
+function wbRemoveReward(i){
+  wbRewards.splice(i,1);
+  renderWbRewardList();
 }
 async function saveWorldBoss(){
   const enabled=document.getElementById('wbEnabled').checked;
@@ -6233,7 +6279,7 @@ async function saveWorldBoss(){
   const joinWindowSec=Number(document.getElementById('wbJoinWindowSec').value)||90;
   const spawnMsg=document.getElementById('wbSpawnMsg').value;
   try{
-    const res=await fetch(SERVER+'/worldboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,monsterName,power,intervalMin,joinWindowSec,spawnMsg})});
+    const res=await fetch(SERVER+'/worldboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,monsterName,power,intervalMin,joinWindowSec,spawnMsg,rewards:wbRewards})});
     const d=await res.json();
     if(d.success){ showToast('저장 완료 ✓'); loadWorldBoss(); }
     else showToast(d.error||'저장 실패');
