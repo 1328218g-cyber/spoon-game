@@ -1259,12 +1259,14 @@ function getActivitySettings(djId, settings) {
       msgLottoTotal: '🎁 총 획득 경험치: +{totalExp} EXP',
       msgLottoAutoHeader: '🎰 {nickname}님의 복권 {count}개 자동 결과',
       msgLottoFull: '🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})',
+      msgLottoNone: '⚠️ {nickname}님의 복권이 없습니다.',
       users: {}
     }
     store.saveSettings(djId, { activity: settings.activity })
   }
   if (!settings.activity.users) settings.activity.users = {}
   if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
+  if (!settings.activity.msgLottoNone) settings.activity.msgLottoNone = '⚠️ {nickname}님의 복권이 없습니다.'
   return settings.activity
 }
 
@@ -1532,7 +1534,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const nums = args.map(a => parseInt(a, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 9)
 
     if (nums.length === 3) {
-      if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+      if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
       d.lotto -= 1
       const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
       const myNums = nums.slice().sort((a, b) => a - b)
@@ -1558,7 +1560,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     }
 
     const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
-    if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+    if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
     const useCount = Math.min(count, 100, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 100장까지만 처리한다
     d.lotto -= useCount
     let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
@@ -1931,7 +1933,7 @@ function getMonsterCatchSettings(djId, settings) {
       msgBattleSelfError: '⚠️ 본인과는 대결할 수 없어요!',
       msgBattleNoMonsters: '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.',
       msgBattleTargetNoMonsters: '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!',
-      msgBattleResult: '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!',
+      msgBattleResult: '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}',
 
       // 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다. evolvesTo/evolveCount는
       // 몬스터 하나하나에 개별로 붙는 값(monsters 배열 각 항목)이라 여기 기본값에는 없다.
@@ -2019,7 +2021,7 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBattleSelfError == null) mc.msgBattleSelfError = '⚠️ 본인과는 대결할 수 없어요!'
   if (mc.msgBattleNoMonsters == null) mc.msgBattleNoMonsters = '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.'
   if (mc.msgBattleTargetNoMonsters == null) mc.msgBattleTargetNoMonsters = '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!'
-  if (mc.msgBattleResult == null) mc.msgBattleResult = '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!'
+  if (mc.msgBattleResult == null) mc.msgBattleResult = '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}'
   if (mc.cmdEvolve == null) mc.cmdEvolve = '!진화'
   if (mc.autoEvolve == null) mc.autoEvolve = false
   if (mc.msgEvolveUsage == null) mc.msgEvolveUsage = '⚠️ 사용법: {cmdEvolve} [몬스터이름]'
@@ -2125,6 +2127,7 @@ function mcFormat(tpl, data) {
     .replace(/{winnerMonster}/g, data.winnerMonster || '')
     .replace(/{loserMonster}/g, data.loserMonster || '')
     .replace(/{move}/g, data.move || '')
+    .replace(/{effect}/g, data.effect || '')
     .replace(/{need}/g, v(data.need))
     .replace(/{owned}/g, v(data.owned))
     .replace(/{cmdEvolve}/g, data.cmdEvolve || '')
@@ -2149,6 +2152,55 @@ function mcPickMonster(mc) {
     if (r <= 0) return m
   }
   return list[list.length - 1]
+}
+
+// ══════════════════════════════════════════════════════
+// 🔥 타입(속성) 상성표 — 포켓몬 세대1 상성 그대로. 값은 데미지 배율(2=효과 굉장함, 0.5=별로,
+// 0=효과 없음, 표시 없으면 1배). [공격타입][방어타입] 형태로 조회한다.
+const MC_TYPE_NAMES = ['노말', '불꽃', '물', '전기', '풀', '얼음', '격투', '독', '땅', '비행', '에스퍼', '벌레', '바위', '고스트', '드래곤', '악', '강철', '페어리']
+const MC_TYPE_CHART = {
+  '노말': { '고스트': 0 },
+  '불꽃': { '불꽃': 0.5, '물': 0.5, '풀': 2, '얼음': 2, '벌레': 2, '바위': 0.5, '드래곤': 0.5, '강철': 2 },
+  '물': { '불꽃': 2, '물': 0.5, '풀': 0.5, '땅': 2, '바위': 2, '드래곤': 0.5 },
+  '전기': { '물': 2, '전기': 0.5, '풀': 0.5, '땅': 0, '비행': 2, '드래곤': 0.5 },
+  '풀': { '불꽃': 0.5, '물': 2, '풀': 0.5, '독': 0.5, '땅': 2, '비행': 0.5, '벌레': 0.5, '바위': 2, '드래곤': 0.5, '강철': 0.5 },
+  '얼음': { '불꽃': 0.5, '물': 0.5, '풀': 2, '얼음': 0.5, '땅': 2, '비행': 2, '드래곤': 2, '강철': 0.5 },
+  '격투': { '노말': 2, '얼음': 2, '독': 0.5, '비행': 0.5, '에스퍼': 0.5, '벌레': 0.5, '바위': 2, '고스트': 0, '악': 2, '강철': 2, '페어리': 0.5 },
+  '독': { '풀': 2, '독': 0.5, '땅': 0.5, '바위': 0.5, '고스트': 0.5, '강철': 0, '페어리': 2 },
+  '땅': { '불꽃': 2, '전기': 2, '풀': 0.5, '독': 2, '비행': 0, '바위': 2, '벌레': 0.5, '강철': 2 },
+  '비행': { '전기': 0.5, '풀': 2, '격투': 2, '벌레': 2, '바위': 0.5, '강철': 0.5 },
+  '에스퍼': { '격투': 2, '독': 2, '에스퍼': 0.5, '악': 0, '강철': 0.5 },
+  '벌레': { '불꽃': 0.5, '풀': 2, '격투': 0.5, '독': 0.5, '비행': 0.5, '에스퍼': 2, '고스트': 0.5, '악': 2, '강철': 0.5, '페어리': 0.5 },
+  '바위': { '불꽃': 2, '얼음': 2, '격투': 0.5, '땅': 0.5, '비행': 2, '벌레': 2, '강철': 0.5 },
+  '고스트': { '노말': 0, '에스퍼': 2, '고스트': 2, '악': 0.5 },
+  '드래곤': { '드래곤': 2, '강철': 0.5, '페어리': 0 },
+  '악': { '격투': 0.5, '에스퍼': 2, '고스트': 2, '악': 0.5, '페어리': 0.5 },
+  '강철': { '불꽃': 0.5, '물': 0.5, '전기': 0.5, '얼음': 2, '바위': 2, '강철': 0.5, '페어리': 2 },
+  '페어리': { '불꽃': 0.5, '격투': 2, '독': 0.5, '드래곤': 2, '악': 2, '강철': 0.5 },
+}
+// 공격 타입(들) vs 방어 타입(들)의 종합 배율을 계산한다 — 이중 타입은 배율을 곱해서 누적한다
+// (예: 얼음 공격이 풀/땅 방어 상대에게 2×2=4배). 공격 쪽이 여러 타입이면 그중 가장 유리한
+// 배율(최댓값)을 쓴다 — 어떤 기술을 냈는지는 몰라도 "그 몬스터가 가장 잘 먹히는 방식으로 싸웠다"는 셈이다.
+function mcTypeMultiplier(attackerTypes, defenderTypes) {
+  const atkTypes = (Array.isArray(attackerTypes) && attackerTypes.length) ? attackerTypes : ['노말']
+  const defTypes = (Array.isArray(defenderTypes) && defenderTypes.length) ? defenderTypes : ['노말']
+  let best = 0
+  atkTypes.forEach(atk => {
+    let mult = 1
+    defTypes.forEach(def => {
+      const chart = MC_TYPE_CHART[atk]
+      const v = chart && chart[def] != null ? chart[def] : 1
+      mult *= v
+    })
+    if (mult > best) best = mult
+  })
+  return best
+}
+function mcTypeEffectText(mult) {
+  if (mult === 0) return '❌ 효과가 없다!'
+  if (mult >= 2) return '💥 효과가 굉장했다!'
+  if (mult < 1) return '🔸 효과가 별로였다...'
+  return ''
 }
 
 // 대결에 쓸 "가장 강한 보유 몬스터"를 골라준다 (공격력 기준). 잡은 게 없으면 null.
@@ -2799,6 +2851,13 @@ function grantWorldBossRewards(djId, settings, mc, mvpKey, mvpNickname) {
       const amount = Math.max(1, Number(r.amount) || 1)
       mc.greatBags[mvpKey] = (mc.greatBags[mvpKey] || 0) + amount
       parts.push(`⚡고급볼 ${amount}개`)
+    } else if (r.type === 'point') {
+      // 🐾 웹 도감(레벨업에 쓰는) 포인트를 직접 적립해준다.
+      const amount = Math.max(1, Number(r.amount) || 1)
+      const wd = mcGetWebData()
+      wd.points[mvpKey] = (wd.points[mvpKey] || 0) + amount
+      mcSaveWebData()
+      parts.push(`✨포인트 ${amount}P`)
     }
   }
   if (actChanged) store.saveSettings(djId, { activity: act })
@@ -2866,7 +2925,7 @@ app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (spawnMsg != null) wb.spawnMsg = spawnMsg
   if (Array.isArray(rewards)) {
     wb.rewards = rewards
-      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall'].includes(r.type))
+      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall', 'point'].includes(r.type))
       .map(r => ({
         type: r.type,
         amount: r.type === 'shinyMonster' ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
@@ -3071,23 +3130,30 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
   const targetMon = mcPickStrongest(mc.collections[targetKey], mc.monsters, targetKey)
   if (!targetMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleTargetNoMonsters, { nickname: author, target: targetNick })), 400); return }
 
-  const myPower = Math.max(1, Number(myMon.power) || 10)
-  const targetPower = Math.max(1, Number(targetMon.power) || 10)
+  const myBasePower = Math.max(1, Number(myMon.power) || 10)
+  const targetBasePower = Math.max(1, Number(targetMon.power) || 10)
+  // 🔥 타입 상성 적용 — 서로의 타입으로 서로에게 얼마나 잘 먹히는지 배율을 구해서 공격력에 곱한다.
+  const myTypeMult = mcTypeMultiplier(myMon.types, targetMon.types)
+  const targetTypeMult = mcTypeMultiplier(targetMon.types, myMon.types)
+  const myPower = myBasePower * myTypeMult
+  const targetPower = targetBasePower * targetTypeMult
   // ⚔️ [업데이트] 예전엔 공격력 비율로 "확률"만 정해서, 공격력이 낮아도 가끔 이기는 확률형이었다.
-  // 이제 실제 공격력을 그대로 기준으로 삼아서, 공격력이 더 높은 몬스터가 항상 이긴다.
+  // 이제 실제 공격력(타입 상성 반영)을 그대로 기준으로 삼아서, 더 유리한 쪽이 항상 이긴다.
   // 공격력이 정확히 같을 때만 50:50 무작위로 승패를 가른다.
   const iWin = myPower === targetPower ? Math.random() < 0.5 : myPower > targetPower
   const winnerMonster = iWin ? myMon : targetMon
   const loserMonster = iWin ? targetMon : myMon
   const winnerName = iWin ? author : targetNick
+  const winnerMult = iWin ? myTypeMult : targetTypeMult
   const moveList = (winnerMonster.moves && winnerMonster.moves.length) ? winnerMonster.moves : ['공격']
   const move = moveList[Math.floor(Math.random() * moveList.length)]
+  const effectText = mcTypeEffectText(winnerMult)
 
   const line = mcFormat(mc.msgBattleResult, {
     nickname: author, target: targetNick,
     myMonster: myMon.name, targetMonster: targetMon.name,
     winner: winnerName, winnerMonster: winnerMonster.name, loserMonster: loserMonster.name,
-    move,
+    move, effect: effectText,
   })
   setTimeout(() => sendChatToRoom(djId, line), 400)
 }
@@ -15002,6 +15068,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
       catchRate: Math.max(1, Math.min(100, parseInt(m.catchRate, 10) || 50)),
       power: Math.max(1, Math.min(9999, parseInt(m.power, 10) || 10)),
       trait: String(m.trait || '').trim().slice(0, 60),
+      types: Array.isArray(m.types) ? m.types.filter(t => MC_TYPE_NAMES.includes(t)).slice(0, 2) : [],
       moves: Array.isArray(m.moves)
         ? m.moves.map(x => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
         : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
