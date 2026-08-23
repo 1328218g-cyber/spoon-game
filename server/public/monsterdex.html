@@ -101,7 +101,7 @@
       <div class="top-stats">
         <div style="font-size:14px;font-weight:700" id="myNickLabel"></div>
         <div style="display:flex;align-items:center;gap:8px">
-          <button id="aceBtn" onclick="mdShowAce()" style="display:none;background:var(--surface2, #1c2440);border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">⚔️ 대표 몬스터</button>
+          <button id="aceBtn" onclick="mdShowAce()" style="background:var(--surface2, #1c2440);border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">⚔️ 대표 몬스터: 미설정</button>
           <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
         </div>
       </div>
@@ -253,7 +253,12 @@ async function checkMe(){
     myTag = d.tag; myPoints = d.points; dexList = d.dex; levelBonus = d.levelBonus || 3;
     document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
     document.getElementById('myPoints').textContent = myPoints;
-    document.getElementById('aceBtn').style.display = dexList.some(m=>m.selected||m.shinySelected) ? 'inline-block' : 'none';
+    let aceMon = dexList.find(m=>m.selected);
+    let aceIsShiny = false;
+    if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceIsShiny = true; }
+    document.getElementById('aceBtn').textContent = aceMon
+      ? `⚔️ ${(aceIsShiny?'🌈':'')}${aceMon.name}`
+      : '⚔️ 대표 몬스터: 미설정';
     showCard('main');
     renderDex();
     if(selectedMonster){
