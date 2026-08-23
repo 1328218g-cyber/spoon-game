@@ -3728,13 +3728,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title">⚔️ 대결 (PvP)</div>
-          <p class="hint" style="margin-bottom:12px">시청자끼리 [명령어] [상대방 고유닉]으로 대결할 수 있어요. 각자 보유 몬스터 중 공격력이 가장 높은 걸로 자동 대결하고, 공격력 비율로 승률이 정해져요 (약해도 이길 가능성은 있어요).</p>
+          <p class="hint" style="margin-bottom:12px">시청자끼리 [명령어] [상대방 고유닉]으로 대결할 수 있어요. 각자 보유 몬스터 중 공격력이 가장 높은 걸로 자동 대결하고, 타입 상성까지 반영돼서 더 유리한 쪽이 이겨요.</p>
           <label>대결 명령어</label>
           <input type="text" id="mcCmdBattle" value="!대결" style="max-width:220px">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>승리 시 지급 포인트</label><input type="number" id="mcBattleWinPoints" value="10" min="0" max="9999"></div>
+            <div><label>재사용 쿨타임 (초)</label><input type="number" id="mcBattleCooldownSec" value="60" min="0" max="3600"></div>
+          </div>
+          <div class="hint">포인트는 몬스터 웹 도감에서 레벨업할 때 쓰는 그 포인트예요. 쿨타임은 같은 사람이 {cmdBattle}을(를) 다시 쓸 수 있는 최소 간격이에요 (0이면 제한 없음).</div>
           <label style="margin-top:10px">대결 결과 멘트</label>
           <textarea id="mcMsgBattleResult" style="height:64px">⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!
-🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}</textarea>
-          <div class="hint">{effect} = 타입 상성 결과 문구 (효과가 굉장했다/별로였다/없다, 상성 없으면 빈 값)</div>
+🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}
+✨ 포인트 +{amount}</textarea>
+          <div class="hint">{effect} = 타입 상성 결과 문구 (효과가 굉장했다/별로였다/없다, 상성 없으면 빈 값) · {amount} = 지급된 포인트</div>
+          <label style="margin-top:10px">쿨타임 중일 때 안내</label>
+          <textarea id="mcMsgBattleCooldown" style="height:44px">⏱ {nickname}님, 아직 대결 쿨타임이에요! ({sec}초 후 다시 시도해주세요)</textarea>
           <label style="margin-top:10px">사용법 안내 (닉네임 안 적었을 때)</label>
           <textarea id="mcMsgBattleUsage" style="height:44px">⚠️ 사용법: {cmdBattle} [고유닉]</textarea>
           <label style="margin-top:10px">본인한테 대결 신청했을 때</label>
@@ -9781,6 +9789,9 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgGiftBall').value=s.msgGiftBall||'';
     document.getElementById('mcCmdBattle').value=s.cmdBattle||'!대결';
     document.getElementById('mcMsgBattleResult').value=s.msgBattleResult||'';
+    document.getElementById('mcBattleWinPoints').value=s.battleWinPoints!=null?s.battleWinPoints:10;
+    document.getElementById('mcBattleCooldownSec').value=s.battleCooldownSec!=null?s.battleCooldownSec:60;
+    document.getElementById('mcMsgBattleCooldown').value=s.msgBattleCooldown||'';
     document.getElementById('mcMsgBattleUsage').value=s.msgBattleUsage||'';
     document.getElementById('mcMsgBattleSelfError').value=s.msgBattleSelfError||'';
     document.getElementById('mcMsgBattleNoMonsters').value=s.msgBattleNoMonsters||'';
@@ -10086,6 +10097,9 @@ async function saveMonsterCatch(){
     msgGiftBall:document.getElementById('mcMsgGiftBall').value,
     cmdBattle:document.getElementById('mcCmdBattle').value,
     msgBattleResult:document.getElementById('mcMsgBattleResult').value,
+    battleWinPoints:document.getElementById('mcBattleWinPoints').value,
+    battleCooldownSec:document.getElementById('mcBattleCooldownSec').value,
+    msgBattleCooldown:document.getElementById('mcMsgBattleCooldown').value,
     msgBattleUsage:document.getElementById('mcMsgBattleUsage').value,
     msgBattleSelfError:document.getElementById('mcMsgBattleSelfError').value,
     msgBattleNoMonsters:document.getElementById('mcMsgBattleNoMonsters').value,
