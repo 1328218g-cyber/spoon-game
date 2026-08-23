@@ -1259,12 +1259,14 @@ function getActivitySettings(djId, settings) {
       msgLottoTotal: '🎁 총 획득 경험치: +{totalExp} EXP',
       msgLottoAutoHeader: '🎰 {nickname}님의 복권 {count}개 자동 결과',
       msgLottoFull: '🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})',
+      msgLottoNone: '⚠️ {nickname}님의 복권이 없습니다.',
       users: {}
     }
     store.saveSettings(djId, { activity: settings.activity })
   }
   if (!settings.activity.users) settings.activity.users = {}
   if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
+  if (!settings.activity.msgLottoNone) settings.activity.msgLottoNone = '⚠️ {nickname}님의 복권이 없습니다.'
   return settings.activity
 }
 
@@ -1532,7 +1534,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const nums = args.map(a => parseInt(a, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 9)
 
     if (nums.length === 3) {
-      if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+      if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
       d.lotto -= 1
       const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
       const myNums = nums.slice().sort((a, b) => a - b)
@@ -1558,7 +1560,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     }
 
     const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
-    if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${author}님의 복권이 없습니다.`), 400); return }
+    if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
     const useCount = Math.min(count, 100, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 100장까지만 처리한다
     d.lotto -= useCount
     let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
@@ -1882,6 +1884,10 @@ async function handleLottoAutoCommand(djId, room, settings, author, authorId, li
 // 또는 "등장 시간 동안 각자 확률판정" 중 설정에서 고를 수 있다.
 // 잡으려면 "포획볼"이 있어야 한다 — !모험시작으로 기본 지급받고, 그 뒤로는 상점 구매(복권 소모)
 // / 채팅 중 랜덤 획득 / 스푼(선물) 보낼 때 랜덤 획득, 세 가지 방법으로 더 모을 수 있다.
+// 🐾 몬스터잡기를 처음 켜는 계정은 빈 목록이 아니라 이 기본 프리셋(포켓몬 1세대, 타입 포함)으로
+// 자동 시작한다 — 관리자가 버튼을 따로 안 눌러도 바로 대결/타입 상성이 정상 작동한다.
+const MC_DEFAULT_MONSTERS = [{"id": "pkmn-001", "name": "이상해씨", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png", "weight": 31, "catchRate": 50, "power": 318, "trait": "도감 001번 · 타입 풀/독 · HP 45 / 공격 49 / 방어 49 / 특수 65 / 스피드 45", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-002", "evolveCount": 16, "legendary": false}, {"id": "pkmn-002", "name": "이상해풀", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/2.png", "weight": 41, "catchRate": 50, "power": 405, "trait": "도감 002번 · 타입 풀/독 · HP 60 / 공격 62 / 방어 63 / 특수 80 / 스피드 60", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-003", "evolveCount": 32, "legendary": false}, {"id": "pkmn-003", "name": "이상해꽃", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/3.png", "weight": 54, "catchRate": 50, "power": 525, "trait": "도감 003번 · 타입 풀/독 · HP 80 / 공격 82 / 방어 83 / 특수 100 / 스피드 80", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-004", "name": "파이리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/4.png", "weight": 27, "catchRate": 50, "power": 309, "trait": "도감 004번 · 타입 불꽃 · HP 39 / 공격 52 / 방어 43 / 특수 60 / 스피드 65", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "pkmn-005", "evolveCount": 16, "legendary": false}, {"id": "pkmn-005", "name": "리자드", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/5.png", "weight": 39, "catchRate": 50, "power": 405, "trait": "도감 005번 · 타입 불꽃 · HP 58 / 공격 64 / 방어 58 / 특수 80 / 스피드 80", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "pkmn-006", "evolveCount": 36, "legendary": false}, {"id": "pkmn-006", "name": "리자몽", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/6.png", "weight": 52, "catchRate": 50, "power": 534, "trait": "도감 006번 · 타입 불꽃/비행 · HP 78 / 공격 84 / 방어 78 / 특수 109 / 스피드 100", "types": ["불꽃", "비행"], "moves": ["불꽃세례", "화염방사", "불대문자", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-007", "name": "꼬부기", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/7.png", "weight": 36, "catchRate": 50, "power": 314, "trait": "도감 007번 · 타입 물 · HP 44 / 공격 48 / 방어 65 / 특수 50 / 스피드 43", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-008", "evolveCount": 16, "legendary": false}, {"id": "pkmn-008", "name": "어니부기", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/8.png", "weight": 46, "catchRate": 50, "power": 405, "trait": "도감 008번 · 타입 물 · HP 59 / 공격 63 / 방어 80 / 특수 65 / 스피드 58", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-009", "evolveCount": 36, "legendary": false}, {"id": "pkmn-009", "name": "거북왕", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/9.png", "weight": 60, "catchRate": 50, "power": 530, "trait": "도감 009번 · 타입 물 · HP 79 / 공격 83 / 방어 100 / 특수 85 / 스피드 78", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-010", "name": "캐터피", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/10.png", "weight": 27, "catchRate": 50, "power": 195, "trait": "도감 010번 · 타입 벌레 · HP 45 / 공격 30 / 방어 35 / 특수 20 / 스피드 45", "types": ["벌레"], "moves": ["더블니들", "독침", "바늘미사일"], "evolvesTo": "pkmn-011", "evolveCount": 7, "legendary": false}, {"id": "pkmn-011", "name": "단데기", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/11.png", "weight": 35, "catchRate": 50, "power": 205, "trait": "도감 011번 · 타입 벌레 · HP 50 / 공격 20 / 방어 55 / 특수 25 / 스피드 30", "types": ["벌레"], "moves": ["더블니들", "독침", "바늘미사일"], "evolvesTo": "pkmn-012", "evolveCount": 10, "legendary": false}, {"id": "pkmn-012", "name": "버터플", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/12.png", "weight": 37, "catchRate": 50, "power": 395, "trait": "도감 012번 · 타입 벌레/비행 · HP 60 / 공격 45 / 방어 50 / 특수 90 / 스피드 70", "types": ["벌레", "비행"], "moves": ["더블니들", "독침", "바늘미사일", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-013", "name": "뿔충이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/13.png", "weight": 23, "catchRate": 50, "power": 195, "trait": "도감 013번 · 타입 벌레/독 · HP 40 / 공격 35 / 방어 30 / 특수 20 / 스피드 50", "types": ["벌레", "독"], "moves": ["더블니들", "독침", "바늘미사일", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-014", "evolveCount": 7, "legendary": false}, {"id": "pkmn-014", "name": "딱충이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/14.png", "weight": 32, "catchRate": 50, "power": 205, "trait": "도감 014번 · 타입 벌레/독 · HP 45 / 공격 25 / 방어 50 / 특수 25 / 스피드 35", "types": ["벌레", "독"], "moves": ["더블니들", "독침", "바늘미사일", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-015", "evolveCount": 10, "legendary": false}, {"id": "pkmn-015", "name": "독침붕", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/15.png", "weight": 35, "catchRate": 50, "power": 395, "trait": "도감 015번 · 타입 벌레/독 · HP 65 / 공격 90 / 방어 40 / 특수 45 / 스피드 75", "types": ["벌레", "독"], "moves": ["더블니들", "독침", "바늘미사일", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-016", "name": "구구", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/16.png", "weight": 27, "catchRate": 50, "power": 251, "trait": "도감 016번 · 타입 노말/비행 · HP 40 / 공격 45 / 방어 40 / 특수 35 / 스피드 56", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "pkmn-017", "evolveCount": 18, "legendary": false}, {"id": "pkmn-017", "name": "피죤", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/17.png", "weight": 39, "catchRate": 50, "power": 349, "trait": "도감 017번 · 타입 노말/비행 · HP 63 / 공격 60 / 방어 55 / 특수 50 / 스피드 71", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "pkmn-018", "evolveCount": 36, "legendary": false}, {"id": "pkmn-018", "name": "피죤투", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/18.png", "weight": 53, "catchRate": 50, "power": 479, "trait": "도감 018번 · 타입 노말/비행 · HP 83 / 공격 80 / 방어 75 / 특수 70 / 스피드 101", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-019", "name": "꼬렛", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/19.png", "weight": 22, "catchRate": 50, "power": 253, "trait": "도감 019번 · 타입 노말 · HP 30 / 공격 56 / 방어 35 / 특수 25 / 스피드 72", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-020", "evolveCount": 20, "legendary": false}, {"id": "pkmn-020", "name": "레트라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/20.png", "weight": 38, "catchRate": 50, "power": 413, "trait": "도감 020번 · 타입 노말 · HP 55 / 공격 81 / 방어 60 / 특수 50 / 스피드 97", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-021", "name": "깨비참", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/21.png", "weight": 23, "catchRate": 50, "power": 262, "trait": "도감 021번 · 타입 노말/비행 · HP 40 / 공격 60 / 방어 30 / 특수 31 / 스피드 70", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "pkmn-022", "evolveCount": 20, "legendary": false}, {"id": "pkmn-022", "name": "깨비드릴조", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/22.png", "weight": 43, "catchRate": 50, "power": 442, "trait": "도감 022번 · 타입 노말/비행 · HP 65 / 공격 90 / 방어 65 / 특수 61 / 스피드 100", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-023", "name": "아보", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/23.png", "weight": 26, "catchRate": 50, "power": 288, "trait": "도감 023번 · 타입 독 · HP 35 / 공격 60 / 방어 44 / 특수 40 / 스피드 55", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-024", "evolveCount": 22, "legendary": false}, {"id": "pkmn-024", "name": "아보크", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/24.png", "weight": 43, "catchRate": 50, "power": 448, "trait": "도감 024번 · 타입 독 · HP 60 / 공격 95 / 방어 69 / 특수 65 / 스피드 80", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-025", "name": "피카츄", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png", "weight": 25, "catchRate": 50, "power": 320, "trait": "도감 025번 · 타입 전기 · HP 35 / 공격 55 / 방어 40 / 특수 50 / 스피드 90", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "pkmn-026", "evolveCount": 10, "legendary": false}, {"id": "pkmn-026", "name": "라이츄", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/26.png", "weight": 38, "catchRate": 50, "power": 485, "trait": "도감 026번 · 타입 전기 · HP 60 / 공격 90 / 방어 55 / 특수 90 / 스피드 110", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-027", "name": "모래두지", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/27.png", "weight": 45, "catchRate": 50, "power": 300, "trait": "도감 027번 · 타입 땅 · HP 50 / 공격 75 / 방어 85 / 특수 20 / 스피드 40", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "pkmn-028", "evolveCount": 22, "legendary": false}, {"id": "pkmn-028", "name": "고지", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/28.png", "weight": 62, "catchRate": 50, "power": 450, "trait": "도감 028번 · 타입 땅 · HP 75 / 공격 100 / 방어 110 / 특수 45 / 스피드 65", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-029", "name": "니드런♀", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/29.png", "weight": 36, "catchRate": 50, "power": 275, "trait": "도감 029번 · 타입 독 · HP 55 / 공격 47 / 방어 52 / 특수 40 / 스피드 41", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-030", "evolveCount": 16, "legendary": false}, {"id": "pkmn-030", "name": "니드리나", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/30.png", "weight": 46, "catchRate": 50, "power": 365, "trait": "도감 030번 · 타입 독 · HP 70 / 공격 62 / 방어 67 / 특수 55 / 스피드 56", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-031", "evolveCount": 16, "legendary": false}, {"id": "pkmn-031", "name": "니드퀸", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/31.png", "weight": 59, "catchRate": 50, "power": 505, "trait": "도감 031번 · 타입 독/땅 · HP 90 / 공격 92 / 방어 87 / 특수 75 / 스피드 76", "types": ["독", "땅"], "moves": ["독침", "오물공격", "독찌르기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-032", "name": "니드런♂", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/32.png", "weight": 29, "catchRate": 50, "power": 273, "trait": "도감 032번 · 타입 독 · HP 46 / 공격 57 / 방어 40 / 특수 40 / 스피드 50", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-033", "evolveCount": 16, "legendary": false}, {"id": "pkmn-033", "name": "니드리노", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/33.png", "weight": 39, "catchRate": 50, "power": 365, "trait": "도감 033번 · 타입 독 · HP 61 / 공격 72 / 방어 57 / 특수 55 / 스피드 65", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-034", "evolveCount": 16, "legendary": false}, {"id": "pkmn-034", "name": "니드킹", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/34.png", "weight": 53, "catchRate": 50, "power": 505, "trait": "도감 034번 · 타입 독/땅 · HP 81 / 공격 102 / 방어 77 / 특수 85 / 스피드 85", "types": ["독", "땅"], "moves": ["독침", "오물공격", "독찌르기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-035", "name": "삐삐", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/35.png", "weight": 39, "catchRate": 50, "power": 323, "trait": "도감 035번 · 타입 노말 · HP 70 / 공격 45 / 방어 48 / 특수 60 / 스피드 35", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-036", "evolveCount": 10, "legendary": false}, {"id": "pkmn-036", "name": "픽시", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/36.png", "weight": 56, "catchRate": 50, "power": 483, "trait": "도감 036번 · 타입 노말 · HP 95 / 공격 70 / 방어 73 / 특수 95 / 스피드 60", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-037", "name": "식스테일", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/37.png", "weight": 26, "catchRate": 50, "power": 299, "trait": "도감 037번 · 타입 불꽃 · HP 38 / 공격 41 / 방어 40 / 특수 50 / 스피드 65", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "pkmn-038", "evolveCount": 10, "legendary": false}, {"id": "pkmn-038", "name": "나인테일", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/38.png", "weight": 49, "catchRate": 50, "power": 505, "trait": "도감 038번 · 타입 불꽃 · HP 73 / 공격 76 / 방어 75 / 특수 81 / 스피드 100", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-039", "name": "푸린", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/39.png", "weight": 45, "catchRate": 50, "power": 270, "trait": "도감 039번 · 타입 노말 · HP 115 / 공격 45 / 방어 20 / 특수 45 / 스피드 20", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-040", "evolveCount": 16, "legendary": false}, {"id": "pkmn-040", "name": "푸크린", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/40.png", "weight": 62, "catchRate": 50, "power": 435, "trait": "도감 040번 · 타입 노말 · HP 140 / 공격 70 / 방어 45 / 특수 85 / 스피드 45", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-041", "name": "주뱃", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/41.png", "weight": 25, "catchRate": 50, "power": 245, "trait": "도감 041번 · 타입 독/비행 · HP 40 / 공격 45 / 방어 35 / 특수 30 / 스피드 55", "types": ["독", "비행"], "moves": ["독침", "오물공격", "독찌르기", "날개치기", "회전부리", "공중날기"], "evolvesTo": "pkmn-042", "evolveCount": 22, "legendary": false}, {"id": "pkmn-042", "name": "골뱃", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/42.png", "weight": 48, "catchRate": 50, "power": 455, "trait": "도감 042번 · 타입 독/비행 · HP 75 / 공격 80 / 방어 70 / 특수 65 / 스피드 90", "types": ["독", "비행"], "moves": ["독침", "오물공격", "독찌르기", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-043", "name": "뚜벅쵸", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/43.png", "weight": 33, "catchRate": 50, "power": 320, "trait": "도감 043번 · 타입 풀/독 · HP 45 / 공격 50 / 방어 55 / 특수 75 / 스피드 30", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-044", "evolveCount": 21, "legendary": false}, {"id": "pkmn-044", "name": "냄새꼬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/44.png", "weight": 43, "catchRate": 50, "power": 395, "trait": "도감 044번 · 타입 풀/독 · HP 60 / 공격 65 / 방어 70 / 특수 85 / 스피드 40", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-045", "evolveCount": 10, "legendary": false}, {"id": "pkmn-045", "name": "라플레시아", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/45.png", "weight": 53, "catchRate": 50, "power": 490, "trait": "도감 045번 · 타입 풀/독 · HP 75 / 공격 80 / 방어 85 / 특수 110 / 스피드 50", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-046", "name": "파라스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/46.png", "weight": 30, "catchRate": 50, "power": 285, "trait": "도감 046번 · 타입 벌레/풀 · HP 35 / 공격 70 / 방어 55 / 특수 45 / 스피드 25", "types": ["벌레", "풀"], "moves": ["더블니들", "독침", "바늘미사일", "덩굴채찍", "잎날가르기", "솔라빔"], "evolvesTo": "pkmn-047", "evolveCount": 24, "legendary": false}, {"id": "pkmn-047", "name": "파라섹트", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/47.png", "weight": 47, "catchRate": 50, "power": 405, "trait": "도감 047번 · 타입 벌레/풀 · HP 60 / 공격 95 / 방어 80 / 특수 60 / 스피드 30", "types": ["벌레", "풀"], "moves": ["더블니들", "독침", "바늘미사일", "덩굴채찍", "잎날가르기", "솔라빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-048", "name": "콘팡이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/48.png", "weight": 37, "catchRate": 50, "power": 305, "trait": "도감 048번 · 타입 벌레/독 · HP 60 / 공격 55 / 방어 50 / 특수 40 / 스피드 45", "types": ["벌레", "독"], "moves": ["더블니들", "독침", "바늘미사일", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-049", "evolveCount": 31, "legendary": false}, {"id": "pkmn-049", "name": "도나리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/49.png", "weight": 43, "catchRate": 50, "power": 450, "trait": "도감 049번 · 타입 벌레/독 · HP 70 / 공격 65 / 방어 60 / 특수 90 / 스피드 90", "types": ["벌레", "독"], "moves": ["더블니들", "독침", "바늘미사일", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-050", "name": "디그다", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/50.png", "weight": 12, "catchRate": 50, "power": 265, "trait": "도감 050번 · 타입 땅 · HP 10 / 공격 55 / 방어 25 / 특수 35 / 스피드 95", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "pkmn-051", "evolveCount": 26, "legendary": false}, {"id": "pkmn-051", "name": "닥트리오", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/51.png", "weight": 28, "catchRate": 50, "power": 425, "trait": "도감 051번 · 타입 땅 · HP 35 / 공격 100 / 방어 50 / 특수 50 / 스피드 120", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-052", "name": "나옹", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/52.png", "weight": 25, "catchRate": 50, "power": 290, "trait": "도감 052번 · 타입 노말 · HP 40 / 공격 45 / 방어 35 / 특수 40 / 스피드 90", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-053", "evolveCount": 28, "legendary": false}, {"id": "pkmn-053", "name": "페르시온", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/53.png", "weight": 42, "catchRate": 50, "power": 440, "trait": "도감 053번 · 타입 노말 · HP 65 / 공격 70 / 방어 60 / 특수 65 / 스피드 115", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-054", "name": "고라파덕", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/54.png", "weight": 33, "catchRate": 50, "power": 320, "trait": "도감 054번 · 타입 물 · HP 50 / 공격 52 / 방어 48 / 특수 65 / 스피드 55", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-055", "evolveCount": 33, "legendary": false}, {"id": "pkmn-055", "name": "골덕", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/55.png", "weight": 53, "catchRate": 50, "power": 500, "trait": "도감 055번 · 타입 물 · HP 80 / 공격 82 / 방어 78 / 특수 95 / 스피드 85", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-056", "name": "망키", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/56.png", "weight": 25, "catchRate": 50, "power": 305, "trait": "도감 056번 · 타입 격투 · HP 40 / 공격 80 / 방어 35 / 특수 35 / 스피드 70", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "pkmn-057", "evolveCount": 28, "legendary": false}, {"id": "pkmn-057", "name": "라이관", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/57.png", "weight": 42, "catchRate": 50, "power": 455, "trait": "도감 057번 · 타입 격투 · HP 65 / 공격 105 / 방어 60 / 특수 60 / 스피드 95", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-058", "name": "가디", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/58.png", "weight": 33, "catchRate": 50, "power": 350, "trait": "도감 058번 · 타입 불꽃 · HP 55 / 공격 70 / 방어 45 / 특수 70 / 스피드 60", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "pkmn-059", "evolveCount": 10, "legendary": false}, {"id": "pkmn-059", "name": "윈디", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/59.png", "weight": 57, "catchRate": 50, "power": 555, "trait": "도감 059번 · 타입 불꽃 · HP 90 / 공격 110 / 방어 80 / 특수 100 / 스피드 95", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-060", "name": "발챙이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/60.png", "weight": 27, "catchRate": 50, "power": 300, "trait": "도감 060번 · 타입 물 · HP 40 / 공격 50 / 방어 40 / 특수 40 / 스피드 90", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-061", "evolveCount": 25, "legendary": false}, {"id": "pkmn-061", "name": "슈륙챙이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/61.png", "weight": 43, "catchRate": 50, "power": 385, "trait": "도감 061번 · 타입 물 · HP 65 / 공격 65 / 방어 65 / 특수 50 / 스피드 90", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-062", "evolveCount": 10, "legendary": false}, {"id": "pkmn-062", "name": "강챙이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/62.png", "weight": 62, "catchRate": 50, "power": 510, "trait": "도감 062번 · 타입 물/격투 · HP 90 / 공격 95 / 방어 95 / 특수 70 / 스피드 70", "types": ["물", "격투"], "moves": ["물대포", "파도타기", "하이드로펌프", "태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-063", "name": "캐이시", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/63.png", "weight": 13, "catchRate": 50, "power": 310, "trait": "도감 063번 · 타입 에스퍼 · HP 25 / 공격 20 / 방어 15 / 특수 105 / 스피드 90", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "pkmn-064", "evolveCount": 16, "legendary": false}, {"id": "pkmn-064", "name": "윤겔라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/64.png", "weight": 23, "catchRate": 50, "power": 400, "trait": "도감 064번 · 타입 에스퍼 · HP 40 / 공격 35 / 방어 30 / 특수 120 / 스피드 105", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "pkmn-065", "evolveCount": 10, "legendary": false}, {"id": "pkmn-065", "name": "후딘", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/65.png", "weight": 33, "catchRate": 50, "power": 500, "trait": "도감 065번 · 타입 에스퍼 · HP 55 / 공격 50 / 방어 45 / 특수 135 / 스피드 120", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-066", "name": "알통몬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/66.png", "weight": 40, "catchRate": 50, "power": 305, "trait": "도감 066번 · 타입 격투 · HP 70 / 공격 80 / 방어 50 / 특수 35 / 스피드 35", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "pkmn-067", "evolveCount": 28, "legendary": false}, {"id": "pkmn-067", "name": "근육몬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/67.png", "weight": 50, "catchRate": 50, "power": 405, "trait": "도감 067번 · 타입 격투 · HP 80 / 공격 100 / 방어 70 / 특수 50 / 스피드 45", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "pkmn-068", "evolveCount": 10, "legendary": false}, {"id": "pkmn-068", "name": "괴력몬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/68.png", "weight": 57, "catchRate": 50, "power": 505, "trait": "도감 068번 · 타입 격투 · HP 90 / 공격 130 / 방어 80 / 특수 65 / 스피드 55", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-069", "name": "모다피", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/69.png", "weight": 28, "catchRate": 50, "power": 300, "trait": "도감 069번 · 타입 풀/독 · HP 50 / 공격 75 / 방어 35 / 특수 70 / 스피드 40", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-070", "evolveCount": 21, "legendary": false}, {"id": "pkmn-070", "name": "우츠동", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/70.png", "weight": 38, "catchRate": 50, "power": 390, "trait": "도감 070번 · 타입 풀/독 · HP 65 / 공격 90 / 방어 50 / 특수 85 / 스피드 55", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-071", "evolveCount": 10, "legendary": false}, {"id": "pkmn-071", "name": "우츠보트", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/71.png", "weight": 48, "catchRate": 50, "power": 490, "trait": "도감 071번 · 타입 풀/독 · HP 80 / 공격 105 / 방어 65 / 특수 100 / 스피드 70", "types": ["풀", "독"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-072", "name": "왕눈해", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/72.png", "weight": 25, "catchRate": 50, "power": 335, "trait": "도감 072번 · 타입 물/독 · HP 40 / 공격 40 / 방어 35 / 특수 50 / 스피드 70", "types": ["물", "독"], "moves": ["물대포", "파도타기", "하이드로펌프", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-073", "evolveCount": 30, "legendary": false}, {"id": "pkmn-073", "name": "독파리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/73.png", "weight": 48, "catchRate": 50, "power": 515, "trait": "도감 073번 · 타입 물/독 · HP 80 / 공격 70 / 방어 65 / 특수 80 / 스피드 100", "types": ["물", "독"], "moves": ["물대포", "파도타기", "하이드로펌프", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-074", "name": "꼬마돌", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/74.png", "weight": 47, "catchRate": 50, "power": 300, "trait": "도감 074번 · 타입 바위/땅 · HP 40 / 공격 80 / 방어 100 / 특수 30 / 스피드 20", "types": ["바위", "땅"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "pkmn-075", "evolveCount": 25, "legendary": false}, {"id": "pkmn-075", "name": "데구리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/75.png", "weight": 57, "catchRate": 50, "power": 390, "trait": "도감 075번 · 타입 바위/땅 · HP 55 / 공격 95 / 방어 115 / 특수 45 / 스피드 35", "types": ["바위", "땅"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "pkmn-076", "evolveCount": 10, "legendary": false}, {"id": "pkmn-076", "name": "딱구리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/76.png", "weight": 70, "catchRate": 50, "power": 495, "trait": "도감 076번 · 타입 바위/땅 · HP 80 / 공격 120 / 방어 130 / 특수 55 / 스피드 45", "types": ["바위", "땅"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-077", "name": "포니타", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/77.png", "weight": 35, "catchRate": 50, "power": 410, "trait": "도감 077번 · 타입 불꽃 · HP 50 / 공격 85 / 방어 55 / 특수 65 / 스피드 90", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "pkmn-078", "evolveCount": 40, "legendary": false}, {"id": "pkmn-078", "name": "날쌩마", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/78.png", "weight": 45, "catchRate": 50, "power": 500, "trait": "도감 078번 · 타입 불꽃 · HP 65 / 공격 100 / 방어 70 / 특수 80 / 스피드 105", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-079", "name": "야돈", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/79.png", "weight": 52, "catchRate": 50, "power": 315, "trait": "도감 079번 · 타입 물/에스퍼 · HP 90 / 공격 65 / 방어 65 / 특수 40 / 스피드 15", "types": ["물", "에스퍼"], "moves": ["물대포", "파도타기", "하이드로펌프", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "pkmn-080", "evolveCount": 37, "legendary": false}, {"id": "pkmn-080", "name": "야도란", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/80.png", "weight": 68, "catchRate": 50, "power": 490, "trait": "도감 080번 · 타입 물/에스퍼 · HP 95 / 공격 75 / 방어 110 / 특수 100 / 스피드 30", "types": ["물", "에스퍼"], "moves": ["물대포", "파도타기", "하이드로펌프", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-081", "name": "코일", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/81.png", "weight": 32, "catchRate": 50, "power": 325, "trait": "도감 081번 · 타입 전기 · HP 25 / 공격 35 / 방어 70 / 특수 95 / 스피드 45", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "pkmn-082", "evolveCount": 10, "legendary": false}, {"id": "pkmn-082", "name": "레어코일", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/82.png", "weight": 48, "catchRate": 50, "power": 465, "trait": "도감 082번 · 타입 전기 · HP 50 / 공격 60 / 방어 95 / 특수 120 / 스피드 70", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-083", "name": "파오리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/83.png", "weight": 36, "catchRate": 50, "power": 377, "trait": "도감 083번 · 타입 노말/비행 · HP 52 / 공격 90 / 방어 55 / 특수 58 / 스피드 60", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-084", "name": "두두", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/84.png", "weight": 27, "catchRate": 50, "power": 310, "trait": "도감 084번 · 타입 노말/비행 · HP 35 / 공격 85 / 방어 45 / 특수 35 / 스피드 75", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "pkmn-085", "evolveCount": 31, "legendary": false}, {"id": "pkmn-085", "name": "두트리오", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/85.png", "weight": 43, "catchRate": 50, "power": 470, "trait": "도감 085번 · 타입 노말/비행 · HP 60 / 공격 110 / 방어 70 / 특수 60 / 스피드 110", "types": ["노말", "비행"], "moves": ["몸통박치기", "누르기", "하이퍼빔", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-086", "name": "쥬쥬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/86.png", "weight": 40, "catchRate": 50, "power": 325, "trait": "도감 086번 · 타입 물 · HP 65 / 공격 45 / 방어 55 / 특수 45 / 스피드 45", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-087", "evolveCount": 34, "legendary": false}, {"id": "pkmn-087", "name": "쥬레곤", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/87.png", "weight": 57, "catchRate": 50, "power": 475, "trait": "도감 087번 · 타입 물/얼음 · HP 90 / 공격 70 / 방어 80 / 특수 70 / 스피드 70", "types": ["물", "얼음"], "moves": ["물대포", "파도타기", "하이드로펌프", "얼음뭉치", "얼음빔", "눈보라"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-088", "name": "질퍽이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/88.png", "weight": 43, "catchRate": 50, "power": 325, "trait": "도감 088번 · 타입 독 · HP 80 / 공격 80 / 방어 50 / 특수 40 / 스피드 25", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-089", "evolveCount": 38, "legendary": false}, {"id": "pkmn-089", "name": "질뻐크", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/89.png", "weight": 60, "catchRate": 50, "power": 500, "trait": "도감 089번 · 타입 독 · HP 105 / 공격 105 / 방어 75 / 특수 65 / 스피드 50", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-090", "name": "셀러", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/90.png", "weight": 43, "catchRate": 50, "power": 305, "trait": "도감 090번 · 타입 물 · HP 30 / 공격 65 / 방어 100 / 특수 45 / 스피드 40", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-091", "evolveCount": 10, "legendary": false}, {"id": "pkmn-091", "name": "파르셀", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/91.png", "weight": 77, "catchRate": 50, "power": 525, "trait": "도감 091번 · 타입 물/얼음 · HP 50 / 공격 95 / 방어 180 / 특수 85 / 스피드 70", "types": ["물", "얼음"], "moves": ["물대포", "파도타기", "하이드로펌프", "얼음뭉치", "얼음빔", "눈보라"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-092", "name": "고오스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/92.png", "weight": 20, "catchRate": 50, "power": 310, "trait": "도감 092번 · 타입 고스트/독 · HP 30 / 공격 35 / 방어 30 / 특수 100 / 스피드 80", "types": ["고스트", "독"], "moves": ["핥기", "나이트헤드", "꿈먹기", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-093", "evolveCount": 25, "legendary": false}, {"id": "pkmn-093", "name": "고우스트", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/93.png", "weight": 30, "catchRate": 50, "power": 405, "trait": "도감 093번 · 타입 고스트/독 · HP 45 / 공격 50 / 방어 45 / 특수 115 / 스피드 95", "types": ["고스트", "독"], "moves": ["핥기", "나이트헤드", "꿈먹기", "독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-094", "evolveCount": 10, "legendary": false}, {"id": "pkmn-094", "name": "팬텀", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/94.png", "weight": 40, "catchRate": 50, "power": 500, "trait": "도감 094번 · 타입 고스트/독 · HP 60 / 공격 65 / 방어 60 / 특수 130 / 스피드 110", "types": ["고스트", "독"], "moves": ["핥기", "나이트헤드", "꿈먹기", "독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-095", "name": "롱스톤", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/95.png", "weight": 65, "catchRate": 50, "power": 385, "trait": "도감 095번 · 타입 바위/땅 · HP 35 / 공격 45 / 방어 160 / 특수 30 / 스피드 70", "types": ["바위", "땅"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-096", "name": "슬리프", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/96.png", "weight": 35, "catchRate": 50, "power": 328, "trait": "도감 096번 · 타입 에스퍼 · HP 60 / 공격 48 / 방어 45 / 특수 43 / 스피드 42", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "pkmn-097", "evolveCount": 10, "legendary": false}, {"id": "pkmn-097", "name": "슬리퍼", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/97.png", "weight": 52, "catchRate": 50, "power": 483, "trait": "도감 097번 · 타입 에스퍼 · HP 85 / 공격 73 / 방어 70 / 특수 73 / 스피드 67", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-098", "name": "크랩", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/98.png", "weight": 40, "catchRate": 50, "power": 325, "trait": "도감 098번 · 타입 물 · HP 30 / 공격 105 / 방어 90 / 특수 25 / 스피드 50", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-099", "evolveCount": 28, "legendary": false}, {"id": "pkmn-099", "name": "킹크랩", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/99.png", "weight": 57, "catchRate": 50, "power": 475, "trait": "도감 099번 · 타입 물 · HP 55 / 공격 130 / 방어 115 / 특수 50 / 스피드 75", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-100", "name": "찌리리공", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/100.png", "weight": 30, "catchRate": 50, "power": 330, "trait": "도감 100번 · 타입 전기 · HP 40 / 공격 30 / 방어 50 / 특수 55 / 스피드 100", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "pkmn-101", "evolveCount": 30, "legendary": false}, {"id": "pkmn-101", "name": "붐볼", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/101.png", "weight": 43, "catchRate": 50, "power": 490, "trait": "도감 101번 · 타입 전기 · HP 60 / 공격 50 / 방어 70 / 특수 80 / 스피드 150", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-102", "name": "아라리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/102.png", "weight": 47, "catchRate": 50, "power": 325, "trait": "도감 102번 · 타입 풀/에스퍼 · HP 60 / 공격 40 / 방어 80 / 특수 60 / 스피드 40", "types": ["풀", "에스퍼"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "pkmn-103", "evolveCount": 10, "legendary": false}, {"id": "pkmn-103", "name": "나시", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/103.png", "weight": 60, "catchRate": 50, "power": 530, "trait": "도감 103번 · 타입 풀/에스퍼 · HP 95 / 공격 95 / 방어 85 / 특수 125 / 스피드 55", "types": ["풀", "에스퍼"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-104", "name": "텅구리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/104.png", "weight": 48, "catchRate": 50, "power": 320, "trait": "도감 104번 · 타입 땅 · HP 50 / 공격 50 / 방어 95 / 특수 40 / 스피드 35", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "pkmn-105", "evolveCount": 28, "legendary": false}, {"id": "pkmn-105", "name": "텅부리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/105.png", "weight": 57, "catchRate": 50, "power": 425, "trait": "도감 105번 · 타입 땅 · HP 60 / 공격 80 / 방어 110 / 특수 50 / 스피드 45", "types": ["땅"], "moves": ["구멍파기", "지진", "땅가르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-106", "name": "시라소몬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/106.png", "weight": 34, "catchRate": 50, "power": 455, "trait": "도감 106번 · 타입 격투 · HP 50 / 공격 120 / 방어 53 / 특수 35 / 스피드 87", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-107", "name": "홍수몬", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/107.png", "weight": 43, "catchRate": 50, "power": 455, "trait": "도감 107번 · 타입 격투 · HP 50 / 공격 105 / 방어 79 / 특수 35 / 스피드 76", "types": ["격투"], "moves": ["태권당수", "지옥의바퀴", "괴력"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-108", "name": "내루미", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/108.png", "weight": 55, "catchRate": 50, "power": 385, "trait": "도감 108번 · 타입 노말 · HP 90 / 공격 55 / 방어 75 / 특수 60 / 스피드 30", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-109", "name": "또가스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/109.png", "weight": 45, "catchRate": 50, "power": 340, "trait": "도감 109번 · 타입 독 · HP 40 / 공격 65 / 방어 95 / 특수 60 / 스피드 35", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "pkmn-110", "evolveCount": 35, "legendary": false}, {"id": "pkmn-110", "name": "또도가스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/110.png", "weight": 62, "catchRate": 50, "power": 490, "trait": "도감 110번 · 타입 독 · HP 65 / 공격 90 / 방어 120 / 특수 85 / 스피드 60", "types": ["독"], "moves": ["독침", "오물공격", "독찌르기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-111", "name": "뿔카노", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/111.png", "weight": 58, "catchRate": 50, "power": 345, "trait": "도감 111번 · 타입 땅/바위 · HP 80 / 공격 85 / 방어 95 / 특수 30 / 스피드 25", "types": ["땅", "바위"], "moves": ["구멍파기", "지진", "땅가르기", "돌떨구기", "스톤샤워", "바위깨기"], "evolvesTo": "pkmn-112", "evolveCount": 42, "legendary": false}, {"id": "pkmn-112", "name": "코뿌리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/112.png", "weight": 75, "catchRate": 50, "power": 485, "trait": "도감 112번 · 타입 땅/바위 · HP 105 / 공격 130 / 방어 120 / 특수 45 / 스피드 40", "types": ["땅", "바위"], "moves": ["구멍파기", "지진", "땅가르기", "돌떨구기", "스톤샤워", "바위깨기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-113", "name": "럭키", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/113.png", "weight": 85, "catchRate": 50, "power": 450, "trait": "도감 113번 · 타입 노말 · HP 250 / 공격 5 / 방어 5 / 특수 35 / 스피드 50", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-114", "name": "덩쿠리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/114.png", "weight": 60, "catchRate": 50, "power": 435, "trait": "도감 114번 · 타입 풀 · HP 65 / 공격 55 / 방어 115 / 특수 100 / 스피드 60", "types": ["풀"], "moves": ["덩굴채찍", "잎날가르기", "솔라빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-115", "name": "캥카", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/115.png", "weight": 62, "catchRate": 50, "power": 490, "trait": "도감 115번 · 타입 노말 · HP 105 / 공격 95 / 방어 80 / 특수 40 / 스피드 90", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-116", "name": "쏘드라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/116.png", "weight": 33, "catchRate": 50, "power": 295, "trait": "도감 116번 · 타입 물 · HP 30 / 공격 40 / 방어 70 / 특수 70 / 스피드 60", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-117", "evolveCount": 32, "legendary": false}, {"id": "pkmn-117", "name": "시드라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/117.png", "weight": 50, "catchRate": 50, "power": 440, "trait": "도감 117번 · 타입 물 · HP 55 / 공격 65 / 방어 95 / 특수 95 / 스피드 85", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-118", "name": "콘치", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/118.png", "weight": 35, "catchRate": 50, "power": 320, "trait": "도감 118번 · 타입 물 · HP 45 / 공격 67 / 방어 60 / 특수 35 / 스피드 63", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-119", "evolveCount": 33, "legendary": false}, {"id": "pkmn-119", "name": "왕콘치", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/119.png", "weight": 48, "catchRate": 50, "power": 450, "trait": "도감 119번 · 타입 물 · HP 80 / 공격 92 / 방어 65 / 특수 65 / 스피드 68", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-120", "name": "별가사리", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/120.png", "weight": 28, "catchRate": 50, "power": 340, "trait": "도감 120번 · 타입 물 · HP 30 / 공격 45 / 방어 55 / 특수 70 / 스피드 85", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-121", "evolveCount": 30, "legendary": false}, {"id": "pkmn-121", "name": "아쿠스타", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/121.png", "weight": 48, "catchRate": 50, "power": 520, "trait": "도감 121번 · 타입 물/에스퍼 · HP 60 / 공격 75 / 방어 85 / 특수 100 / 스피드 115", "types": ["물", "에스퍼"], "moves": ["물대포", "파도타기", "하이드로펌프", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-122", "name": "마임맨", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/122.png", "weight": 35, "catchRate": 50, "power": 460, "trait": "도감 122번 · 타입 에스퍼 · HP 40 / 공격 45 / 방어 65 / 특수 100 / 스피드 90", "types": ["에스퍼"], "moves": ["염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-123", "name": "스라크", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/123.png", "weight": 50, "catchRate": 50, "power": 500, "trait": "도감 123번 · 타입 벌레/비행 · HP 70 / 공격 110 / 방어 80 / 특수 55 / 스피드 105", "types": ["벌레", "비행"], "moves": ["더블니들", "독침", "바늘미사일", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-124", "name": "루주라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/124.png", "weight": 33, "catchRate": 50, "power": 455, "trait": "도감 124번 · 타입 얼음/에스퍼 · HP 65 / 공격 50 / 방어 35 / 특수 115 / 스피드 95", "types": ["얼음", "에스퍼"], "moves": ["얼음뭉치", "얼음빔", "눈보라", "염동력", "사이코키네시스", "환상빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-125", "name": "에레브", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/125.png", "weight": 41, "catchRate": 50, "power": 490, "trait": "도감 125번 · 타입 전기 · HP 65 / 공격 83 / 방어 57 / 특수 95 / 스피드 105", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-126", "name": "마그마", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/126.png", "weight": 10, "catchRate": 40, "power": 495, "trait": "도감 126번 · 타입 불꽃 · HP 65 / 공격 95 / 방어 57 / 특수 100 / 스피드 93", "types": ["불꽃"], "moves": ["불꽃숨결", "화염방사", "도깨비불", "사이코키네시스"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-127", "name": "쁘사이저", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/127.png", "weight": 10, "catchRate": 40, "power": 500, "trait": "도감 127번 · 타입 벌레 · HP 65 / 공격 125 / 방어 100 / 특수 55 / 스피드 85", "types": ["벌레"], "moves": ["가위교차", "헤드번트", "지구던지기", "데인지"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-128", "name": "켄타로스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/128.png", "weight": 10, "catchRate": 40, "power": 490, "trait": "도감 128번 · 타입 노말 · HP 75 / 공격 100 / 방어 95 / 특수 40 / 스피드 110", "types": ["노말"], "moves": ["몸통박치기", "돌진", "불대타", "천둥엄니"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-129", "name": "잉어킹", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/129.png", "weight": 10, "catchRate": 40, "power": 200, "trait": "도감 129번 · 타입 물 · HP 20 / 공격 10 / 방어 55 / 특수 15 / 스피드 80", "types": ["물"], "moves": ["퍼덕이기", "물보라"], "evolvesTo": "pkmn-130", "evolveCount": 10, "legendary": false}, {"id": "pkmn-130", "name": "갸라도스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/130.png", "weight": 10, "catchRate": 40, "power": 540, "trait": "도감 130번 · 타입 물/비행 · HP 95 / 공격 125 / 방어 79 / 특수 60 / 스피드 81", "types": ["물", "비행"], "moves": ["용의분노", "파도타기", "맹렬한기세", "각다귀"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-131", "name": "라프라스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/131.png", "weight": 10, "catchRate": 40, "power": 535, "trait": "도감 131번 · 타입 물/얼음 · HP 130 / 공격 85 / 방어 80 / 특수 85 / 스피드 60", "types": ["물", "얼음"], "moves": ["냉동빔", "파도타기", "몸통박치기", "노래하기"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-132", "name": "메타몽", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/132.png", "weight": 10, "catchRate": 40, "power": 288, "trait": "도감 132번 · 타입 노말 · HP 48 / 공격 48 / 방어 48 / 특수 48 / 스피드 48", "types": ["노말"], "moves": ["변신"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-133", "name": "이브이", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/133.png", "weight": 10, "catchRate": 40, "power": 325, "trait": "도감 133번 · 타입 노말 · HP 55 / 공격 55 / 방어 50 / 특수 45 / 스피드 55", "types": ["노말"], "moves": ["몸통박치기", "모래뿌리기", "꼬리흔들기"], "evolvesTo": "pkmn-134", "evolveCount": 10, "legendary": false}, {"id": "pkmn-134", "name": "샤미드", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/134.png", "weight": 10, "catchRate": 40, "power": 525, "trait": "도감 134번 · 타입 물 · HP 130 / 공격 65 / 방어 60 / 특수 110 / 스피드 65", "types": ["물"], "moves": ["파도타기", "냉동빔", "고속스핀"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-135", "name": "쥬피썬더", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/135.png", "weight": 10, "catchRate": 40, "power": 525, "trait": "도감 135번 · 타입 전기 · HP 65 / 공격 65 / 방어 60 / 특수 110 / 스피드 130", "types": ["전기"], "moves": ["십만볼트", "전광석화", "전기쇼크"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-136", "name": "부스터", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/136.png", "weight": 41, "catchRate": 50, "power": 495, "trait": "도감 136번 · 타입 불꽃 · HP 65 / 공격 95 / 방어 57 / 특수 100 / 스피드 93", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-137", "name": "폴리곤", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/137.png", "weight": 45, "catchRate": 50, "power": 395, "trait": "도감 137번 · 타입 노말 · HP 65 / 공격 60 / 방어 70 / 특수 85 / 스피드 40", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-138", "name": "암나이트", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/138.png", "weight": 45, "catchRate": 50, "power": 355, "trait": "도감 138번 · 타입 바위/물 · HP 35 / 공격 40 / 방어 100 / 특수 90 / 스피드 35", "types": ["바위", "물"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-139", "evolveCount": 10, "legendary": false}, {"id": "pkmn-139", "name": "암스타", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/139.png", "weight": 65, "catchRate": 50, "power": 495, "trait": "도감 139번 · 타입 바위/물 · HP 70 / 공격 60 / 방어 125 / 특수 115 / 스피드 55", "types": ["바위", "물"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-140", "name": "투구", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/140.png", "weight": 40, "catchRate": 50, "power": 355, "trait": "도감 140번 · 타입 바위/물 · HP 30 / 공격 80 / 방어 90 / 특수 55 / 스피드 55", "types": ["바위", "물"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "물대포", "파도타기", "하이드로펌프"], "evolvesTo": "pkmn-141", "evolveCount": 10, "legendary": false}, {"id": "pkmn-141", "name": "투구푸스", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/141.png", "weight": 55, "catchRate": 50, "power": 495, "trait": "도감 141번 · 타입 바위/물 · HP 60 / 공격 115 / 방어 105 / 특수 65 / 스피드 80", "types": ["바위", "물"], "moves": ["돌떨구기", "스톤샤워", "바위깨기", "물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-142", "name": "프테라", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/142.png", "weight": 55, "catchRate": 50, "power": 500, "trait": "도감 142번 · 타입 벌레 · HP 65 / 공격 125 / 방어 100 / 특수 55 / 스피드 85", "types": ["벌레"], "moves": ["더블니들", "독침", "바늘미사일"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-143", "name": "잠만보", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/143.png", "weight": 57, "catchRate": 50, "power": 490, "trait": "도감 143번 · 타입 노말 · HP 75 / 공격 100 / 방어 95 / 특수 40 / 스피드 110", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-144", "name": "프리져", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/144.png", "weight": 25, "catchRate": 50, "power": 200, "trait": "도감 144번 · 타입 물 · HP 20 / 공격 10 / 방어 55 / 특수 15 / 스피드 80", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 20, "legendary": true}, {"id": "pkmn-145", "name": "썬더", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/145.png", "weight": 58, "catchRate": 50, "power": 540, "trait": "도감 145번 · 타입 물/비행 · HP 95 / 공격 125 / 방어 79 / 특수 60 / 스피드 81", "types": ["물", "비행"], "moves": ["물대포", "파도타기", "하이드로펌프", "날개치기", "회전부리", "공중날기"], "evolvesTo": "", "evolveCount": 10, "legendary": true}, {"id": "pkmn-146", "name": "파이어", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/146.png", "weight": 70, "catchRate": 50, "power": 535, "trait": "도감 146번 · 타입 물/얼음 · HP 130 / 공격 85 / 방어 80 / 특수 85 / 스피드 60", "types": ["물", "얼음"], "moves": ["물대포", "파도타기", "하이드로펌프", "얼음뭉치", "얼음빔", "눈보라"], "evolvesTo": "", "evolveCount": 10, "legendary": true}, {"id": "pkmn-147", "name": "미뇽", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/147.png", "weight": 32, "catchRate": 50, "power": 288, "trait": "도감 147번 · 타입 노말 · HP 48 / 공격 48 / 방어 48 / 특수 48 / 스피드 48", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-148", "evolveCount": 10, "legendary": false}, {"id": "pkmn-148", "name": "신뇽", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/148.png", "weight": 35, "catchRate": 50, "power": 325, "trait": "도감 148번 · 타입 노말 · HP 55 / 공격 55 / 방어 50 / 특수 45 / 스피드 55", "types": ["노말"], "moves": ["몸통박치기", "누르기", "하이퍼빔"], "evolvesTo": "pkmn-149", "evolveCount": 10, "legendary": false}, {"id": "pkmn-149", "name": "망나뇽", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/149.png", "weight": 63, "catchRate": 50, "power": 525, "trait": "도감 149번 · 타입 물 · HP 130 / 공격 65 / 방어 60 / 특수 110 / 스피드 65", "types": ["물"], "moves": ["물대포", "파도타기", "하이드로펌프"], "evolvesTo": "", "evolveCount": 10, "legendary": false}, {"id": "pkmn-150", "name": "뮤츠", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/150.png", "weight": 42, "catchRate": 50, "power": 525, "trait": "도감 150번 · 타입 전기 · HP 65 / 공격 65 / 방어 60 / 특수 110 / 스피드 130", "types": ["전기"], "moves": ["전기쇼크", "10만볼트", "번개"], "evolvesTo": "", "evolveCount": 10, "legendary": true}, {"id": "pkmn-151", "name": "뮤", "image": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/151.png", "weight": 42, "catchRate": 50, "power": 525, "trait": "도감 151번 · 타입 불꽃 · HP 65 / 공격 130 / 방어 60 / 특수 95 / 스피드 65", "types": ["불꽃"], "moves": ["불꽃세례", "화염방사", "불대문자"], "evolvesTo": "", "evolveCount": 10, "legendary": true}]
+
 function getMonsterCatchSettings(djId, settings) {
   if (!settings.monsterCatch) {
     settings.monsterCatch = {
@@ -1891,12 +1897,13 @@ function getMonsterCatchSettings(djId, settings) {
       catchMode: 'first', // 'first' | 'all'
       cmdCatch: '!잡기',
       cmdDex: '!도감',
+      cmdRanking: '!랭킹', // 🏆 트레이너 랭킹 (가장 강한 몬스터 공격력 기준, 전체/이 방 상위 5명)
       spawnMsg: '🐾 야생의 [{monster}]이(가) 나타났습니다! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
       legendarySpawnMsg: '✨전설 등장✨ 전설의 [{monster}]이(가) 나타났습니다!! {cmd}로 잡아보세요! ({sec}초 안에 사라져요)',
       catchSuccessMsg: '🎉 {nickname}님이 [{monster}]을(를) 잡았습니다! (도감 {count}번째 · 남은 포획볼 {balls}개)',
       catchFailMsg: '💨 {nickname}님, [{monster}]을(를) 놓쳤어요... (남은 포획볼 {balls}개)',
       despawnMsg: '💨 [{monster}]이(가) 도망가버렸어요...',
-      monsters: [], // { id, name, image, weight, catchRate }
+      monsters: MC_DEFAULT_MONSTERS.map(m => ({ ...m })), // { id, name, image, weight, catchRate } — 기본으로 포켓몬 1세대(타입 포함) 채워서 시작
       collections: {}, // key: 고유닉(또는 닉네임) → { [monsterId]: count }
 
       // 🎒 포획볼 경제
@@ -1926,11 +1933,14 @@ function getMonsterCatchSettings(djId, settings) {
       // ⚔️ 대결(PvP) — 각자 보유 몬스터 중 가장 강한 걸로 자동 대결. 공격기/특성은 전부 DJ가
       // 직접 짓는 오리지널 설정이다 (실제 게임 데이터 아님).
       cmdBattle: '!대결',
+      battleWinPoints: 10, // 🏆 대결 승리 시 이긴 사람에게 지급하는 도감 포인트(레벨업에 쓰는 그 포인트)
+      battleCooldownSec: 60, // ⏱ 같은 사람이 !대결을 다시 쓸 수 있는 최소 간격(초) — 도배/포인트 파밍 방지
+      msgBattleCooldown: '⏱ {nickname}님, 아직 대결 쿨타임이에요! ({sec}초 후 다시 시도해주세요)',
       msgBattleUsage: '⚠️ 사용법: {cmdBattle} [고유닉]',
       msgBattleSelfError: '⚠️ 본인과는 대결할 수 없어요!',
       msgBattleNoMonsters: '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.',
       msgBattleTargetNoMonsters: '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!',
-      msgBattleResult: '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!',
+      msgBattleResult: '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}\n✨ 포인트 +{amount}',
 
       // 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다. evolvesTo/evolveCount는
       // 몬스터 하나하나에 개별로 붙는 값(monsters 배열 각 항목)이라 여기 기본값에는 없다.
@@ -2014,11 +2024,14 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.shop.msgBuyGreatBall == null) mc.shop.msgBuyGreatBall = '🌟 {nickname}님이 고급몬스터볼 {amount}개를 구매했어요! (보유: {greatBalls}개)'
   if (mc.shop.msgBuyBox == null) mc.shop.msgBuyBox = '🎁 {nickname}님이 희귀상자를 열어 [{monster}]을(를) 획득했어요!'
   if (mc.cmdBattle == null) mc.cmdBattle = '!대결'
+  if (mc.battleWinPoints == null) mc.battleWinPoints = 10
+  if (mc.battleCooldownSec == null) mc.battleCooldownSec = 60
+  if (mc.msgBattleCooldown == null) mc.msgBattleCooldown = '⏱ {nickname}님, 아직 대결 쿨타임이에요! ({sec}초 후 다시 시도해주세요)'
   if (mc.msgBattleUsage == null) mc.msgBattleUsage = '⚠️ 사용법: {cmdBattle} [고유닉]'
   if (mc.msgBattleSelfError == null) mc.msgBattleSelfError = '⚠️ 본인과는 대결할 수 없어요!'
   if (mc.msgBattleNoMonsters == null) mc.msgBattleNoMonsters = '⚠️ {nickname}님, 아직 잡은 몬스터가 없어서 대결할 수 없어요! {cmdCatch}로 먼저 몬스터를 잡아보세요.'
   if (mc.msgBattleTargetNoMonsters == null) mc.msgBattleTargetNoMonsters = '⚠️ 상대방({target})이 아직 잡은 몬스터가 없어서 대결할 수 없어요!'
-  if (mc.msgBattleResult == null) mc.msgBattleResult = '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!'
+  if (mc.msgBattleResult == null) mc.msgBattleResult = '⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!\n🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}\n✨ 포인트 +{amount}'
   if (mc.cmdEvolve == null) mc.cmdEvolve = '!진화'
   if (mc.autoEvolve == null) mc.autoEvolve = false
   if (mc.msgEvolveUsage == null) mc.msgEvolveUsage = '⚠️ 사용법: {cmdEvolve} [몬스터이름]'
@@ -2037,6 +2050,7 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBallGiveNoAuth == null) mc.msgBallGiveNoAuth = '⚠️ DJ 또는 매니저만 사용할 수 있어요.'
   if (mc.msgBallGiveSuccess == null) mc.msgBallGiveSuccess = '🎾 {target}님의 포획볼이 {amount}개 {action}되었습니다. (현재: {balls}개)'
   if (mc.bossEnabled == null) mc.bossEnabled = true
+  if (mc.cmdRanking == null) mc.cmdRanking = '!랭킹'
   if (mc.bossMonsterName == null) mc.bossMonsterName = '풀잎'
   if (mc.bossPower == null) mc.bossPower = 100
   if (mc.bossIntervalMin == null) mc.bossIntervalMin = 60
@@ -2123,6 +2137,7 @@ function mcFormat(tpl, data) {
     .replace(/{winnerMonster}/g, data.winnerMonster || '')
     .replace(/{loserMonster}/g, data.loserMonster || '')
     .replace(/{move}/g, data.move || '')
+    .replace(/{effect}/g, data.effect || '')
     .replace(/{need}/g, v(data.need))
     .replace(/{owned}/g, v(data.owned))
     .replace(/{cmdEvolve}/g, data.cmdEvolve || '')
@@ -2134,6 +2149,7 @@ function mcFormat(tpl, data) {
     .replace(/{totalPower}/g, v(data.totalPower))
     .replace(/{mvpNickname}/g, data.mvpNickname || '')
     .replace(/{mvpPower}/g, v(data.mvpPower))
+    .replace(/{bossPower}/g, v(data.bossPower))
 }
 
 function mcPickMonster(mc) {
@@ -2146,6 +2162,55 @@ function mcPickMonster(mc) {
     if (r <= 0) return m
   }
   return list[list.length - 1]
+}
+
+// ══════════════════════════════════════════════════════
+// 🔥 타입(속성) 상성표 — 포켓몬 세대1 상성 그대로. 값은 데미지 배율(2=효과 굉장함, 0.5=별로,
+// 0=효과 없음, 표시 없으면 1배). [공격타입][방어타입] 형태로 조회한다.
+const MC_TYPE_NAMES = ['노말', '불꽃', '물', '전기', '풀', '얼음', '격투', '독', '땅', '비행', '에스퍼', '벌레', '바위', '고스트', '드래곤', '악', '강철', '페어리']
+const MC_TYPE_CHART = {
+  '노말': { '고스트': 0 },
+  '불꽃': { '불꽃': 0.5, '물': 0.5, '풀': 2, '얼음': 2, '벌레': 2, '바위': 0.5, '드래곤': 0.5, '강철': 2 },
+  '물': { '불꽃': 2, '물': 0.5, '풀': 0.5, '땅': 2, '바위': 2, '드래곤': 0.5 },
+  '전기': { '물': 2, '전기': 0.5, '풀': 0.5, '땅': 0, '비행': 2, '드래곤': 0.5 },
+  '풀': { '불꽃': 0.5, '물': 2, '풀': 0.5, '독': 0.5, '땅': 2, '비행': 0.5, '벌레': 0.5, '바위': 2, '드래곤': 0.5, '강철': 0.5 },
+  '얼음': { '불꽃': 0.5, '물': 0.5, '풀': 2, '얼음': 0.5, '땅': 2, '비행': 2, '드래곤': 2, '강철': 0.5 },
+  '격투': { '노말': 2, '얼음': 2, '독': 0.5, '비행': 0.5, '에스퍼': 0.5, '벌레': 0.5, '바위': 2, '고스트': 0, '악': 2, '강철': 2, '페어리': 0.5 },
+  '독': { '풀': 2, '독': 0.5, '땅': 0.5, '바위': 0.5, '고스트': 0.5, '강철': 0, '페어리': 2 },
+  '땅': { '불꽃': 2, '전기': 2, '풀': 0.5, '독': 2, '비행': 0, '바위': 2, '벌레': 0.5, '강철': 2 },
+  '비행': { '전기': 0.5, '풀': 2, '격투': 2, '벌레': 2, '바위': 0.5, '강철': 0.5 },
+  '에스퍼': { '격투': 2, '독': 2, '에스퍼': 0.5, '악': 0, '강철': 0.5 },
+  '벌레': { '불꽃': 0.5, '풀': 2, '격투': 0.5, '독': 0.5, '비행': 0.5, '에스퍼': 2, '고스트': 0.5, '악': 2, '강철': 0.5, '페어리': 0.5 },
+  '바위': { '불꽃': 2, '얼음': 2, '격투': 0.5, '땅': 0.5, '비행': 2, '벌레': 2, '강철': 0.5 },
+  '고스트': { '노말': 0, '에스퍼': 2, '고스트': 2, '악': 0.5 },
+  '드래곤': { '드래곤': 2, '강철': 0.5, '페어리': 0 },
+  '악': { '격투': 0.5, '에스퍼': 2, '고스트': 2, '악': 0.5, '페어리': 0.5 },
+  '강철': { '불꽃': 0.5, '물': 0.5, '전기': 0.5, '얼음': 2, '바위': 2, '강철': 0.5, '페어리': 2 },
+  '페어리': { '불꽃': 0.5, '격투': 2, '독': 0.5, '드래곤': 2, '악': 2, '강철': 0.5 },
+}
+// 공격 타입(들) vs 방어 타입(들)의 종합 배율을 계산한다 — 이중 타입은 배율을 곱해서 누적한다
+// (예: 얼음 공격이 풀/땅 방어 상대에게 2×2=4배). 공격 쪽이 여러 타입이면 그중 가장 유리한
+// 배율(최댓값)을 쓴다 — 어떤 기술을 냈는지는 몰라도 "그 몬스터가 가장 잘 먹히는 방식으로 싸웠다"는 셈이다.
+function mcTypeMultiplier(attackerTypes, defenderTypes) {
+  const atkTypes = (Array.isArray(attackerTypes) && attackerTypes.length) ? attackerTypes : ['노말']
+  const defTypes = (Array.isArray(defenderTypes) && defenderTypes.length) ? defenderTypes : ['노말']
+  let best = 0
+  atkTypes.forEach(atk => {
+    let mult = 1
+    defTypes.forEach(def => {
+      const chart = MC_TYPE_CHART[atk]
+      const v = chart && chart[def] != null ? chart[def] : 1
+      mult *= v
+    })
+    if (mult > best) best = mult
+  })
+  return best
+}
+function mcTypeEffectText(mult) {
+  if (mult === 0) return '❌ 효과가 없다!'
+  if (mult >= 2) return '💥 효과가 굉장했다!'
+  if (mult < 1) return '🔸 효과가 별로였다...'
+  return ''
 }
 
 // 대결에 쓸 "가장 강한 보유 몬스터"를 골라준다 (공격력 기준). 잡은 게 없으면 null.
@@ -2202,6 +2267,29 @@ function mcPickStrongest(collection, monsters, tag) {
   return pickStrongestFrom(owned)
 }
 
+// 🏆 !도감 / !랭킹에서 공통으로 쓰는 "이 트레이너의 대표(에이스) 몬스터" 계산 — 레벨업 보너스까지
+// 반영한 실제 공격력 기준으로 가장 강한 걸 찾는다 (mcPickStrongest와 별개로, 여기선 레벨 숫자도 같이 필요해서 직접 계산한다).
+function mcComputeTrainerAce(collection, monsters, tag) {
+  const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
+  let best = null
+  owned.forEach(id => {
+    const resolved = mcResolveMonster(id, monsters, tag)
+    if (resolved && (!best || resolved.power > best.power)) {
+      best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(tag, mcBaseIdFromShiny(id)) }
+    }
+  })
+  return best
+}
+// 🌍 전체 트레이너 랭킹(에이스 공격력 내림차순) — mc.collections는 djId별 설정 안에 있지만
+// 실제로는 전역 공유 데이터라서, 이 랭킹은 어느 방에서 계산해도 전체 플랫폼 기준이 된다.
+function mcComputeGlobalRanking(mc) {
+  const allTags = Object.keys(mc.collections || {})
+  return allTags
+    .map(t => ({ tag: t, ace: mcComputeTrainerAce(mc.collections[t], mc.monsters, t) }))
+    .filter(r => r.ace)
+    .sort((a, b) => b.ace.power - a.ace.power)
+}
+
 // ══════════════════════════════════════════════════════
 // 🐾 몬스터 웹 도감 — 웹뽑기판/마피아와 같은 register→code→채팅인증 패턴을 그대로 재사용해서,
 // 시청자가 웹페이지에서 로그인 없이 "본인 도감"을 확인하고, 대결에 쓸 몬스터를 직접 고르고,
@@ -2241,7 +2329,7 @@ function mcMonsterLevel(tag, monsterId) {
   return entry ? entry.level : 1
 }
 function mcLevelUpCost(currentLevel) { return currentLevel * 10 } // 레벨이 높을수록 다음 레벨 비용이 커진다
-function mcDismantlePoints(basePower, shiny) { return Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 3 : 1) }
+function mcDismantlePoints(basePower, shiny) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 1.1 : 1)) }
 const MC_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function mcGenAuthKey(d) {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -2468,59 +2556,56 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   // 제한에 걸려서 목록이 잘리는 문제가 있었다. 그래서 13마리씩 페이지로 잘라서 보여주고,
   // 숫자를 붙여서(예: !도감2) 원하는 페이지를 바로 조회할 수 있게 한다. (킵목록 확인N과 같은 방식)
   const cmdDex = mc.cmdDex || '!도감'
-  const dexMatch = msg.match(new RegExp(`^${escapeRegExp(cmdDex)}(\\d*)$`))
-  if (dexMatch) {
+  if (msg === cmdDex) {
     const owned = mc.collections[key] || {}
-    const total = Object.values(owned).reduce((s, n) => s + n, 0)
-    if (!total) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
-    // 🐾 이름 조회는 이 방의 몬스터 목록을 먼저 보고, 없으면 전역 카탈로그(다른 디제이가 등록해둔 것)에서 찾는다.
-    // 그래야 이 방에 그 몬스터가 등록 안 돼있어도(=이 방의 mc.monsters에 없어도) 잡은 몬스터 이름이 제대로 보인다.
+    const ownedIds = Object.keys(owned)
+    if (!ownedIds.length) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
+
     let catalog = {}
     try { catalog = store.loadGlobalMonsterDex().catalog || {} } catch (e) {}
-    const localById = {}
-    mc.monsters.forEach(m => { localById[m.id] = m })
-    const nameOf = id => (localById[id] && localById[id].name) || (catalog[id] && catalog[id].name) || `(알 수 없는 몬스터 #${id})`
-    const ownedIds = Object.keys(owned).filter(id => owned[id] > 0)
-    const typesCount = ownedIds.length
-    // 🐾 이 방의 로컬 몬스터 목록과 전역 카탈로그를 합집합으로 계산한다. Math.max로는 둘 중
-    // 한쪽이 비어있을 때(예: 이 방엔 몬스터가 등록 안 돼있고 카탈로그도 아직 안 채워진 경우)
-    // 실제보다 훨씬 작은 값(심하면 0)이 나와서 "9/0종"처럼 이상하게 보이는 문제가 있었다.
     const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
     const totalTypes = allKnownIds.size
 
-    const pageSize = 13
-    const totalPages = Math.max(1, Math.ceil(ownedIds.length / pageSize))
-    const reqPage = dexMatch[1] ? parseInt(dexMatch[1], 10) : 1
-    const cur = Math.max(1, Math.min(reqPage || 1, totalPages))
-    const startIdx = (cur - 1) * pageSize
-    const pageIds = ownedIds.slice(startIdx, startIdx + pageSize)
-    // 🧬 모든 몬스터를 "이름 (보유/필요)" 형태로 통일하게 보여준다. 진화 가능한 몬스터(evolvesTo가 설정된 경우)는 evolveCount를 필요수량으로 쓰고 채웠으면 "진화가능"을 붙인다. 진화 대상이 아니거나(다른 방에서 조회해서) evolveCount를 모를 때는 보유수량/보유수량으로 뜨을 채운 것처럼 보여준다.
-    const lines = pageIds.map(id => {
-      const baseId = mcBaseIdFromShiny(id)
-      const mon = localById[baseId]
-      const isShinyEntry = mcIsShinyId(id)
-      const baseName = nameOf(baseId)
-      const name = isShinyEntry ? `🌈이로치 ${baseName}` : baseName
-      const count = owned[id]
-      const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
-      const canEvolve = !isShinyEntry && !!(mon && mon.evolvesTo) && count >= need // 이로치는 별도 id라 진화 대상에서 제외
-      // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
-      const isLegendary = !!((mon && mon.legendary) || (catalog[baseId] && catalog[baseId].legendary))
-      const displayName = isLegendary ? `✨${name}` : name
-      const level = mcMonsterLevel(key, baseId)
-      return `${displayName} (${count}/${need}) Lv.${level}${canEvolve ? ' 진화가능' : ''}`
-    }).join('\n')
+    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id)).length
+    const shinyDiscovered = ownedIds.filter(id => mcIsShinyId(id)).length
+    const points = mcGetWebData().points[key] || 0
+    const ranking = mcComputeGlobalRanking(mc)
+    const myRankIdx = ranking.findIndex(r => r.tag.toLowerCase() === key.toLowerCase())
+    const ace = myRankIdx !== -1 ? ranking[myRankIdx].ace : mcComputeTrainerAce(owned, mc.monsters, key)
 
-    let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
-    if (totalPages > 1) out += ` [${cur}/${totalPages}페이지]`
-    out += `\n${lines}`
-    if (totalPages > 1) {
-      const next = cur < totalPages ? cur + 1 : 1
-      out += `\n💡 ${cmdDex}${next} 로 다음 페이지 확인 가능`
+    const out = `📖 ${author}님의 도감 요약\n`
+      + `-${ace ? ace.name : '(없음)'} ${ace ? ace.level : 0}Lv 공격:${ace ? ace.power : 0}\n`
+      + `-일반: ${normalDiscovered}/${totalTypes}\n`
+      + `-이로치 ${shinyDiscovered}/${totalTypes}\n`
+      + `-남은포인트:${points}\n`
+      + `-순위:${myRankIdx !== -1 ? myRankIdx + 1 : '순위없음'}`
+    sendChatSplit(djId, out, 150, 500)
+    return
+  }
+
+  // 🏆 !랭킹 — 각 트레이너가 보유한 몬스터 중 "가장 강한 몬스터의 공격력"(대결에 실제로 쓰이는
+  // 값, mcPickStrongest와 동일 기준)을 기준으로 순위를 매긴다. mc.collections는 djId별 설정
+  // 안에 있지만 실제로는 전역 공유 데이터라서, 여기서 계산한 전체 랭킹은 어느 방에서든
+  // 몬스터를 잡은 모든 트레이너를 다 포함한다(=현재 방 유저만이 아니라 전체 플랫폼 기준).
+  // "현재 방 랭킹"은 이 방의 애청지수(활동 기록)에 등록된 사람들로만 한 번 더 좁혀서 계산한다.
+  const cmdRanking = mc.cmdRanking || '!랭킹'
+  if (msg === cmdRanking) {
+    const globalRanking = mcComputeGlobalRanking(mc)
+
+    const act = getActivitySettings(djId, settings)
+    const roomTagSet = new Set(Object.values(act.users || {}).map(u => (u.tag || '').toLowerCase()).filter(Boolean))
+    const roomRanking = globalRanking.filter(r => roomTagSet.has(r.tag.toLowerCase()))
+
+    const nameOfTag = (t) => {
+      const actEntry = Object.values(act.users || {}).find(u => (u.tag || '').toLowerCase() === t.toLowerCase())
+      if (actEntry && actEntry.nickname) return actEntry.nickname
+      return resolveNicknameFromInput(room, t) || t
     }
-    // 📏 채팅 글자수 제한 때문에 한 번에 다 못 보내는 문제가 있어서, sendChatSplit으로 글자수
-    // 기준(150자)으로 자동으로 여러 메시지로 잘라서 순차 전송한다. (13마리씩 페이지로 나눈 것과
-    // 별개로, 한 페이지 자체가 길면 이 단계에서 또 한번 안전하게 잘라줌)
+    const fmtList = (list) => list.length
+      ? list.slice(0, 5).map((r, i) => `${i + 1}위 ${nameOfTag(r.tag)}\n${r.ace.name} Lv${r.ace.level} (공격력:${r.ace.power})`).join('\n')
+      : '(아직 데이터가 없어요)'
+
+    const out = `🏆 트레이너 랭킹 (가장 강한 몬스터 공격력 기준)\n\n🌍 월드 랭킹\n${fmtList(globalRanking)}\n\n🏠 우리방 랭킹\n${fmtList(roomRanking)}`
     sendChatSplit(djId, out, 150, 500)
     return
   }
@@ -2687,17 +2772,23 @@ function resolveBoss(djId) {
   }
   let mvp = participants[0]
   participants.forEach(p => { if (p.power > mvp.power) mvp = p })
-
-  // 🌈 MVP는 랜덤 이로치 몬스터 1마리를 받는다 (희귀상자/잡기랑 같은 이로치 개념, 여기선 100% 확정 지급)
-  const picked = mcPickMonster(mc)
   const mvpKey = Object.keys(boss.participants).find(k => boss.participants[k] === mvp)
+
   let rewardName = '(보상 없음)'
-  if (picked && mvpKey) {
-    const grantId = MC_SHINY_PREFIX + picked.id
-    if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
-    mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
-    rewardName = picked.name
+  if (boss.isWorldBoss) {
+    // 🏆 월드보스는 관리자가 설정해둔 보상 목록(복권/이로치몬스터/포획볼/고급볼 등)을 그대로 지급한다.
+    if (mvpKey) rewardName = grantWorldBossRewards(djId, settings, mc, mvpKey, mvp.nickname)
     mcSaveUserData()
+  } else {
+    // 🌈 (기존 방식) 일반 보스는 MVP에게 랜덤 이로치 몬스터 1마리를 준다.
+    const picked = mcPickMonster(mc)
+    if (picked && mvpKey) {
+      const grantId = MC_SHINY_PREFIX + picked.id
+      if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+      mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+      rewardName = picked.name
+      mcSaveUserData()
+    }
   }
 
   sendChatToRoom(djId, mcFormat(mc.msgBossResult, {
@@ -2726,10 +2817,61 @@ function getWorldBossSettings() {
       intervalMin: 60,
       joinWindowSec: 90,
       spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
+      // 🏆 처치 성공 시 MVP(1등, 총 공격력 가장 많이 기여한 사람)에게만 자동 지급되는 보상 목록.
+      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
+      rewards: [],
     }
     store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
   }
+  if (!Array.isArray(settings.worldBoss.rewards)) settings.worldBoss.rewards = []
   return settings.worldBoss
+}
+// 🏆 월드보스 처치 시 MVP(1등)에게만 설정해둔 보상을 그대로 지급한다. 지급은 그 보스가 등장한
+// "그 방"의 경제(포획볼/고급볼/복권/도감)에 반영된다 — 월드보스가 여러 방에서 동시에 등장해도
+// 각 방은 독립적으로 처리되므로 자연스럽게 방마다 따로 지급된다.
+function grantWorldBossRewards(djId, settings, mc, mvpKey, mvpNickname) {
+  const wb = getWorldBossSettings()
+  const rewards = wb.rewards || []
+  if (!rewards.length) return '(보상 없음)'
+  const parts = []
+  let actChanged = false
+  let act = null
+  for (const r of rewards) {
+    if (r.type === 'lotto') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      if (!act) act = getActivitySettings(djId, settings)
+      const key = findActUserKey(act, mvpKey) || mvpKey
+      actEnsureUser(act, key, mvpNickname, mvpKey)
+      act.users[key].lotto = (act.users[key].lotto || 0) + amount
+      parts.push(`🎟️복권 ${amount}장`)
+      actChanged = true
+    } else if (r.type === 'shinyMonster') {
+      const picked = r.monsterId ? mc.monsters.find(m => String(m.id) === String(r.monsterId)) : mcPickMonster(mc)
+      if (picked) {
+        const grantId = MC_SHINY_PREFIX + picked.id
+        if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+        mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+        parts.push(`🌈이로치 ${picked.name}`)
+      }
+    } else if (r.type === 'ball') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      mc.bags[mvpKey] = (mc.bags[mvpKey] || 0) + amount
+      parts.push(`🎒포획볼 ${amount}개`)
+    } else if (r.type === 'greatBall') {
+      const amount = Math.max(1, Number(r.amount) || 1)
+      mc.greatBags[mvpKey] = (mc.greatBags[mvpKey] || 0) + amount
+      parts.push(`⚡고급볼 ${amount}개`)
+    } else if (r.type === 'point') {
+      // 🐾 웹 도감(레벨업에 쓰는) 포인트를 직접 적립해준다.
+      const amount = Math.max(1, Number(r.amount) || 1)
+      const wd = mcGetWebData()
+      wd.points[mvpKey] = (wd.points[mvpKey] || 0) + amount
+      mcSaveWebData()
+      parts.push(`✨포인트 ${amount}P`)
+    }
+  }
+  if (actChanged) store.saveSettings(djId, { activity: act })
+  return parts.length ? parts.join(', ') : '(보상 없음)'
 }
 function spawnWorldBoss(djId, wb) {
   const room = getRoom(djId)
@@ -2776,16 +2918,31 @@ app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   res.json({ success: true, data: getWorldBossSettings() })
 })
+app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const catalog = mcCatalog(SHARED_TOKEN_DJID)
+  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+})
 app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const wb = getWorldBossSettings()
-  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg } = req.body || {}
+  const { enabled, monsterName, power, intervalMin, joinWindowSec, spawnMsg, rewards } = req.body || {}
   if (enabled != null) wb.enabled = !!enabled
   if (monsterName != null) wb.monsterName = String(monsterName).trim() || '월드보스'
   if (power != null) wb.power = Math.max(1, Math.min(1000000, parseInt(power, 10) || 500))
   if (intervalMin != null) wb.intervalMin = Math.max(1, Math.min(720, parseInt(intervalMin, 10) || 60))
   if (joinWindowSec != null) wb.joinWindowSec = Math.max(10, Math.min(1800, parseInt(joinWindowSec, 10) || 90))
   if (spawnMsg != null) wb.spawnMsg = spawnMsg
+  if (Array.isArray(rewards)) {
+    wb.rewards = rewards
+      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall', 'point'].includes(r.type))
+      .map(r => ({
+        type: r.type,
+        amount: r.type === 'shinyMonster' ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
+        monsterId: r.type === 'shinyMonster' ? String(r.monsterId || '').trim() : undefined,
+      }))
+      .slice(0, 20)
+  }
   store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: wb })
   startWorldBossTimer() // 활성화/간격이 바뀌었을 수 있으니 타이머 재시작
   res.json({ success: true, data: wb })
@@ -2978,28 +3135,63 @@ function handleMonsterBattleCommand(djId, room, settings, author, tag, text) {
   const targetKey = targetNick.toLowerCase()
   if (key === targetKey) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleSelfError, { nickname: author })), 400); return }
 
+  // ⏱ 같은 사람이 짧은 시간 안에 !대결을 반복해서 포인트만 파밍하는 걸 막는 쿨타임.
+  const cooldownSec = Math.max(0, parseInt(mc.battleCooldownSec, 10) || 0)
+  if (cooldownSec > 0) {
+    if (!room._battleCooldown) room._battleCooldown = new Map()
+    const lastAt = room._battleCooldown.get(key) || 0
+    const remainMs = cooldownSec * 1000 - (Date.now() - lastAt)
+    if (remainMs > 0) {
+      setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleCooldown, { nickname: author, sec: Math.ceil(remainMs / 1000) })), 400)
+      return
+    }
+  }
+
   const myMon = mcPickStrongest(mc.collections[key], mc.monsters, key)
   if (!myMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleNoMonsters, { nickname: author, cmdCatch: mc.cmdCatch || '!잡기' })), 400); return }
   const targetMon = mcPickStrongest(mc.collections[targetKey], mc.monsters, targetKey)
   if (!targetMon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBattleTargetNoMonsters, { nickname: author, target: targetNick })), 400); return }
 
-  const myPower = Math.max(1, Number(myMon.power) || 10)
-  const targetPower = Math.max(1, Number(targetMon.power) || 10)
+  // 실제로 대결이 진행되는 시점부터 쿨타임을 시작한다 (사용법 오류/상대 몬스터 없음 등으로
+  // 실패한 경우는 쿨타임을 소모하지 않아서, 실수로 잘못 친 것까지 벌주지 않는다).
+  if (cooldownSec > 0) {
+    if (!room._battleCooldown) room._battleCooldown = new Map()
+    room._battleCooldown.set(key, Date.now())
+  }
+
+  const myBasePower = Math.max(1, Number(myMon.power) || 10)
+  const targetBasePower = Math.max(1, Number(targetMon.power) || 10)
+  // 🔥 타입 상성 적용 — 서로의 타입으로 서로에게 얼마나 잘 먹히는지 배율을 구해서 공격력에 곱한다.
+  const myTypeMult = mcTypeMultiplier(myMon.types, targetMon.types)
+  const targetTypeMult = mcTypeMultiplier(targetMon.types, myMon.types)
+  const myPower = myBasePower * myTypeMult
+  const targetPower = targetBasePower * targetTypeMult
   // ⚔️ [업데이트] 예전엔 공격력 비율로 "확률"만 정해서, 공격력이 낮아도 가끔 이기는 확률형이었다.
-  // 이제 실제 공격력을 그대로 기준으로 삼아서, 공격력이 더 높은 몬스터가 항상 이긴다.
+  // 이제 실제 공격력(타입 상성 반영)을 그대로 기준으로 삼아서, 더 유리한 쪽이 항상 이긴다.
   // 공격력이 정확히 같을 때만 50:50 무작위로 승패를 가른다.
   const iWin = myPower === targetPower ? Math.random() < 0.5 : myPower > targetPower
   const winnerMonster = iWin ? myMon : targetMon
   const loserMonster = iWin ? targetMon : myMon
   const winnerName = iWin ? author : targetNick
+  const winnerKey = iWin ? key : targetKey
+  const winnerMult = iWin ? myTypeMult : targetTypeMult
   const moveList = (winnerMonster.moves && winnerMonster.moves.length) ? winnerMonster.moves : ['공격']
   const move = moveList[Math.floor(Math.random() * moveList.length)]
+  const effectText = mcTypeEffectText(winnerMult)
+
+  // 🏆 승자에게 도감 포인트 지급 (레벨업에 쓰는 그 포인트) — 몬스터 웹 도감 데이터에 바로 적립.
+  const winPoints = Math.max(0, parseInt(mc.battleWinPoints, 10) || 0)
+  if (winPoints > 0) {
+    const wd = mcGetWebData()
+    wd.points[winnerKey] = (wd.points[winnerKey] || 0) + winPoints
+    mcSaveWebData()
+  }
 
   const line = mcFormat(mc.msgBattleResult, {
     nickname: author, target: targetNick,
     myMonster: myMon.name, targetMonster: targetMon.name,
     winner: winnerName, winnerMonster: winnerMonster.name, loserMonster: loserMonster.name,
-    move,
+    move, effect: effectText, amount: winPoints,
   })
   setTimeout(() => sendChatToRoom(djId, line), 400)
 }
@@ -6070,14 +6262,14 @@ async function handleWebPickboardCommand(djId, room, settings, author, authorId,
   // 🔑 "!뽑기인증 코드"처럼 명령어를 안 붙이고, 헷갈리지 않게 인증코드만 딱 쳐도 인식되게 처리.
   // (영문/숫자 6자리이고, 실제로 발급되어 대기중인 코드와 정확히 일치할 때만 동작하므로 일반
   //  채팅과 혼동될 일이 거의 없다)
+  // ⚠️ 웹뽑기판/마피아/몬스터도감 등 여러 모듈이 같은 "코드만 딱 치면 인식" 방식을 같이 쓰기
+  // 때문에, 여기서 못 찾았다고 바로 "잘못된 코드"라고 단정하면 안 된다 — 그 코드가 사실은
+  // 다른 모듈용일 수도 있어서, 조용히 넘겨서 뒤에 있는 다른 모듈 핸들러가 확인하게 둔다.
   if (!msg.startsWith('!')) {
     const rawCode = msg.replace(/\s+/g, '').toUpperCase()
     if (/^[A-Z0-9]{6}$/.test(rawCode)) {
       wpbCleanExpiredKeys(wpb)
       if (wpb.authKeys[rawCode]) return wpbHandleAuth(djId, wpb, tag, author, rawCode)
-      // 형식은 인증코드 같은데(6자리 영숫자) 실제로 대기중인 코드가 아니면 조용히 넘기지 않고
-      // 바로 안내해준다 — 그래야 사람이 "인증이 안 된다"며 막막해하지 않는다.
-      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 "코드 다시 발급받기"로 새로 받아주세요.', 150, 300)
     }
     return
   }
@@ -6385,12 +6577,14 @@ async function handleMafiaCommand(djId, room, settings, author, authorId, liveId
   const cfg = mf.config
   const game = mf.game
 
+  // ⚠️ 웹뽑기판/마피아/몬스터도감 등 여러 모듈이 같은 "코드만 딱 치면 인식" 방식을 같이 쓰기
+  // 때문에, 여기서 못 찾았다고 바로 "잘못된 코드"라고 단정하면 안 된다 — 다른 모듈용 코드일
+  // 수도 있어서, 조용히 넘겨서 뒤에 있는 다른 모듈 핸들러가 확인하게 둔다.
   if (!msg.startsWith('!')) {
     const rawCode = msg.replace(/\s+/g, '').toUpperCase()
     if (/^[A-Z0-9]{6}$/.test(rawCode)) {
       mfCleanExpiredKeys(mf)
       if (mf.authKeys[rawCode]) return mfHandleAuth(djId, mf, tag, author, rawCode, game)
-      return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요.', 150, 300)
     }
     return
   }
@@ -14813,7 +15007,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'monstercatch', req.djId)) return res.json({ success: false, error: '몬스터 잡기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const mc = getMonsterCatchSettings(req.djId, settings)
-  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
+  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, cmdRanking, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
@@ -14824,6 +15018,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (catchMode === 'first' || catchMode === 'all') mc.catchMode = catchMode
   if (cmdCatch != null) mc.cmdCatch = String(cmdCatch).trim() || '!잡기'
   if (cmdDex != null) mc.cmdDex = String(cmdDex).trim() || '!도감'
+  if (cmdRanking != null) mc.cmdRanking = String(cmdRanking).trim() || '!랭킹'
   if (spawnMsg != null) mc.spawnMsg = spawnMsg
   if (legendarySpawnMsg != null) mc.legendarySpawnMsg = legendarySpawnMsg
   if (catchSuccessMsg != null) mc.catchSuccessMsg = catchSuccessMsg
@@ -14880,6 +15075,9 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (req.body && req.body.msgBattleNoMonsters != null) mc.msgBattleNoMonsters = req.body.msgBattleNoMonsters
   if (req.body && req.body.msgBattleTargetNoMonsters != null) mc.msgBattleTargetNoMonsters = req.body.msgBattleTargetNoMonsters
   if (req.body && req.body.msgBattleResult != null) mc.msgBattleResult = req.body.msgBattleResult
+  if (req.body && req.body.battleWinPoints != null) mc.battleWinPoints = Math.max(0, Math.min(9999, parseInt(req.body.battleWinPoints, 10) || 0))
+  if (req.body && req.body.battleCooldownSec != null) mc.battleCooldownSec = Math.max(0, Math.min(3600, parseInt(req.body.battleCooldownSec, 10) || 0))
+  if (req.body && req.body.msgBattleCooldown != null) mc.msgBattleCooldown = req.body.msgBattleCooldown
   if (cmdEvolve != null) mc.cmdEvolve = String(cmdEvolve).trim() || '!진화'
   if (autoEvolve != null) mc.autoEvolve = !!autoEvolve
   if (msgEvolveUsage != null) mc.msgEvolveUsage = msgEvolveUsage
@@ -14911,6 +15109,7 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
       catchRate: Math.max(1, Math.min(100, parseInt(m.catchRate, 10) || 50)),
       power: Math.max(1, Math.min(9999, parseInt(m.power, 10) || 10)),
       trait: String(m.trait || '').trim().slice(0, 60),
+      types: Array.isArray(m.types) ? m.types.filter(t => MC_TYPE_NAMES.includes(t)).slice(0, 2) : [],
       moves: Array.isArray(m.moves)
         ? m.moves.map(x => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
         : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
@@ -16505,7 +16704,7 @@ app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
   try {
     const upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'User-Agent': CHROME_UA, 'Accept': 'application/json, audio/*, */*' },
       body: JSON.stringify({
         voice_id: voiceId,
         text: cleanText,
@@ -17090,6 +17289,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
         { cmd: mc.cmdCatch || '!잡기', desc: '등장한 몬스터 잡기' },
         { cmd: '!모험시작', desc: '몬스터잡기 시작 (포획볼 지급)' },
         { cmd: mc.cmdDex || '!도감', desc: '내 도감 확인 (페이지: !도감2, !도감3...)' },
+        { cmd: mc.cmdRanking || '!랭킹', desc: '가장 강한 몬스터 공격력 기준 트레이너 랭킹 TOP5 (전체/이 방)' },
         { cmd: '!포획볼구매', desc: '포획볼 구매' },
         { cmd: mc.cmdEvolve || '!진화', desc: '[몬스터이름] 진화시키기' },
         { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
@@ -17914,14 +18114,26 @@ app.get('/monsterdex/:djId/data', (req, res) => {
   const collection = mc_collectionsForTag(djId, tag)
   const owned = collection || {}
   const dex = catalog.map(m => {
+    const shinyId = MC_SHINY_PREFIX + m.id
     const count = owned[m.id] || 0
-    const shinyCount = owned[MC_SHINY_PREFIX + m.id] || 0
+    const shinyCount = owned[shinyId] || 0
+    // 🐾 "지금 몇 마리 있는지"(count)와 "한 번이라도 잡아본 적 있는지"(discovered)는 다르다.
+    // 분해해서 0마리가 돼도 discovered는 계속 true로 남아있어서 도감 이미지가 안 사라진다.
+    const discovered = Object.prototype.hasOwnProperty.call(owned, m.id)
+    const shinyDiscovered = Object.prototype.hasOwnProperty.call(owned, shinyId)
     const level = mcMonsterLevel(tag, m.id)
-    const resolved = count > 0 ? mcResolveMonster(m.id, catalog, tag) : null
+    const shinyLevel = mcMonsterLevel(tag, shinyId)
+    const resolved = discovered ? mcResolveMonster(m.id, catalog, tag) : null
+    const shinyResolved = shinyDiscovered ? mcResolveMonster(shinyId, catalog, tag) : null
+    const basePower = Number(m.power) || 10
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
-      count, shinyCount, level, power: resolved ? resolved.power : null,
+      count, level, power: resolved ? resolved.power : null, discovered,
+      shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null, shinyDiscovered,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
+      shinySelected: d.selected[tag] === shinyId,
+      dismantlePoints: mcDismantlePoints(basePower, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
+      shinyDismantlePoints: mcDismantlePoints(basePower, true),
     }
   })
   res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
@@ -17980,13 +18192,60 @@ app.post('/monsterdex/:djId/dismantle', (req, res) => {
   if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
   const basePower = Number(resolved.monster.power) || 10
   const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+  // 🐾 0마리가 돼도 도감 항목 자체는 지우지 않는다(0으로만 남겨둔다) — 그래야 "한 번이라도
+  // 잡았던 기록"이 도감에 계속 남아서, 이미지가 다시 안 사라지고 "분해 불가"로만 표시된다.
   collection[monsterId] = owned - count
-  if (collection[monsterId] <= 0) delete collection[monsterId]
   mcSettings.collections[tag] = collection
   store.saveSettings(djId, { monsterCatch: mcSettings })
   d.points[tag] = (d.points[tag] || 0) + gained
   mcSaveWebData()
   res.json({ success: true, gained, points: d.points[tag], remaining: collection[monsterId] || 0 })
+})
+// 🔨 여러 종류의 몬스터를 한 번에 골라서 한 번에 분해 — 각 항목을 검증해서, 하나라도 보유
+// 수량이 부족하면(다른 항목도 포함해서) 전부 취소하고 아무것도 안 깎는다(부분 실패 방지).
+app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const items = Array.isArray((req.body || {}).items) ? (req.body || {}).items : []
+  if (!items.length) return res.json({ success: false, error: '분해할 몬스터를 선택해주세요.' })
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mcSettings = (() => {
+    let s = store.getSettings(djId) || {}
+    return isModuleOn(s, 'monstercatch', djId) ? getMonsterCatchSettings(djId, s) : null
+  })()
+  if (!mcSettings) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const catalog = mcCatalog(djId)
+  const collection = mcSettings.collections[tag] || {}
+
+  // 먼저 전체를 검증 — 하나라도 문제가 있으면 아무것도 반영하지 않고 바로 실패로 반환한다.
+  const plan = []
+  for (const it of items) {
+    const monsterId = it && it.monsterId
+    const count = Math.max(1, Number(it && it.count) || 1)
+    const owned = collection[monsterId] || 0
+    if (owned < count) return res.json({ success: false, error: `${monsterId} 보유 수량이 부족해요.` })
+    const resolved = mcResolveMonster(monsterId, catalog, tag)
+    if (!resolved) return res.json({ success: false, error: `알 수 없는 몬스터예요. (${monsterId})` })
+    const basePower = Number(resolved.monster.power) || 10
+    const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+    plan.push({ monsterId, count, gained, name: resolved.name })
+  }
+
+  let totalGained = 0
+  plan.forEach(p => {
+    // 🐾 여기서도 마찬가지로 0이 되어도 항목을 지우지 않고 0으로 남겨서 도감 기록을 유지한다.
+    collection[p.monsterId] = (collection[p.monsterId] || 0) - p.count
+    totalGained += p.gained
+  })
+  mcSettings.collections[tag] = collection
+  store.saveSettings(djId, { monsterCatch: mcSettings })
+  d.points[tag] = (d.points[tag] || 0) + totalGained
+  mcSaveWebData()
+  res.json({ success: true, totalGained, points: d.points[tag], results: plan })
 })
 app.post('/monsterdex/:djId/levelup', (req, res) => {
   const djId = req.params.djId

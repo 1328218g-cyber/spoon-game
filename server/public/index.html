@@ -933,6 +933,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="number" id="wbJoinWindowSec" value="90" min="10" max="1800">
           <label style="margin-top:10px">등장 안내 문구</label>
           <textarea id="wbSpawnMsg" rows="3" placeholder="🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)"></textarea>
+
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+            <div class="card-title" style="padding:0"><span>🏆 처치 보상 (1등 MVP에게만 자동 지급)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="wbAddReward()">+ 보상 추가</button></div>
+            <p class="hint">보스를 처치하면(총 공격력이 보스 공격력을 넘으면) 가장 공격력을 많이 기여한 1명에게만 아래 보상이 전부 지급돼요.</p>
+            <div id="wbRewardList"></div>
+          </div>
+
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:12px">
             <button class="btn-connect" onclick="saveWorldBoss()">💾 저장</button>
             <button class="btn-gray" onclick="spawnWorldBossNow()">⚡ 지금 바로 등장시키기</button>
@@ -1936,6 +1943,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label>복권포인트 달성 시 멘트</label>
             <textarea id="actMsgLottoFull" style="height:56px">🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})</textarea>
             <div class="hint">{nickname} {gained} {lotto} {lp} {lpMax}</div>
+            <label>복권이 없을 때 안내 멘트 (!복권 명령어 사용 시)</label>
+            <input type="text" id="actMsgLottoNone" value="⚠️ {nickname}님의 복권이 없습니다.">
+            <div class="hint">{nickname}</div>
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <button class="btn-connect" onclick="saveActivitySettings()">💾 명령어/메시지 저장</button>
               <button class="btn-gray" onclick="restoreActivityDefaults()">↩️ 기본값 복원</button>
@@ -3610,6 +3620,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>잡기 명령어</label><input type="text" id="mcCmdCatch" value="!잡기"></div>
             <div><label>도감 조회 명령어</label><input type="text" id="mcCmdDex" value="!도감"></div>
           </div>
+          <div class="btn-row" style="grid-template-columns:1fr;margin-top:10px">
+            <div><label>트레이너 랭킹 명령어 (가장 강한 몬스터 공격력 기준, 전체/이방 TOP5)</label><input type="text" id="mcCmdRanking" value="!랭킹"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -3708,19 +3721,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>👾 몬스터 도감 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="bulkAddPokemonGen1()">🔴 포켓몬 1세대 등록</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openMcBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addMcMonster()">+ 몬스터 추가</button></div></div>
+          <div class="card-title"><span>👾 몬스터 도감 관리</span><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="bulkAddPokemonGen1()">🔴 포켓몬 1세대 등록</button><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="resetToPokemonGen1()">🔄 초기화 후 기본프리셋 교체</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openMcBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addMcMonster()">+ 몬스터 추가</button></div></div>
           <p class="hint" style="margin-bottom:12px">등장시킬 몬스터를 스티커로 골라주세요. 등장 가중치가 높을수록 자주 나오고, 잡기 확률은 "각자 확률판정" 모드일 때만 사용돼요. 공격력/특성/필살기는 아래 ⚔️ 대결(PvP)에서 쓰여요 — 전부 자유롭게 직접 지어주시면 돼요.</p>
           <div id="mcMonstersWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
         </div>
 
         <div class="card">
           <div class="card-title">⚔️ 대결 (PvP)</div>
-          <p class="hint" style="margin-bottom:12px">시청자끼리 [명령어] [상대방 고유닉]으로 대결할 수 있어요. 각자 보유 몬스터 중 공격력이 가장 높은 걸로 자동 대결하고, 공격력 비율로 승률이 정해져요 (약해도 이길 가능성은 있어요).</p>
+          <p class="hint" style="margin-bottom:12px">시청자끼리 [명령어] [상대방 고유닉]으로 대결할 수 있어요. 각자 보유 몬스터 중 공격력이 가장 높은 걸로 자동 대결하고, 타입 상성까지 반영돼서 더 유리한 쪽이 이겨요.</p>
           <label>대결 명령어</label>
           <input type="text" id="mcCmdBattle" value="!대결" style="max-width:220px">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>승리 시 지급 포인트</label><input type="number" id="mcBattleWinPoints" value="10" min="0" max="9999"></div>
+            <div><label>재사용 쿨타임 (초)</label><input type="number" id="mcBattleCooldownSec" value="60" min="0" max="3600"></div>
+          </div>
+          <div class="hint">포인트는 몬스터 웹 도감에서 레벨업할 때 쓰는 그 포인트예요. 쿨타임은 같은 사람이 {cmdBattle}을(를) 다시 쓸 수 있는 최소 간격이에요 (0이면 제한 없음).</div>
           <label style="margin-top:10px">대결 결과 멘트</label>
           <textarea id="mcMsgBattleResult" style="height:64px">⚔️ {nickname}님의 [{myMonster}] VS {target}님의 [{targetMonster}]!
-🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다!</textarea>
+🏆 {winner}님의 [{winnerMonster}]이(가) "{move}"(으)로 승리했습니다! {effect}
+✨ 포인트 +{amount}</textarea>
+          <div class="hint">{effect} = 타입 상성 결과 문구 (효과가 굉장했다/별로였다/없다, 상성 없으면 빈 값) · {amount} = 지급된 포인트</div>
+          <label style="margin-top:10px">쿨타임 중일 때 안내</label>
+          <textarea id="mcMsgBattleCooldown" style="height:44px">⏱ {nickname}님, 아직 대결 쿨타임이에요! ({sec}초 후 다시 시도해주세요)</textarea>
           <label style="margin-top:10px">사용법 안내 (닉네임 안 적었을 때)</label>
           <textarea id="mcMsgBattleUsage" style="height:44px">⚠️ 사용법: {cmdBattle} [고유닉]</textarea>
           <label style="margin-top:10px">본인한테 대결 신청했을 때</label>
@@ -6211,8 +6233,15 @@ async function saveGlobalAnnounce(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+let wbMonsterCatalog=[];
+let wbRewards=[];
 async function loadWorldBoss(){
   try{
+    if(!wbMonsterCatalog.length){
+      const cres=await fetch(SERVER+'/worldboss-admin/monster-catalog',{headers:authHeaders()});
+      const cd=await cres.json();
+      if(cd.success) wbMonsterCatalog=cd.monsters||[];
+    }
     const res=await fetch(SERVER+'/worldboss-admin/settings',{headers:authHeaders()});
     const d=await res.json();
     if(!d.success)return;
@@ -6222,8 +6251,40 @@ async function loadWorldBoss(){
     document.getElementById('wbIntervalMin').value=d.data.intervalMin||60;
     document.getElementById('wbJoinWindowSec').value=d.data.joinWindowSec||90;
     document.getElementById('wbSpawnMsg').value=d.data.spawnMsg||'';
+    wbRewards=(d.data.rewards||[]).map(r=>({...r}));
+    renderWbRewardList();
     document.getElementById('wbStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전체 방 동시 등장 중`:'⏸️ 꺼짐';
   }catch(e){}
+}
+const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼',point:'✨ 도감 포인트'};
+function renderWbRewardList(){
+  const wrap=document.getElementById('wbRewardList');
+  if(!wrap)return;
+  if(!wbRewards.length){ wrap.innerHTML='<p class="hint">등록된 보상이 없어요. "+ 보상 추가"를 눌러 추가해보세요.</p>'; return; }
+  wrap.innerHTML=wbRewards.map((r,i)=>{
+    const typeOpts=Object.keys(WB_REWARD_TYPE_LABEL).map(t=>`<option value="${t}" ${r.type===t?'selected':''}>${WB_REWARD_TYPE_LABEL[t]}</option>`).join('');
+    if(r.type==='shinyMonster'){
+      const monsterOpts='<option value="">랜덤</option>'+wbMonsterCatalog.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
+      return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
+        <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
+        <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
+        <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
+      </div>`;
+    }
+    return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
+      <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
+      <input type="number" min="1" placeholder="개수" value="${r.amount||1}" oninput="wbRewards[${i}].amount=Number(this.value)||1">
+      <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function wbAddReward(){
+  wbRewards.push({type:'lotto',amount:10});
+  renderWbRewardList();
+}
+function wbRemoveReward(i){
+  wbRewards.splice(i,1);
+  renderWbRewardList();
 }
 async function saveWorldBoss(){
   const enabled=document.getElementById('wbEnabled').checked;
@@ -6233,7 +6294,7 @@ async function saveWorldBoss(){
   const joinWindowSec=Number(document.getElementById('wbJoinWindowSec').value)||90;
   const spawnMsg=document.getElementById('wbSpawnMsg').value;
   try{
-    const res=await fetch(SERVER+'/worldboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,monsterName,power,intervalMin,joinWindowSec,spawnMsg})});
+    const res=await fetch(SERVER+'/worldboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,monsterName,power,intervalMin,joinWindowSec,spawnMsg,rewards:wbRewards})});
     const d=await res.json();
     if(d.success){ showToast('저장 완료 ✓'); loadWorldBoss(); }
     else showToast(d.error||'저장 실패');
@@ -6928,6 +6989,7 @@ const ACT_DEFAULT={
   msgLottoTotal:'🎁 총 획득 경험치: +{totalExp} EXP',
   msgLottoAutoHeader:'🎰 {nickname}님의 복권 {count}개 자동 결과',
   msgLottoFull:'🎟️ {nickname}님 복권 {gained}장 지급! (보유: {lotto}장 | 포인트: {lp}/{lpMax})',
+  msgLottoNone:'⚠️ {nickname}님의 복권이 없습니다.',
 };
 let activityData=JSON.parse(JSON.stringify(ACT_DEFAULT));
 
@@ -6972,6 +7034,7 @@ function renderActivitySettings(){
   document.getElementById('actMsgLottoAutoHeader').value=activityData.msgLottoAutoHeader;
   document.getElementById('actMsgLottoTotal').value=activityData.msgLottoTotal;
   document.getElementById('actMsgLottoFull').value=activityData.msgLottoFull;
+  document.getElementById('actMsgLottoNone').value=activityData.msgLottoNone;
   renderActGrantList();
 }
 
@@ -7044,6 +7107,7 @@ function collectActivityFormValues(){
   activityData.msgLottoAutoHeader=document.getElementById('actMsgLottoAutoHeader').value;
   activityData.msgLottoTotal=document.getElementById('actMsgLottoTotal').value;
   activityData.msgLottoFull=document.getElementById('actMsgLottoFull').value;
+  activityData.msgLottoNone=document.getElementById('actMsgLottoNone').value;
 }
 
 async function saveActivitySettings(){
@@ -9678,6 +9742,7 @@ async function saveTrophyBoard(){
 }
 
 /* ── 🐾 몬스터 잡기 ── */
+const MC_TYPE_NAMES=['노말','불꽃','물','전기','풀','얼음','격투','독','땅','비행','에스퍼','벌레','바위','고스트','드래곤','악','강철','페어리'];
 let mcMonsters=[];
 let mcShopItems=[];
 let mcEditingIndex=null;
@@ -9695,6 +9760,7 @@ async function loadMonsterCatch(){
     document.getElementById('mcCatchMode').value=s.catchMode||'first';
     document.getElementById('mcCmdCatch').value=s.cmdCatch||'!잡기';
     document.getElementById('mcCmdDex').value=s.cmdDex||'!도감';
+    document.getElementById('mcCmdRanking').value=s.cmdRanking||'!랭킹';
     document.getElementById('mcSpawnMsg').value=s.spawnMsg||'';
     document.getElementById('mcLegendarySpawnMsg').value=s.legendarySpawnMsg||'';
     document.getElementById('mcCatchSuccessMsg').value=s.catchSuccessMsg||'';
@@ -9723,6 +9789,9 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgGiftBall').value=s.msgGiftBall||'';
     document.getElementById('mcCmdBattle').value=s.cmdBattle||'!대결';
     document.getElementById('mcMsgBattleResult').value=s.msgBattleResult||'';
+    document.getElementById('mcBattleWinPoints').value=s.battleWinPoints!=null?s.battleWinPoints:10;
+    document.getElementById('mcBattleCooldownSec').value=s.battleCooldownSec!=null?s.battleCooldownSec:60;
+    document.getElementById('mcMsgBattleCooldown').value=s.msgBattleCooldown||'';
     document.getElementById('mcMsgBattleUsage').value=s.msgBattleUsage||'';
     document.getElementById('mcMsgBattleSelfError').value=s.msgBattleSelfError||'';
     document.getElementById('mcMsgBattleNoMonsters').value=s.msgBattleNoMonsters||'';
@@ -9853,6 +9922,19 @@ function renderMcMonsters(){
         <input type="number" min="1" value="${m.power!=null?m.power:10}" style="width:100%;padding:4px;font-size:11px" oninput="mcMonsters[${i}].power=Number(this.value)||1">
       </div>
       <input type="text" value="${escapeAttr(m.trait||'')}" placeholder="특성 (예: 화염 저항)" style="width:100%;font-size:11px;padding:4px" oninput="mcMonsters[${i}].trait=this.value">
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="hint" style="margin:0;font-size:10px;white-space:nowrap">타입1</span>
+        <select style="width:100%;padding:4px;font-size:11px" onchange="mcMonsters[${i}].types=[this.value,(mcMonsters[${i}].types&&mcMonsters[${i}].types[1])||''].filter(Boolean)">
+          ${MC_TYPE_NAMES.map(t=>`<option value="${t}" ${(m.types&&m.types[0])===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="hint" style="margin:0;font-size:10px;white-space:nowrap">타입2</span>
+        <select style="width:100%;padding:4px;font-size:11px" onchange="mcMonsters[${i}].types=[(mcMonsters[${i}].types&&mcMonsters[${i}].types[0])||'노말',this.value].filter(Boolean)">
+          <option value="">(단일타입)</option>
+          ${MC_TYPE_NAMES.map(t=>`<option value="${t}" ${(m.types&&m.types[1])===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
       <label style="display:flex;align-items:center;gap:5px;width:100%;font-size:11px;color:var(--muted)"><input type="checkbox" ${m.legendary?'checked':''} onchange="mcMonsters[${i}].legendary=this.checked">✨ 전설 몬스터</label>
       <input type="text" value="${escapeAttr((m.moves||[]).join(', '))}" placeholder="필살기 (쉼표로 구분, 예: 불꽃숨결, 꼬리치기)" style="width:100%;font-size:11px;padding:4px" oninput="mcMonsters[${i}].moves=this.value.split(',').map(x=>x.trim()).filter(Boolean)">
       <select style="width:100%;font-size:11px;padding:4px" onchange="mcMonsters[${i}].evolvesTo=this.value">
@@ -9875,15 +9957,24 @@ function bulkAddPokemonGen1(skipConfirm){
   let added=0, skipped=0;
   POKEMON_GEN1_DATA.forEach(p=>{
     if(existingIds.has(p.id)){ skipped++; return; }
-    mcMonsters.push({...p});
+    // ⚠️ 프리셋 원본의 types는 영어(Grass/Poison 등)라서 우리 상성표(한글 기준)랑 안 맞는다.
+    // 반드시 typeNames(한글)를 써야 타입 상성이 정상 작동한다.
+    mcMonsters.push({...p, types: p.typeNames || []});
     added++;
   });
   renderMcMonsters();
   if(!skipConfirm) showToast(`포켓몬 ${added}마리 추가${skipped?` (이미 있던 ${skipped}마리는 건너뜀)`:''}. 저장을 눌러야 반영돼요.`);
 }
+function resetToPokemonGen1(){
+  if(!confirm('⚠️ 지금 등록된 몬스터 정보를 전부 지우고, 포켓몬 1세대(151마리, 타입 기본 설정됨)로 완전히 교체할까요?\n되돌릴 수 없어요!')) return;
+  mcMonsters = POKEMON_GEN1_DATA.map(p => ({...p, types: p.typeNames || []}));
+  mcIdSeq = 1;
+  renderMcMonsters();
+  showToast('몬스터 목록을 기본 프리셋(타입 포함)으로 교체했어요. 저장을 눌러야 최종 반영돼요.');
+}
 
 function addMcMonster(){
-  mcMonsters.push({id:'new'+(mcIdSeq++)+'_'+Date.now(),name:'',image:'',weight:10,catchRate:50,power:10,trait:'',moves:[],evolvesTo:'',evolveCount:10,legendary:false});
+  mcMonsters.push({id:'new'+(mcIdSeq++)+'_'+Date.now(),name:'',image:'',weight:10,catchRate:50,power:10,trait:'',types:['노말'],moves:[],evolvesTo:'',evolveCount:10,legendary:false});
   renderMcMonsters();
 }
 function removeMcMonsterAt(i){
@@ -9963,7 +10054,7 @@ function bulkAddFilteredMcStickers(){
     idx=1;
   }
   for(;idx<list.length;idx++){
-    mcMonsters.push({id:'new'+(mcIdSeq++)+'_'+Date.now()+'_'+idx,name:list[idx].title||list[idx].name,image:list[idx].image||'',weight:10,catchRate:50,power:10,trait:'',moves:[],evolvesTo:'',evolveCount:10});
+    mcMonsters.push({id:'new'+(mcIdSeq++)+'_'+Date.now()+'_'+idx,name:list[idx].title||list[idx].name,image:list[idx].image||'',weight:10,catchRate:50,power:10,trait:'',types:list[idx].typeNames||['노말'],moves:[],evolvesTo:'',evolveCount:10});
   }
   renderMcMonsters();
   closeMcStickerPicker();
@@ -9978,6 +10069,7 @@ async function saveMonsterCatch(){
     catchMode:document.getElementById('mcCatchMode').value,
     cmdCatch:document.getElementById('mcCmdCatch').value,
     cmdDex:document.getElementById('mcCmdDex').value,
+    cmdRanking:document.getElementById('mcCmdRanking').value,
     spawnMsg:document.getElementById('mcSpawnMsg').value,
     legendarySpawnMsg:document.getElementById('mcLegendarySpawnMsg').value,
     catchSuccessMsg:document.getElementById('mcCatchSuccessMsg').value,
@@ -10005,6 +10097,9 @@ async function saveMonsterCatch(){
     msgGiftBall:document.getElementById('mcMsgGiftBall').value,
     cmdBattle:document.getElementById('mcCmdBattle').value,
     msgBattleResult:document.getElementById('mcMsgBattleResult').value,
+    battleWinPoints:document.getElementById('mcBattleWinPoints').value,
+    battleCooldownSec:document.getElementById('mcBattleCooldownSec').value,
+    msgBattleCooldown:document.getElementById('mcMsgBattleCooldown').value,
     msgBattleUsage:document.getElementById('mcMsgBattleUsage').value,
     msgBattleSelfError:document.getElementById('mcMsgBattleSelfError').value,
     msgBattleNoMonsters:document.getElementById('mcMsgBattleNoMonsters').value,

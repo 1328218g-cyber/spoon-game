@@ -32,14 +32,32 @@
   .dex-cell.owned{background:#182338;border-color:#2f4d6b}
   .dex-cell.selected{border-color:var(--green);box-shadow:0 0 0 2px rgba(61,220,132,.35)}
   .dex-cell.legendary.owned{border-color:var(--gold)}
+  .dex-cell.shiny-cell.owned{background:linear-gradient(160deg,#1f2e1c,#182338);border-color:#f9c74f;box-shadow:0 0 0 1px rgba(249,199,79,.25)}
+  .dex-cell.shiny-cell img{filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)}
+  .shiny-badge{position:absolute;top:2px;left:4px;font-size:11px}
   .dex-cell img{width:56px;height:56px;object-fit:contain}
   .dex-cell .q{width:56px;height:56px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto}
   .dex-cell .num{font-size:9.5px;color:var(--text-dim);margin-top:3px}
   .dex-cell .nm{font-size:10.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .dex-cell .lv{font-size:9px;color:var(--gold);margin-top:1px}
+  .dismantle-badge{font-size:8px;font-weight:700;margin-top:2px;padding:1px 5px;border-radius:999px;display:inline-block}
+  .dismantle-badge.ok{background:rgba(61,220,132,.15);color:var(--green)}
+  .dismantle-badge.no{background:rgba(255,92,114,.15);color:var(--red)}
+  .dex-cell.depleted img{opacity:.4}
   .dex-cell .cnt{position:absolute;top:2px;right:4px;font-size:9px;background:var(--purple);color:#fff;border-radius:999px;padding:1px 5px}
-  .detail-card{display:none}
-  .detail-card.show{display:block}
+  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:flex-end;justify-content:center}
+  .modal-bg.show{display:flex}
+  .modal-box{background:var(--card);border:1px solid var(--border);border-radius:18px 18px 0 0;padding:18px;width:100%;max-width:520px;max-height:88vh;overflow-y:auto}
+  @media (min-width:560px){ .modal-bg{align-items:center} .modal-box{border-radius:18px;margin:0 16px} }
+  .modal-close{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;padding:4px 8px}
+  .dex-cell{position:relative}
+  .dex-cell.batch-selected{border-color:var(--purple2);box-shadow:0 0 0 2px rgba(139,60,240,.4)}
+  .batch-check{position:absolute;top:2px;right:4px;width:18px;height:18px;border-radius:50%;background:var(--card);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px}
+  .batch-selected .batch-check{background:var(--purple2);border-color:var(--purple2);color:#fff}
+  .batch-bar{display:none;position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--border);padding:14px 16px 20px;z-index:45;max-width:640px;margin:0 auto}
+  .batch-summary{max-height:120px;overflow-y:auto;font-size:12.5px}
+  .batch-summary-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)}
+  .empty{text-align:center;color:var(--text-dim);font-size:13px;padding:40px 20px}
   .detail-header{display:flex;align-items:center;gap:14px}
   .detail-header img{width:88px;height:88px;object-fit:contain}
   .detail-header .q{width:88px;height:88px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800}
@@ -82,47 +100,68 @@
     <div class="card">
       <div class="top-stats">
         <div style="font-size:14px;font-weight:700" id="myNickLabel"></div>
-        <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="aceBtn" onclick="mdShowAce()" style="background:var(--surface2, #1c2440);border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">⚔️ 대표 몬스터: 미설정</button>
+          <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
+        </div>
       </div>
       <div class="hint" style="margin:0">P는 몬스터 분해로 얻는 포인트예요. 레벨업에 사용해요.</div>
     </div>
 
     <div class="tabs">
-      <div class="tab-btn active" id="tabDex" onclick="mdSwitchTab('dex')">📖 도감</div>
-      <div class="tab-btn" id="tabDetail" onclick="mdSwitchTab('detail')">🔍 상세</div>
+      <div class="tab-btn active" id="dexModeNormal" onclick="mdSwitchDexMode('normal')">📖 일반 도감</div>
+      <div class="tab-btn" id="dexModeShiny" onclick="mdSwitchDexMode('shiny')">✨ 이로치 도감</div>
     </div>
 
     <div class="card" id="dexTabCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="hint" style="margin:0" id="dexModeHint">보유한 몬스터를 눌러서 대결 선택 / 분해 / 레벨업을 할 수 있어요.</div>
+        <button class="btn btn-gray" id="batchToggleBtn" style="width:auto;padding:8px 12px;font-size:12px;white-space:nowrap;margin-left:8px" onclick="mdToggleBatchMode()">🔨 여러 개 분해</button>
+      </div>
       <div class="dex-grid" id="dexGrid"></div>
     </div>
 
-    <div class="card detail-card" id="detailTabCard">
-      <div id="detailEmpty" class="empty">도감에서 몬스터를 눌러서 선택하세요.</div>
-      <div id="detailBody" style="display:none">
-        <div class="detail-header">
-          <div id="detailImgWrap"></div>
-          <div class="detail-info">
-            <div class="nm" id="detailName"></div>
-            <div class="meta" id="detailMeta"></div>
-          </div>
-        </div>
-        <div class="row-btns">
-          <button class="btn" id="selectBtn" onclick="mdSelectBattle()">⚔️ 대결 몬스터로 선택</button>
-        </div>
-        <div class="hint" style="margin-top:14px">🔨 분해하기 (중복분 정리하고 포인트 획득)</div>
-        <div class="stepper">
-          <button onclick="mdChangeDismantle(-1)">−</button>
-          <div class="n" id="dismantleCount">1</div>
-          <button onclick="mdChangeDismantle(1)">+</button>
-        </div>
-        <button class="btn btn-gray" onclick="mdDismantle()">🔨 분해하기</button>
-        <div class="hint" style="margin-top:14px">⬆️ 레벨업 (공격력 +3 per 레벨)</div>
-        <div id="levelUpDetailBox" style="background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:12px;margin:6px 0"></div>
-        <button class="btn btn-gray" onclick="mdLevelUp()">⬆️ 레벨업</button>
-      </div>
-    </div>
   </div>
 
+</div>
+
+<!-- 🔍 몬스터 상세 팝업 (다른 화면으로 안 넘어가고 그리드 위에 뜸) -->
+<div class="modal-bg" id="detailModalBg" onclick="if(event.target===this)mdCloseDetail()">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:flex-end"><button class="modal-close" onclick="mdCloseDetail()">✕</button></div>
+    <div id="detailBody">
+      <div class="detail-header">
+        <div id="detailImgWrap"></div>
+        <div class="detail-info">
+          <div class="nm" id="detailName"></div>
+          <div class="meta" id="detailMeta"></div>
+        </div>
+      </div>
+      <div class="row-btns">
+        <button class="btn" id="selectBtn" onclick="mdSelectBattle()">⚔️ 대결 몬스터로 선택</button>
+      </div>
+      <div class="hint" style="margin-top:14px">🔨 분해하기 (중복분 정리하고 포인트 획득)</div>
+      <div class="hint" id="dismantlePointHint" style="margin:2px 0 8px;color:var(--gold);font-weight:700"></div>
+      <div class="stepper">
+        <button onclick="mdChangeDismantle(-1)">−</button>
+        <div class="n" id="dismantleCount">1</div>
+        <button onclick="mdChangeDismantle(1)">+</button>
+      </div>
+      <button class="btn btn-gray" onclick="mdDismantle()">🔨 분해하기</button>
+      <div class="hint" style="margin-top:14px">⬆️ 레벨업 (공격력 +3 per 레벨)</div>
+      <div id="levelUpDetailBox" style="background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:12px;margin:6px 0"></div>
+      <button class="btn btn-gray" onclick="mdLevelUp()">⬆️ 레벨업</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🔨 여러 개 한번에 분해 — 하단 고정 요약 바 -->
+<div class="batch-bar" id="batchBar" style="display:none">
+  <div class="batch-summary" id="batchSummary"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn btn-gray" style="margin:0" onclick="mdToggleBatchMode()">취소</button>
+    <button class="btn" style="margin:0" onclick="mdDismantleBatch()">🔨 선택한 항목 분해하기 (<span id="batchTotalPoints">0</span>P)</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -214,52 +253,129 @@ async function checkMe(){
     myTag = d.tag; myPoints = d.points; dexList = d.dex; levelBonus = d.levelBonus || 3;
     document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
     document.getElementById('myPoints').textContent = myPoints;
+    let aceMon = dexList.find(m=>m.selected);
+    let aceIsShiny = false;
+    if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceIsShiny = true; }
+    document.getElementById('aceBtn').textContent = aceMon
+      ? `⚔️ ${(aceIsShiny?'🌈':'')}${aceMon.name}`
+      : '⚔️ 대표 몬스터: 미설정';
     showCard('main');
     renderDex();
     if(selectedMonster){
-      const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.id));
-      if(fresh) renderDetail(fresh);
+      const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.displayId));
+      if(fresh){ selectedMonster = buildSelectedMonsterObj(fresh, selectedMonster.isShiny); renderDetail(selectedMonster); }
     }
   }catch(e){ /* 조용히 재시도 */ }
 }
 
+let dexMode = 'normal'; // 'normal' | 'shiny'
+function mdSwitchDexMode(mode){
+  dexMode = mode;
+  document.getElementById('dexModeNormal').classList.toggle('active', mode==='normal');
+  document.getElementById('dexModeShiny').classList.toggle('active', mode==='shiny');
+  renderDex();
+}
+
+// 일반/이로치 어느 쪽이든 공통으로 다루기 쉽게, 원본 dexList 항목을 화면/서버 호출에
+// 그대로 쓸 수 있는 하나의 형태로 합쳐준다. 이로치는 서버에 보낼 id에 "shiny_" 접두사를 붙인다.
+function buildSelectedMonsterObj(m, isShiny){
+  return {
+    id: isShiny ? ('shiny_'+m.id) : String(m.id),
+    displayId: m.id,
+    name: (isShiny?'🌈이로치 ':'') + m.name,
+    image: m.image,
+    legendary: m.legendary,
+    count: isShiny ? m.shinyCount : m.count,
+    level: isShiny ? m.shinyLevel : m.level,
+    power: isShiny ? m.shinyPower : m.power,
+    selected: isShiny ? m.shinySelected : m.selected,
+    isShiny,
+  };
+}
+let batchMode = false;
+let batchSelection = {}; // { effId: { count, name, points, maxCount } }
+
 function renderDex(){
   const grid = document.getElementById('dexGrid');
+  const shiny = dexMode==='shiny';
   grid.innerHTML = dexList.map(m=>{
-    const owned = m.count>0;
-    const cls = 'dex-cell'+(owned?' owned':'')+(m.legendary?' legendary':'')+(m.selected?' selected':'');
-    const inner = owned
+    const count = shiny ? m.shinyCount : m.count;
+    const level = shiny ? m.shinyLevel : m.level;
+    const selected = shiny ? m.shinySelected : m.selected;
+    const discovered = shiny ? m.shinyDiscovered : m.discovered;
+    const canDismantle = count>0;
+    const effId = shiny ? ('shiny_'+m.id) : String(m.id);
+    const isBatchSelected = !!batchSelection[effId];
+    const cls = 'dex-cell'+(discovered?' owned':'')+(m.legendary?' legendary':'')+(selected?' selected':'')+(shiny?' shiny-cell':'')+(isBatchSelected?' batch-selected':'')+(discovered&&!canDismantle?' depleted':'');
+    const inner = discovered
       ? `<img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="q" style="display:none">?</div>`
       : `<div class="q">?</div>`;
-    return `<div class="${cls}" onclick="mdPick('${escapeHtml(String(m.id))}')">
-      ${owned&&m.count>1?`<span class="cnt">x${m.count}</span>`:''}
+    return `<div class="${cls}" onclick="mdCellClick('${escapeHtml(effId)}',${shiny})">
+      ${discovered&&count>1?`<span class="cnt">x${count}</span>`:''}
+      ${shiny&&discovered?'<span class="shiny-badge">✨</span>':''}
+      ${batchMode&&canDismantle?`<span class="batch-check">${isBatchSelected?'✓':''}</span>`:''}
       ${inner}
-      <div class="nm">${owned?escapeHtml(m.name):'???'}</div>
-      ${owned?`<div class="lv">Lv.${m.level}</div>`:''}
+      <div class="nm">${discovered?escapeHtml((shiny?'🌈':'')+m.name):'???'}</div>
+      ${discovered?`<div class="lv">Lv.${level}</div>`:''}
+      ${discovered?`<div class="dismantle-badge ${canDismantle?'ok':'no'}">${canDismantle?'분해 가능':'분해 불가'}</div>`:''}
     </div>`;
   }).join('');
 }
 
-function mdPick(id){
-  const m = dexList.find(x=>String(x.id)===String(id));
-  if(!m || m.count<=0){ showToast('아직 잡지 못한 몬스터예요'); return; }
-  selectedMonster = m;
+function mdCellClick(effId, isShiny){
+  if(batchMode) mdToggleBatchItem(effId, isShiny);
+  else mdPick(effId, isShiny);
+}
+
+// ⚔️ 포인트 옆 "대표 몬스터" 버튼 — 지금 대결용으로 선택해둔 몬스터(일반/이로치 중 하나) 정보를 바로 팝업으로 보여준다.
+function mdShowAce(){
+  let ace = dexList.find(m=>m.selected);
+  let isShinyAce = false;
+  if(!ace){ ace = dexList.find(m=>m.shinySelected); isShinyAce = true; }
+  if(!ace){ showToast('아직 대표(대결) 몬스터를 선택하지 않았어요'); return; }
+  selectedMonster = buildSelectedMonsterObj(ace, isShinyAce);
   dismantleCount = 1;
-  renderDetail(m);
-  mdSwitchTab('detail');
+  renderDetail(selectedMonster);
+  document.getElementById('detailModalBg').classList.add('show');
+}
+
+function mdPick(effId, isShiny){
+  const baseId = isShiny ? String(effId).replace(/^shiny_/,'') : effId;
+  const m = dexList.find(x=>String(x.id)===String(baseId));
+  const discovered = m ? (isShiny ? m.shinyDiscovered : m.discovered) : false;
+  if(!m || !discovered){ showToast('아직 잡지 못한 몬스터예요'); return; }
+  selectedMonster = buildSelectedMonsterObj(m, isShiny);
+  dismantleCount = 1;
+  renderDetail(selectedMonster);
+  document.getElementById('detailModalBg').classList.add('show');
+}
+
+function mdCloseDetail(){
+  document.getElementById('detailModalBg').classList.remove('show');
 }
 
 function renderDetail(m){
-  document.getElementById('detailEmpty').style.display='none';
-  document.getElementById('detailBody').style.display='block';
-  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain" onerror="this.style.display='none'">`;
-  document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.id;
+  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain;${m.isShiny?'filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)':''}" onerror="this.style.display='none'">`;
+  document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.displayId;
   document.getElementById('detailMeta').textContent = `보유 ${m.count}마리 · Lv.${m.level} · 공격력 ${m.power??'-'}`;
+  const canDismantle = m.count>0;
   const selBtn = document.getElementById('selectBtn');
-  selBtn.textContent = m.selected ? '✅ 현재 대결 몬스터예요' : '⚔️ 대결 몬스터로 선택';
-  selBtn.disabled = m.selected;
-  dismantleCount = Math.min(dismantleCount, m.count);
+  if(!canDismantle){
+    selBtn.textContent = '⚠️ 보유 수량이 없어서 선택할 수 없어요';
+    selBtn.disabled = true;
+  } else {
+    selBtn.textContent = m.selected ? '✅ 현재 대결 몬스터예요' : '⚔️ 대결 몬스터로 선택';
+    selBtn.disabled = m.selected;
+  }
+  dismantleCount = canDismantle ? Math.min(dismantleCount, m.count) : 0;
   document.getElementById('dismantleCount').textContent = dismantleCount;
+  const perUnit = mdPointsFor(m);
+  document.getElementById('dismantlePointHint').textContent = canDismantle
+    ? `마리당 ${perUnit}P (지금 ${dismantleCount}마리 = ${perUnit*dismantleCount}P)`
+    : '⚠️ 보유 수량이 없어서 분해할 수 없어요 (분해 불가)';
+  document.querySelectorAll('.stepper button').forEach(b=>b.disabled=!canDismantle);
+  const dismantleBtn = document.querySelector('button[onclick="mdDismantle()"]');
+  if(dismantleBtn) dismantleBtn.disabled = !canDismantle;
   const curPower = m.power ?? 0;
   const nextPower = curPower + levelBonus;
   const cost = m.level*10;
@@ -276,22 +392,19 @@ function renderDetail(m){
     </div>`;
 }
 
-function mdSwitchTab(tab){
-  document.getElementById('tabDex').classList.toggle('active', tab==='dex');
-  document.getElementById('tabDetail').classList.toggle('active', tab==='detail');
-  document.getElementById('dexTabCard').style.display = tab==='dex' ? 'block' : 'none';
-  document.getElementById('detailTabCard').classList.toggle('show', tab==='detail');
-  // 🔍 상세 탭을 열었는데 아직 아무것도 선택 안 했으면, 현재 대표(대결) 몬스터를 기본으로 보여준다.
-  if(tab==='detail' && !selectedMonster){
-    const battleMon = dexList.find(m=>m.selected);
-    if(battleMon){ selectedMonster=battleMon; dismantleCount=1; renderDetail(battleMon); }
-  }
+// 도감 항목(dexList 원본)에서 마리당 분해 포인트를 찾아준다 — 서버가 계산해서 내려준 값을 그대로 씀.
+function mdPointsFor(m){
+  const base = dexList.find(x=>String(x.id)===String(m.displayId));
+  if(!base) return 0;
+  return m.isShiny ? (base.shinyDismantlePoints||0) : (base.dismantlePoints||0);
 }
 
 function mdChangeDismantle(delta){
   if(!selectedMonster) return;
   dismantleCount = Math.max(1, Math.min(selectedMonster.count, dismantleCount+delta));
   document.getElementById('dismantleCount').textContent = dismantleCount;
+  const perUnit = mdPointsFor(selectedMonster);
+  document.getElementById('dismantlePointHint').textContent = `마리당 ${perUnit}P (지금 ${dismantleCount}마리 = ${perUnit*dismantleCount}P)`;
 }
 
 async function mdSelectBattle(){
@@ -320,6 +433,86 @@ async function mdDismantle(){
     if(!d.success){ showToast(d.error||'실패'); return; }
     showToast(`+${d.gained}P 획득! (보유 ${d.points}P)`);
     dismantleCount = 1;
+    mdCloseDetail();
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* 🔨 여러 종류의 몬스터를 한 번에 선택해서 한 번에 분해하기 */
+function mdToggleBatchMode(){
+  batchMode = !batchMode;
+  batchSelection = {};
+  document.getElementById('batchToggleBtn').textContent = batchMode ? '✕ 선택 종료' : '🔨 여러 개 분해';
+  document.getElementById('dexModeHint').textContent = batchMode
+    ? '분해할 몬스터를 여러 개 눌러서 선택하세요 (보유한 것만 선택 가능)'
+    : '보유한 몬스터를 눌러서 대결 선택 / 분해 / 레벨업을 할 수 있어요.';
+  document.getElementById('batchBar').style.display = batchMode ? 'block' : 'none';
+  renderDex();
+  renderBatchBar();
+}
+
+function mdToggleBatchItem(effId, isShiny){
+  const baseId = isShiny ? String(effId).replace(/^shiny_/,'') : effId;
+  const m = dexList.find(x=>String(x.id)===String(baseId));
+  const count = m ? (isShiny ? m.shinyCount : m.count) : 0;
+  if(!m || count<=0){ showToast('분해할 수 있는 개체가 없어요'); return; }
+  if(batchSelection[effId]){
+    delete batchSelection[effId];
+  } else {
+    const points = isShiny ? (m.shinyDismantlePoints||0) : (m.dismantlePoints||0);
+    batchSelection[effId] = { count:1, maxCount:count, name:(isShiny?'🌈이로치 ':'')+m.name, points };
+  }
+  renderDex();
+  renderBatchBar();
+}
+
+function mdBatchChangeCount(effId, delta){
+  const item = batchSelection[effId];
+  if(!item) return;
+  item.count = Math.max(1, Math.min(item.maxCount, item.count+delta));
+  renderBatchBar();
+}
+
+function renderBatchBar(){
+  const keys = Object.keys(batchSelection);
+  const summary = document.getElementById('batchSummary');
+  if(!keys.length){
+    summary.innerHTML = '<div class="hint" style="margin:0">선택된 몬스터가 없어요.</div>';
+    document.getElementById('batchTotalPoints').textContent = '0';
+    return;
+  }
+  let total = 0;
+  summary.innerHTML = keys.map(effId=>{
+    const it = batchSelection[effId];
+    const sub = it.points*it.count;
+    total += sub;
+    return `<div class="batch-summary-row">
+      <span>${escapeHtml(it.name)}</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <button onclick="mdBatchChangeCount('${escapeHtml(effId)}',-1)" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:#fff">−</button>
+        ${it.count}/${it.maxCount}
+        <button onclick="mdBatchChangeCount('${escapeHtml(effId)}',1)" style="width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:#fff">+</button>
+        <b style="color:var(--gold);min-width:44px;text-align:right">${sub}P</b>
+      </span>
+    </div>`;
+  }).join('');
+  document.getElementById('batchTotalPoints').textContent = total;
+}
+
+async function mdDismantleBatch(){
+  const keys = Object.keys(batchSelection);
+  if(!keys.length){ showToast('선택된 몬스터가 없어요'); return; }
+  if(!confirm(`선택한 ${keys.length}종류를 분해할까요? 되돌릴 수 없어요.`)) return;
+  const items = keys.map(effId=>({ monsterId: effId, count: batchSelection[effId].count }));
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dismantle-batch`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, items })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'실패'); return; }
+    showToast(`+${d.totalGained}P 획득! (보유 ${d.points}P)`);
+    mdToggleBatchMode();
     checkMe();
   }catch(e){ showToast('오류: '+e.message); }
 }
