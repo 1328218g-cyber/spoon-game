@@ -2205,6 +2205,29 @@ function mcPickStrongest(collection, monsters, tag) {
   return pickStrongestFrom(owned)
 }
 
+// 🏆 !도감 / !랭킹에서 공통으로 쓰는 "이 트레이너의 대표(에이스) 몬스터" 계산 — 레벨업 보너스까지
+// 반영한 실제 공격력 기준으로 가장 강한 걸 찾는다 (mcPickStrongest와 별개로, 여기선 레벨 숫자도 같이 필요해서 직접 계산한다).
+function mcComputeTrainerAce(collection, monsters, tag) {
+  const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
+  let best = null
+  owned.forEach(id => {
+    const resolved = mcResolveMonster(id, monsters, tag)
+    if (resolved && (!best || resolved.power > best.power)) {
+      best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(tag, mcBaseIdFromShiny(id)) }
+    }
+  })
+  return best
+}
+// 🌍 전체 트레이너 랭킹(에이스 공격력 내림차순) — mc.collections는 djId별 설정 안에 있지만
+// 실제로는 전역 공유 데이터라서, 이 랭킹은 어느 방에서 계산해도 전체 플랫폼 기준이 된다.
+function mcComputeGlobalRanking(mc) {
+  const allTags = Object.keys(mc.collections || {})
+  return allTags
+    .map(t => ({ tag: t, ace: mcComputeTrainerAce(mc.collections[t], mc.monsters, t) }))
+    .filter(r => r.ace)
+    .sort((a, b) => b.ace.power - a.ace.power)
+}
+
 // ══════════════════════════════════════════════════════
 // 🐾 몬스터 웹 도감 — 웹뽑기판/마피아와 같은 register→code→채팅인증 패턴을 그대로 재사용해서,
 // 시청자가 웹페이지에서 로그인 없이 "본인 도감"을 확인하고, 대결에 쓸 몬스터를 직접 고르고,
@@ -2471,59 +2494,29 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   // 제한에 걸려서 목록이 잘리는 문제가 있었다. 그래서 13마리씩 페이지로 잘라서 보여주고,
   // 숫자를 붙여서(예: !도감2) 원하는 페이지를 바로 조회할 수 있게 한다. (킵목록 확인N과 같은 방식)
   const cmdDex = mc.cmdDex || '!도감'
-  const dexMatch = msg.match(new RegExp(`^${escapeRegExp(cmdDex)}(\\d*)$`))
-  if (dexMatch) {
+  if (msg === cmdDex) {
     const owned = mc.collections[key] || {}
-    const total = Object.values(owned).reduce((s, n) => s + n, 0)
-    if (!total) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
-    // 🐾 이름 조회는 이 방의 몬스터 목록을 먼저 보고, 없으면 전역 카탈로그(다른 디제이가 등록해둔 것)에서 찾는다.
-    // 그래야 이 방에 그 몬스터가 등록 안 돼있어도(=이 방의 mc.monsters에 없어도) 잡은 몬스터 이름이 제대로 보인다.
+    const ownedIds = Object.keys(owned)
+    if (!ownedIds.length) { setTimeout(() => sendChatToRoom(djId, `📖 ${author}님의 도감은 아직 비어있어요. ${mc.cmdCatch || '!잡기'}로 몬스터를 모아보세요!`), 400); return }
+
     let catalog = {}
     try { catalog = store.loadGlobalMonsterDex().catalog || {} } catch (e) {}
-    const localById = {}
-    mc.monsters.forEach(m => { localById[m.id] = m })
-    const nameOf = id => (localById[id] && localById[id].name) || (catalog[id] && catalog[id].name) || `(알 수 없는 몬스터 #${id})`
-    const ownedIds = Object.keys(owned).filter(id => owned[id] > 0)
-    const typesCount = ownedIds.length
-    // 🐾 이 방의 로컬 몬스터 목록과 전역 카탈로그를 합집합으로 계산한다. Math.max로는 둘 중
-    // 한쪽이 비어있을 때(예: 이 방엔 몬스터가 등록 안 돼있고 카탈로그도 아직 안 채워진 경우)
-    // 실제보다 훨씬 작은 값(심하면 0)이 나와서 "9/0종"처럼 이상하게 보이는 문제가 있었다.
     const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
     const totalTypes = allKnownIds.size
 
-    const pageSize = 13
-    const totalPages = Math.max(1, Math.ceil(ownedIds.length / pageSize))
-    const reqPage = dexMatch[1] ? parseInt(dexMatch[1], 10) : 1
-    const cur = Math.max(1, Math.min(reqPage || 1, totalPages))
-    const startIdx = (cur - 1) * pageSize
-    const pageIds = ownedIds.slice(startIdx, startIdx + pageSize)
-    // 🧬 모든 몬스터를 "이름 (보유/필요)" 형태로 통일하게 보여준다. 진화 가능한 몬스터(evolvesTo가 설정된 경우)는 evolveCount를 필요수량으로 쓰고 채웠으면 "진화가능"을 붙인다. 진화 대상이 아니거나(다른 방에서 조회해서) evolveCount를 모를 때는 보유수량/보유수량으로 뜨을 채운 것처럼 보여준다.
-    const lines = pageIds.map(id => {
-      const baseId = mcBaseIdFromShiny(id)
-      const mon = localById[baseId]
-      const isShinyEntry = mcIsShinyId(id)
-      const baseName = nameOf(baseId)
-      const name = isShinyEntry ? `🌈이로치 ${baseName}` : baseName
-      const count = owned[id]
-      const need = (mon && mon.evolveCount) ? Math.max(1, parseInt(mon.evolveCount, 10)) : count
-      const canEvolve = !isShinyEntry && !!(mon && mon.evolvesTo) && count >= need // 이로치는 별도 id라 진화 대상에서 제외
-      // ✨ 전설 몬스터는 이름 앞에 표시해서 한눈에 구분되게 한다.
-      const isLegendary = !!((mon && mon.legendary) || (catalog[baseId] && catalog[baseId].legendary))
-      const displayName = isLegendary ? `✨${name}` : name
-      const level = mcMonsterLevel(key, baseId)
-      return `${displayName} (${count}/${need}) Lv.${level}${canEvolve ? ' 진화가능' : ''}`
-    }).join('\n')
+    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id)).length
+    const shinyDiscovered = ownedIds.filter(id => mcIsShinyId(id)).length
+    const points = mcGetWebData().points[key] || 0
+    const ranking = mcComputeGlobalRanking(mc)
+    const myRankIdx = ranking.findIndex(r => r.tag.toLowerCase() === key.toLowerCase())
+    const ace = myRankIdx !== -1 ? ranking[myRankIdx].ace : mcComputeTrainerAce(owned, mc.monsters, key)
 
-    let out = `📖 ${author}님의 도감 (${typesCount}/${totalTypes}종, 총 ${total}마리)`
-    if (totalPages > 1) out += ` [${cur}/${totalPages}페이지]`
-    out += `\n${lines}`
-    if (totalPages > 1) {
-      const next = cur < totalPages ? cur + 1 : 1
-      out += `\n💡 ${cmdDex}${next} 로 다음 페이지 확인 가능`
-    }
-    // 📏 채팅 글자수 제한 때문에 한 번에 다 못 보내는 문제가 있어서, sendChatSplit으로 글자수
-    // 기준(150자)으로 자동으로 여러 메시지로 잘라서 순차 전송한다. (13마리씩 페이지로 나눈 것과
-    // 별개로, 한 페이지 자체가 길면 이 단계에서 또 한번 안전하게 잘라줌)
+    const out = `📖 ${author}님의 도감 요약\n`
+      + `-${ace ? ace.name : '(없음)'} ${ace ? ace.level : 0}Lv 공격:${ace ? ace.power : 0}\n`
+      + `-일반: ${normalDiscovered}/${totalTypes}\n`
+      + `-이로치 ${shinyDiscovered}/${totalTypes}\n`
+      + `-남은포인트:${points}\n`
+      + `-순위:${myRankIdx !== -1 ? myRankIdx + 1 : '순위없음'}`
     sendChatSplit(djId, out, 150, 500)
     return
   }
@@ -2535,22 +2528,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   // "현재 방 랭킹"은 이 방의 애청지수(활동 기록)에 등록된 사람들로만 한 번 더 좁혀서 계산한다.
   const cmdRanking = mc.cmdRanking || '!랭킹'
   if (msg === cmdRanking) {
-    const computeTrainerAce = (collection, mTag) => {
-      const owned = Object.keys(collection || {}).filter(id => collection[id] > 0)
-      let best = null
-      owned.forEach(id => {
-        const resolved = mcResolveMonster(id, mc.monsters, mTag)
-        if (resolved && (!best || resolved.power > best.power)) {
-          best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(mTag, mcBaseIdFromShiny(id)) }
-        }
-      })
-      return best
-    }
-    const allTags = Object.keys(mc.collections || {})
-    const globalRanking = allTags
-      .map(t => ({ tag: t, ace: computeTrainerAce(mc.collections[t], t) }))
-      .filter(r => r.ace)
-      .sort((a, b) => b.ace.power - a.ace.power)
+    const globalRanking = mcComputeGlobalRanking(mc)
 
     const act = getActivitySettings(djId, settings)
     const roomTagSet = new Set(Object.values(act.users || {}).map(u => (u.tag || '').toLowerCase()).filter(Boolean))
