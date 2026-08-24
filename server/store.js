@@ -19,6 +19,18 @@
 // 그래서 지금은: (1) 임시 파일에 먼저 쓰고 다 쓰인 뒤에만 원본 이름으로 바꿔치기(rename —
 // 이건 운영체제 차원에서 원자적이라 중간 상태가 존재할 수 없다), (2) 몇 시간에 한 번씩
 // 타임스탬프 붙은 백업을 따로 남겨서, 혹시 또 문제가 생겨도 되돌릴 지점을 확보해둔다.
+//
+// 🐌 사고 기록(2026-08, 추가): saveSettings()가 호출될 때마다 saveDjs()를 통해 djs.json
+// "전체"를 매번 동기(fs.writeFileSync)로 다시 썼다. 채팅 명령어(잡기/분해/입장/보스참여 등)
+// 코드 곳곳에서 이 saveSettings()를 아주 자주 호출하다보니, 동시접속자가 늘어날수록(예: 10명
+// 정도가 동시에 명령어를 쓰면) 이 동기 쓰기가 겹겹이 쌓여 이벤트 루프가 막히고, 그 사이
+// 다른 사람 명령어 응답이 느려지거나 방 입장 처리가 타이밍을 놓쳐 실패하는 문제가 있었다.
+// 그래서 saveSettings()는 이제 메모리 캐시만 "즉시" 갱신하고(그래서 읽기는 항상 최신 상태),
+// 실제 디스크 반영은 scheduleFlush()로 짧게(1초) 묶어서 마지막 한 번만 하도록 바꿨다.
+// 데이터 유실 걱정 때문에 무한정 늦추지는 않고, 그 사이 다시 호출되면 타이머만 리셋되는 게
+// 아니라 "최대 지연" 상한(maxDelayMs)도 같이 둬서, 계속 저장 요청이 들어와도 일정 시간
+// 안에는 반드시 한 번은 디스크에 반영되게 한다. 서버 종료 신호(SIGTERM/SIGINT)에도
+// flush()를 걸어서, 재배포로 인한 정상 종료 시에는 유실 없이 마지막 상태까지 저장된다.
 
 const fs = require('fs');
 const path = require('path');
@@ -78,6 +90,8 @@ function loadDjs() {
 // 원자적 저장 — 임시 파일에 먼저 다 쓴 다음, 원본 이름으로 바꿔치기(rename)한다.
 // rename은 운영체제 차원에서 원자적이라, 쓰는 도중 프로세스가 죽어도 djs.json은
 // 항상 "완전한 예전 버전" 아니면 "완전한 새 버전" 둘 중 하나만 유지된다.
+// ⚠️ 이 함수 자체는 여전히 동기(blocking)다 — 그래서 saveSettings()에서 매번 바로 부르지
+// 않고, scheduleFlush()로 짧게 묶어서 뜸하게만 호출하도록 바꿨다 (아래 참고).
 function saveDjs(djs) {
   ensureDir();
   _cache = djs; // 캐시 갱신
@@ -121,7 +135,31 @@ function createBackupSnapshot() {
 // 막히고 명령어 반응이 느려진다. 이런 곳은 getSettings()로 받은 객체를 직접 수정만 해두고
 // (참조라서 캐시에는 바로 반영됨), 이 flush()를 주기적으로 한 번씩만 불러서 디스크에 반영한다.
 function flush() {
+  if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+  if (_flushMaxTimer) { clearTimeout(_flushMaxTimer); _flushMaxTimer = null; }
+  _flushScheduledAt = 0;
   if (_cache) saveDjs(_cache);
+}
+
+// 🐌 saveSettings()가 호출될 때마다 곧바로 saveDjs()(=디스크 전체 재작성)를 부르지 않고,
+// 짧게(디바운스) 묶어서 마지막 한 번만 실제로 디스크에 반영한다.
+// - 1초 안에 또 호출되면 타이머를 뒤로 미룬다 (연속 호출 중엔 계속 미뤄짐)
+// - 다만 계속 저장 요청이 들어와서 무한정 미뤄지는 걸 막기 위해, 최초 예약 시점부터
+//   최대 3초가 지나면 그 사이 또 예약이 걸려있어도 강제로 한 번은 flush한다.
+// - 캐시(_cache)는 saveSettings()에서 이미 즉시 갱신되므로, 이 사이 다른 요청이 읽어가는
+//   값은 항상 최신이다 — 디스크 반영만 늦춰질 뿐 메모리상 데이터는 지연이 없다.
+let _flushTimer = null;
+let _flushMaxTimer = null;
+let _flushScheduledAt = 0;
+const FLUSH_DEBOUNCE_MS = 1000;
+const FLUSH_MAX_DELAY_MS = 3000;
+function scheduleFlush() {
+  if (_flushTimer) clearTimeout(_flushTimer);
+  _flushTimer = setTimeout(flush, FLUSH_DEBOUNCE_MS);
+  if (!_flushScheduledAt) {
+    _flushScheduledAt = Date.now();
+    _flushMaxTimer = setTimeout(flush, FLUSH_MAX_DELAY_MS);
+  }
 }
 
 function defaultSettings() {
@@ -581,11 +619,15 @@ function getSettings(djId) {
   return djs[djId] ? djs[djId].settings : null;
 }
 
+// 🐌 채팅 명령어(잡기/분해/입장/보스참여 등) 곳곳에서 아주 자주 호출된다. 예전엔 호출될
+// 때마다 djs.json 전체를 동기로 다시 썼는데, 여기서는 캐시만 "즉시" 갱신하고 실제 디스크
+// 반영은 scheduleFlush()로 짧게 묶어서 처리한다 — 동시접속자가 많아져도 저장 자체가
+// 병목이 되지 않는다. 읽기(getSettings)는 캐시를 그대로 보므로 지연 없이 항상 최신이다.
 function saveSettings(djId, patch) {
   const djs = loadDjs();
   if (!djs[djId]) return false;
   djs[djId].settings = { ...djs[djId].settings, ...patch };
-  saveDjs(djs);
+  scheduleFlush();
   return true;
 }
 

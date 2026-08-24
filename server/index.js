@@ -2314,13 +2314,20 @@ function mcGetWebData() {
   return mcWebDataCache
 }
 function mcSaveWebData() {
-  try {
-    fs.mkdirSync(path.dirname(MC_WEB_FILE), { recursive: true })
-    fs.writeFileSync(MC_WEB_FILE, JSON.stringify(mcWebDataCache, null, 2))
-  } catch (e) {
-    console.log('[몬스터 웹도감] 저장 실패:', e.message)
-  }
+  // 🐌 이 파일은 도감/분해/레벨업/월드보스 보상 등 아주 자주 호출되는데, 매번 동기(blocking)로
+  // 디스크에 쓰면 그 사이 다른 모든 요청(채팅 명령어 포함)이 멈춰버린다. 여러 명이 동시에
+  // 몬스터를 잡거나 분해하면 이게 겹겹이 쌓여서 전체적으로 느려지는 원인이 될 수 있다.
+  // 그래서 즉시 쓰지 않고 300ms 안에 여러 번 호출돼도 마지막 한 번만, 비동기로 쓰도록 묶는다.
+  clearTimeout(mcSaveWebDataDebounce)
+  mcSaveWebDataDebounce = setTimeout(() => {
+    fs.mkdir(path.dirname(MC_WEB_FILE), { recursive: true }, () => {
+      fs.writeFile(MC_WEB_FILE, JSON.stringify(mcWebDataCache, null, 2), (err) => {
+        if (err) console.log('[몬스터 웹도감] 저장 실패:', err.message)
+      })
+    })
+  }, 300)
 }
+let mcSaveWebDataDebounce = null
 const MC_LEVEL_ATTACK_BONUS = 3 // 레벨 1당 공격력 +3
 function mcLevelBonus(level) { return Math.max(0, (Number(level) || 1) - 1) * MC_LEVEL_ATTACK_BONUS }
 function mcMonsterLevel(tag, monsterId) {
