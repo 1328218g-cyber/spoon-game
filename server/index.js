@@ -2091,7 +2091,33 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.monsters && mc.monsters.length) {
     try { store.upsertMonsterCatalog(mc.monsters) } catch (e) {}
   }
+  // 🌍 관리자(sum)가 "전체 몬스터 도감 통합 관리"를 켜뒀으면, 이 디제이가 개인적으로
+  // 등록해둔 몬스터 목록 대신 관리자가 설정한 목록을 그대로 쓴다 — 그래야 어느 방에
+  // 들어가도 동일한 몬스터가 나오고 동일한 타입 상성이 적용된다. 이 디제이 본인의
+  // monsters 배열 자체는 손대지 않고(나중에 통합 관리를 끄면 다시 원래 목록으로 돌아옴),
+  // 반환하는 mc 객체에서만 monsters를 바꿔치기한다.
+  try {
+    const gmc = getGlobalMonsterCatalog()
+    if (gmc.enabled && gmc.monsters && gmc.monsters.length) {
+      mc.monsters = gmc.monsters
+      mc._globalCatalogActive = true
+    } else {
+      mc._globalCatalogActive = false
+    }
+  } catch (e) { mc._globalCatalogActive = false }
   return mc
+}
+
+// 🌍 관리자(sum) 전용 — 전체 몬스터 도감 통합 관리. 관리자 계정의 settings 안에 저장해두고,
+// 켜져있으면 모든 디제이의 getMonsterCatchSettings()가 이 목록을 그대로 쓰도록 위에서 덮어친다.
+function getGlobalMonsterCatalog() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.globalMonsterCatalog) {
+    settings.globalMonsterCatalog = { enabled: false, monsters: [] }
+    store.saveSettings(SHARED_TOKEN_DJID, { globalMonsterCatalog: settings.globalMonsterCatalog })
+  }
+  if (!Array.isArray(settings.globalMonsterCatalog.monsters)) settings.globalMonsterCatalog.monsters = []
+  return settings.globalMonsterCatalog
 }
 
 // 🌐 포획볼/도감 등 "유저 공용 데이터"가 바뀌었을 때 저장 — 디제이별 settings 파일이 아니라
@@ -2274,8 +2300,13 @@ function mcComputeTrainerAce(collection, monsters, tag) {
   let best = null
   owned.forEach(id => {
     const resolved = mcResolveMonster(id, monsters, tag)
+    // ⚠️ 레벨은 반드시 id를 그대로(이로치면 접두사 포함) 써서 조회해야 한다 — 레벨업/공격력
+    // 계산(mcResolveMonster 내부)도 이 방식으로 조회하고, 이로치와 일반은 서로 다른 레벨을
+    // 따로 관리하기 때문이다. 여기서 mcBaseIdFromShiny로 접두사를 벗겨서 조회하면, 이로치
+    // 몬스터는 실제 레벨(예: 70)이 있어도 항상 "레벨 1"로 잘못 표시된다(공격력은 내부적으로
+    // 이미 올바른 id로 조회해서 정확한데, 화면 표시만 따로 어긋나 보이는 버그가 있었다).
     if (resolved && (!best || resolved.power > best.power)) {
-      best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(tag, mcBaseIdFromShiny(id)) }
+      best = { power: resolved.power, name: resolved.name, level: mcMonsterLevel(tag, id) }
     }
   })
   return best
@@ -2933,6 +2964,41 @@ app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const catalog = mcCatalog(SHARED_TOKEN_DJID)
   res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+})
+
+// ══════════════════════════════════════════════════════
+// 🌍 관리자(sum) 전용 — 전체 몬스터 도감 통합 관리. 켜두면 모든 디제이 방이 개인 목록 대신
+// 이 목록을 동일하게 쓴다 (getMonsterCatchSettings 안에서 자동으로 덮어친다).
+app.get('/globalmonstercatalog-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: getGlobalMonsterCatalog() })
+})
+app.post('/globalmonstercatalog-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const gmc = getGlobalMonsterCatalog()
+  const { enabled, monsters } = req.body || {}
+  if (enabled != null) gmc.enabled = !!enabled
+  if (Array.isArray(monsters)) {
+    gmc.monsters = monsters.map((m, i) => ({
+      id: m.id && !String(m.id).startsWith('new') ? m.id : ('gmon' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      name: String(m.name || '').trim().slice(0, 40),
+      image: String(m.image || ''),
+      weight: Math.max(1, Math.min(1000, parseInt(m.weight, 10) || 10)),
+      catchRate: Math.max(1, Math.min(100, parseInt(m.catchRate, 10) || 50)),
+      power: Math.max(1, Math.min(9999, parseInt(m.power, 10) || 10)),
+      trait: String(m.trait || '').trim().slice(0, 60),
+      types: Array.isArray(m.types) ? m.types.filter(t => MC_TYPE_NAMES.includes(t)).slice(0, 2) : [],
+      moves: Array.isArray(m.moves)
+        ? m.moves.map(x => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
+        : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
+      evolvesTo: String(m.evolvesTo || '').trim(),
+      evolveCount: Math.max(1, Math.min(999, parseInt(m.evolveCount, 10) || 10)),
+      legendary: !!m.legendary,
+    })).filter(m => m.name)
+    try { store.upsertMonsterCatalog(gmc.monsters) } catch (e) {} // 이름 조회용 전역 카탈로그에도 반영
+  }
+  store.saveSettings(SHARED_TOKEN_DJID, { globalMonsterCatalog: gmc })
+  res.json({ success: true, data: gmc })
 })
 app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -15131,7 +15197,12 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
   if (msgBossFail != null) mc.msgBossFail = msgBossFail
   if (msgBossResult != null) mc.msgBossResult = msgBossResult
-  if (Array.isArray(monsters)) {
+  let monsterUpdateBlocked = false
+  if (Array.isArray(monsters) && mc._globalCatalogActive) {
+    // ⚠️ 관리자가 전체 몬스터 도감을 통합 관리 중이면 개인 몬스터 목록 수정은 무시한다.
+    // (다른 설정값들은 그대로 정상 저장되게, 여기서만 조용히 건너뛰고 응답에 안내만 실어보낸다)
+    monsterUpdateBlocked = true
+  } else if (Array.isArray(monsters)) {
     mc.monsters = monsters.map((m, i) => ({
       id: m.id && !String(m.id).startsWith('new') ? m.id : ('mon' + Date.now() + Math.floor(Math.random() * 1000) + i),
       name: String(m.name || '').trim().slice(0, 40),
@@ -15153,7 +15224,12 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   mcSaveConfig(req.djId, mc)
   startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
   startBossTimer(req.djId)
-  res.json({ success: true, settings: mcConfigOnly(mc) })
+  res.json({
+    success: true,
+    settings: mcConfigOnly(mc),
+    monsterUpdateBlocked,
+    monsterUpdateBlockedMsg: monsterUpdateBlocked ? '⚠️ 관리자가 전체 몬스터 도감을 통합 관리 중이라, 몬스터 목록 변경사항은 반영되지 않았어요. (다른 설정은 정상 저장됐어요)' : undefined,
+  })
 })
 app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
