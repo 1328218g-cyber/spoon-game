@@ -1755,6 +1755,21 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
   if (cfg.paused) return { ok: false, why: 'paused' }
   if (!room.isConnected || !liveId) return { ok: false, why: 'not_connected' }
 
+  // 🔁 중복 지급 방지 — 방송이 끊겼다 재연결되면 타이머가 처음부터 다시 시작되는 구조라서,
+  // 재연결이 짧은 간격으로 반복되거나(방송 튕김) 여러 경로가 겹치면 같은 주기 안에 두 번
+  // 지급될 수 있었다. "정기" 실행(타이머에 의한 자동 실행)은 마지막 지급 이후 설정된 주기의
+  // 최소 90% 이상 지나야만 다시 지급되게 막는다 — 어떤 이유로 타이머가 여러 번 겹쳐 돌아도
+  // 실제 지급 간격은 항상 보장된다. "!자동복권즉시"/웹의 수동 지급은 DJ가 의도적으로 지금
+  // 당장 지급하려는 것이므로 이 쿨다운의 영향을 받지 않는다.
+  if (reason === '정기' && cfg.lastRunAt) {
+    const intervalMs = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30)) * 60 * 1000
+    const elapsed = Date.now() - cfg.lastRunAt
+    if (elapsed < intervalMs * 0.9) {
+      console.log(`[자동복권:${djId}/${reason}] 최근에 이미 지급해서 건너뜀 (마지막 지급 ${Math.round(elapsed / 1000)}초 전)`)
+      return { ok: false, why: 'cooldown' }
+    }
+  }
+
   const amount = Math.max(1, Math.min(1000, parseInt(cfg.amount, 10) || 1))
 
   let members = []
@@ -1809,6 +1824,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 function stopLottoAutoTimer(djId) {
   const room = getRoom(djId)
   if (room.lottoAutoTimer) { clearInterval(room.lottoAutoTimer); room.lottoAutoTimer = null }
+  if (room.lottoAutoFirstTimeout) { clearTimeout(room.lottoAutoFirstTimeout); room.lottoAutoFirstTimeout = null }
 }
 
 function startLottoAutoTimer(djId, liveId) {
@@ -1820,10 +1836,23 @@ function startLottoAutoTimer(djId, liveId) {
   if (cfg.enabled === false) return
   const min = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30))
   const ms = min * 60 * 1000
-  room.lottoAutoTimer = setInterval(() => {
+  // 🔁 방송이 끊겼다 재연결되면 이 함수가 다시 호출되는데, 예전엔 그때마다 무조건 "지금부터
+  // 다시 N분"으로 리셋돼서 재연결이 잦을수록 실제 지급 간격이 계속 늘어졌다. 이제 마지막
+  // 지급 시각(cfg.lastRunAt) 기준으로 원래 주기에서 얼마나 남았는지 계산해서 그만큼만 먼저
+  // 기다리고, 그 이후로는 정상 주기로 돈다 — "N분마다 지급"이라는 스케줄이 재연결과 무관하게
+  // 최대한 유지된다. (실제 지급 자체는 runLottoAutoOnce 안의 쿨다운 체크로 한 번 더 보호됨)
+  let firstDelay = ms
+  if (cfg.lastRunAt) {
+    const elapsed = Date.now() - cfg.lastRunAt
+    firstDelay = Math.max(5000, ms - elapsed) // 재연결 직후 바로 쏘지 않게 최소 5초는 텀을 둠
+  }
+  room.lottoAutoFirstTimeout = setTimeout(() => {
     runLottoAutoOnce(djId, room, liveId, '정기').catch(e => console.log(`[자동복권:${djId}] 타이머 실행 오류`, e.message))
-  }, ms)
-  console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분`)
+    room.lottoAutoTimer = setInterval(() => {
+      runLottoAutoOnce(djId, room, liveId, '정기').catch(e => console.log(`[자동복권:${djId}] 타이머 실행 오류`, e.message))
+    }, ms)
+  }, firstDelay)
+  console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분 (첫 지급까지 ${Math.round(firstDelay / 1000)}초)`)
 }
 
 // 채팅 명령어: !자동복권(상태조회, 누구나) / !자동복권즉시·!자동복권정지·!자동복권시작·!자동복권갱신 (DJ+지정 권한자)
