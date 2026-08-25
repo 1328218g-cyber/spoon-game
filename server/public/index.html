@@ -5078,7 +5078,7 @@ function applyPanelLockState(name){
       panelEl.insertBefore(banner,panelEl.firstChild);
     }
     banner.innerHTML = expiredLock
-      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 관리자에게 문의해주세요.</span><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>'
+      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 유료결제 후 사용 가능합니다.</span><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>'
       : '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>';
   } else if(banner){
     banner.remove();
@@ -5346,7 +5346,7 @@ function renderExpiryBanner(){
     const remain=expireTime-now;
     const expired=remain<=0;
     banner.classList.toggle('expired',expired);
-    document.getElementById('ebTimeText').textContent=expired?'만료됨 — 관리자에게 문의해주세요':formatRemaining(remain);
+    document.getElementById('ebTimeText').textContent=expired?'만료됨 — 유료결제 후 사용 가능합니다':formatRemaining(remain);
     document.getElementById('ebDateText').textContent=formatExpiryDate(expiresAt);
     const totalSpan=Math.max(1,expireTime-startTime);
     const elapsed=Math.min(totalSpan,Math.max(0,now-startTime));
