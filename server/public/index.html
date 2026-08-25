@@ -677,7 +677,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="status-badge"><div class="dot off" id="statusDot"></div><span id="statusText">오프라인</span></div>
       <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="다크모드 전환">🌙</button>
       <button class="theme-toggle-btn" onclick="openCommandsModal()" title="전체 명령어 보기">📋</button>
-      <div class="dj-tag">👤 <span id="djIdLabel"></span><button onclick="openAnnouncementHistory()">🔔 업데이트</button><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button class="btn-paid-upgrade" onclick="openPaidInfoModal()">💎 유료신청</button><button onclick="openAnnouncementHistory()">🔔 업데이트</button><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
     </div>
 
     <div id="statusServiceBanner" style="display:none;align-items:center;gap:10px;padding:9px 16px;font-size:13px;font-weight:600">
@@ -704,7 +704,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="eb-progress"><div class="eb-progress-fill" id="ebProgressFill" style="width:0%"></div></div>
       </div>
-      <button class="btn-paid-upgrade" onclick="openPaidInfoModal()">💎 유료신청</button>
     </div>
 
     <div class="content">
@@ -3878,7 +3877,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="hint" style="margin-top:8px">변수: {nickname}, {amount}, {balls}, {greatBalls}, {monster}</div>
         </div>
 
-        <div class="card">
+        <div class="card" id="mcMonsterManageCard">
           <div class="card-title"><span>👾 몬스터 도감 관리</span><div id="mcMonsterEditBtns" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="bulkAddPokemonGen1()">🔴 포켓몬 1세대 등록</button><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="resetToPokemonGen1()">🔄 초기화 후 기본프리셋 교체</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openMcBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addMcMonster()">+ 몬스터 추가</button></div></div>
           <div id="mcGlobalLockedBanner" style="display:none;background:rgba(139,60,240,.12);border:1px solid var(--purple2, #8b3cf0);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">🌍 관리자가 전체 몬스터 도감을 통합 관리 중이에요. 아래 목록은 읽기 전용이고, 개인적으로 수정할 수 없어요.</div>
           <p class="hint" style="margin-bottom:12px">등장시킬 몬스터를 스티커로 골라주세요. 등장 가중치가 높을수록 자주 나오고, 잡기 확률은 "각자 확률판정" 모드일 때만 사용돼요. 공격력/특성/필살기는 아래 ⚔️ 대결(PvP)에서 쓰여요 — 전부 자유롭게 직접 지어주시면 돼요.</p>
@@ -4215,7 +4214,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="paid-info-row"><span>은행</span><b>카카오뱅크</b></div>
       <div class="paid-info-row"><span>계좌번호</span><b class="accent">3333-04-3748031</b></div>
       <div class="paid-info-row"><span>예금주</span><b>황용철</b></div>
-      <div class="paid-info-warn">⚠️ 입금시 입금자명에 방송 DJ 고유닉을 입력해주세요<br>예) 입금자명: 단비</div>
+      <div class="paid-info-warn">⚠️ 입금시 입금자명에 방송 DJ 고유닉을 입력해주세요<br>예) 입금자명: sum</div>
     </div>
 
     <a class="paid-kakao-btn" href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">💬 카카오톡 채널로 문의하기</a>
@@ -4727,6 +4726,9 @@ function enterApp(){
   if(gcTestBtnWrap) gcTestBtnWrap.style.display = isAdmin ? 'flex' : 'none';
   const gcTestHint=document.getElementById('gcTestHint');
   if(gcTestHint) gcTestHint.style.display = isAdmin ? 'block' : 'none';
+  // 👾 몬스터 도감 관리 — 이제 관리자가 전체 도감을 통합 관리하므로, 일반 디제이용 개별 편집 카드는 숨긴다
+  const mcMonsterManageCard=document.getElementById('mcMonsterManageCard');
+  if(mcMonsterManageCard) mcMonsterManageCard.style.display = isAdmin ? '' : 'none';
   const autojoinNav=document.querySelector('.nav-item[data-panel="autojoin"]');
   if(autojoinNav) autojoinNav.style.display = '';
   const watchCard=document.getElementById('watchCard');
@@ -5001,7 +5003,7 @@ const MODULE_ICON_FILES={
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',
   'trophy-editor':'trophyeditor.png',
 };
-const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
+const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
 let moduleVisible={};
 let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
