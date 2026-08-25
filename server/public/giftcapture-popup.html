@@ -43,7 +43,7 @@
 </head>
 <body>
   <div id="adjustBar">
-    <label>크기 <input type="range" id="sizeSlider" min="10" max="150" value="55"><span class="val" id="sizeVal">55%</span></label>
+    <label>크기 <input type="range" id="sizeSlider" min="5" max="200" value="55"><span class="val" id="sizeVal">55%</span></label>
     <label>가로위치 <input type="range" id="xSlider" min="0" max="100" value="50"><span class="val" id="xVal">50%</span></label>
     <label>세로위치 <input type="range" id="ySlider" min="0" max="100" value="35"><span class="val" id="yVal">35%</span></label>
   </div>
@@ -143,7 +143,13 @@
 
         // 🎯 자동 기본 크기 — 애니메이션 원본 픽셀 크기와 배경 원본 픽셀 크기를 비교해서,
         // "배경 대비 실제 비율 그대로"를 크기 슬라이더 기본값으로 잡는다. (너무 작거나 크게 나오지 않게 20~90% 사이로 제한)
-        const autoSizePct = Math.round(Math.min(90, Math.max(20, (mediaNaturalW/canvasW)*100)));
+        // 🎯 자동 기본 크기 — "업로드한 배경 사진의 해상도"랑 비교하면 안 된다 (배경마다 해상도가
+        // 제각각이라 기준이 될 수 없음). 대신 스푼이 실제로 쓰는 표준 세로영상 가로폭(추정치 720px)을
+        // 기준 삼아서, 그 표준 화면 대비 스티커 원본 크기 비율을 그대로 쓴다 — 그러면 배경 해상도가
+        // 얼마든 스티커가 항상 "실제 방송에서 보이는 것과 같은 비율"로 나온다.
+        // (720이 실제 스푼 표준값과 다르면 계속 크거나 작게 보일 텐데, 그럴 땐 이 숫자만 조정하면 됨)
+        const REFERENCE_CANVAS_WIDTH = 720
+        const autoSizePct = Math.round(Math.min(200, Math.max(5, (mediaNaturalW/REFERENCE_CANVAS_WIDTH)*100)));
         const sizeSliderEl = document.getElementById('sizeSlider');
         sizeSliderEl.value = autoSizePct;
         document.getElementById('sizeVal').textContent = autoSizePct+'%';
