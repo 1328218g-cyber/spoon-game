@@ -15271,6 +15271,14 @@ app.post('/giftcapture/clear', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { giftCapture: gc })
   res.json({ success: true })
 })
+// 🧪 실제 선물 없이도 테스트할 수 있게, 기본 선물(비행기)을 하나 받은 것처럼 흉내낸다.
+app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const stickerName = String((req.body || {}).sticker || '비행기').trim()
+  await handleGiftCaptureHook(req.djId, settings, '테스트유저', '', stickerName, 1)
+  res.json({ success: true })
+})
 
 // 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 그 선물의 실제 애니메이션을
 // (배경 이미지가 있으면 그 위에, 없으면 검정 배경에) 크게 재생한다. 로그인 없이 djId+itemId만으로

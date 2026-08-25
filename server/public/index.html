@@ -3588,7 +3588,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>🎁 받은 선물 (<span id="gcCount">0</span>개)</span><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="clearGcItems()">🗑️ 전체 비우기</button></div>
+          <div class="card-title"><span>🎁 받은 선물 (<span id="gcCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="sendGcTestGift()">🧪 테스트 선물 보내기 (비행기)</button><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="clearGcItems()">🗑️ 전체 비우기</button></div></div>
           <p class="hint" style="margin-bottom:10px">클릭하면 그 선물의 애니메이션을 재생하는 팝업 창이 열려요.</p>
           <div id="gcItemsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px"></div>
           <p class="hint" id="gcEmptyHint" style="margin-top:8px">아직 받은 선물이 없어요. 사이드바에서 모듈을 켜두면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
@@ -9896,6 +9896,14 @@ async function clearGcItems(){
     gcItems=[];
     renderGcItems();
     showToast('전체 비우기 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function sendGcTestGift(){
+  try{
+    const res=await fetch(SERVER+'/giftcapture/test-gift',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({sticker:'비행기'})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'테스트 실패'); return; }
+    showToast('테스트 선물(비행기) 전송 완료 ✓ — 목록에 곧 나타나요');
   }catch(e){ showToast('오류: '+e.message); }
 }
 
