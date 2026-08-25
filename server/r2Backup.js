@@ -33,6 +33,8 @@ const RETENTION_DAYS = Math.max(1, Number(process.env.R2_BACKUP_RETENTION_DAYS) 
 
 const SNAPSHOT_PREFIX = 'snapshots/'
 const SOUNDS_PREFIX = 'sounds/'
+const DJ_BACKUP_PREFIX = 'dj-backups/' // 셀프서비스 — DJ 본인이 직접 누르는 계정 전체 백업 (dj-backups/<djId>/<stamp>.json.gz)
+const DJ_BACKUP_KEEP_COUNT = 20 // DJ 한 명당 최근 20개까지만 보관, 그 이상은 새로 백업할 때 자동 삭제
 
 const R2_ENABLED = !!(S3Client && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET_NAME && R2_ENDPOINT)
 
@@ -234,6 +236,66 @@ async function fetchGlobalMonsterDexSnapshot(stamp) {
   }
 }
 
+// ── ☁️ 셀프서비스 — DJ 본인이 직접 누르는 "내 계정 전체" 백업 ──
+// 기존 Base44 셀프백업(/mydata/*)은 룰렛/애청지수 등 5개 필드만 뽑아서 저장했는데,
+// 여기서는 djs[djId] 레코드 전체(비밀번호 해시 포함, 계정 자체 복구용)를 그대로 gzip해서 저장한다.
+// 관리자 전용 전체 스냅샷(snapshots/)과는 별개 경로(dj-backups/<djId>/)를 쓴다.
+
+// 📤 지금 바로 — 이 DJ 레코드 전체를 R2에 새 스냅샷으로 올린다. 저장 후 오래된 것부터 정리해서
+// 이 djId 아래엔 최근 DJ_BACKUP_KEEP_COUNT개만 남긴다.
+async function backupDjToR2(djId, record) {
+  if (!R2_ENABLED) return { ok: false, reason: 'disabled' }
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const key = `${DJ_BACKUP_PREFIX}${djId}/${stamp}.json.gz`
+    await putObject(key, gzipJson(record), 'application/gzip')
+
+    // 오래된 백업 정리 — 이 djId 폴더 안에서 최근 DJ_BACKUP_KEEP_COUNT개만 남기고 나머지 삭제
+    const listRes = await s3.send(new ListObjectsV2Command({ Bucket: R2_BUCKET_NAME, Prefix: `${DJ_BACKUP_PREFIX}${djId}/` }))
+    const keys = (listRes.Contents || []).map(o => o.Key).sort() // 이름에 타임스탬프가 있어서 문자열 정렬 = 시간순
+    while (keys.length > DJ_BACKUP_KEEP_COUNT) {
+      const oldest = keys.shift()
+      try { await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: oldest })) } catch (e) {}
+    }
+
+    return { ok: true, stamp }
+  } catch (e) {
+    console.log(`[R2 백업] ${djId} 셀프 백업 실패:`, e.message)
+    return { ok: false, error: e.message }
+  }
+}
+
+// 📋 이 djId로 저장된 백업 목록(최신순)을 가져온다.
+async function listDjBackups(djId, limit = 20) {
+  if (!R2_ENABLED) return { ok: false, reason: 'disabled' }
+  try {
+    const res = await s3.send(new ListObjectsV2Command({ Bucket: R2_BUCKET_NAME, Prefix: `${DJ_BACKUP_PREFIX}${djId}/` }))
+    const stamps = (res.Contents || [])
+      .map(obj => {
+        const name = obj.Key.slice(`${DJ_BACKUP_PREFIX}${djId}/`.length) // <stamp>.json.gz
+        const m = name.match(/^(.+)\.json\.gz$/)
+        return m ? { stamp: m[1], lastModified: obj.LastModified } : null
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a.stamp < b.stamp ? 1 : -1))
+      .slice(0, limit)
+    return { ok: true, list: stamps }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
+// 🔍 이 djId의 특정 시점 백업 전체 레코드를 받아온다 (미리보기/복구 둘 다에 쓰임).
+async function fetchDjBackup(djId, stamp) {
+  if (!R2_ENABLED) return { ok: false, reason: 'disabled' }
+  try {
+    const data = await getGzipJsonObject(`${DJ_BACKUP_PREFIX}${djId}/${stamp}.json.gz`)
+    return { ok: true, data }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
 module.exports = {
   R2_ENABLED,
   backupAllToR2,
@@ -243,4 +305,7 @@ module.exports = {
   listSnapshots,
   fetchDjsSnapshot,
   fetchGlobalMonsterDexSnapshot,
+  backupDjToR2,
+  listDjBackups,
+  fetchDjBackup,
 }
