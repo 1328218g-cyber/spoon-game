@@ -6637,7 +6637,7 @@ function renderUserListTable(){
         </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
         <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}</td>
-        <td>${u.autoJoinTag?'@'+escapeHtml(u.autoJoinTag):'<span class="hint" style="margin:0">미설정</span>'}${isSum?'':`<div style="margin-top:4px"><button class="btn-gray" style="padding:4px 8px;font-size:10.5px" onclick="resetUserAutoJoinLock('${escapeAttr(u.djId)}')">🔓 2일잠금 해제</button></div>`}</td>
+        <td>${u.autoJoinTag?`<a href="https://www.spooncast.net/kr/@${escapeAttr(u.autoJoinTag)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline">@${escapeHtml(u.autoJoinTag)}</a>`:'<span class="hint" style="margin:0">미설정</span>'}${isSum?'':`<div style="margin-top:4px"><button class="btn-gray" style="padding:4px 8px;font-size:10.5px" onclick="resetUserAutoJoinLock('${escapeAttr(u.djId)}')">🔓 2일잠금 해제</button></div>`}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
         <td>${lastLoginCell}</td>
