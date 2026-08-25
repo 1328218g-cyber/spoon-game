@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
-  #outer{width:100vw;height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center}
+  #outer{width:100vw;min-height:150px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
   #canvas{position:relative;overflow:hidden}
   #bgImgEl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;z-index:1}
   #fgWrap{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
@@ -19,34 +19,19 @@
   #noAnimNotice{position:fixed;top:14px;right:14px;color:rgba(255,220,120,.95);font-size:12px;
     background:rgba(0,0,0,.55);padding:6px 14px;border-radius:999px;display:none;z-index:20;max-width:280px;text-align:right}
 
-  /* 🎯 애니메이션 크기/위치를 배경 대비 %로 직접 조절하는 컨트롤 — 스푼 실제 화면 비율에 눈으로 맞추기 위함 */
-  #adjustBar{position:fixed;left:0;top:0;width:100%;background:#141018;display:none;
-    flex-wrap:wrap;align-items:center;gap:14px;padding:8px 16px;box-sizing:border-box;z-index:15;font-size:12px;color:#fff}
-  #adjustBar label{display:flex;align-items:center;gap:6px;white-space:nowrap}
-  #adjustBar input[type=range]{accent-color:#8b5cf6;width:110px}
-  #adjustBar .val{min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.7)}
-
-  /* 🎬 다시보기 컨트롤바 */
-  #controls{position:fixed;left:0;bottom:0;width:100%;height:84px;background:#141018;
-    display:none;flex-direction:column;justify-content:center;gap:8px;padding:8px 16px;box-sizing:border-box;z-index:10}
-  #seekRow{display:flex;align-items:center;gap:10px}
-  #seekSlider{flex:1;accent-color:#8b5cf6;height:6px;cursor:pointer}
-  #frameLabel{color:rgba(255,255,255,.75);font-size:11px;min-width:70px;text-align:right;font-variant-numeric:tabular-nums}
-  #btnRow{display:flex;align-items:center;justify-content:center;gap:10px}
-  .ctrlBtn{background:#2a2438;color:#fff;border:none;border-radius:8px;padding:8px 14px;
-    font-size:13px;font-weight:600;cursor:pointer}
+  /* 🎬 하단 컨트롤 — 일시정지/재생, 캡처(저장) 딱 두 개만 */
+  #controls{position:fixed;left:0;bottom:0;width:100%;background:#141018;
+    display:none;align-items:center;justify-content:center;gap:12px;padding:14px 16px;box-sizing:border-box;z-index:10}
+  .ctrlBtn{background:#2a2438;color:#fff;border:none;border-radius:10px;padding:12px 22px;
+    font-size:15px;font-weight:700;cursor:pointer}
   .ctrlBtn:hover{background:#38304c}
-  #playBtn{background:#8b5cf6;min-width:64px}
+  #playBtn{background:#8b5cf6;min-width:110px}
   #playBtn:hover{background:#7a4bdb}
-  .speedBtn.active{background:#8b5cf6}
+  #captureBtn{background:#e0952f;min-width:110px}
+  #captureBtn:hover{background:#c77f20}
 </style>
 </head>
 <body>
-  <div id="adjustBar">
-    <label>크기 <input type="range" id="sizeSlider" min="5" max="200" value="55"><span class="val" id="sizeVal">55%</span></label>
-    <label>가로위치 <input type="range" id="xSlider" min="0" max="100" value="50"><span class="val" id="xVal">50%</span></label>
-    <label>세로위치 <input type="range" id="ySlider" min="0" max="100" value="35"><span class="val" id="yVal">35%</span></label>
-  </div>
   <div id="outer">
     <div id="emptyMsg">불러오는 중...</div>
   </div>
@@ -54,20 +39,8 @@
   <div id="noAnimNotice">⚠️ 이 선물은 애니메이션이 없어요 (정지 이미지만 제공돼요)</div>
 
   <div id="controls">
-    <div id="seekRow">
-      <input type="range" id="seekSlider" min="0" max="100" value="0" step="1">
-      <span id="frameLabel">0 / 0</span>
-    </div>
-    <div id="btnRow">
-      <button class="ctrlBtn" onclick="stepFrame(-1)">◀ 프레임</button>
-      <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
-      <button class="ctrlBtn" onclick="stepFrame(1)">프레임 ▶</button>
-      <button class="ctrlBtn" onclick="restartAnim()">⏮ 처음부터</button>
-      <span style="width:1px;height:20px;background:rgba(255,255,255,.15);margin:0 4px"></span>
-      <button class="ctrlBtn speedBtn" data-speed="0.25" onclick="setSpeedBtn(this)">0.25x</button>
-      <button class="ctrlBtn speedBtn" data-speed="0.5" onclick="setSpeedBtn(this)">0.5x</button>
-      <button class="ctrlBtn speedBtn active" data-speed="1" onclick="setSpeedBtn(this)">1x</button>
-    </div>
+    <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
+    <button class="ctrlBtn" id="captureBtn" onclick="captureFrame()">📸 캡처</button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
@@ -78,12 +51,17 @@
     let anim = null;
     let popupData = null;
     let isPlaying = false;
-    let userSeeking = false;
-    let mediaAspect = 1; // 애니메이션/이미지 가로:세로 비율 — 크기 슬라이더 계산에 사용
-    let mediaNaturalW = 300; // 애니메이션/이미지 원본 가로 픽셀 — 배경과 비교해서 기본 크기(%)를 자동 계산하는 데 사용
+    let mediaAspect = 1;
+    let mediaNaturalW = 300;
+
+    // 크기/위치는 더 이상 슬라이더로 조절하지 않고 고정값 사용 (배경 대비 스푼 표준 화면 비율로 자동 계산된 크기 + 얼굴 근처 기본 위치)
+    const FIXED_X_PCT = 50; // 가로 가운데
+    const FIXED_Y_PCT = 35; // 세로 위쪽(얼굴 근처)
 
     function availableArea(){
-      return { w: window.innerWidth * 0.94, h: (window.innerHeight - 140) * 0.94 };
+      const controls = document.getElementById('controls');
+      const bottomH = controls ? controls.offsetHeight : 70;
+      return { w: window.innerWidth * 0.94, h: Math.max(150, (window.innerHeight - bottomH) * 0.94) };
     }
     function probeImageSize(url){
       return new Promise((resolve)=>{
@@ -93,8 +71,33 @@
         img.src = url;
       });
     }
+    // 스푼 CDN 이미지는 CORS가 안 걸려있는 경우가 있어서, 우리 서버 프록시를 거치게 해야
+    // 나중에 "캡처" 버튼으로 캔버스에 그려서 저장할 때 브라우저 보안 정책에 안 걸린다.
+    function proxied(url){ return '/trophy-editor/image-proxy?url='+encodeURIComponent(url); }
 
-    let canvasElW = 0, canvasElH = 0; // 실제 화면에 그려진 캔버스(배경) 픽셀 크기
+    let canvasElW = 0, canvasElH = 0;
+    let canvasNaturalW = 720, canvasNaturalH = 1280;
+
+    function relayout(){
+      const canvas = document.getElementById('canvas');
+      const outer = document.getElementById('outer');
+      const controls = document.getElementById('controls');
+      const bottomH = controls ? controls.offsetHeight : 70;
+      if(outer){ outer.style.height = Math.max(150, window.innerHeight - bottomH)+'px'; }
+      if(!canvas) return;
+      const area = availableArea();
+      const scale = Math.min(1, area.w/canvasNaturalW, area.h/canvasNaturalH);
+      canvasElW = Math.round(canvasNaturalW*scale);
+      canvasElH = Math.round(canvasNaturalH*scale);
+      canvas.style.width = canvasElW+'px';
+      canvas.style.height = canvasElH+'px';
+      applyLayout();
+    }
+    let relayoutDebounce=null;
+    window.addEventListener('resize', ()=>{
+      clearTimeout(relayoutDebounce);
+      relayoutDebounce = setTimeout(relayout, 80);
+    });
 
     async function init(){
       try{
@@ -113,8 +116,7 @@
         let mediaKind=null, lottieJson=null;
         if(d.item.lottieUrl){
           try{
-            const proxied = '/giftcapture/lottie-proxy?url='+encodeURIComponent(d.item.lottieUrl);
-            const jres = await fetch(proxied);
+            const jres = await fetch('/giftcapture/lottie-proxy?url='+encodeURIComponent(d.item.lottieUrl));
             lottieJson = await jres.json();
             mediaAspect = (Number(lottieJson.w)||300) / (Number(lottieJson.h)||300);
             mediaNaturalW = Number(lottieJson.w)||300;
@@ -130,32 +132,19 @@
           return;
         }
 
-        // 캔버스(=배경) 크기 결정 — 배경 이미지가 있으면 그 원본 크기, 없으면 세로가 긴 임의 기본값(폰 화면 비슷하게)
-        let canvasW = 720, canvasH = 1280, hasBg = false;
+        let hasBg = false;
+        canvasNaturalW = 720; canvasNaturalH = 1280;
         if(d.bgImageUrl){
           const bgSize = await probeImageSize(d.bgImageUrl);
-          if(bgSize){ canvasW = bgSize.w; canvasH = bgSize.h; hasBg = true; }
+          if(bgSize){ canvasNaturalW = bgSize.w; canvasNaturalH = bgSize.h; hasBg = true; }
         }
-        const area = availableArea();
-        const scale = Math.min(1, area.w/canvasW, area.h/canvasH);
-        canvasElW = Math.round(canvasW*scale);
-        canvasElH = Math.round(canvasH*scale);
 
-        // 🎯 자동 기본 크기 — 애니메이션 원본 픽셀 크기와 배경 원본 픽셀 크기를 비교해서,
-        // "배경 대비 실제 비율 그대로"를 크기 슬라이더 기본값으로 잡는다. (너무 작거나 크게 나오지 않게 20~90% 사이로 제한)
-        // 🎯 자동 기본 크기 — "업로드한 배경 사진의 해상도"랑 비교하면 안 된다 (배경마다 해상도가
-        // 제각각이라 기준이 될 수 없음). 대신 스푼이 실제로 쓰는 표준 세로영상 가로폭(추정치 720px)을
-        // 기준 삼아서, 그 표준 화면 대비 스티커 원본 크기 비율을 그대로 쓴다 — 그러면 배경 해상도가
-        // 얼마든 스티커가 항상 "실제 방송에서 보이는 것과 같은 비율"로 나온다.
-        // (720이 실제 스푼 표준값과 다르면 계속 크거나 작게 보일 텐데, 그럴 땐 이 숫자만 조정하면 됨)
-        const REFERENCE_CANVAS_WIDTH = 720
-        const autoSizePct = Math.round(Math.min(200, Math.max(5, (mediaNaturalW/REFERENCE_CANVAS_WIDTH)*100)));
-        const sizeSliderEl = document.getElementById('sizeSlider');
-        sizeSliderEl.value = autoSizePct;
-        document.getElementById('sizeVal').textContent = autoSizePct+'%';
+        // 🎯 스푼 표준 세로영상 가로폭(추정치 720px) 대비 스티커 원본 크기 비율로 자동 계산.
+        const REFERENCE_CANVAS_WIDTH = 720;
+        window.__gcSizePct = Math.min(200, Math.max(5, (mediaNaturalW/REFERENCE_CANVAS_WIDTH)*100));
 
         const outer = document.getElementById('outer');
-        outer.innerHTML = '<div id="canvas" style="width:'+canvasElW+'px;height:'+canvasElH+'px">'
+        outer.innerHTML = '<div id="canvas">'
           + (hasBg ? '<img id="bgImgEl" src="'+d.bgImageUrl+'">' : '')
           + '<div id="fgWrap"></div></div>';
 
@@ -163,44 +152,35 @@
           document.getElementById('fgWrap').innerHTML = '<div id="animBox"><div id="lottieBox"></div></div>';
           startLottie(lottieJson, document.getElementById('lottieBox'));
         } else {
-          document.getElementById('fgWrap').innerHTML = '<div id="animBox"><img src="'+d.item.stickerImage+'"></div>';
+          document.getElementById('fgWrap').innerHTML = '<div id="animBox"><img id="stickerImgEl" src="'+proxied(d.item.stickerImage)+'"></div>';
           document.getElementById('noAnimNotice').style.display = 'block';
         }
 
-        document.getElementById('adjustBar').style.display = 'flex';
-        applyAdjust();
+        document.getElementById('controls').style.display = 'flex';
+        relayout();
+        setTimeout(relayout, 150);
+        setTimeout(relayout, 500);
       }catch(e){
         document.getElementById('outer').innerHTML = '<div id="emptyMsg">오류: '+e.message+'</div>';
       }
     }
 
-    // 🎯 크기/가로위치/세로위치 슬라이더 값을 실제 화면에 반영한다.
-    // 크기(%) = 캔버스(배경) 너비 대비 애니메이션 너비 비율. 위치(%) = 캔버스 안에서 중심점 좌표.
-    function applyAdjust(){
+    // 고정 크기/위치값을 실제 화면에 반영 (캔버스 밖으로 안 나가게 clamp)
+    function applyLayout(){
       const box = document.getElementById('animBox');
       if(!box || !canvasElW) return;
-      const sizePct = Number(document.getElementById('sizeSlider').value);
-      const xPct = Number(document.getElementById('xSlider').value);
-      const yPct = Number(document.getElementById('ySlider').value);
+      const sizePct = window.__gcSizePct || 55;
       const w = canvasElW * (sizePct/100);
       const h = w / mediaAspect;
       box.style.width = w+'px';
       box.style.height = h+'px';
-      // 🔒 캔버스 밖으로 잘려서 안 보이는 일 없게, 위치를 캔버스 안쪽으로 고정(clamp)한다.
-      // (크기가 캔버스보다 크면 가운데 정렬로 대체)
-      let left = canvasElW*(xPct/100) - w/2;
-      let top = canvasElH*(yPct/100) - h/2;
+      let left = canvasElW*(FIXED_X_PCT/100) - w/2;
+      let top = canvasElH*(FIXED_Y_PCT/100) - h/2;
       left = w >= canvasElW ? (canvasElW-w)/2 : Math.max(0, Math.min(canvasElW-w, left));
       top = h >= canvasElH ? (canvasElH-h)/2 : Math.max(0, Math.min(canvasElH-h, top));
       box.style.left = left+'px';
       box.style.top = top+'px';
-      document.getElementById('sizeVal').textContent = sizePct+'%';
-      document.getElementById('xVal').textContent = xPct+'%';
-      document.getElementById('yVal').textContent = yPct+'%';
     }
-    ['sizeSlider','xSlider','ySlider'].forEach(id=>{
-      document.getElementById(id).addEventListener('input', applyAdjust);
-    });
 
     function startLottie(json, container){
       try{
@@ -211,21 +191,7 @@
           autoplay: false,
           animationData: json
         });
-        anim.addEventListener('DOMLoaded', ()=>{
-          const total = anim.totalFrames;
-          const slider = document.getElementById('seekSlider');
-          slider.max = Math.max(0, Math.floor(total)-1);
-          slider.value = 0;
-          updateFrameLabel(0, total);
-          document.getElementById('controls').style.display = 'flex';
-          play();
-        });
-        anim.addEventListener('enterFrame', ()=>{
-          if(userSeeking) return;
-          const slider = document.getElementById('seekSlider');
-          slider.value = Math.floor(anim.currentFrame);
-          updateFrameLabel(anim.currentFrame, anim.totalFrames);
-        });
+        anim.addEventListener('DOMLoaded', ()=>{ play(); });
         anim.addEventListener('data_failed', ()=>{
           document.getElementById('outer').innerHTML = '<div id="emptyMsg">애니메이션 데이터가 손상되어 있어요</div>';
         });
@@ -234,9 +200,6 @@
       }
     }
 
-    function updateFrameLabel(cur, total){
-      document.getElementById('frameLabel').textContent = Math.floor(cur)+' / '+Math.floor(total);
-    }
     function play(){
       if(!anim) return;
       anim.play();
@@ -253,42 +216,67 @@
       if(!anim) return;
       isPlaying ? pause() : play();
     }
-    function restartAnim(){
-      if(!anim) return;
-      anim.goToAndPlay(0, true);
-      isPlaying = true;
-      document.getElementById('playBtn').textContent = '⏸ 일시정지';
-    }
-    function stepFrame(delta){
-      if(!anim) return;
-      pause();
-      const next = Math.min(anim.totalFrames-1, Math.max(0, Math.floor(anim.currentFrame)+delta));
-      anim.goToAndStop(next, true);
-      document.getElementById('seekSlider').value = next;
-      updateFrameLabel(next, anim.totalFrames);
-    }
-    function setSpeedBtn(btn){
-      document.querySelectorAll('.speedBtn').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      if(anim) anim.setSpeed(Number(btn.dataset.speed));
-    }
 
-    const slider = document.getElementById('seekSlider');
-    slider.addEventListener('mousedown', ()=>{ userSeeking = true; pause(); });
-    slider.addEventListener('touchstart', ()=>{ userSeeking = true; pause(); });
-    slider.addEventListener('input', ()=>{
-      if(!anim) return;
-      const f = Number(slider.value);
-      anim.goToAndStop(f, true);
-      updateFrameLabel(f, anim.totalFrames);
-    });
-    slider.addEventListener('mouseup', ()=>{ userSeeking = false; });
-    slider.addEventListener('touchend', ()=>{ userSeeking = false; });
+    // 📸 캡처 — 지금 보이는 화면(배경 + 지금 프레임의 애니메이션)을 그대로 이미지 파일로 저장한다.
+    async function captureFrame(){
+      pause(); // 캡처하는 동안 움직이지 않게 먼저 멈춤
+      try{
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = canvasElW; outCanvas.height = canvasElH;
+        const ctx = outCanvas.getContext('2d');
+
+        const bgEl = document.getElementById('bgImgEl');
+        if(bgEl){
+          if(!bgEl.complete) await new Promise(r=>{ bgEl.onload=r; bgEl.onerror=r; });
+          ctx.drawImage(bgEl, 0, 0, canvasElW, canvasElH);
+        }
+
+        const animBox = document.getElementById('animBox');
+        if(animBox){
+          const bx = parseFloat(animBox.style.left)||0;
+          const by = parseFloat(animBox.style.top)||0;
+          const bw = parseFloat(animBox.style.width)||0;
+          const bh = parseFloat(animBox.style.height)||0;
+          const lottieBox = document.getElementById('lottieBox');
+          if(lottieBox){
+            const svgEl = lottieBox.querySelector('svg');
+            if(svgEl){
+              const svgData = new XMLSerializer().serializeToString(svgEl);
+              const svgBlob = new Blob([svgData], {type:'image/svg+xml;charset=utf-8'});
+              const url = URL.createObjectURL(svgBlob);
+              const img = new Image();
+              await new Promise((resolve,reject)=>{ img.onload=resolve; img.onerror=reject; img.src=url; });
+              ctx.drawImage(img, bx, by, bw, bh);
+              URL.revokeObjectURL(url);
+            }
+          } else {
+            const imgEl = document.getElementById('stickerImgEl');
+            if(imgEl){
+              if(!imgEl.complete) await new Promise(r=>{ imgEl.onload=r; imgEl.onerror=r; });
+              ctx.drawImage(imgEl, bx, by, bw, bh);
+            }
+          }
+        }
+
+        outCanvas.toBlob((blob)=>{
+          if(!blob){ captureFailed(); return; }
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = 'gift-capture-'+Date.now()+'.png';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }, 'image/png');
+      }catch(e){
+        captureFailed();
+      }
+    }
+    function captureFailed(){
+      alert('자동 저장에 실패했어요 (브라우저 보안 정책 때문일 수 있어요). 대신 이 화면을 캡처 프로그램으로 직접 잡아주세요.');
+    }
 
     document.addEventListener('keydown', (e)=>{
       if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
-      else if(e.code==='ArrowLeft'){ e.preventDefault(); stepFrame(-1); }
-      else if(e.code==='ArrowRight'){ e.preventDefault(); stepFrame(1); }
     });
 
     init();
