@@ -14121,6 +14121,19 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
+// 🔢 {count} 변수용 — "이 시청자가 이 방에 몇 번째 입장인지" 누적 카운터.
+// settings.joinCounts에 태그(없으면 닉네임) 기준으로 계속 누적해서 저장한다.
+// (룰렛/애청지수 등과 별개의 독립적인 카운터라, 애청지수 모듈 켜져있는지와 무관하게 항상 동작함)
+function bumpJoinCount(djId, settings, author, tag) {
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) return 1
+  if (!settings.joinCounts) settings.joinCounts = {}
+  const next = (settings.joinCounts[key] || 0) + 1
+  settings.joinCounts[key] = next
+  store.saveSettings(djId, { joinCounts: settings.joinCounts })
+  return next
+}
+
 function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -14161,12 +14174,13 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const tierName = joinTier ? joinTier.name : ''
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
   if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, tag, Number(gen.favoriteTemperature))
+  const joinCount = bumpJoinCount(djId, settings, author, tag) // 🔢 {count} 변수 — 이번 입장까지 포함한 누적 입장 횟수
 
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
   if (greeting) {
-    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
+    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
     setTimeout(() => sendChatToRoom(djId, text), 200)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
       broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
@@ -14175,7 +14189,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
-      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
       text = applyDashboardRankVars(text, settings)
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
