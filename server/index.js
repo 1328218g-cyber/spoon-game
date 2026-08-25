@@ -15577,6 +15577,98 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
   }
 })
 
+// ── ☁️ 셀프서비스 R2 백업/복구 — 위 Base44 방식(5개 필드만)과 달리, 로그인한 DJ 본인의
+// 계정 "전체" 설정(실드/깃발/펀딩/단축키/룰렛/애청지수/입장설정/증권거래소 등 전부)을
+// R2에 저장/복구한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/r2-backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await r2Backup.backupDjToR2(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '백업 실패' })
+    res.json({ success: true, stamp: r.stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listDjBackups(req.djId)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    store.restoreDjRecord(req.djId, r.data)
+    console.log(`[셀프복구-R2] ${req.djId} 계정 전체를 ${stamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 자동 백업(30분마다, 전체 시스템) 시점에서 "내 계정 데이터만" 골라서 복구 ──
+// 위 /mydata/r2-backup 계열은 본인이 버튼을 직접 눌러야만 그 시점이 생기는데, 여기서는
+// 서버가 30분마다 자동으로 찍어두는 전체 스냅샷(관리자용과 동일한 snapshots/) 목록에서
+// 아무 시점이나 골라, 그 안에서 로그인한 본인(req.djId) 데이터만 뽑아 복구한다.
+// 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
+app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    if (!r.data[req.djId]) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요 (가입 전이거나 계정명이 바뀐 경우일 수 있어요)' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    const record = r.data[req.djId]
+    if (!record) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요' })
+    store.restoreDjRecord(req.djId, record)
+    console.log(`[셀프복구-R2 자동백업] ${req.djId} 계정만 ${stamp} 시점(전체 자동백업)으로 본인이 직접 복구했어요. (다른 계정은 영향 없음)`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 // 🔍 특정 계정 설정에서 어느 항목이 유독 큰지 진단 (base64 이미지/음원이 박혀있는지 찾기 위함)
 app.get('/admin/diagnose-size/:djId', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })

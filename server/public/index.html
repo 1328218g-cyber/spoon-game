@@ -1151,7 +1151,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="file" id="settingsImportFileInput" accept="application/json" style="margin-bottom:10px">
           <button class="btn-shield-reset" style="width:100%" onclick="startSettingsImport()">📥 가져오기 시작</button>
         </div>
-        <div class="card">
+        <div class="card" style="display:none">
+          <!-- ☁️ 구버전 클라우드 백업 (Base44) — R2 전체 백업으로 대체되어 숨김 처리. 코드는 남겨둠 -->
           <div class="card-title"><span>☁️ 클라우드 백업 (Base44)</span></div>
           <p class="hint" style="margin-bottom:14px">위 파일 방식이랑 별개로, 서버가 자동으로 30분마다 <b>룰렛 설정·룰렛 기록·애청지수·반복문구·단축명령어</b>를 외부 클라우드에도 백업해둬요. 파일 다운로드 없이 여기서 바로 최신 백업으로 되돌릴 수 있어요.</p>
           <button class="btn-connect" style="width:100%" onclick="myBackupNow()">☁️ 지금 바로 클라우드에 백업</button>
@@ -1162,6 +1163,24 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="myRestoreListWrap" style="margin-top:10px"></div>
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtn" disabled onclick="myRestoreApply()">♻️ 선택한 시점으로 복구</button>
           <div id="myRestoreResult" class="hint" style="margin-top:8px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>☁️ 클라우드 백업</span></div>
+          <p class="hint" style="margin-bottom:14px">위 파일 방식이랑 별개로, 여기서 누르면 <b>내 계정에 저장된 모든 설정을 통째로</b> 외부 클라우드(R2)에도 백업해둬요. 파일 다운로드 없이 여기서 바로 최신 백업으로 되돌릴 수 있어요.</p>
+          <button class="btn-connect" style="width:100%" onclick="myBackupNowR2()">☁️ 지금 바로 클라우드에 백업</button>
+          <div id="myBackupResultR2" class="hint" style="margin-top:8px"></div>
+          <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+          <p class="hint" style="margin-bottom:10px">복구하면 <b>계정 설정 전체</b>가 백업 시점으로 되돌아가요. 원하는 시점의 백업을 목록에서 골라서 복구할 수 있어요.</p>
+          <button class="btn-connect" style="width:100%" onclick="loadMyBackupListR2()">📋 백업 목록 불러오기</button>
+          <div id="myRestoreListWrapR2" style="margin-top:10px"></div>
+          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtnR2" disabled onclick="myRestoreApplyR2()">♻️ 선택한 시점으로 복구</button>
+          <div id="myRestoreResultR2" class="hint" style="margin-top:8px"></div>
+          <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+          <p class="hint" style="margin-bottom:10px">여기서 직접 백업 버튼을 안 눌렀어도, <b>서버가 30분마다 자동으로</b> 전체 계정을 백업해두고 있어요. 그 자동 백업 시점들 중에서 골라서 <b>내 계정 데이터만</b> 복구할 수도 있어요 (다른 디제이 계정은 전혀 영향 없어요).</p>
+          <button class="btn-connect" style="width:100%" onclick="loadMySystemBackupListR2()">📋 자동 백업 시점 목록 불러오기</button>
+          <div id="mySystemRestoreListWrapR2" style="margin-top:10px"></div>
+          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
+          <div id="mySystemRestoreResultR2" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
 
@@ -14476,6 +14495,97 @@ async function myRestoreApply(){
       showToast('복구 완료 ✓');
       mySelectedTimestamp=null;
       document.getElementById('myRestoreApplyBtn').disabled=true;
+    }else{
+      box.textContent='❌ '+(d.error||'복구 실패');
+    }
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+
+/* ── ☁️ 셀프 클라우드 백업 (R2, 계정 전체) ── */
+async function myBackupNowR2(){
+  const box=document.getElementById('myBackupResultR2');
+  box.textContent='백업 중...';
+  try{
+    const res=await fetch(SERVER+'/mydata/r2-backup',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    box.textContent = d.success ? '✅ 백업 완료!' : '❌ '+(d.error||'백업 실패');
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+let mySelectedStampR2=null;
+async function loadMyBackupListR2(){
+  const listWrap=document.getElementById('myRestoreListWrapR2');
+  const box=document.getElementById('myRestoreResultR2');
+  mySelectedStampR2=null;
+  document.getElementById('myRestoreApplyBtnR2').disabled=true;
+  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  box.textContent='';
+  try{
+    const res=await fetch(SERVER+'/mydata/r2-list-backups',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요. 먼저 위에서 백업해주세요.</p>'; return; }
+    listWrap.innerHTML=d.list.map((item,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="radio" name="myRestoreStampPickR2" value="${escapeAttr(item.stamp)}" onchange="mySelectedStampR2=this.value;document.getElementById('myRestoreApplyBtnR2').disabled=false;">
+        <span>${escapeHtml(new Date(item.lastModified||item.stamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
+      </label>
+    `).join('');
+  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
+}
+async function myRestoreApplyR2(){
+  if(!mySelectedStampR2)return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
+  if(!confirm('정말로 선택한 시점으로 되돌릴까요?\n내 계정에 저장된 모든 설정이 그 시점 데이터로 통째로 덮어써져요. 되돌릴 수 없어요.'))return;
+  const box=document.getElementById('myRestoreResultR2');
+  box.textContent='복구 중...';
+  try{
+    const res=await fetch(SERVER+'/mydata/r2-restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp:mySelectedStampR2,confirm:true})});
+    const d=await res.json();
+    if(d.success){
+      box.textContent='✅ 복구 완료! 새로고침해서 확인해보세요.';
+      showToast('복구 완료 ✓');
+      mySelectedStampR2=null;
+      document.getElementById('myRestoreApplyBtnR2').disabled=true;
+    }else{
+      box.textContent='❌ '+(d.error||'복구 실패');
+    }
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+
+/* ── ☁️ 자동 백업(30분마다, 전체 시스템)에서 내 계정만 골라서 복구 ── */
+let mySelectedSystemStampR2=null;
+async function loadMySystemBackupListR2(){
+  const listWrap=document.getElementById('mySystemRestoreListWrapR2');
+  const box=document.getElementById('mySystemRestoreResultR2');
+  mySelectedSystemStampR2=null;
+  document.getElementById('mySystemRestoreApplyBtnR2').disabled=true;
+  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  box.textContent='';
+  try{
+    const res=await fetch(SERVER+'/mydata/r2-system-backups',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">아직 자동 백업이 하나도 안 쌓였어요. 잠시 후 다시 시도해주세요.</p>'; return; }
+    listWrap.innerHTML=d.list.map((item,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="radio" name="mySystemRestoreStampPickR2" value="${escapeAttr(item.stamp)}" onchange="mySelectedSystemStampR2=this.value;document.getElementById('mySystemRestoreApplyBtnR2').disabled=false;">
+        <span>${escapeHtml(new Date(item.lastModified||item.stamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
+      </label>
+    `).join('');
+  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
+}
+async function mySystemRestoreApplyR2(){
+  if(!mySelectedSystemStampR2)return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
+  if(!confirm('정말로 선택한 시점으로 되돌릴까요?\n내 계정에 저장된 모든 설정이 그 시점 데이터로 통째로 덮어써져요 (다른 디제이 계정은 영향 없어요). 되돌릴 수 없어요.'))return;
+  const box=document.getElementById('mySystemRestoreResultR2');
+  box.textContent='복구 중...';
+  try{
+    const res=await fetch(SERVER+'/mydata/r2-system-restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp:mySelectedSystemStampR2,confirm:true})});
+    const d=await res.json();
+    if(d.success){
+      box.textContent='✅ 복구 완료! 새로고침해서 확인해보세요.';
+      showToast('복구 완료 ✓');
+      mySelectedSystemStampR2=null;
+      document.getElementById('mySystemRestoreApplyBtnR2').disabled=true;
     }else{
       box.textContent='❌ '+(d.error||'복구 실패');
     }
