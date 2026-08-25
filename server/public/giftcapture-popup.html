@@ -80,6 +80,7 @@
     let isPlaying = false;
     let userSeeking = false;
     let mediaAspect = 1; // 애니메이션/이미지 가로:세로 비율 — 크기 슬라이더 계산에 사용
+    let mediaNaturalW = 300; // 애니메이션/이미지 원본 가로 픽셀 — 배경과 비교해서 기본 크기(%)를 자동 계산하는 데 사용
 
     function availableArea(){
       return { w: window.innerWidth * 0.94, h: (window.innerHeight - 140) * 0.94 };
@@ -116,12 +117,13 @@
             const jres = await fetch(proxied);
             lottieJson = await jres.json();
             mediaAspect = (Number(lottieJson.w)||300) / (Number(lottieJson.h)||300);
+            mediaNaturalW = Number(lottieJson.w)||300;
             mediaKind = 'lottie';
           }catch(e){ mediaKind = null; }
         }
         if(!mediaKind && d.item.stickerImage){
           const sz = await probeImageSize(d.item.stickerImage);
-          if(sz){ mediaAspect = sz.w/sz.h; mediaKind = 'image'; }
+          if(sz){ mediaAspect = sz.w/sz.h; mediaNaturalW = sz.w; mediaKind = 'image'; }
         }
         if(!mediaKind){
           document.getElementById('outer').innerHTML = '<div id="emptyMsg">이 선물은 이미지를 찾지 못했어요<br>(스푼 스티커 목록에서 이름이 정확히 매칭 안 됐을 수 있어요)</div>';
@@ -138,6 +140,13 @@
         const scale = Math.min(1, area.w/canvasW, area.h/canvasH);
         canvasElW = Math.round(canvasW*scale);
         canvasElH = Math.round(canvasH*scale);
+
+        // 🎯 자동 기본 크기 — 애니메이션 원본 픽셀 크기와 배경 원본 픽셀 크기를 비교해서,
+        // "배경 대비 실제 비율 그대로"를 크기 슬라이더 기본값으로 잡는다. (너무 작거나 크게 나오지 않게 20~90% 사이로 제한)
+        const autoSizePct = Math.round(Math.min(90, Math.max(20, (mediaNaturalW/canvasW)*100)));
+        const sizeSliderEl = document.getElementById('sizeSlider');
+        sizeSliderEl.value = autoSizePct;
+        document.getElementById('sizeVal').textContent = autoSizePct+'%';
 
         const outer = document.getElementById('outer');
         outer.innerHTML = '<div id="canvas" style="width:'+canvasElW+'px;height:'+canvasElH+'px">'
