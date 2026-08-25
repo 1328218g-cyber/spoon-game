@@ -3652,6 +3652,23 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               </select>
             </div>
           </div>
+          <label style="margin-top:16px">포스터 이미지</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="csPosterPreview" src="" style="width:100px;height:130px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="csPosterFileInput" accept="image/*" style="display:none" onchange="uploadCsPoster(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('csPosterFileInput').click()">🖼️ 포스터 업로드</button>
+            <button class="btn-gray" id="csPosterRemoveBtn" style="display:none" onclick="removeCsPoster()">제거</button>
+          </div>
+          <div class="hint" style="margin-top:6px">공개 페이지 맨 위에 보여줄 이미지예요. 5MB 이하 권장.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔗 공개 페이지</div>
+          <p class="hint" style="margin-bottom:10px">시청자에게 이 링크를 안내하세요. 포스터 + 실시간 팀 스코어(체력 게이지바)를 볼 수 있고, 채팅으로 <b>!추석인증 코드</b>를 치면 본인 참여 현황도 확인할 수 있어요.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="csPublicLink" readonly style="flex:1;min-width:200px">
+            <button class="btn-gray" onclick="copyCsPublicLink()">📋 복사</button>
+          </div>
         </div>
 
         <div class="card">
@@ -10063,6 +10080,7 @@ function renderGcTestStickerPicker(){
 let csRounds=[{teamA:'모듬전',teamB:'스팸세트'},{teamA:'사과',teamB:'곶감'},{teamA:'한우불고기',teamB:'LA갈비'}];
 let csMembers=[];
 
+let csPosterUrl='';
 async function loadChuseokSettings(){
   try{
     const res=await fetch(SERVER+'/chuseok/settings',{headers:authHeaders()});
@@ -10074,10 +10092,57 @@ async function loadChuseokSettings(){
     document.getElementById('csCurrentRound').value=String(s.currentRound||1);
     csRounds=(s.rounds||csRounds).map(r=>({...r}));
     csMembers=s.members||[];
+    csPosterUrl=s.posterImageUrl||'';
+    updateCsPosterPreview();
+    document.getElementById('csPublicLink').value=SERVER+'/chuseok/'+djId;
     renderCsRounds();
     renderCsCmdHint();
     renderCsMembers();
   }catch(e){}
+}
+
+function updateCsPosterPreview(){
+  const img=document.getElementById('csPosterPreview');
+  const removeBtn=document.getElementById('csPosterRemoveBtn');
+  if(csPosterUrl){ img.src=csPosterUrl; img.style.display='block'; removeBtn.style.display='inline-block'; }
+  else { img.style.display='none'; removeBtn.style.display='none'; }
+}
+async function saveCsPosterOnly(){
+  try{
+    const res=await fetch(SERVER+'/chuseok/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({posterImageUrl:csPosterUrl})});
+    const d=await res.json();
+    if(!d.success) showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function uploadCsPoster(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      csPosterUrl=d.url;
+      updateCsPosterPreview();
+      await saveCsPosterOnly();
+      showToast('포스터 업로드 완료 ✓');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+async function removeCsPoster(){
+  csPosterUrl='';
+  updateCsPosterPreview();
+  await saveCsPosterOnly();
+}
+function copyCsPublicLink(){
+  const input=document.getElementById('csPublicLink');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=>showToast('링크 복사 완료 ✓')).catch(()=>{
+    document.execCommand('copy');
+    showToast('링크 복사 완료 ✓');
+  });
 }
 
 function renderCsRounds(){

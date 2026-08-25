@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>🎑 추석 팀배틀 이벤트</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --gold:#e8c468; --navy:#0c1226; --navy2:#141b34; --red:#a5223a; --blue:#1f3d7a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--navy);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;min-height:100%}
+  #wrap{max-width:720px;margin:0 auto;padding-bottom:60px}
+  #posterImg{width:100%;display:block}
+  #posterPlaceholder{width:100%;aspect-ratio:4/3;background:linear-gradient(160deg,#1a1030,#0c1226);display:flex;align-items:center;justify-content:center;font-size:15px;color:rgba(255,255,255,.5)}
+  #titleBar{text-align:center;padding:18px 16px 6px;font-size:20px;font-weight:800;color:var(--gold);letter-spacing:.5px}
+  #statusBar{text-align:center;font-size:12px;color:rgba(255,255,255,.55);padding-bottom:12px}
+  .section{padding:0 16px;margin-top:18px}
+  .section h3{margin:0 0 10px;font-size:15px;color:var(--gold)}
+
+  /* 🥊 체력 게이지바 — 두 팀 스코어를 비율로 보여줌 */
+  #gaugeCard{background:var(--navy2);border-radius:16px;padding:16px;border:1px solid rgba(232,196,104,.25)}
+  #gaugeNames{display:flex;justify-content:space-between;font-weight:800;font-size:16px;margin-bottom:6px}
+  #gaugeNames .teamA{color:#ff8fa3}
+  #gaugeNames .teamB{color:#8fb4ff}
+  #gaugeScores{display:flex;justify-content:space-between;font-size:13px;color:rgba(255,255,255,.75);margin-bottom:8px}
+  #gaugeTrack{position:relative;height:26px;border-radius:13px;overflow:hidden;background:#241c3a;display:flex;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  #gaugeFillA{background:linear-gradient(90deg,#c0273f,var(--red));height:100%;transition:width .5s ease}
+  #gaugeFillB{background:linear-gradient(90deg,var(--blue),#2f57b0);height:100%;transition:width .5s ease}
+  #vsMark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:800;
+    background:var(--gold);color:#1a1330;padding:2px 8px;border-radius:999px;z-index:2}
+
+  .teamBox{background:var(--navy2);border-radius:14px;padding:14px;border:1px solid rgba(255,255,255,.08)}
+  .teamBoxHead{font-weight:800;font-size:14px;margin-bottom:8px}
+  .teamBoxHead.a{color:#ff8fa3}
+  .teamBoxHead.b{color:#8fb4ff}
+  .rankRow{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .rankRow:last-child{border-bottom:none}
+  .rankMedal{width:22px;text-align:center}
+  .rankNick{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rankScore{color:var(--gold);font-weight:700}
+  #teamsGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:480px){#teamsGrid{grid-template-columns:1fr}}
+
+  #myCard{background:linear-gradient(135deg,#2a1f45,#1a1330);border-radius:16px;padding:16px;border:1px solid rgba(232,196,104,.3)}
+  #authCode{font-size:28px;font-weight:900;letter-spacing:4px;color:var(--gold);text-align:center;margin:10px 0}
+  .hint{font-size:12px;color:rgba(255,255,255,.55);line-height:1.6}
+  .btn{background:var(--gold);color:#1a1330;border:none;border-radius:10px;padding:10px 16px;font-weight:800;font-size:13px;cursor:pointer;width:100%}
+  .btn:disabled{opacity:.5}
+  #emptyNote{text-align:center;color:rgba(255,255,255,.5);font-size:13px;padding:8px 0}
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="posterHolder"><div id="posterPlaceholder">불러오는 중...</div></div>
+    <div id="titleBar">🎑 추석 팀배틀 이벤트</div>
+    <div id="statusBar"></div>
+
+    <div class="section">
+      <div id="gaugeCard">
+        <div id="gaugeNames"><span class="teamA">모듬전</span><span class="teamB">스팸세트</span></div>
+        <div id="gaugeScores"><span>0점</span><span>0점</span></div>
+        <div id="gaugeTrack">
+          <div id="gaugeFillA" style="width:50%"></div>
+          <div id="gaugeFillB" style="width:50%"></div>
+          <div id="vsMark">VS</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>🏆 팀별 순위 TOP 5</h3>
+      <div id="teamsGrid">
+        <div class="teamBox">
+          <div class="teamBoxHead a" id="teamHeadA">모듬전</div>
+          <div id="rankListA"></div>
+        </div>
+        <div class="teamBox">
+          <div class="teamBoxHead b" id="teamHeadB">스팸세트</div>
+          <div id="rankListB"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>👤 내 참여 현황</h3>
+      <div id="myCard">
+        <div id="myCardBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const djId = location.pathname.split('/').filter(Boolean).pop();
+    const WEB_USER_KEY = 'chuseok_web_user_id';
+    let webUserId = localStorage.getItem(WEB_USER_KEY);
+    if(!webUserId){
+      webUserId = 'w'+Date.now()+Math.random().toString(36).slice(2,10);
+      localStorage.setItem(WEB_USER_KEY, webUserId);
+    }
+    let posterLoaded = false;
+    let myState = { linked:false };
+    let codeExpiresAt = 0;
+
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function refreshState(){
+      try{
+        const res = await fetch('/chuseok/'+encodeURIComponent(djId)+'/state');
+        const d = await res.json();
+        if(!d.success){
+          document.getElementById('titleBar').textContent = '진행중인 이벤트가 없어요';
+          document.getElementById('statusBar').textContent = d.error || '';
+          return;
+        }
+        document.getElementById('titleBar').textContent = '🎑 '+d.title;
+        document.getElementById('statusBar').textContent = d.active
+          ? `${d.currentRound}라운드 진행중 · 실시간 집계 중`
+          : `${d.currentRound}라운드 · 지금은 집계가 멈춰있어요`;
+
+        if(!posterLoaded){
+          const holder = document.getElementById('posterHolder');
+          if(d.posterImageUrl){
+            holder.innerHTML = '<img id="posterImg" src="'+esc(d.posterImageUrl)+'">';
+          } else {
+            holder.innerHTML = '<div id="posterPlaceholder">🎑 팀배틀 이벤트</div>';
+          }
+          posterLoaded = true;
+        }
+
+        document.querySelector('#gaugeNames .teamA').textContent = d.teamA;
+        document.querySelector('#gaugeNames .teamB').textContent = d.teamB;
+        const total = Math.max(1, d.scoreA + d.scoreB);
+        const pctA = Math.round(d.scoreA/total*100);
+        document.getElementById('gaugeFillA').style.width = pctA+'%';
+        document.getElementById('gaugeFillB').style.width = (100-pctA)+'%';
+        document.querySelector('#gaugeScores span:nth-child(1)').textContent = d.scoreA+'점';
+        document.querySelector('#gaugeScores span:nth-child(2)').textContent = d.scoreB+'점';
+
+        document.getElementById('teamHeadA').textContent = '🍽️ '+d.teamA;
+        document.getElementById('teamHeadB').textContent = '🍽️ '+d.teamB;
+        renderRankList('rankListA', d.topA);
+        renderRankList('rankListB', d.topB);
+      }catch(e){}
+    }
+
+    const MEDALS = ['🥇','🥈','🥉','🏅','🏅'];
+    function renderRankList(elId, list){
+      const el = document.getElementById(elId);
+      if(!list || !list.length){ el.innerHTML = '<div id="emptyNote">아직 참여자가 없어요</div>'; return; }
+      el.innerHTML = list.map((m,i)=>`
+        <div class="rankRow">
+          <span class="rankMedal">${MEDALS[i]||'🏅'}</span>
+          <span class="rankNick">${esc(m.nickname)}</span>
+          <span class="rankScore">${m.score}점</span>
+        </div>
+      `).join('');
+    }
+
+    async function refreshMe(){
+      try{
+        const res = await fetch('/chuseok/'+encodeURIComponent(djId)+'/me?webUserId='+encodeURIComponent(webUserId));
+        const d = await res.json();
+        if(!d.success) return;
+        myState = d;
+        renderMyCard();
+      }catch(e){}
+    }
+
+    async function requestCode(){
+      try{
+        const res = await fetch('/chuseok/'+encodeURIComponent(djId)+'/register', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({webUserId})
+        });
+        const d = await res.json();
+        if(d.success){ myState = { linked:false, code:d.code, expiresAt:d.expiresAt }; codeExpiresAt = d.expiresAt; renderMyCard(); }
+      }catch(e){}
+    }
+
+    function renderMyCard(){
+      const body = document.getElementById('myCardBody');
+      if(myState.linked){
+        if(!myState.participating){
+          body.innerHTML = `<div class="hint">인증은 완료됐지만 아직 이번 이벤트에 참여하지 않았어요.<br>참여하고 싶은 팀 이름을 방송 채팅에 쳐보세요! (예: !모듬전)</div>`;
+          return;
+        }
+        const roundNote = myState.isCurrentRound ? '' : ' <span class="hint">(지난 라운드 — 지금은 참여 대상 아님)</span>';
+        body.innerHTML = `
+          <div style="font-weight:800;font-size:15px;margin-bottom:6px">✅ ${esc(myState.teamName)}${roundNote}</div>
+          <div class="hint" style="font-size:14px;color:#fff">내 점수: <b style="color:var(--gold)">${myState.score}점</b></div>
+          <div class="hint" style="font-size:14px;color:#fff">팀 내 순위: <b style="color:var(--gold)">${myState.rank}위</b> / ${myState.teamCount}명</div>
+        `;
+        return;
+      }
+      if(myState.code){
+        body.innerHTML = `
+          <div class="hint">방송 채팅에 아래 코드를 쳐서 인증해주세요 (10분 이내):</div>
+          <div id="authCode">${esc(myState.code)}</div>
+          <div class="hint" style="text-align:center">채팅창에 <b>!추석인증 ${esc(myState.code)}</b> 라고 쳐주세요</div>
+        `;
+        return;
+      }
+      body.innerHTML = `<div class="hint" style="margin-bottom:10px">내 참여 현황을 보려면 먼저 방송 채팅 계정으로 인증해야 해요.</div><button class="btn" onclick="requestCode()">🔑 인증코드 발급받기</button>`;
+    }
+
+    refreshState();
+    refreshMe();
+    setInterval(refreshState, 8000);
+    setInterval(refreshMe, 5000);
+  </script>
+</body>
+</html>

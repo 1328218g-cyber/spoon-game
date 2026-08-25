@@ -5937,11 +5937,17 @@ function saveGiftCaptureDebounced(djId, gc) {
 
 // LiveDonation(선물) 이벤트마다 호출 — 들어온 선물을 종류 상관없이 전부 목록 맨 앞에 기록한다.
 async function handleGiftCaptureHook(djId, settings, author, tag, sticker, comboCount) {
-  if (!isModuleOn(settings, 'giftcapture', djId)) return
+  if (!isModuleOn(settings, 'giftcapture', djId)) return { ok: false, reason: 'module_off' }
   const gc = getGiftCaptureSettings(djId, settings)
   const name = String(sticker || '').trim()
-  if (!name) return
+  if (!name) return { ok: false, reason: 'no_name' }
   const anim = await findStickerAnim(name)
+  // 🎬 이 모듈은 "애니메이션 재생/캡처"가 목적이라, 애니메이션이 없는 선물(기본 선물 등 정지
+  // 이미지만 있는 경우)은 목록만 지저분해지고 쓸모가 없어서 아예 기록하지 않는다.
+  if (!anim.lottieUrl) {
+    console.log(`[선물캡처판:${djId}] ${name}은 애니메이션이 없어서 기록 건너뜀 (${author})`)
+    return { ok: false, reason: 'no_animation' }
+  }
   const item = {
     id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
     ts: Date.now(),
@@ -5949,14 +5955,15 @@ async function handleGiftCaptureHook(djId, settings, author, tag, sticker, combo
     tag: tag || '',
     sticker: name,
     stickerImage: anim.image || '',
-    lottieUrl: anim.lottieUrl || '',
+    lottieUrl: anim.lottieUrl,
     comboCount: Math.max(1, Number(comboCount) || 1),
   }
   gc.items.unshift(item)
   if (gc.items.length > GIFT_CAPTURE_MAX_ITEMS) gc.items.length = GIFT_CAPTURE_MAX_ITEMS
   saveGiftCaptureDebounced(djId, gc)
-  console.log(`[선물캡처판:${djId}] ${name} 기록 — ${author} (애니메이션 ${anim.lottieUrl ? '있음' : '없음(정지 이미지만)'})`)
+  console.log(`[선물캡처판:${djId}] ${name} 기록 — ${author}`)
   broadcast({ type: 'giftcapture', djId, item })
+  return { ok: true, item }
 }
 
 // 🧹 선물캡처판 배경 이미지 자동 삭제 — 등록한 지 하루(24시간) 지난 배경은 전체 DJ 대상으로
@@ -5999,12 +6006,15 @@ function getChuseokSettings(djId, settings) {
       active: false, // 지금 스푼 집계를 받고 있는지 — DJ가 직접 켜고 끔
       currentRound: 1, // 1~3 중 지금 진행중인 라운드
       title: '팝블리네 추석명절특집',
+      posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
       rounds: [
         { teamA: '모듬전', teamB: '스팸세트' },
         { teamA: '사과', teamB: '곶감' },
         { teamA: '한우불고기', teamB: 'LA갈비' },
       ],
       members: {}, // key -> { nickname, tag, round, team:'A'|'B', score, joinedAt }
+      authKeys: {}, // code -> { webUserId, createdAt, expiresAt } — 공개 페이지 "채팅 인증"용
+      webUsers: {}, // webUserId -> tag — 인증 완료된 웹 세션 ↔ 고유닉 연결
     }
     store.saveSettings(djId, { chuseokEvent: settings.chuseokEvent })
   }
@@ -6017,9 +6027,23 @@ function getChuseokSettings(djId, settings) {
     ]
   }
   if (!ev.members || typeof ev.members !== 'object') ev.members = {}
+  if (!ev.authKeys || typeof ev.authKeys !== 'object') ev.authKeys = {}
+  if (!ev.webUsers || typeof ev.webUsers !== 'object') ev.webUsers = {}
+  if (ev.posterImageUrl == null) ev.posterImageUrl = ''
   if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > 3) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   return ev
+}
+const CHUSEOK_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function chuseokGenAuthKey(ev) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') } while (ev.authKeys[key])
+  return key
+}
+function chuseokCleanExpiredKeys(ev) {
+  const now = Date.now()
+  for (const k of Object.keys(ev.authKeys)) { if (!ev.authKeys[k] || ev.authKeys[k].expiresAt < now) delete ev.authKeys[k] }
 }
 function chuseokMemberKey(author, tag) {
   const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
@@ -6069,10 +6093,38 @@ function handleChuseokDonationHook(djId, settings, author, tag, amount, comboCou
 async function handleChuseokCommand(djId, room, settings, author, authorId, liveId, text, tag) {
   if (!isModuleOn(settings, 'chuseokevent', djId)) return
   const msg = String(text || '').trim()
+  const ev = getChuseokSettings(djId, settings)
+
+  // 💬 웹 페이지 인증 — "!추석인증 코드" 또는 코드 6자리만 딱 쳐도 인식 (몬스터잡기 도감인증과 같은 방식)
+  const tryChuseokAuth = (code) => {
+    if (!tag) { sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300); return }
+    chuseokCleanExpiredKeys(ev)
+    const entry = ev.authKeys[code]
+    if (!entry) { sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 이벤트 페이지에서 다시 발급받아주세요.', 150, 300); return }
+    ev.webUsers[entry.webUserId] = tag
+    delete ev.authKeys[code]
+    store.saveSettings(djId, { chuseokEvent: ev })
+    sendChatSplit(djId, `✅ ${author}님 추석 이벤트 페이지 인증 완료! 이제 웹에서 내 참여 현황을 볼 수 있어요.`, 150, 300)
+  }
+  if (msg.startsWith('!')) {
+    const parts = msg.split(/\s+/)
+    if (parts[0] === '!추석인증') {
+      const code = String(parts[1] || '').trim().toUpperCase()
+      if (!code) { sendChatSplit(djId, '사용법: !추석인증 코드6자리', 150, 300); return }
+      tryChuseokAuth(code)
+      return
+    }
+  } else {
+    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+      chuseokCleanExpiredKeys(ev)
+      if (ev.authKeys[rawCode]) { tryChuseokAuth(rawCode); return }
+    }
+  }
+
   if (!msg.startsWith('!')) return
   const cmd = msg.slice(1).trim()
   if (!cmd) return
-  const ev = getChuseokSettings(djId, settings)
 
   // !내추석
   if (cmd === '내추석') {
@@ -15365,6 +15417,8 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
   if (board && board.bgImageUrl) inUse.add(board.bgImageUrl)
   const gc = settings.giftCapture
   if (gc && gc.bgImageUrl) inUse.add(gc.bgImageUrl) // 🎬 선물캡처판 배경도 정리 대상에서 제외
+  const cs = settings.chuseokEvent
+  if (cs && cs.posterImageUrl) inUse.add(cs.posterImageUrl) // 🎑 추석이벤트 포스터도 정리 대상에서 제외
   let deletedCount = 0
   let freedBytes = 0
   try {
@@ -15435,7 +15489,8 @@ app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const stickerName = String((req.body || {}).sticker || '비행기').trim()
-  await handleGiftCaptureHook(req.djId, settings, '테스트유저', '', stickerName, 1)
+  const result = await handleGiftCaptureHook(req.djId, settings, '테스트유저', '', stickerName, 1)
+  if (result && result.reason === 'no_animation') return res.json({ success: false, error: `"${stickerName}"은 애니메이션이 없는 선물이라 기록되지 않았어요. 다른 선물로 시도해보세요.` })
   res.json({ success: true })
 })
 
@@ -15449,10 +15504,12 @@ app.post('/chuseok/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
-  const { title, active, currentRound, rounds } = req.body || {}
+  const prevPosterUrl = ev.posterImageUrl
+  const { title, active, currentRound, rounds, posterImageUrl } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
   if (currentRound != null) ev.currentRound = Math.max(1, Math.min(3, parseInt(currentRound, 10) || 1))
+  if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (Array.isArray(rounds) && rounds.length === 3) {
     ev.rounds = rounds.map((r, i) => ({
       teamA: String(r.teamA || '').trim() || ev.rounds[i].teamA,
@@ -15460,6 +15517,11 @@ app.post('/chuseok/settings', auth.requireAuth, (req, res) => {
     }))
   }
   store.saveSettings(req.djId, { chuseokEvent: ev })
+  // 🧹 포스터 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
+  if (prevPosterUrl && prevPosterUrl !== ev.posterImageUrl && prevPosterUrl.startsWith('/images/')) {
+    const name = path.basename(prevPosterUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
   res.json({ success: true, settings: ev })
 })
 // 유저를 특정 라운드/팀에 (DJ가) 수동으로 추가/이동. 같은 라운드로 다시 지정하면 점수는 유지, 다른 라운드/새 유저면 0점부터.
@@ -18741,6 +18803,81 @@ app.post('/mafia/:djId/vote', (req, res) => {
 // register·me·join·night-action 같은 하위 경로를 가로채지 않는다.
 app.get('/mafia/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/mafia.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🎑 추석 팀배틀 이벤트 — 공개(로그인 없음) 웹 페이지. 포스터 이미지 + 실시간 팀 스코어를
+// 보여주고, 시청자는 마피아/몬스터도감과 같은 방식으로 채팅 인증코드를 쳐서 본인 참여 현황을
+// 확인할 수 있다. 반드시 :djId 정적 페이지 라우트보다 앞에 register/me를 둬야 하위 경로가
+// 가로채이지 않는다.
+app.get('/chuseok/:djId/state', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const r = ev.rounds[ev.currentRound - 1]
+  const scoreA = chuseokTeamMembers(ev, ev.currentRound, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
+  const scoreB = chuseokTeamMembers(ev, ev.currentRound, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
+  const top = (side) => chuseokTeamMembers(ev, ev.currentRound, side).slice(0, 5).map(m => ({ nickname: m.nickname, score: m.score }))
+  res.json({
+    success: true,
+    title: ev.title,
+    posterImageUrl: ev.posterImageUrl,
+    active: ev.active,
+    currentRound: ev.currentRound,
+    teamA: r.teamA, teamB: r.teamB,
+    scoreA, scoreB,
+    topA: top('A'), topB: top('B'),
+  })
+})
+app.post('/chuseok/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  if (!webUserId) return res.json({ success: false, error: '잘못된 요청이에요' })
+  chuseokCleanExpiredKeys(ev)
+  for (const code of Object.keys(ev.authKeys)) { if (ev.authKeys[code].webUserId === webUserId) delete ev.authKeys[code] }
+  const code = chuseokGenAuthKey(ev)
+  const expiresAt = Date.now() + CHUSEOK_AUTH_KEY_TTL_MS
+  ev.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt }
+  store.saveSettings(djId, { chuseokEvent: ev })
+  res.json({ success: true, code, expiresAt })
+})
+app.get('/chuseok/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = ev.webUsers[webUserId]
+  if (!tag) {
+    chuseokCleanExpiredKeys(ev)
+    for (const [code, entry] of Object.entries(ev.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ success: true, linked: false })
+  }
+
+  const key = 't:' + tag
+  const member = ev.members[key]
+  if (!member) return res.json({ success: true, linked: true, tag, participating: false })
+  const r = ev.rounds[member.round - 1]
+  const teamName = member.team === 'A' ? r.teamA : r.teamB
+  const list = chuseokTeamMembers(ev, member.round, member.team)
+  const rank = list.findIndex(m => m === member) + 1
+  res.json({
+    success: true, linked: true, tag, participating: true,
+    round: member.round, team: member.team, teamName, score: member.score,
+    rank, teamCount: list.length,
+    isCurrentRound: member.round === ev.currentRound,
+  })
+})
+app.get('/chuseok/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/chuseok.html')
 })
 
 // ══════════════════════════════════════════════════════
