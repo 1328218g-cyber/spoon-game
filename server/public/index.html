@@ -387,20 +387,43 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 /* ── 로그인 / 회원가입 화면 (여름 분위기: 실사 배경) ── */
 #authScreen{
   position:fixed;inset:0;
-  background-image:url('/images/login-bg.webp');
-  background-size:cover;
-  background-position:center;
-  background-repeat:no-repeat;
-  background-attachment:fixed;
+  background:#f6f8fb;
   display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-  z-index:2000;padding:44px 20px 60px;
+  z-index:2000;padding:0 0 60px;
   overflow-y:auto;overflow-x:hidden;
 }
-#authScreen::before{
-  content:'';position:fixed;inset:0;
-  background:linear-gradient(180deg,rgba(4,40,70,.12) 0%,rgba(4,40,70,.05) 35%,rgba(4,40,70,.22) 100%);
-  pointer-events:none;
-}
+
+/* ── 🏠 로그인 화면 상단 히어로 (라이트 테마) ── */
+.hero-topbar{width:100%;max-width:900px;display:flex;align-items:center;justify-content:space-between;padding:20px 20px 0}
+.hero-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:800;color:#0f172a}
+.hero-brand .logo{width:34px;height:34px;background:linear-gradient(135deg,#fb923c,#fbbf24);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 10px rgba(251,146,60,.35)}
+.hero-menu-btn{background:none;border:none;font-size:22px;color:#334155;cursor:pointer;padding:6px}
+.hero-wrap{width:100%;max-width:640px;margin:22px auto 8px;padding:0 20px;text-align:center;color:#0f172a}
+.hero-badge{display:inline-block;background:#fff1e0;color:#c2610b;font-size:11.5px;font-weight:700;padding:6px 14px;border-radius:999px;margin-bottom:16px}
+.hero-title{font-size:25px;font-weight:800;line-height:1.4;margin-bottom:12px}
+.hero-title .accent{color:#2563eb}
+.hero-sub{font-size:13px;color:#64748b;line-height:1.7;margin-bottom:24px}
+.hero-stats{display:flex;justify-content:center;gap:22px;flex-wrap:wrap;font-size:12px;color:#334155;font-weight:600;margin-bottom:8px}
+.hero-stats span{display:flex;align-items:center;gap:6px}
+@media (max-width:600px){ .hero-title{font-size:21px} .hero-stats{gap:14px;font-size:11.5px} }
+
+/* ── ✨ 기능 소개 (라이트 테마) ── */
+.feature-wrap{position:relative;z-index:1;width:100%;max-width:640px;margin:36px auto 10px;padding:0 20px;color:#0f172a;text-align:center}
+.feature-heading{font-size:16px;font-weight:800;margin-bottom:18px}
+.feature-grid-light{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left}
+.feature-card-light{background:#fff;border:1px solid #e5e9f0;border-radius:14px;padding:14px 14px;display:flex;align-items:flex-start;gap:12px;box-shadow:0 2px 6px rgba(15,23,42,.04)}
+.feature-card-light .fc-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.feature-card-light .fc-body{flex:1;min-width:0}
+.feature-card-light .fc-title{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px}
+.feature-card-light .fc-desc{font-size:11px;color:#8a94a6;line-height:1.5}
+.feature-card-light .fc-arrow{color:#c4cbd8;font-size:15px;margin-left:auto;flex-shrink:0;align-self:center}
+.feature-footnote{margin-top:22px;font-size:12.5px;color:#334155;font-weight:600}
+.feature-footnote b{color:#2563eb}
+.landing-footer2{margin-top:18px;font-size:11px;color:#94a3b8;line-height:1.7}
+.landing-footer2 a{color:#2563eb;text-decoration:none;font-weight:700}
+@media (max-width:520px){ .feature-grid-light{grid-template-columns:1fr} }
+
+#authScreen::before{ display:none; }
 
 /* ── 🛒 모듈 마켓 ── */
 .market-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
@@ -429,21 +452,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 .auth-card{
   width:100%;max-width:340px;
-  background:rgba(255,255,255,.25);
-  backdrop-filter:blur(16px) saturate(160%);
-  -webkit-backdrop-filter:blur(16px) saturate(160%);
-  border:1px solid rgba(255,255,255,.55);
-  border-radius:22px;padding:30px;
-  box-shadow:0 16px 44px rgba(3,84,130,.35);
+  background:#fff;
+  border:1px solid #e5e9f0;
+  border-radius:20px;padding:28px;
+  box-shadow:0 10px 30px rgba(15,23,42,.08);
   position:relative;z-index:1;
+  margin:8px auto 0;
 }
-.auth-card .logo{width:48px;height:48px;background:linear-gradient(135deg,#fb923c,#fbbf24);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 14px;box-shadow:0 8px 18px rgba(251,146,60,.35)}
-.auth-card h2{text-align:center;font-size:19px;margin-bottom:4px;color:#0b2436;text-shadow:0 1px 2px rgba(255,255,255,.4)}
-.auth-card .auth-sub{text-align:center;font-size:12.5px;color:#1e3a4d;margin-bottom:20px;text-shadow:0 1px 2px rgba(255,255,255,.35)}
-.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:rgba(255,255,255,.35);border-radius:10px;padding:4px}
-.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:#265267;cursor:pointer}
-.auth-tab.active{background:rgba(255,255,255,.85);color:#0f172a;box-shadow:0 1px 3px rgba(20,20,40,.1)}
-.auth-card label{color:#1e3a4d;font-weight:600;text-shadow:0 1px 2px rgba(255,255,255,.35)}
+.auth-card-header{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px}
+.auth-card .logo{width:36px;height:36px;background:linear-gradient(135deg,#fb923c,#fbbf24);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 6px 14px rgba(251,146,60,.3)}
+.auth-card h2{text-align:center;font-size:17px;color:#0f172a;margin:0}
+.auth-card .auth-sub{text-align:center;font-size:12px;color:#8a94a6;margin-bottom:20px}
+.auth-tabs{display:flex;gap:6px;margin-bottom:18px;background:#f1f4f8;border-radius:10px;padding:4px}
+.auth-tab{flex:1;text-align:center;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:#64748b;cursor:pointer}
+.auth-tab.active{background:#fff;color:#0f172a;box-shadow:0 1px 3px rgba(15,23,42,.1)}
+.auth-card label{color:#334155;font-weight:600}
 .auth-error{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px}
 .dj-tag{margin-left:12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .dj-tag button{padding:4px 10px;font-size:11.5px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
@@ -503,11 +526,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </head>
 <body>
 
-<!-- ══════════ 로그인 / 회원가입 (여름 분위기: 실사 배경) ══════════ -->
+<!-- ══════════ 로그인 / 회원가입 (라이트 랜딩 테마) ══════════ -->
 <div id="authScreen">
+  <div class="hero-topbar">
+    <div class="hero-brand"><span class="logo">🥄</span> 에디봇</div>
+    <button class="hero-menu-btn" onclick="document.querySelector('.feature-wrap').scrollIntoView({behavior:'smooth'})" title="기능 살펴보기">☰</button>
+  </div>
+
+  <div class="hero-wrap">
+    <div class="hero-badge">SPOON RADIO DJ를 위한 올인원 봇</div>
+    <div class="hero-title">방송에 집중하세요.<br>운영은 <span class="accent">에디봇</span>에게 맡기세요.</div>
+    <div class="hero-sub">입장 인사부터 룰렛, 애청지수, 신청곡까지<br>반복되는 방송 운영을 한 곳에서 간편하게 관리하세요.</div>
+    <div class="hero-stats">
+      <span>🕐 자동화로 시간 절약</span>
+      <span>📶 실시간 방송 관리</span>
+      <span>✅ 필요한 기능만 선택</span>
+    </div>
+  </div>
+
   <div class="auth-card">
-    <div class="logo">🥄</div>
-    <h2>에디봇</h2>
+    <div class="auth-card-header"><span class="logo">🥄</span><h2>에디봇 시작하기</h2></div>
     <div class="auth-sub">디제이 계정으로 로그인해주세요</div>
     <div class="auth-tabs">
       <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">로그인</div>
@@ -556,25 +594,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
   </div>
 
-  <div class="landing-wrap">
-    <div class="landing-eyebrow">SPOON RADIO DJ를 위한 올인원 봇</div>
-    <div class="landing-title">방송 운영, 에디봇이 도와드려요</div>
-    <div class="landing-sub">입장부터 룰렛, 애청지수, 경제게임, 사주팔자까지 — 반복되는 방송 운영은 에디봇에게 맡기고<br>디제이는 방송 그 자체에만 집중하세요. 30개가 넘는 기능을 필요한 것만 골라 켤 수 있어요.</div>
-    <div class="landing-grid">
-      <div class="landing-card"><div class="lc-icon">🚪</div><div class="lc-title">자동입장</div><div class="lc-desc">방송을 켜면 봇이 알아서 입장해요</div></div>
-      <div class="landing-card"><div class="lc-icon">🎡</div><div class="lc-title">룰렛 설정</div><div class="lc-desc">스푼·스티커 조건에 맞춰 자동으로 룰렛이 돌아가요</div></div>
-      <div class="landing-card"><div class="lc-icon">⭐</div><div class="lc-title">애청지수</div><div class="lc-desc">채팅·좋아요·출석으로 레벨업하고 복권까지</div></div>
-      <div class="landing-card"><div class="lc-icon">🔮</div><div class="lc-title">사주팔자</div><div class="lc-desc">생년월일 입력하면 진짜 만세력으로 사주를 봐줘요</div></div>
-      <div class="landing-card"><div class="lc-icon">📊</div><div class="lc-title">대시보드</div><div class="lc-desc">날짜별 스푼·하트 랭킹·MVP를 한눈에 봐요</div></div>
-      <div class="landing-card"><div class="lc-icon">🍞</div><div class="lc-title">증권거래소</div><div class="lc-desc">주식·은행·도박까지 즐기는 경제 게임</div></div>
-      <div class="landing-card"><div class="lc-icon">🎣</div><div class="lc-title">낚시 게임</div><div class="lc-desc">물고기 잡고 상점·대출까지 즐기는 미니 게임</div></div>
-      <div class="landing-card"><div class="lc-icon">⚔️</div><div class="lc-title">검키우기</div><div class="lc-desc">강화·던전·배틀을 즐기는 검 키우기 RPG</div></div>
-      <div class="landing-card"><div class="lc-icon">🎙️</div><div class="lc-title">TTS</div><div class="lc-desc">고액 선물 유저의 채팅을 음성으로 읽어줘요</div></div>
-      <div class="landing-card"><div class="lc-icon">🛡️</div><div class="lc-title">실드 관리</div><div class="lc-desc">채팅 명령어로 실드를 적립·차감해요</div></div>
-      <div class="landing-card"><div class="lc-icon">🎵</div><div class="lc-title">신청곡 관리</div><div class="lc-desc">시청자 신청곡을 대기열로 깔끔하게 정리해요</div></div>
-      <div class="landing-card"><div class="lc-icon">🔔</div><div class="lc-title">디스코드 알림</div><div class="lc-desc">방송을 켜면 디스코드 채널에 자동으로 알려줘요</div></div>
+  <div class="feature-wrap">
+    <div class="feature-heading">✦ 방송 운영에 필요한 기능을 한 곳에서</div>
+    <div class="feature-grid-light">
+      <div class="feature-card-light"><div class="fc-icon" style="background:#e6f0ff;color:#2563eb">🚪</div><div class="fc-body"><div class="fc-title">자동입장</div><div class="fc-desc">입장 메시지와 환영 인사를 자동으로 관리해요.</div></div><span class="fc-arrow">›</span></div>
+      <div class="feature-card-light"><div class="fc-icon" style="background:#e6f0ff;color:#2563eb">💬</div><div class="fc-body"><div class="fc-title">실시간 채팅</div><div class="fc-desc">채팅 모니터링과 필터링으로 쾌적한 채팅 환경을 유지해요.</div></div><span class="fc-arrow">›</span></div>
+      <div class="feature-card-light"><div class="fc-icon" style="background:#f3e8ff;color:#9333ea">🎡</div><div class="fc-body"><div class="fc-title">룰렛 설정</div><div class="fc-desc">다양한 룰렛을 간편하게 생성하고 관리해요.</div></div><span class="fc-arrow">›</span></div>
+      <div class="feature-card-light"><div class="fc-icon" style="background:#fff7e0;color:#d97706">⭐</div><div class="fc-body"><div class="fc-title">애청지수</div><div class="fc-desc">애청지수 집계와 랭킹으로 활발한 참여를 유도해요.</div></div><span class="fc-arrow">›</span></div>
+      <div class="feature-card-light"><div class="fc-icon" style="background:#e6f4ff;color:#0ea5e9">🎵</div><div class="fc-body"><div class="fc-title">신청곡 관리</div><div class="fc-desc">신청곡 접수부터 재생 관리까지 한 번에 관리해요.</div></div><span class="fc-arrow">›</span></div>
+      <div class="feature-card-light"><div class="fc-icon" style="background:#ffe6ef;color:#e11d8f">🎁</div><div class="fc-body"><div class="fc-title">실시간 지급</div><div class="fc-desc">포인트와 보상 지급을 실시간으로 처리해요.</div></div><span class="fc-arrow">›</span></div>
     </div>
-    <div class="landing-footer">이 외에도 펀딩·깃발, 퀴즈, 추첨, 경매, 랜덤박스, 뽑기판, 메모장 등 다양한 기능이 준비돼 있어요.<br>문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
+    <div class="feature-footnote">30개 이상의 기능 중 <b>필요한 것만 골라</b> 사용하세요.</div>
+    <div class="landing-footer2">이 외에도 펀딩·깃발, 사주팔자, 증권거래소, 낚시 게임, 검키우기, 퀴즈, 추첨, 경매, 랜덤박스, 뽑기판, 메모장 등 다양한 기능이 준비돼 있어요.<br>문의는 <a href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">카카오톡 채널</a>로 편하게 남겨주세요 · © 에디봇</div>
   </div>
 </div>
 
