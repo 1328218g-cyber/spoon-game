@@ -249,27 +249,36 @@
     async function captureFrame(){
       pause(); // 캡처하는 동안 움직이지 않게 먼저 멈춤
       try{
+        // 🖼️ 화면엔 창 크기에 맞춰 축소해서 보여주고 있지만, 저장은 배경 원본 해상도 그대로 한다
+        // (화면 표시 크기로 캡처하면 원본보다 화질이 떨어져 보였음). 화면 좌표(px)는 그 축소 비율
+        // 그대로 배율만 키워서 원본 좌표로 환산한다.
+        const scale = canvasElW > 0 ? (canvasNaturalW / canvasElW) : 1;
+        const outW = canvasNaturalW, outH = canvasNaturalH;
         const outCanvas = document.createElement('canvas');
-        outCanvas.width = canvasElW; outCanvas.height = canvasElH;
+        outCanvas.width = outW; outCanvas.height = outH;
         const ctx = outCanvas.getContext('2d');
 
         const bgEl = document.getElementById('bgImgEl');
         if(bgEl){
           if(!bgEl.complete) await new Promise(r=>{ bgEl.onload=r; bgEl.onerror=r; });
-          ctx.drawImage(bgEl, 0, 0, canvasElW, canvasElH);
+          ctx.drawImage(bgEl, 0, 0, outW, outH); // 원본 이미지 자체의 실제 해상도로 그대로 그림 (업스케일/다운스케일 없음)
         }
 
         const animBox = document.getElementById('animBox');
         if(animBox){
-          const bx = parseFloat(animBox.style.left)||0;
-          const by = parseFloat(animBox.style.top)||0;
-          const bw = parseFloat(animBox.style.width)||0;
-          const bh = parseFloat(animBox.style.height)||0;
+          const bx = (parseFloat(animBox.style.left)||0) * scale;
+          const by = (parseFloat(animBox.style.top)||0) * scale;
+          const bw = (parseFloat(animBox.style.width)||0) * scale;
+          const bh = (parseFloat(animBox.style.height)||0) * scale;
           const lottieBox = document.getElementById('lottieBox');
           if(lottieBox){
             const svgEl = lottieBox.querySelector('svg');
             if(svgEl){
-              const svgData = new XMLSerializer().serializeToString(svgEl);
+              // SVG는 벡터라 원본 해상도(bw×bh)에 맞춰 폭/높이를 지정해서 rasterize하면 화질 손실 없이 그려진다.
+              const clone = svgEl.cloneNode(true);
+              clone.setAttribute('width', String(Math.round(bw)));
+              clone.setAttribute('height', String(Math.round(bh)));
+              const svgData = new XMLSerializer().serializeToString(clone);
               const svgBlob = new Blob([svgData], {type:'image/svg+xml;charset=utf-8'});
               const url = URL.createObjectURL(svgBlob);
               const img = new Image();
