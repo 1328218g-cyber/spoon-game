@@ -660,7 +660,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'chuseokevent'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -6076,7 +6076,7 @@ const CHUSEOK_MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
 // LiveDonation(선물) 이벤트마다 호출 — 집계중이고, 이 사람이 "지금 진행중인 라운드"에
 // 참여해둔 상태일 때만 점수를 쌓는다. 이전 라운드 참여 기록이 있어도 라운드가 넘어갔으면 반영 안 됨.
 function handleChuseokDonationHook(djId, settings, author, tag, amount, comboCount) {
-  if (!isModuleOn(settings, 'chuseokevent', djId)) return
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return
   const ev = getChuseokSettings(djId, settings)
   if (!ev.active) return
   const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
@@ -6091,7 +6091,7 @@ function handleChuseokDonationHook(djId, settings, author, tag, amount, comboCou
 
 // 채팅 명령어 — !팀이름(참여+순위), !추석N(라운드 스코어), !내추석(내 현황)
 async function handleChuseokCommand(djId, room, settings, author, authorId, liveId, text, tag) {
-  if (!isModuleOn(settings, 'chuseokevent', djId)) return
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return
   const msg = String(text || '').trim()
   const ev = getChuseokSettings(djId, settings)
 
@@ -15496,12 +15496,12 @@ app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
 })
 
 // ── 🎑 추석 팀배틀 이벤트 ──
-app.get('/chuseok/settings', auth.requireAuth, (req, res) => {
+app.get('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ev = getChuseokSettings(req.djId, settings)
   res.json({ success: true, settings: { ...ev, members: Object.entries(ev.members).map(([key, m]) => ({ key, ...m })) } })
 })
-app.post('/chuseok/settings', auth.requireAuth, (req, res) => {
+app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
@@ -15526,7 +15526,7 @@ app.post('/chuseok/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings: ev })
 })
 // 유저를 특정 라운드/팀에 (DJ가) 수동으로 추가/이동. 같은 라운드로 다시 지정하면 점수는 유지, 다른 라운드/새 유저면 0점부터.
-app.post('/chuseok/add-member', auth.requireAuth, (req, res) => {
+app.post('/chuseok/add-member', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ev = getChuseokSettings(req.djId, settings)
   const { nickname, tag, round, team } = req.body || {}
@@ -15541,7 +15541,7 @@ app.post('/chuseok/add-member', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { chuseokEvent: ev })
   res.json({ success: true })
 })
-app.post('/chuseok/remove-member', auth.requireAuth, (req, res) => {
+app.post('/chuseok/remove-member', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ev = getChuseokSettings(req.djId, settings)
   const { key } = req.body || {}
@@ -15551,7 +15551,7 @@ app.post('/chuseok/remove-member', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 // 점수 직접 수정 — 실드/룰렛 등으로 자동 발생한 선물처럼, 이벤트 참여 의도가 아닌 스푼이 잘못 집계됐을 때 보정용.
-app.post('/chuseok/adjust-score', auth.requireAuth, (req, res) => {
+app.post('/chuseok/adjust-score', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ev = getChuseokSettings(req.djId, settings)
   const { key, delta, setScore } = req.body || {}
@@ -18814,7 +18814,7 @@ app.get('/mafia/:djId', (req, res) => {
 app.get('/chuseok/:djId/state', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
   const ev = getChuseokSettings(djId, settings)
   const r = ev.rounds[ev.currentRound - 1]
   const scoreA = chuseokTeamMembers(ev, ev.currentRound, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
@@ -18834,7 +18834,7 @@ app.get('/chuseok/:djId/state', (req, res) => {
 app.post('/chuseok/:djId/register', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
   const ev = getChuseokSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   if (!webUserId) return res.json({ success: false, error: '잘못된 요청이에요' })
@@ -18849,7 +18849,7 @@ app.post('/chuseok/:djId/register', (req, res) => {
 app.get('/chuseok/:djId/me', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
   const ev = getChuseokSettings(djId, settings)
   const webUserId = String(req.query.webUserId || '').trim()
   if (!webUserId) return res.json({ success: true, linked: false })
