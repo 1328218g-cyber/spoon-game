@@ -5917,55 +5917,52 @@ function getTrophyBoardSettings(djId, settings) {
   return settings.trophyBoard
 }
 
-// 🎬 선물 애니메이션 캡처판 — 박제판이랑 똑같이 배경 이미지 위에 선물별 칸(슬롯)을 만들어두는데,
-// 여기는 닉네임을 새기는 대신 "그 선물의 최근 애니메이션 정보"를 기록해둔다. 관리자 화면에서
-// 그 칸을 클릭하면 팝업 창이 새로 열리면서, 배경 이미지 위 그 칸 자리에서 애니메이션이 재생된다.
-// (실시간으로 캡처를 못 잡았을 때, 원하는 타이밍에 직접 다시 재생시켜서 캡처할 수 있게 하기 위함)
+// 🎬 선물 애니메이션 캡처판 — 선물카드 갤러리랑 같은 패턴으로, 받은 선물을 오는 대로 자동으로
+// 목록에 쌓아둔다 (미리 "이 선물은 몇 번 칸" 같은 사전 등록이 필요 없음). 관리자 화면에서 그
+// 목록 중 아무거나 클릭하면 팝업 창이 열리면서 그 선물의 실제 애니메이션(스푼 원본 lottie)이
+// 크게 재생된다 — 실시간으로 캡처를 못 잡았을 때, 원하는 타이밍에 다시 재생시켜서 캡처하기 위함.
+const GIFT_CAPTURE_MAX_ITEMS = 200
 function getGiftCaptureSettings(djId, settings) {
   if (!settings.giftCapture) {
     settings.giftCapture = {
       bgImageUrl: '',
-      columns: 4,
-      rows: 4,
-      cellSize: 12,
-      gridLeft: 5,
-      gridTop: 8,
-      slots: [], // { id, giftName, giftImage, row, col, lastEvent: null | { author, tag, ts, comboCount, stickerImage, lottieUrl } }
+      items: [], // { id, ts, author, tag, sticker, stickerImage, lottieUrl, comboCount }
     }
     store.saveSettings(djId, { giftCapture: settings.giftCapture })
   }
-  const gc = settings.giftCapture
-  if (!Array.isArray(gc.slots)) gc.slots = []
-  if (!gc.columns) gc.columns = 4
-  if (!gc.rows) gc.rows = 4
-  if (!gc.cellSize) gc.cellSize = 12
-  if (gc.gridLeft == null) gc.gridLeft = 5
-  if (gc.gridTop == null) gc.gridTop = 8
-  return gc
+  if (!Array.isArray(settings.giftCapture.items)) settings.giftCapture.items = []
+  return settings.giftCapture
+}
+let giftCaptureSaveDebounce = {}
+function saveGiftCaptureDebounced(djId, gc) {
+  if (giftCaptureSaveDebounce[djId]) clearTimeout(giftCaptureSaveDebounce[djId])
+  giftCaptureSaveDebounce[djId] = setTimeout(() => {
+    try { store.saveSettings(djId, { giftCapture: gc }) } catch (e) { console.log('[선물캡처판] 저장 실패', e.message) }
+  }, 800)
 }
 
-// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸에
-// "이번에 받은 선물" 정보(누가/언제/애니메이션URL)를 기록한다. 박제판과 달리 매번 최신 걸로 덮어쓴다
-// (계속 재생해볼 수 있게 하는 용도라 "처음 사람 고정"이 아니라 "최신 이벤트 유지"가 맞음).
+// LiveDonation(선물) 이벤트마다 호출 — 들어온 선물을 종류 상관없이 전부 목록 맨 앞에 기록한다.
 async function handleGiftCaptureHook(djId, settings, author, tag, sticker, comboCount) {
   if (!isModuleOn(settings, 'giftcapture', djId)) return
   const gc = getGiftCaptureSettings(djId, settings)
   const name = String(sticker || '').trim()
-  if (!name || !gc.slots.length) return
-  const matches = gc.slots.filter(s => s.giftName && String(s.giftName).trim() === name)
-  if (!matches.length) return
+  if (!name) return
   const anim = await findStickerAnim(name)
-  const event = {
+  const item = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    ts: Date.now(),
     author,
     tag: tag || '',
-    ts: Date.now(),
-    comboCount: Math.max(1, Number(comboCount) || 1),
+    sticker: name,
     stickerImage: anim.image || '',
     lottieUrl: anim.lottieUrl || '',
+    comboCount: Math.max(1, Number(comboCount) || 1),
   }
-  matches.forEach(slot => { slot.lastEvent = event })
-  store.saveSettings(djId, { giftCapture: gc })
-  console.log(`[선물캡처판:${djId}] ${name} 선물 기록 — ${author} (애니메이션 ${anim.lottieUrl ? '있음' : '없음(정지 이미지만)'})`)
+  gc.items.unshift(item)
+  if (gc.items.length > GIFT_CAPTURE_MAX_ITEMS) gc.items.length = GIFT_CAPTURE_MAX_ITEMS
+  saveGiftCaptureDebounced(djId, gc)
+  console.log(`[선물캡처판:${djId}] ${name} 기록 — ${author} (애니메이션 ${anim.lottieUrl ? '있음' : '없음(정지 이미지만)'})`)
+  broadcast({ type: 'giftcapture', djId, item })
 }
 
 
@@ -15241,35 +15238,14 @@ app.get('/giftcapture/fetch-live-bg', auth.requireAuth, (req, res) => {
   if (!room.liveCoverUrl) return res.json({ success: false, error: '이번 방송에서 배경 이미지를 못 찾았어요. (필드명이 다를 수 있어요 — 관리자에게 문의해주세요)' })
   res.json({ success: true, url: room.liveCoverUrl })
 })
+// 배경 이미지만 저장 (선물 목록은 실시간 훅에서 자동으로 쌓이므로 여기선 안 건드림)
 app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gc = getGiftCaptureSettings(req.djId, settings)
   const prevBgImageUrl = gc.bgImageUrl
-  const { bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
+  const { bgImageUrl } = req.body || {}
   if (bgImageUrl != null) gc.bgImageUrl = String(bgImageUrl)
-  if (columns != null) gc.columns = Math.max(1, Math.min(12, parseInt(columns, 10) || 4))
-  if (rows != null) gc.rows = Math.max(1, Math.min(20, parseInt(rows, 10) || 4))
-  if (cellSize != null) gc.cellSize = Math.max(2, Math.min(50, Number(cellSize) || 12))
-  if (gridLeft != null) gc.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
-  if (gridTop != null) gc.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
-  if (Array.isArray(slots)) {
-    // 기존 칸의 lastEvent(직전 선물 기록)는 실시간으로 방금 채워졌을 수도 있으니 보존한다.
-    const prevById = {}
-    gc.slots.forEach(s => { prevById[s.id] = s })
-    gc.slots = slots.map((s, i) => {
-      const isNew = !s.id || String(s.id).startsWith('new')
-      const prev = !isNew ? prevById[s.id] : null
-      return {
-        id: isNew ? ('gcslot' + Date.now() + Math.floor(Math.random() * 1000) + i) : s.id,
-        giftName: String(s.giftName || '').trim(),
-        giftImage: String(s.giftImage || ''),
-        row: s.row != null ? Math.max(1, parseInt(s.row, 10) || 1) : null,
-        col: s.col != null ? Math.max(1, parseInt(s.col, 10) || 1) : null,
-        lastEvent: prev ? (prev.lastEvent || null) : null,
-      }
-    })
-  }
   store.saveSettings(req.djId, { giftCapture: gc })
   // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
   if (prevBgImageUrl && prevBgImageUrl !== gc.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
@@ -15278,42 +15254,40 @@ app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
   }
   res.json({ success: true, settings: gc })
 })
-// 특정 칸의 "마지막 받은 선물" 기록만 지운다 (칸 자체는 유지).
-app.post('/giftcapture/reset-slot', auth.requireAuth, (req, res) => {
+app.post('/giftcapture/delete-item', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const gc = getGiftCaptureSettings(req.djId, settings)
   const { id } = req.body || {}
-  const slot = gc.slots.find(s => s.id === id)
-  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요' })
-  slot.lastEvent = null
+  const before = gc.items.length
+  gc.items = gc.items.filter(it => it.id !== id)
+  if (gc.items.length === before) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+  store.saveSettings(req.djId, { giftCapture: gc })
+  res.json({ success: true })
+})
+app.post('/giftcapture/clear', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  gc.items = []
   store.saveSettings(req.djId, { giftCapture: gc })
   res.json({ success: true })
 })
 
-// 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 배경 이미지 위 그 칸 자리에서
-// 마지막으로 받은 선물의 애니메이션을 재생한다. 로그인 없이 djId+slotId만으로 열리는 공개 페이지라
-// (박제판 공개 링크와 같은 신뢰 모델), 노출돼도 괜찮은 정보(선물 이름/이미지/애니메이션)만 내려준다.
+// 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 그 선물의 실제 애니메이션을
+// (배경 이미지가 있으면 그 위에, 없으면 검정 배경에) 크게 재생한다. 로그인 없이 djId+itemId만으로
+// 열리는 공개 페이지라(박제판 공개 링크와 같은 신뢰 모델), 노출돼도 괜찮은 정보만 내려준다.
 app.get('/giftcapture-popup', (req, res) => {
   res.sendFile(__dirname + '/public/giftcapture-popup.html')
 })
 app.get('/giftcapture/popup-data', async (req, res) => {
   try {
     const djId = String(req.query.djId || '').trim()
-    const slotId = String(req.query.slotId || '').trim()
-    if (!djId || !slotId) return res.json({ success: false, error: '잘못된 요청이에요' })
+    const itemId = String(req.query.itemId || '').trim()
+    if (!djId || !itemId) return res.json({ success: false, error: '잘못된 요청이에요' })
     const settings = store.getSettings(djId) || {}
     const gc = getGiftCaptureSettings(djId, settings)
-    const slot = gc.slots.find(s => s.id === slotId)
-    if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요' })
-    res.json({
-      success: true,
-      bgImageUrl: gc.bgImageUrl,
-      columns: gc.columns, rows: gc.rows, cellSize: gc.cellSize, gridLeft: gc.gridLeft, gridTop: gc.gridTop,
-      slotIndex: gc.slots.indexOf(slot),
-      slots: gc.slots.map(s => ({ id: s.id, row: s.row, col: s.col })), // 자동배치 계산용 — 다른 칸 위치 참고
-      slot: { id: slot.id, giftName: slot.giftName, giftImage: slot.giftImage, row: slot.row, col: slot.col },
-      lastEvent: slot.lastEvent || null,
-    })
+    const item = gc.items.find(it => it.id === itemId)
+    if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+    res.json({ success: true, bgImageUrl: gc.bgImageUrl, item })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
