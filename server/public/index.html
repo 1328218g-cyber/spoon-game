@@ -3588,10 +3588,29 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>🎁 받은 선물 (<span id="gcCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="sendGcTestGift()">🧪 테스트 선물 보내기 (비행기)</button><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="clearGcItems()">🗑️ 전체 비우기</button></div></div>
+          <div class="card-title"><span>🎁 받은 선물 (<span id="gcCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-shield-reset" style="padding:6px 14px;font-size:12px" onclick="clearGcItems()">🗑️ 전체 비우기</button></div></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openGcTestStickerPicker()">🔍 선물 목록에서 선택해서 테스트</button>
+          </div>
+          <p class="hint" style="margin-bottom:10px">기본 선물(비행기 등)은 애니메이션이 없을 수 있어요 — 목록에서 다른 선물을 골라 애니메이션 재생을 테스트해볼 수 있어요.</p>
           <p class="hint" style="margin-bottom:10px">클릭하면 그 선물의 애니메이션을 재생하는 팝업 창이 열려요.</p>
           <div id="gcItemsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px"></div>
           <p class="hint" id="gcEmptyHint" style="margin-top:8px">아직 받은 선물이 없어요. 사이드바에서 모듈을 켜두면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
+        </div>
+      </div>
+
+      <!-- 스티커 선택 모달 (선물캡처판 테스트 전용) -->
+      <div id="gcTestStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGcTestStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 테스트할 선물 선택</span><button class="icon-btn" onclick="closeGcTestStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="gcTestStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderGcTestStickerPicker()" style="flex:1">
+            <select id="gcTestStickerPickerCategory" onchange="renderGcTestStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div class="hint" style="margin:8px 0"><span id="gcTestStickerPickerCount">0</span>개 — 클릭하면 바로 테스트 선물이 전송돼요</div>
+          <div id="gcTestStickerPickerGrid" class="sticker-grid"></div>
         </div>
       </div>
 
@@ -9898,13 +9917,66 @@ async function clearGcItems(){
     showToast('전체 비우기 완료 ✓');
   }catch(e){ showToast('오류: '+e.message); }
 }
-async function sendGcTestGift(){
+async function sendGcTestGift(stickerName){
+  const sticker=(stickerName||'').trim();
+  if(!sticker)return;
   try{
-    const res=await fetch(SERVER+'/giftcapture/test-gift',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({sticker:'비행기'})});
+    const res=await fetch(SERVER+'/giftcapture/test-gift',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({sticker})});
     const d=await res.json();
     if(!d.success){ showToast(d.error||'테스트 실패'); return; }
-    showToast('테스트 선물(비행기) 전송 완료 ✓ — 목록에 곧 나타나요');
+    showToast(`테스트 선물(${sticker}) 전송 완료 ✓ — 목록에 곧 나타나요`);
   }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* 🔍 선물캡처판 테스트용 선물 선택 모달 — 룰렛/박제판과 같은 스티커 데이터(rlStickerData) 재사용 */
+async function openGcTestStickerPicker(){
+  document.getElementById('gcTestStickerModalOverlay').style.display='flex';
+  document.getElementById('gcTestStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('gcTestStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderGcTestStickerPicker();
+}
+function closeGcTestStickerPicker(){
+  document.getElementById('gcTestStickerModalOverlay').style.display='none';
+}
+function getFilteredGcTestStickers(){
+  const keyword=(document.getElementById('gcTestStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('gcTestStickerPickerCategory').value;
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+  return list;
+}
+function renderGcTestStickerPicker(){
+  const grid=document.getElementById('gcTestStickerPickerGrid');
+  const countEl=document.getElementById('gcTestStickerPickerCount');
+  const list=getFilteredGcTestStickers();
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const card=document.createElement('div');
+    card.className='sticker-card';
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>{
+      sendGcTestGift(s.name);
+      closeGcTestStickerPicker();
+    });
+    grid.appendChild(card);
+  });
 }
 
 

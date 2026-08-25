@@ -2,20 +2,34 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>선물 애니메이션 재생</title>
+<title>선물 애니메이션 다시보기</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%}
-  #stage{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;background-size:cover;background-position:center}
-  #animBox{width:min(80vw,80vh);height:min(80vw,80vh);display:flex;align-items:center;justify-content:center}
-  #animBox img,#lottieBox{width:100%;height:100%;object-fit:contain}
-  #lottieBox{width:100%;height:100%}
-  #replayBtn{position:fixed;bottom:16px;right:16px;padding:10px 18px;border-radius:999px;border:none;
-    background:#8b5cf6;color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);
-    display:none;z-index:10}
-  #senderTag{position:fixed;top:16px;left:16px;color:#fff;font:600 14px -apple-system,sans-serif;
-    background:rgba(0,0,0,.5);padding:6px 14px;border-radius:999px;display:none}
-  #emptyMsg{color:rgba(255,255,255,.6);font:14px -apple-system,sans-serif;text-align:center}
+  html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+  #stage{position:relative;width:100vw;height:calc(100vh - 84px);display:flex;align-items:center;justify-content:center;background-size:cover;background-position:center;overflow:hidden}
+  /* 🖼️ 원본 크기 그대로 — 절대 확대(업스케일)하지 않고, 화면보다 클 때만 줄인다 (JS에서 정확한 배율 계산) */
+  #animBox{display:flex;align-items:center;justify-content:center}
+  #animBox img{display:block;image-rendering:auto}
+  #lottieBox{display:block}
+  #senderTag{position:fixed;top:14px;left:14px;color:#fff;font:600 13px sans-serif;
+    background:rgba(0,0,0,.55);padding:6px 14px;border-radius:999px;display:none;z-index:5}
+  #emptyMsg{color:rgba(255,255,255,.6);font-size:14px;text-align:center;padding:0 24px;line-height:1.6}
+  #noAnimNotice{position:fixed;top:14px;right:14px;color:rgba(255,220,120,.95);font-size:12px;
+    background:rgba(0,0,0,.55);padding:6px 14px;border-radius:999px;display:none;z-index:5;max-width:280px;text-align:right}
+
+  /* 🎬 다시보기 컨트롤바 — 영상 플레이어처럼 재생/일시정지 + 구간 탐색 + 프레임 이동 */
+  #controls{position:fixed;left:0;bottom:0;width:100%;height:84px;background:#141018;
+    display:none;flex-direction:column;justify-content:center;gap:8px;padding:8px 16px;box-sizing:border-box;z-index:10}
+  #seekRow{display:flex;align-items:center;gap:10px}
+  #seekSlider{flex:1;accent-color:#8b5cf6;height:6px;cursor:pointer}
+  #frameLabel{color:rgba(255,255,255,.75);font-size:11px;min-width:70px;text-align:right;font-variant-numeric:tabular-nums}
+  #btnRow{display:flex;align-items:center;justify-content:center;gap:10px}
+  .ctrlBtn{background:#2a2438;color:#fff;border:none;border-radius:8px;padding:8px 14px;
+    font-size:13px;font-weight:600;cursor:pointer}
+  .ctrlBtn:hover{background:#38304c}
+  #playBtn{background:#8b5cf6;min-width:64px}
+  #playBtn:hover{background:#7a4bdb}
+  .speedBtn.active{background:#8b5cf6}
 </style>
 </head>
 <body>
@@ -23,15 +37,39 @@
     <div id="emptyMsg">불러오는 중...</div>
   </div>
   <div id="senderTag"></div>
-  <button id="replayBtn" onclick="playAnim()">🔁 다시 재생</button>
+  <div id="noAnimNotice">⚠️ 이 선물은 애니메이션이 없어요 (정지 이미지만 제공돼요)</div>
+
+  <div id="controls">
+    <div id="seekRow">
+      <input type="range" id="seekSlider" min="0" max="100" value="0" step="1">
+      <span id="frameLabel">0 / 0</span>
+    </div>
+    <div id="btnRow">
+      <button class="ctrlBtn" onclick="stepFrame(-1)">◀ 프레임</button>
+      <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
+      <button class="ctrlBtn" onclick="stepFrame(1)">프레임 ▶</button>
+      <button class="ctrlBtn" onclick="restartAnim()">⏮ 처음부터</button>
+      <span style="width:1px;height:20px;background:rgba(255,255,255,.15);margin:0 4px"></span>
+      <button class="ctrlBtn speedBtn" data-speed="0.25" onclick="setSpeedBtn(this)">0.25x</button>
+      <button class="ctrlBtn speedBtn" data-speed="0.5" onclick="setSpeedBtn(this)">0.5x</button>
+      <button class="ctrlBtn speedBtn active" data-speed="1" onclick="setSpeedBtn(this)">1x</button>
+    </div>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const djId = params.get('djId') || '';
     const itemId = params.get('itemId') || '';
-    let animInstance = null;
+    let anim = null;
     let popupData = null;
+    let isPlaying = false;
+    let userSeeking = false;
+
+    // 화면에서 애니메이션/이미지가 차지할 수 있는 최대 영역 (컨트롤바 위 공간)
+    function availableArea(){
+      return { w: window.innerWidth * 0.92, h: (window.innerHeight - 84) * 0.92 };
+    }
 
     async function init(){
       const stage = document.getElementById('stage');
@@ -48,52 +86,144 @@
         const combo = d.item.comboCount>1 ? ` x${d.item.comboCount}` : '';
         tag.textContent = (d.item.author||'')+' · '+(d.item.sticker||'')+combo;
         tag.style.display = 'block';
-        stage.innerHTML = '<div id="animBox"></div>';
-        playAnim();
+
+        if(d.item.lottieUrl){
+          await loadLottiePlayer(d.item.lottieUrl);
+        } else if(d.item.stickerImage){
+          showStaticImage(d.item.stickerImage);
+          document.getElementById('noAnimNotice').style.display = 'block';
+        } else {
+          stage.innerHTML = '<div id="emptyMsg">이 선물은 이미지를 찾지 못했어요<br>(스푼 스티커 목록에서 이름이 정확히 매칭 안 됐을 수 있어요)</div>';
+        }
       }catch(e){
         stage.innerHTML = '<div id="emptyMsg">오류: '+e.message+'</div>';
       }
     }
 
-    async function playAnim(){
-      if(!popupData || !popupData.item) return;
+    // 🖼️ 정지 이미지 — 원본 픽셀 크기 그대로 표시, 절대 확대하지 않고 화면보다 클 때만 축소한다.
+    function showStaticImage(url){
+      const stage = document.getElementById('stage');
+      stage.innerHTML = '<div id="animBox"></div>';
       const box = document.getElementById('animBox');
-      const replayBtn = document.getElementById('replayBtn');
-      if(!box) return;
-      box.innerHTML = '';
-      if(animInstance){ try{ animInstance.destroy(); }catch(e){} animInstance = null; }
-
-      const item = popupData.item;
-      if(item.lottieUrl){
-        const lottieBox = document.createElement('div');
-        lottieBox.id = 'lottieBox';
-        box.appendChild(lottieBox);
-        try{
-          const proxied = '/giftcapture/lottie-proxy?url='+encodeURIComponent(item.lottieUrl);
-          const res = await fetch(proxied);
-          const json = await res.json();
-          animInstance = lottie.loadAnimation({
-            container: lottieBox,
-            renderer: 'svg',
-            loop: false,
-            autoplay: true,
-            animationData: json
-          });
-          replayBtn.style.display = 'block';
-          return;
-        }catch(e){
-          // lottie 로드 실패하면 정지 이미지로 대체
-        }
-      }
-      if(item.stickerImage){
-        const img = document.createElement('img');
-        img.src = item.stickerImage;
-        box.appendChild(img);
-      } else {
-        box.innerHTML = '<div id="emptyMsg">이 선물은 이미지를 찾지 못했어요</div>';
-      }
-      replayBtn.style.display = 'block';
+      const img = document.createElement('img');
+      img.onload = ()=>{
+        const area = availableArea();
+        const scale = Math.min(1, area.w/img.naturalWidth, area.h/img.naturalHeight); // 1을 넘지 않게(=업스케일 금지)
+        const w = Math.round(img.naturalWidth*scale), h = Math.round(img.naturalHeight*scale);
+        box.style.width = w+'px'; box.style.height = h+'px';
+        img.style.width = w+'px'; img.style.height = h+'px';
+      };
+      img.src = url;
+      box.appendChild(img);
     }
+
+    async function loadLottiePlayer(lottieUrl){
+      const stage = document.getElementById('stage');
+      stage.innerHTML = '<div id="animBox"><div id="lottieBox"></div></div>';
+      try{
+        const proxied = '/giftcapture/lottie-proxy?url='+encodeURIComponent(lottieUrl);
+        const res = await fetch(proxied);
+        const json = await res.json();
+
+        // 🖼️ lottie JSON 자체에 원본 w/h(px)가 들어있다 — 이 값 기준으로 실제 크기를 계산한다.
+        const naturalW = Number(json.w)||300, naturalH = Number(json.h)||300;
+        const area = availableArea();
+        const scale = Math.min(1, area.w/naturalW, area.h/naturalH); // 업스케일 금지, 화면보다 크면만 축소
+        const boxEl = document.getElementById('animBox');
+        const lottieBox = document.getElementById('lottieBox');
+        const w = Math.round(naturalW*scale), h = Math.round(naturalH*scale);
+        boxEl.style.width = w+'px'; boxEl.style.height = h+'px';
+        lottieBox.style.width = w+'px'; lottieBox.style.height = h+'px';
+
+        anim = lottie.loadAnimation({
+          container: lottieBox,
+          renderer: 'svg',
+          loop: true,
+          autoplay: false,
+          animationData: json
+        });
+        anim.addEventListener('DOMLoaded', ()=>{
+          const total = anim.totalFrames;
+          const slider = document.getElementById('seekSlider');
+          slider.max = Math.max(0, Math.floor(total)-1);
+          slider.value = 0;
+          updateFrameLabel(0, total);
+          document.getElementById('controls').style.display = 'flex';
+          // 처음엔 한 번 자동으로 재생해서 어떤 애니메이션인지 바로 보여주고, 그 뒤부턴 직접 컨트롤
+          play();
+        });
+        anim.addEventListener('enterFrame', ()=>{
+          if(userSeeking) return;
+          const slider = document.getElementById('seekSlider');
+          slider.value = Math.floor(anim.currentFrame);
+          updateFrameLabel(anim.currentFrame, anim.totalFrames);
+        });
+        anim.addEventListener('data_failed', ()=>{
+          stage.innerHTML = '<div id="emptyMsg">애니메이션 데이터가 손상되어 있어요</div>';
+        });
+      }catch(e){
+        document.getElementById('stage').innerHTML = '<div id="emptyMsg">애니메이션을 불러오지 못했어요<br>('+e.message+')</div>';
+      }
+    }
+
+    function updateFrameLabel(cur, total){
+      document.getElementById('frameLabel').textContent = Math.floor(cur)+' / '+Math.floor(total);
+    }
+
+    function play(){
+      if(!anim) return;
+      anim.play();
+      isPlaying = true;
+      document.getElementById('playBtn').textContent = '⏸ 일시정지';
+    }
+    function pause(){
+      if(!anim) return;
+      anim.pause();
+      isPlaying = false;
+      document.getElementById('playBtn').textContent = '▶ 재생';
+    }
+    function togglePlay(){
+      if(!anim) return;
+      isPlaying ? pause() : play();
+    }
+    function restartAnim(){
+      if(!anim) return;
+      anim.goToAndPlay(0, true);
+      isPlaying = true;
+      document.getElementById('playBtn').textContent = '⏸ 일시정지';
+    }
+    function stepFrame(delta){
+      if(!anim) return;
+      pause();
+      const next = Math.min(anim.totalFrames-1, Math.max(0, Math.floor(anim.currentFrame)+delta));
+      anim.goToAndStop(next, true);
+      document.getElementById('seekSlider').value = next;
+      updateFrameLabel(next, anim.totalFrames);
+    }
+    function setSpeedBtn(btn){
+      document.querySelectorAll('.speedBtn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      if(anim) anim.setSpeed(Number(btn.dataset.speed));
+    }
+
+    const slider = document.getElementById('seekSlider');
+    slider.addEventListener('mousedown', ()=>{ userSeeking = true; pause(); });
+    slider.addEventListener('touchstart', ()=>{ userSeeking = true; pause(); });
+    slider.addEventListener('input', ()=>{
+      if(!anim) return;
+      const f = Number(slider.value);
+      anim.goToAndStop(f, true);
+      updateFrameLabel(f, anim.totalFrames);
+    });
+    slider.addEventListener('mouseup', ()=>{ userSeeking = false; });
+    slider.addEventListener('touchend', ()=>{ userSeeking = false; });
+
+    // ⌨️ 스페이스바로 재생/일시정지, 좌우 화살표로 프레임 이동 — 캡처할 때 마우스로 버튼 안 눌러도 되게
+    document.addEventListener('keydown', (e)=>{
+      if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+      else if(e.code==='ArrowLeft'){ e.preventDefault(); stepFrame(-1); }
+      else if(e.code==='ArrowRight'){ e.preventDefault(); stepFrame(1); }
+    });
 
     init();
   </script>
