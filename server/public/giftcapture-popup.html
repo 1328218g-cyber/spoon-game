@@ -6,9 +6,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
-  #outer{width:100vw;height:calc(100vh - 84px);display:flex;align-items:center;justify-content:center}
-  /* 🖼️ 배경 박스 — 애니메이션(또는 정지 이미지) 크기에 딱 맞춰 조정된다 (JS에서 width/height 지정) */
-  #mediaBox{position:relative;background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  /* 🖼️ 배경 — 팝업 전체를 채우고 맨 뒤(z-index:1)에 깔린다. 절대 애니메이션보다 앞에 안 옴. */
+  #bgLayer{position:fixed;left:0;top:0;width:100vw;height:calc(100vh - 84px);
+    background-size:cover;background-position:center;z-index:1}
+  /* 🎬 애니메이션 — 원본 크기 그대로, 배경 위(z-index:2)에 얹힌다 */
+  #fgLayer{position:fixed;left:0;top:0;width:100vw;height:calc(100vh - 84px);
+    display:flex;align-items:center;justify-content:center;z-index:2;pointer-events:none}
+  #mediaBox{display:flex;align-items:center;justify-content:center;pointer-events:auto}
   #animBox img{display:block}
   #lottieBox{display:block}
   #senderTag{position:fixed;top:14px;left:14px;color:#fff;font:600 13px sans-serif;
@@ -33,7 +37,8 @@
 </style>
 </head>
 <body>
-  <div id="outer">
+  <div id="bgLayer"></div>
+  <div id="fgLayer">
     <div id="emptyMsg">불러오는 중...</div>
   </div>
   <div id="senderTag"></div>
@@ -65,39 +70,10 @@
     let popupData = null;
     let isPlaying = false;
     let userSeeking = false;
-    const CONTROLS_H = 84;
 
-    // 화면(모니터)에서 벗어나지 않을 최대 크기 — 이보다 크면만 축소, 작으면 원본 그대로.
-    function maxAllowedSize(){
-      const screenW = (window.screen && window.screen.availWidth) ? window.screen.availWidth * 0.9 : window.innerWidth * 0.9;
-      const screenH = (window.screen && window.screen.availHeight) ? window.screen.availHeight * 0.85 : window.innerHeight * 0.85;
-      return { w: screenW, h: Math.max(200, screenH - CONTROLS_H) };
-    }
-
-    // 🖼️ 핵심 — 배경 박스(#mediaBox)를 애니메이션/이미지의 실제 크기에 맞춰 만들고,
-    // 팝업 창 자체도 그 크기(+컨트롤바 높이)로 리사이즈한다. 배경이 애니메이션보다 커서
-    // 둘이 따로 노는 문제를 없애기 위해, 배경과 애니메이션이 항상 "같은 박스" 안에서 1:1로 겹친다.
-    function setupMediaBox(naturalW, naturalH){
-      const max = maxAllowedSize();
-      const scale = Math.min(1, max.w/naturalW, max.h/naturalH); // 업스케일 금지
-      const w = Math.max(120, Math.round(naturalW*scale));
-      const h = Math.max(120, Math.round(naturalH*scale));
-
-      const outer = document.getElementById('outer');
-      outer.innerHTML = '<div id="mediaBox" style="width:'+w+'px;height:'+h+'px"></div>';
-      const box = document.getElementById('mediaBox');
-      if(popupData && popupData.bgImageUrl){
-        box.style.backgroundImage = "url('"+popupData.bgImageUrl+"')";
-      }
-
-      // 팝업 창 자체를 이 크기로 맞춘다 (브라우저 창 테두리/주소창 높이는 outerHeight-innerHeight로 보정)
-      try{
-        const chromeW = window.outerWidth - window.innerWidth;
-        const chromeH = window.outerHeight - window.innerHeight;
-        window.resizeTo(w + chromeW, h + CONTROLS_H + chromeH);
-      }catch(e){ /* 팝업 리사이즈가 막혀있으면 그냥 박스 크기만 맞춰진 채로 둔다 */ }
-
-      return box;
+    // 화면에서 애니메이션/이미지가 차지할 수 있는 최대 영역 (컨트롤바 위 공간) — 이보다 클 때만 축소.
+    function availableArea(){
+      return { w: window.innerWidth * 0.92, h: (window.innerHeight - 84) * 0.92 };
     }
 
     async function init(){
@@ -105,10 +81,11 @@
         const res = await fetch('/giftcapture/popup-data?djId='+encodeURIComponent(djId)+'&itemId='+encodeURIComponent(itemId));
         const d = await res.json();
         if(!d.success){
-          document.getElementById('outer').innerHTML = '<div id="emptyMsg">'+(d.error||'불러오지 못했어요')+'</div>';
+          document.getElementById('fgLayer').innerHTML = '<div id="emptyMsg">'+(d.error||'불러오지 못했어요')+'</div>';
           return;
         }
         popupData = d;
+        if(d.bgImageUrl){ document.getElementById('bgLayer').style.backgroundImage = "url('"+d.bgImageUrl+"')"; }
         const tag = document.getElementById('senderTag');
         const combo = d.item.comboCount>1 ? ` x${d.item.comboCount}` : '';
         tag.textContent = (d.item.author||'')+' · '+(d.item.sticker||'')+combo;
@@ -120,45 +97,46 @@
           showStaticImage(d.item.stickerImage);
           document.getElementById('noAnimNotice').style.display = 'block';
         } else {
-          document.getElementById('outer').innerHTML = '<div id="emptyMsg">이 선물은 이미지를 찾지 못했어요<br>(스푼 스티커 목록에서 이름이 정확히 매칭 안 됐을 수 있어요)</div>';
+          document.getElementById('fgLayer').innerHTML = '<div id="emptyMsg">이 선물은 이미지를 찾지 못했어요<br>(스푼 스티커 목록에서 이름이 정확히 매칭 안 됐을 수 있어요)</div>';
         }
       }catch(e){
-        document.getElementById('outer').innerHTML = '<div id="emptyMsg">오류: '+e.message+'</div>';
+        document.getElementById('fgLayer').innerHTML = '<div id="emptyMsg">오류: '+e.message+'</div>';
       }
     }
 
-    // 🖼️ 정지 이미지 — 이미지의 실제 픽셀 크기를 기준으로 배경 박스를 맞춘다.
+    // 🖼️ 정지 이미지 — 원본 픽셀 크기 그대로, 절대 확대하지 않고 화면보다 클 때만 축소한다.
     function showStaticImage(url){
-      const probe = new Image();
-      probe.onload = ()=>{
-        const box = setupMediaBox(probe.naturalWidth, probe.naturalHeight);
-        box.innerHTML = '<div id="animBox"></div>';
-        const img = document.createElement('img');
-        img.src = url;
-        img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'contain';
-        document.getElementById('animBox').style.width = '100%';
-        document.getElementById('animBox').style.height = '100%';
-        document.getElementById('animBox').appendChild(img);
+      const fg = document.getElementById('fgLayer');
+      fg.innerHTML = '<div id="mediaBox"><div id="animBox"></div></div>';
+      const img = document.createElement('img');
+      img.onload = ()=>{
+        const area = availableArea();
+        const scale = Math.min(1, area.w/img.naturalWidth, area.h/img.naturalHeight);
+        const w = Math.round(img.naturalWidth*scale), h = Math.round(img.naturalHeight*scale);
+        img.style.width = w+'px'; img.style.height = h+'px';
       };
-      probe.onerror = ()=>{
-        document.getElementById('outer').innerHTML = '<div id="emptyMsg">이미지를 불러오지 못했어요</div>';
-      };
-      probe.src = url;
+      img.src = url;
+      document.getElementById('animBox').appendChild(img);
     }
 
     async function loadLottiePlayer(lottieUrl){
+      const fg = document.getElementById('fgLayer');
+      fg.innerHTML = '<div id="mediaBox"><div id="lottieBox"></div></div>';
       try{
         const proxied = '/giftcapture/lottie-proxy?url='+encodeURIComponent(lottieUrl);
         const res = await fetch(proxied);
         const json = await res.json();
 
-        // lottie JSON 자체에 원본 w/h(px)가 들어있다 — 이 값을 기준으로 배경 박스 크기를 정한다.
+        // lottie JSON 자체에 원본 w/h(px)가 들어있다 — 이 값 기준으로 실제 크기를 계산한다.
         const naturalW = Number(json.w)||300, naturalH = Number(json.h)||300;
-        const box = setupMediaBox(naturalW, naturalH);
-        box.innerHTML = '<div id="lottieBox" style="width:100%;height:100%"></div>';
+        const area = availableArea();
+        const scale = Math.min(1, area.w/naturalW, area.h/naturalH);
+        const lottieBox = document.getElementById('lottieBox');
+        const w = Math.round(naturalW*scale), h = Math.round(naturalH*scale);
+        lottieBox.style.width = w+'px'; lottieBox.style.height = h+'px';
 
         anim = lottie.loadAnimation({
-          container: document.getElementById('lottieBox'),
+          container: lottieBox,
           renderer: 'svg',
           loop: true,
           autoplay: false,
@@ -181,10 +159,10 @@
           updateFrameLabel(anim.currentFrame, anim.totalFrames);
         });
         anim.addEventListener('data_failed', ()=>{
-          document.getElementById('outer').innerHTML = '<div id="emptyMsg">애니메이션 데이터가 손상되어 있어요</div>';
+          fg.innerHTML = '<div id="emptyMsg">애니메이션 데이터가 손상되어 있어요</div>';
         });
       }catch(e){
-        document.getElementById('outer').innerHTML = '<div id="emptyMsg">애니메이션을 불러오지 못했어요<br>('+e.message+')</div>';
+        fg.innerHTML = '<div id="emptyMsg">애니메이션을 불러오지 못했어요<br>('+e.message+')</div>';
       }
     }
 
