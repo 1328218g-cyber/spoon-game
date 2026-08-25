@@ -8,6 +8,7 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+const r2Backup = require('./r2Backup')
 
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
 // 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
@@ -15466,6 +15467,62 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   }
 })
 
+// 🌐 R2 전체 백업 복구 — Base44(5개 필드만)와 달리, djs.json 전체(모든 계정)를 통째로
+// 그 시점으로 되돌리는 파괴적인 작업이다. 그래서 (1) 목록 조회 (2) 미리보기 (3) confirm:true로 적용
+// 3단계를 반드시 거치게 한다. 관리자(sum) 전용.
+
+// 📋 1단계 — R2에 저장된 전체 백업 스냅샷 목록(최신순 최대 30개)을 가져온다.
+app.post('/admin/list-backups-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const result = await r2Backup.listSnapshots(30)
+    if (!result.ok) return res.json({ success: false, error: result.error || 'R2가 비활성화되어 있어요' })
+    res.json({ success: true, list: result.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔍 2단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 시점 백업에 계정이 몇 개 들어있는지만 확인한다.
+app.post('/admin/restore-preview-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  try {
+    const result = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!result.ok) return res.json({ success: false, error: result.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp, accountCount: Object.keys(result.data).length, djIds: Object.keys(result.data).slice(0, 50) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔄 3단계 — 실제로 덮어쓴다. djs.json 전체 + globalMonsterDex.json을 그 시점 스냅샷으로 통째로 교체.
+// confirm:true가 명시적으로 와야만 실행된다. (되돌릴 수 없는 작업 — 지금 서버에만 있는,
+// 그 시점 이후에 생긴 변경사항은 이 복구로 전부 사라진다)
+app.post('/admin/restore-apply-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const djsResult = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!djsResult.ok) return res.json({ success: false, error: djsResult.error || '그 시점의 백업을 못 찾았어요' })
+
+    const applied = store.restoreFullDjsSnapshot(djsResult.data)
+    if (!applied.ok) return res.json({ success: false, error: applied.error })
+
+    // globalMonsterDex 스냅샷은 있으면 같이 복구, 없으면(예전 백업 등) 조용히 건너뜀
+    const mcResult = await r2Backup.fetchGlobalMonsterDexSnapshot(stamp)
+    if (mcResult.ok) store.restoreGlobalMonsterDexSnapshot(mcResult.data)
+
+    console.log(`[R2 복구] 전체 데이터를 ${stamp} 시점 백업으로 복구했어요. (계정 ${applied.accountCount}개, 몬스터잡기 데이터 ${mcResult.ok ? '포함' : '없음(스킵)'})`)
+    res.json({ success: true, stamp, accountCount: applied.accountCount, monsterDexRestored: mcResult.ok })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 // ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
 // 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
 app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
@@ -19113,6 +19170,17 @@ app.listen(PORT, () => {
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
+
+  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
+  // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
+  // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
+  // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
+  setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
+  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+
+  // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
+  setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
+  setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
