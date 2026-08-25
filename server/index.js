@@ -8,6 +8,7 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+const r2Backup = require('./r2Backup')
 
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
 // 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
@@ -669,7 +670,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftcapture'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -5922,15 +5923,18 @@ function getTrophyBoardSettings(djId, settings) {
 // 목록 중 아무거나 클릭하면 팝업 창이 열리면서 그 선물의 실제 애니메이션(스푼 원본 lottie)이
 // 크게 재생된다 — 실시간으로 캡처를 못 잡았을 때, 원하는 타이밍에 다시 재생시켜서 캡처하기 위함.
 const GIFT_CAPTURE_MAX_ITEMS = 200
+const GIFT_CAPTURE_BG_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 배경 이미지 자동 삭제 기한 — 등록 후 하루(24시간)
 function getGiftCaptureSettings(djId, settings) {
   if (!settings.giftCapture) {
     settings.giftCapture = {
       bgImageUrl: '',
+      bgImageSetAt: null, // 배경 이미지를 등록한 시각 — 하루 지나면 자동 삭제하는 데 사용
       items: [], // { id, ts, author, tag, sticker, stickerImage, lottieUrl, comboCount }
     }
     store.saveSettings(djId, { giftCapture: settings.giftCapture })
   }
   if (!Array.isArray(settings.giftCapture.items)) settings.giftCapture.items = []
+  if (settings.giftCapture.bgImageSetAt === undefined) settings.giftCapture.bgImageSetAt = null
   return settings.giftCapture
 }
 let giftCaptureSaveDebounce = {}
@@ -5963,6 +5967,33 @@ async function handleGiftCaptureHook(djId, settings, author, tag, sticker, combo
   saveGiftCaptureDebounced(djId, gc)
   console.log(`[선물캡처판:${djId}] ${name} 기록 — ${author} (애니메이션 ${anim.lottieUrl ? '있음' : '없음(정지 이미지만)'})`)
   broadcast({ type: 'giftcapture', djId, item })
+}
+
+// 🧹 선물캡처판 배경 이미지 자동 삭제 — 등록한 지 하루(24시간) 지난 배경은 전체 DJ 대상으로
+// 자동으로 파일 삭제 + 설정 비움. 30분마다 도는 R2 자동백업 스케줄러 옆에 같이 등록해서 돈다.
+function cleanupOldGiftCaptureBackgrounds() {
+  try {
+    const all = store.getRawSnapshot()
+    const now = Date.now()
+    let cleaned = 0
+    for (const djId of Object.keys(all)) {
+      const settings = all[djId]?.settings
+      const gc = settings?.giftCapture
+      if (!gc || !gc.bgImageUrl || !gc.bgImageSetAt) continue
+      if (now - gc.bgImageSetAt < GIFT_CAPTURE_BG_MAX_AGE_MS) continue
+      if (gc.bgImageUrl.startsWith('/images/')) {
+        const name = path.basename(gc.bgImageUrl)
+        if (name.startsWith(`${djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+      }
+      gc.bgImageUrl = ''
+      gc.bgImageSetAt = null
+      store.saveSettings(djId, { giftCapture: gc })
+      cleaned++
+    }
+    if (cleaned > 0) console.log(`[선물캡처판] 하루 지난 배경 이미지 ${cleaned}개 자동 삭제 완료`)
+  } catch (e) {
+    console.log('[선물캡처판] 배경 자동 삭제 실패:', e.message)
+  }
 }
 
 
@@ -15245,7 +15276,11 @@ app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
   const gc = getGiftCaptureSettings(req.djId, settings)
   const prevBgImageUrl = gc.bgImageUrl
   const { bgImageUrl } = req.body || {}
-  if (bgImageUrl != null) gc.bgImageUrl = String(bgImageUrl)
+  if (bgImageUrl != null) {
+    gc.bgImageUrl = String(bgImageUrl)
+    // 🧹 배경을 새로 등록/변경한 시점을 기록 — 하루(24시간) 지나면 자동 삭제하는 데 쓰임
+    gc.bgImageSetAt = gc.bgImageUrl ? Date.now() : null
+  }
   store.saveSettings(req.djId, { giftCapture: gc })
   // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
   if (prevBgImageUrl && prevBgImageUrl !== gc.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
@@ -15273,6 +15308,7 @@ app.post('/giftcapture/clear', auth.requireAuth, (req, res) => {
 })
 // 🧪 실제 선물 없이도 테스트할 수 있게, 기본 선물(비행기)을 하나 받은 것처럼 흉내낸다.
 app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const stickerName = String((req.body || {}).sticker || '비행기').trim()
@@ -15661,6 +15697,50 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   }
 })
 
+// 🌐 R2 전체 백업 복구 — Base44(5개 필드만)와 달리, djs.json 전체(모든 계정)를 통째로
+// 그 시점으로 되돌리는 파괴적인 작업이다. 그래서 (1) 목록 조회 (2) 미리보기 (3) confirm:true로 적용
+// 3단계를 반드시 거치게 한다. 관리자(sum) 전용.
+app.post('/admin/list-backups-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const result = await r2Backup.listSnapshots(30)
+    if (!result.ok) return res.json({ success: false, error: result.error || 'R2가 비활성화되어 있어요' })
+    res.json({ success: true, list: result.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/admin/restore-preview-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  try {
+    const result = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!result.ok) return res.json({ success: false, error: result.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp, accountCount: Object.keys(result.data).length, djIds: Object.keys(result.data).slice(0, 50) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/admin/restore-apply-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const djsResult = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!djsResult.ok) return res.json({ success: false, error: djsResult.error || '그 시점의 백업을 못 찾았어요' })
+    const applied = store.restoreFullDjsSnapshot(djsResult.data)
+    if (!applied.ok) return res.json({ success: false, error: applied.error })
+    const mcResult = await r2Backup.fetchGlobalMonsterDexSnapshot(stamp)
+    if (mcResult.ok) store.restoreGlobalMonsterDexSnapshot(mcResult.data)
+    console.log(`[R2 복구] 전체 데이터를 ${stamp} 시점 백업으로 복구했어요. (계정 ${applied.accountCount}개, 몬스터잡기 데이터 ${mcResult.ok ? '포함' : '없음(스킵)'})`)
+    res.json({ success: true, stamp, accountCount: applied.accountCount, monsterDexRestored: mcResult.ok })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 // ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
 // 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
 app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
@@ -15714,6 +15794,99 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
     res.json({ success: false, error: e.message })
   }
 })
+
+// ── ☁️ 셀프서비스 R2 백업/복구 — 위 Base44 방식(5개 필드만)과 달리, 로그인한 DJ 본인의
+// 계정 "전체" 설정(실드/깃발/펀딩/단축키/룰렛/애청지수/입장설정/증권거래소 등 전부)을
+// R2에 저장/복구한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/r2-backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await r2Backup.backupDjToR2(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '백업 실패' })
+    res.json({ success: true, stamp: r.stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listDjBackups(req.djId)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    store.restoreDjRecord(req.djId, r.data)
+    console.log(`[셀프복구-R2] ${req.djId} 계정 전체를 ${stamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 자동 백업(30분마다, 전체 시스템) 시점에서 "내 계정 데이터만" 골라서 복구 ──
+// 위 /mydata/r2-backup 계열은 본인이 버튼을 직접 눌러야만 그 시점이 생기는데, 여기서는
+// 서버가 30분마다 자동으로 찍어두는 전체 스냅샷(관리자용과 동일한 snapshots/) 목록에서
+// 아무 시점이나 골라, 그 안에서 로그인한 본인(req.djId) 데이터만 뽑아 복구한다.
+// 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
+app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    if (!r.data[req.djId]) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요 (가입 전이거나 계정명이 바뀐 경우일 수 있어요)' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    const record = r.data[req.djId]
+    if (!record) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요' })
+    store.restoreDjRecord(req.djId, record)
+    console.log(`[셀프복구-R2 자동백업] ${req.djId} 계정만 ${stamp} 시점(전체 자동백업)으로 본인이 직접 복구했어요. (다른 계정은 영향 없음)`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 
 // 🔍 특정 계정 설정에서 어느 항목이 유독 큰지 진단 (base64 이미지/음원이 박혀있는지 찾기 위함)
 app.get('/admin/diagnose-size/:djId', auth.requireAuth, (req, res) => {
@@ -19308,6 +19481,21 @@ app.listen(PORT, () => {
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
+
+  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
+  // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
+  // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
+  // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
+  setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
+  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+
+  // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
+  setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
+  setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
+
+  // 🧹 선물캡처판 배경 이미지 자동 삭제 — 등록한 지 하루 지난 배경을 1시간마다 확인
+  setTimeout(cleanupOldGiftCaptureBackgrounds, 10 * 60 * 1000)
+  setInterval(cleanupOldGiftCaptureBackgrounds, 60 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
