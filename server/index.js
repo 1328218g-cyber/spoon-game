@@ -532,24 +532,14 @@ async function fetchLiveInfo(liveId, accessToken) {
     })
     const data = await res.json()
     const live = data.results?.[0] || data
-    // 🎬 선물캡처판 "지금 방송 배경 가져오기" 기능용 — 방송 커버/배경 이미지 필드명이 정확히
-    // 뭔지 문서화된 게 없어서 후보 필드를 순서대로 시도한다. 다 비어있으면 아래 로그로 실제 응답의
-    // 키 목록을 남겨서, Railway 로그를 보고 진짜 필드명을 찾아 고칠 수 있게 해둔다.
-    const coverUrl = live.cover_url || live.coverUrl || live.image_url || live.imageUrl
-      || live.square_image_url || live.squareImageUrl || live.thumbnail_url || live.thumbnailUrl
-      || live.background_image_url || live.backgroundImageUrl || ''
-    if (!coverUrl) {
-      console.log(`[선물캡처판:배경조회] liveId=${liveId} 커버 이미지 후보 필드를 못 찾았어요. live 객체 키 목록:`, Object.keys(live || {}).join(', '))
-    }
     return {
       streamName: live.stream_name || live.streamName || String(liveId),
       djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
       djProfileUrl: live.author?.profile_url || live.author?.profileUrl || live.author?.image_url || live.user?.profile_url || live.user?.profileUrl || '',
-      coverUrl,
     }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null, djProfileUrl: '', coverUrl: '' }
+    return { streamName: String(liveId), djUserId: null, djProfileUrl: '' }
   }
 }
 
@@ -14400,12 +14390,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const { streamName, djUserId, djProfileUrl, coverUrl } = await fetchLiveInfo(liveId, accessToken)
+  const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
   room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
-  room.liveCoverUrl = coverUrl || '' // 🎬 선물캡처판 "지금 방송 배경 가져오기"용 이번 방송 커버 이미지
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
   // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
@@ -15259,15 +15248,6 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
 app.get('/giftcapture/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, settings: getGiftCaptureSettings(req.djId, settings) })
-})
-// 📥 지금 방송 중인 라이브의 커버(배경) 이미지를 그대로 가져온다. 방송 중이 아니거나(liveId 없음),
-// 스푼 API 응답에서 커버 이미지 후보 필드를 못 찾았으면 실패로 응답한다 — 그 경우 Railway 로그에
-// [선물캡처판:배경조회] 로 실제 응답 키 목록이 남으니, 그걸 보고 정확한 필드명으로 고칠 수 있다.
-app.get('/giftcapture/fetch-live-bg', auth.requireAuth, (req, res) => {
-  const room = getRoom(req.djId)
-  if (!room || !room.liveId) return res.json({ success: false, error: '지금 방송 중이 아니에요. 방송을 시작한 뒤 다시 눌러주세요.' })
-  if (!room.liveCoverUrl) return res.json({ success: false, error: '이번 방송에서 배경 이미지를 못 찾았어요. (필드명이 다를 수 있어요 — 관리자에게 문의해주세요)' })
-  res.json({ success: true, url: room.liveCoverUrl })
 })
 // 배경 이미지만 저장 (선물 목록은 실시간 훅에서 자동으로 쌓이므로 여기선 안 건드림)
 app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {

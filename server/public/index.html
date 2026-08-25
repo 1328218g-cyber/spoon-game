@@ -3599,11 +3599,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <img id="gcBgPreview" src="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:none">
             <input type="file" id="gcBgFileInput" accept="image/*" style="display:none" onchange="uploadGcBgImage(this.files[0])">
             <button class="btn-gray" onclick="document.getElementById('gcBgFileInput').click()">🖼️ 이미지 업로드</button>
-            <button class="btn-gray" onclick="fetchLiveBgForGc()">📥 지금 방송 배경 가져오기</button>
             <button class="btn-gray" id="gcBgRemoveBtn" style="display:none" onclick="removeGcBgImage()">배경 제거</button>
             <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
           </div>
-          <div class="hint" style="margin-top:6px">재생 팝업 뒷배경으로 쓰여요. 안 올려도 검정 배경으로 재생돼요. "지금 방송 배경 가져오기"는 방송 중일 때만 동작해요.</div>
+          <div class="hint" style="margin-top:6px">재생 팝업 뒷배경으로 쓰여요. 안 올려도 검정 배경으로 재생돼요.</div>
         </div>
 
         <div class="card">
@@ -9884,17 +9883,6 @@ async function removeGcBgImage(){
   gcBgUrl='';
   updateGcBgPreview();
   await saveGcBgOnly();
-}
-async function fetchLiveBgForGc(){
-  try{
-    const res=await fetch(SERVER+'/giftcapture/fetch-live-bg',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ showToast(d.error||'가져오기 실패'); return; }
-    gcBgUrl=d.url;
-    updateGcBgPreview();
-    await saveGcBgOnly();
-    showToast('지금 방송 배경을 가져왔어요 ✓');
-  }catch(e){ showToast('오류: '+e.message); }
 }
 
 function renderGcItems(){
