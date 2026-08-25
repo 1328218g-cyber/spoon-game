@@ -19,9 +19,13 @@
   #noAnimNotice{position:fixed;top:14px;right:14px;color:rgba(255,220,120,.95);font-size:12px;
     background:rgba(0,0,0,.55);padding:6px 14px;border-radius:999px;display:none;z-index:20;max-width:280px;text-align:right}
 
-  /* 🎬 하단 컨트롤 — 일시정지/재생, 캡처(저장) 딱 두 개만 */
+  /* 🎬 하단 컨트롤 — 구간 탐색 슬라이더 + 일시정지/재생, 캡처(저장) */
   #controls{position:fixed;left:0;bottom:0;width:100%;background:#141018;
-    display:none;align-items:center;justify-content:center;gap:12px;padding:14px 16px;box-sizing:border-box;z-index:10}
+    display:none;flex-direction:column;justify-content:center;gap:8px;padding:10px 16px;box-sizing:border-box;z-index:10}
+  #seekRow{display:flex;align-items:center;gap:10px}
+  #seekSlider{flex:1;accent-color:#8b5cf6;height:6px;cursor:pointer}
+  #frameLabel{color:rgba(255,255,255,.75);font-size:11px;min-width:70px;text-align:right;font-variant-numeric:tabular-nums}
+  #btnRow{display:flex;align-items:center;justify-content:center;gap:12px}
   .ctrlBtn{background:#2a2438;color:#fff;border:none;border-radius:10px;padding:12px 22px;
     font-size:15px;font-weight:700;cursor:pointer}
   .ctrlBtn:hover{background:#38304c}
@@ -39,8 +43,14 @@
   <div id="noAnimNotice">⚠️ 이 선물은 애니메이션이 없어요 (정지 이미지만 제공돼요)</div>
 
   <div id="controls">
-    <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
-    <button class="ctrlBtn" id="captureBtn" onclick="captureFrame()">📸 캡처</button>
+    <div id="seekRow">
+      <input type="range" id="seekSlider" min="0" max="100" value="0" step="1">
+      <span id="frameLabel">0 / 0</span>
+    </div>
+    <div id="btnRow">
+      <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
+      <button class="ctrlBtn" id="captureBtn" onclick="captureFrame()">📸 캡처</button>
+    </div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
@@ -51,6 +61,7 @@
     let anim = null;
     let popupData = null;
     let isPlaying = false;
+    let userSeeking = false;
     let mediaAspect = 1;
     let mediaNaturalW = 300;
 
@@ -154,6 +165,7 @@
         } else {
           document.getElementById('fgWrap').innerHTML = '<div id="animBox"><img id="stickerImgEl" src="'+proxied(d.item.stickerImage)+'"></div>';
           document.getElementById('noAnimNotice').style.display = 'block';
+          document.getElementById('seekRow').style.display = 'none'; // 애니메이션이 없으면 구간 탐색이 의미 없음
         }
 
         document.getElementById('controls').style.display = 'flex';
@@ -191,7 +203,20 @@
           autoplay: false,
           animationData: json
         });
-        anim.addEventListener('DOMLoaded', ()=>{ play(); });
+        anim.addEventListener('DOMLoaded', ()=>{
+          const total = anim.totalFrames;
+          const slider = document.getElementById('seekSlider');
+          slider.max = Math.max(0, Math.floor(total)-1);
+          slider.value = 0;
+          updateFrameLabel(0, total);
+          play();
+        });
+        anim.addEventListener('enterFrame', ()=>{
+          if(userSeeking) return;
+          const slider = document.getElementById('seekSlider');
+          slider.value = Math.floor(anim.currentFrame);
+          updateFrameLabel(anim.currentFrame, anim.totalFrames);
+        });
         anim.addEventListener('data_failed', ()=>{
           document.getElementById('outer').innerHTML = '<div id="emptyMsg">애니메이션 데이터가 손상되어 있어요</div>';
         });
@@ -200,6 +225,9 @@
       }
     }
 
+    function updateFrameLabel(cur, total){
+      document.getElementById('frameLabel').textContent = Math.floor(cur)+' / '+Math.floor(total);
+    }
     function play(){
       if(!anim) return;
       anim.play();
@@ -278,6 +306,18 @@
     document.addEventListener('keydown', (e)=>{
       if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
     });
+
+    const seekSlider = document.getElementById('seekSlider');
+    seekSlider.addEventListener('mousedown', ()=>{ userSeeking = true; pause(); });
+    seekSlider.addEventListener('touchstart', ()=>{ userSeeking = true; pause(); });
+    seekSlider.addEventListener('input', ()=>{
+      if(!anim) return;
+      const f = Number(seekSlider.value);
+      anim.goToAndStop(f, true);
+      updateFrameLabel(f, anim.totalFrames);
+    });
+    seekSlider.addEventListener('mouseup', ()=>{ userSeeking = false; });
+    seekSlider.addEventListener('touchend', ()=>{ userSeeking = false; });
 
     init();
   </script>
