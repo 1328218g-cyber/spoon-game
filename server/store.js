@@ -761,6 +761,23 @@ function restoreDjRecord(djId, record) {
   saveDjs(djs);
 }
 
+// 🔄 R2 전체 백업에서 가져온 djs 스냅샷으로 "통째로" 덮어쓴다 (개별 계정 병합이 아니라 전체 교체).
+// mergeDjBackupSubset과 달리 되돌릴 수 없는 파괴적인 작업이라, 호출하는 쪽(index.js)에서
+// confirm 절차를 반드시 거치게 한다.
+function restoreFullDjsSnapshot(djsData) {
+  if (!djsData || typeof djsData !== 'object') return { ok: false, error: '올바른 백업 데이터가 아니에요' };
+  saveDjs(djsData);
+  return { ok: true, accountCount: Object.keys(djsData).length };
+}
+
+// 🔄 R2 전체 백업에서 가져온 globalMonsterDex 스냅샷으로 통째로 덮어쓴다.
+function restoreGlobalMonsterDexSnapshot(data) {
+  if (!data || typeof data !== 'object') return { ok: false, error: '올바른 백업 데이터가 아니에요' };
+  _globalMcCache = data;
+  saveGlobalMonsterDex();
+  return { ok: true };
+}
+
 // 🔄 축소된 백업(룰렛/룰렛기록/애청지수/반복문구/단축명령어)만 기존 계정 설정에 "병합"해서 복구한다.
 // 계정 정보(비밀번호 등)나 그 외 다른 모듈 설정은 그대로 두고, 이 5개 항목만 덮어쓴다.
 function mergeDjBackupSubset(djId, subset) {
@@ -898,6 +915,8 @@ module.exports = {
   getDjRecord,
   restoreDjRecord,
   mergeDjBackupSubset,
+  restoreFullDjsSnapshot,
+  restoreGlobalMonsterDexSnapshot,
   loadGlobalMonsterDex,
   saveGlobalMonsterDex,
   upsertMonsterCatalog,

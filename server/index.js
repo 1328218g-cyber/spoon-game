@@ -8,6 +8,7 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
+const r2Backup = require('./r2Backup')
 
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
 // 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
@@ -1755,6 +1756,21 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
   if (cfg.paused) return { ok: false, why: 'paused' }
   if (!room.isConnected || !liveId) return { ok: false, why: 'not_connected' }
 
+  // 🔁 중복 지급 방지 — 방송이 끊겼다 재연결되면 타이머가 처음부터 다시 시작되는 구조라서,
+  // 재연결이 짧은 간격으로 반복되거나(방송 튕김) 여러 경로가 겹치면 같은 주기 안에 두 번
+  // 지급될 수 있었다. "정기" 실행(타이머에 의한 자동 실행)은 마지막 지급 이후 설정된 주기의
+  // 최소 90% 이상 지나야만 다시 지급되게 막는다 — 어떤 이유로 타이머가 여러 번 겹쳐 돌아도
+  // 실제 지급 간격은 항상 보장된다. "!자동복권즉시"/웹의 수동 지급은 DJ가 의도적으로 지금
+  // 당장 지급하려는 것이므로 이 쿨다운의 영향을 받지 않는다.
+  if (reason === '정기' && cfg.lastRunAt) {
+    const intervalMs = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30)) * 60 * 1000
+    const elapsed = Date.now() - cfg.lastRunAt
+    if (elapsed < intervalMs * 0.9) {
+      console.log(`[자동복권:${djId}/${reason}] 최근에 이미 지급해서 건너뜀 (마지막 지급 ${Math.round(elapsed / 1000)}초 전)`)
+      return { ok: false, why: 'cooldown' }
+    }
+  }
+
   const amount = Math.max(1, Math.min(1000, parseInt(cfg.amount, 10) || 1))
 
   let members = []
@@ -1809,6 +1825,7 @@ async function runLottoAutoOnce(djId, room, liveId, reason) {
 function stopLottoAutoTimer(djId) {
   const room = getRoom(djId)
   if (room.lottoAutoTimer) { clearInterval(room.lottoAutoTimer); room.lottoAutoTimer = null }
+  if (room.lottoAutoFirstTimeout) { clearTimeout(room.lottoAutoFirstTimeout); room.lottoAutoFirstTimeout = null }
 }
 
 function startLottoAutoTimer(djId, liveId) {
@@ -1820,10 +1837,23 @@ function startLottoAutoTimer(djId, liveId) {
   if (cfg.enabled === false) return
   const min = Math.max(1, Math.min(1440, parseInt(cfg.intervalMin, 10) || 30))
   const ms = min * 60 * 1000
-  room.lottoAutoTimer = setInterval(() => {
+  // 🔁 방송이 끊겼다 재연결되면 이 함수가 다시 호출되는데, 예전엔 그때마다 무조건 "지금부터
+  // 다시 N분"으로 리셋돼서 재연결이 잦을수록 실제 지급 간격이 계속 늘어졌다. 이제 마지막
+  // 지급 시각(cfg.lastRunAt) 기준으로 원래 주기에서 얼마나 남았는지 계산해서 그만큼만 먼저
+  // 기다리고, 그 이후로는 정상 주기로 돈다 — "N분마다 지급"이라는 스케줄이 재연결과 무관하게
+  // 최대한 유지된다. (실제 지급 자체는 runLottoAutoOnce 안의 쿨다운 체크로 한 번 더 보호됨)
+  let firstDelay = ms
+  if (cfg.lastRunAt) {
+    const elapsed = Date.now() - cfg.lastRunAt
+    firstDelay = Math.max(5000, ms - elapsed) // 재연결 직후 바로 쏘지 않게 최소 5초는 텀을 둠
+  }
+  room.lottoAutoFirstTimeout = setTimeout(() => {
     runLottoAutoOnce(djId, room, liveId, '정기').catch(e => console.log(`[자동복권:${djId}] 타이머 실행 오류`, e.message))
-  }, ms)
-  console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분`)
+    room.lottoAutoTimer = setInterval(() => {
+      runLottoAutoOnce(djId, room, liveId, '정기').catch(e => console.log(`[자동복권:${djId}] 타이머 실행 오류`, e.message))
+    }, ms)
+  }, firstDelay)
+  console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분 (첫 지급까지 ${Math.round(firstDelay / 1000)}초)`)
 }
 
 // 채팅 명령어: !자동복권(상태조회, 누구나) / !자동복권즉시·!자동복권정지·!자동복권시작·!자동복권갱신 (DJ+지정 권한자)
@@ -14091,6 +14121,19 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
+// 🔢 {count} 변수용 — "이 시청자가 이 방에 몇 번째 입장인지" 누적 카운터.
+// settings.joinCounts에 태그(없으면 닉네임) 기준으로 계속 누적해서 저장한다.
+// (룰렛/애청지수 등과 별개의 독립적인 카운터라, 애청지수 모듈 켜져있는지와 무관하게 항상 동작함)
+function bumpJoinCount(djId, settings, author, tag) {
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) return 1
+  if (!settings.joinCounts) settings.joinCounts = {}
+  const next = (settings.joinCounts[key] || 0) + 1
+  settings.joinCounts[key] = next
+  store.saveSettings(djId, { joinCounts: settings.joinCounts })
+  return next
+}
+
 function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -14131,12 +14174,13 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const tierName = joinTier ? joinTier.name : ''
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
   if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, tag, Number(gen.favoriteTemperature))
+  const joinCount = bumpJoinCount(djId, settings, author, tag) // 🔢 {count} 변수 — 이번 입장까지 포함한 누적 입장 횟수
 
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
   if (greeting) {
-    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
+    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
     setTimeout(() => sendChatToRoom(djId, text), 200)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
       broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
@@ -14145,7 +14189,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
-      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
       text = applyDashboardRankVars(text, settings)
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
@@ -15437,6 +15481,62 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   }
 })
 
+// 🌐 R2 전체 백업 복구 — Base44(5개 필드만)와 달리, djs.json 전체(모든 계정)를 통째로
+// 그 시점으로 되돌리는 파괴적인 작업이다. 그래서 (1) 목록 조회 (2) 미리보기 (3) confirm:true로 적용
+// 3단계를 반드시 거치게 한다. 관리자(sum) 전용.
+
+// 📋 1단계 — R2에 저장된 전체 백업 스냅샷 목록(최신순 최대 30개)을 가져온다.
+app.post('/admin/list-backups-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const result = await r2Backup.listSnapshots(30)
+    if (!result.ok) return res.json({ success: false, error: result.error || 'R2가 비활성화되어 있어요' })
+    res.json({ success: true, list: result.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔍 2단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 시점 백업에 계정이 몇 개 들어있는지만 확인한다.
+app.post('/admin/restore-preview-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  try {
+    const result = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!result.ok) return res.json({ success: false, error: result.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp, accountCount: Object.keys(result.data).length, djIds: Object.keys(result.data).slice(0, 50) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔄 3단계 — 실제로 덮어쓴다. djs.json 전체 + globalMonsterDex.json을 그 시점 스냅샷으로 통째로 교체.
+// confirm:true가 명시적으로 와야만 실행된다. (되돌릴 수 없는 작업 — 지금 서버에만 있는,
+// 그 시점 이후에 생긴 변경사항은 이 복구로 전부 사라진다)
+app.post('/admin/restore-apply-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const djsResult = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!djsResult.ok) return res.json({ success: false, error: djsResult.error || '그 시점의 백업을 못 찾았어요' })
+
+    const applied = store.restoreFullDjsSnapshot(djsResult.data)
+    if (!applied.ok) return res.json({ success: false, error: applied.error })
+
+    // globalMonsterDex 스냅샷은 있으면 같이 복구, 없으면(예전 백업 등) 조용히 건너뜀
+    const mcResult = await r2Backup.fetchGlobalMonsterDexSnapshot(stamp)
+    if (mcResult.ok) store.restoreGlobalMonsterDexSnapshot(mcResult.data)
+
+    console.log(`[R2 복구] 전체 데이터를 ${stamp} 시점 백업으로 복구했어요. (계정 ${applied.accountCount}개, 몬스터잡기 데이터 ${mcResult.ok ? '포함' : '없음(스킵)'})`)
+    res.json({ success: true, stamp, accountCount: applied.accountCount, monsterDexRestored: mcResult.ok })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
 // ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
 // 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
 app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
@@ -15486,6 +15586,98 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
     if (!merged.ok) return res.json({ success: false, error: merged.error })
     console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
     res.json({ success: true, timestamp: picked.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 셀프서비스 R2 백업/복구 — 위 Base44 방식(5개 필드만)과 달리, 로그인한 DJ 본인의
+// 계정 "전체" 설정(실드/깃발/펀딩/단축키/룰렛/애청지수/입장설정/증권거래소 등 전부)을
+// R2에 저장/복구한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/r2-backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await r2Backup.backupDjToR2(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '백업 실패' })
+    res.json({ success: true, stamp: r.stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listDjBackups(req.djId)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    store.restoreDjRecord(req.djId, r.data)
+    console.log(`[셀프복구-R2] ${req.djId} 계정 전체를 ${stamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 자동 백업(30분마다, 전체 시스템) 시점에서 "내 계정 데이터만" 골라서 복구 ──
+// 위 /mydata/r2-backup 계열은 본인이 버튼을 직접 눌러야만 그 시점이 생기는데, 여기서는
+// 서버가 30분마다 자동으로 찍어두는 전체 스냅샷(관리자용과 동일한 snapshots/) 목록에서
+// 아무 시점이나 골라, 그 안에서 로그인한 본인(req.djId) 데이터만 뽑아 복구한다.
+// 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
+app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    if (!r.data[req.djId]) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요 (가입 전이거나 계정명이 바뀐 경우일 수 있어요)' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    const record = r.data[req.djId]
+    if (!record) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요' })
+    store.restoreDjRecord(req.djId, record)
+    console.log(`[셀프복구-R2 자동백업] ${req.djId} 계정만 ${stamp} 시점(전체 자동백업)으로 본인이 직접 복구했어요. (다른 계정은 영향 없음)`)
+    res.json({ success: true, stamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -19084,6 +19276,17 @@ app.listen(PORT, () => {
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
+
+  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
+  // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
+  // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
+  // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
+  setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
+  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+
+  // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
+  setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
+  setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
