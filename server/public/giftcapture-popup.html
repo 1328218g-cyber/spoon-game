@@ -257,6 +257,8 @@
         const outCanvas = document.createElement('canvas');
         outCanvas.width = outW; outCanvas.height = outH;
         const ctx = outCanvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high'; // 축소/변환 시 최대한 부드럽고 또렷하게
 
         const bgEl = document.getElementById('bgImgEl');
         if(bgEl){
@@ -274,10 +276,13 @@
           if(lottieBox){
             const svgEl = lottieBox.querySelector('svg');
             if(svgEl){
-              // SVG는 벡터라 원본 해상도(bw×bh)에 맞춰 폭/높이를 지정해서 rasterize하면 화질 손실 없이 그려진다.
+              // SVG는 벡터라 화질 손실이 없지만, 목표 크기 그대로 한 번에 rasterize하면 브라우저에
+              // 따라 가장자리가 살짝 무뎌 보일 수 있다. 2배 크기로 미리 그린 뒤 축소해서 그리면
+              // (슈퍼샘플링) 훨씬 또렷하게 나온다.
+              const SUPERSAMPLE = 2;
               const clone = svgEl.cloneNode(true);
-              clone.setAttribute('width', String(Math.round(bw)));
-              clone.setAttribute('height', String(Math.round(bh)));
+              clone.setAttribute('width', String(Math.round(bw * SUPERSAMPLE)));
+              clone.setAttribute('height', String(Math.round(bh * SUPERSAMPLE)));
               const svgData = new XMLSerializer().serializeToString(clone);
               const svgBlob = new Blob([svgData], {type:'image/svg+xml;charset=utf-8'});
               const url = URL.createObjectURL(svgBlob);

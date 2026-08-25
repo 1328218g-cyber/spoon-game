@@ -15149,7 +15149,8 @@ async function findStickerAnim(stickerName) {
     }
     if (!found) return { image: '', lottieUrl: '' }
     return {
-      image: found.image_thumbnail_web || found.image_thumbnail || found.image_url_web || '',
+      // 🖼️ 캡처 화질을 위해 원본 화질 이미지(image_url_web)를 우선으로 쓰고, 없을 때만 축소판(썸네일)로 대체한다.
+      image: found.image_url_web || found.image_thumbnail_web || found.image_thumbnail || '',
       lottieUrl: found.lottie_url || '',
     }
   } catch (e) {
