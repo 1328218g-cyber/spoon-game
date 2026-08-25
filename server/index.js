@@ -8,7 +8,6 @@ const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
 const { buildMigrationPatch } = require('./localMigrate')
-const r2Backup = require('./r2Backup')
 
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
 // 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
@@ -532,14 +531,24 @@ async function fetchLiveInfo(liveId, accessToken) {
     })
     const data = await res.json()
     const live = data.results?.[0] || data
+    // 🎬 선물캡처판 "지금 방송 배경 가져오기" 기능용 — 방송 커버/배경 이미지 필드명이 정확히
+    // 뭔지 문서화된 게 없어서 후보 필드를 순서대로 시도한다. 다 비어있으면 아래 로그로 실제 응답의
+    // 키 목록을 남겨서, Railway 로그를 보고 진짜 필드명을 찾아 고칠 수 있게 해둔다.
+    const coverUrl = live.cover_url || live.coverUrl || live.image_url || live.imageUrl
+      || live.square_image_url || live.squareImageUrl || live.thumbnail_url || live.thumbnailUrl
+      || live.background_image_url || live.backgroundImageUrl || ''
+    if (!coverUrl) {
+      console.log(`[선물캡처판:배경조회] liveId=${liveId} 커버 이미지 후보 필드를 못 찾았어요. live 객체 키 목록:`, Object.keys(live || {}).join(', '))
+    }
     return {
       streamName: live.stream_name || live.streamName || String(liveId),
       djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
       djProfileUrl: live.author?.profile_url || live.author?.profileUrl || live.author?.image_url || live.user?.profile_url || live.user?.profileUrl || '',
+      coverUrl,
     }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null, djProfileUrl: '' }
+    return { streamName: String(liveId), djUserId: null, djProfileUrl: '', coverUrl: '' }
   }
 }
 
@@ -660,7 +669,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'giftcapture'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외)
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -5908,8 +5917,58 @@ function getTrophyBoardSettings(djId, settings) {
   return settings.trophyBoard
 }
 
-// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
-// holder를 이 사람으로 교체한다. (여러 칸에 같은 선물을 등록해뒀으면 전부 갱신됨)
+// 🎬 선물 애니메이션 캡처판 — 박제판이랑 똑같이 배경 이미지 위에 선물별 칸(슬롯)을 만들어두는데,
+// 여기는 닉네임을 새기는 대신 "그 선물의 최근 애니메이션 정보"를 기록해둔다. 관리자 화면에서
+// 그 칸을 클릭하면 팝업 창이 새로 열리면서, 배경 이미지 위 그 칸 자리에서 애니메이션이 재생된다.
+// (실시간으로 캡처를 못 잡았을 때, 원하는 타이밍에 직접 다시 재생시켜서 캡처할 수 있게 하기 위함)
+function getGiftCaptureSettings(djId, settings) {
+  if (!settings.giftCapture) {
+    settings.giftCapture = {
+      bgImageUrl: '',
+      columns: 4,
+      rows: 4,
+      cellSize: 12,
+      gridLeft: 5,
+      gridTop: 8,
+      slots: [], // { id, giftName, giftImage, row, col, lastEvent: null | { author, tag, ts, comboCount, stickerImage, lottieUrl } }
+    }
+    store.saveSettings(djId, { giftCapture: settings.giftCapture })
+  }
+  const gc = settings.giftCapture
+  if (!Array.isArray(gc.slots)) gc.slots = []
+  if (!gc.columns) gc.columns = 4
+  if (!gc.rows) gc.rows = 4
+  if (!gc.cellSize) gc.cellSize = 12
+  if (gc.gridLeft == null) gc.gridLeft = 5
+  if (gc.gridTop == null) gc.gridTop = 8
+  return gc
+}
+
+// LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸에
+// "이번에 받은 선물" 정보(누가/언제/애니메이션URL)를 기록한다. 박제판과 달리 매번 최신 걸로 덮어쓴다
+// (계속 재생해볼 수 있게 하는 용도라 "처음 사람 고정"이 아니라 "최신 이벤트 유지"가 맞음).
+async function handleGiftCaptureHook(djId, settings, author, tag, sticker, comboCount) {
+  if (!isModuleOn(settings, 'giftcapture', djId)) return
+  const gc = getGiftCaptureSettings(djId, settings)
+  const name = String(sticker || '').trim()
+  if (!name || !gc.slots.length) return
+  const matches = gc.slots.filter(s => s.giftName && String(s.giftName).trim() === name)
+  if (!matches.length) return
+  const anim = await findStickerAnim(name)
+  const event = {
+    author,
+    tag: tag || '',
+    ts: Date.now(),
+    comboCount: Math.max(1, Number(comboCount) || 1),
+    stickerImage: anim.image || '',
+    lottieUrl: anim.lottieUrl || '',
+  }
+  matches.forEach(slot => { slot.lastEvent = event })
+  store.saveSettings(djId, { giftCapture: gc })
+  console.log(`[선물캡처판:${djId}] ${name} 선물 기록 — ${author} (애니메이션 ${anim.lottieUrl ? '있음' : '없음(정지 이미지만)'})`)
+}
+
+
 // LiveDonation(선물) 이벤트마다 호출 — 등록해둔 슬롯의 giftName과 정확히 일치하면 그 칸의
 // holder를 채운다. 처음 보낸 사람으로 고정 — 이미 채워진 칸에 같은 선물이 또 들어와도 덮어쓰지
 // 않는다 (칸을 초기화하기 전까지는 최초 1명만 기록됨).
@@ -14121,19 +14180,6 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
-// 🔢 {count} 변수용 — "이 시청자가 이 방에 몇 번째 입장인지" 누적 카운터.
-// settings.joinCounts에 태그(없으면 닉네임) 기준으로 계속 누적해서 저장한다.
-// (룰렛/애청지수 등과 별개의 독립적인 카운터라, 애청지수 모듈 켜져있는지와 무관하게 항상 동작함)
-function bumpJoinCount(djId, settings, author, tag) {
-  const key = String(tag || author || '').trim().toLowerCase()
-  if (!key) return 1
-  if (!settings.joinCounts) settings.joinCounts = {}
-  const next = (settings.joinCounts[key] || 0) + 1
-  settings.joinCounts[key] = next
-  store.saveSettings(djId, { joinCounts: settings.joinCounts })
-  return next
-}
-
 function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -14174,13 +14220,12 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const tierName = joinTier ? joinTier.name : ''
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
   if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, tag, Number(gen.favoriteTemperature))
-  const joinCount = bumpJoinCount(djId, settings, author, tag) // 🔢 {count} 변수 — 이번 입장까지 포함한 누적 입장 횟수
 
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
   if (greeting) {
-    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
+    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
     setTimeout(() => sendChatToRoom(djId, text), 200)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
       broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
@@ -14189,7 +14234,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
-      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, joinCount)
+      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
       text = applyDashboardRankVars(text, settings)
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
@@ -14327,11 +14372,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
+  const { streamName, djUserId, djProfileUrl, coverUrl } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
   room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
+  room.liveCoverUrl = coverUrl || '' // 🎬 선물캡처판 "지금 방송 배경 가져오기"용 이번 방송 커버 이미지
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
   // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
@@ -14652,6 +14698,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
           handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
+          handleGiftCaptureHook(djId, settings, author, donationTag, sticker, comboCount)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
@@ -14863,6 +14910,41 @@ async function findStickerImage(stickerName) {
   }
 }
 
+// 🎬 선물캡처판 전용 — 스티커 이름으로 "정지 이미지 + 애니메이션(lottie) URL"을 같이 찾는다.
+// 스푼 원본 데이터에만 lottie_url 필드가 있어서(요약 목록엔 없음), 박제 하기 페이지가 쓰는
+// 원본 캐시(getTrophyEditorStickerData)를 그대로 재사용한다. 애니메이션이 없는 스티커면
+// lottieUrl은 빈 문자열로 내려가고, 그럴 땐 호출하는 쪽에서 정지 이미지로만 대체해서 보여주면 된다.
+async function findStickerAnim(stickerName) {
+  const name = String(stickerName || '').trim()
+  if (!name) return { image: '', lottieUrl: '' }
+  try {
+    const raw = await getTrophyEditorStickerData()
+    const target = name.toLowerCase()
+    let found = null
+    for (const cat of (raw.categories || [])) {
+      for (const s of (cat.stickers || [])) {
+        const sName = String(s.name || '').toLowerCase()
+        const sTitle = String(s.title || '').toLowerCase()
+        if (sName === target || sTitle === target) { found = s; break }
+      }
+      if (found) break
+    }
+    if (!found) {
+      for (const cat of (raw.categories || [])) {
+        found = (cat.stickers || []).find(s => String(s.name || '').toLowerCase().includes(target) || target.includes(String(s.name || '').toLowerCase()))
+        if (found) break
+      }
+    }
+    if (!found) return { image: '', lottieUrl: '' }
+    return {
+      image: found.image_thumbnail_web || found.image_thumbnail || found.image_url_web || '',
+      lottieUrl: found.lottie_url || '',
+    }
+  } catch (e) {
+    return { image: '', lottieUrl: '' }
+  }
+}
+
 app.get('/stickers', async (req, res) => {
   try {
     const wasCached = !!(stickerCache.data && (Date.now() - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS)
@@ -15006,34 +15088,38 @@ app.get('/trophy-editor', (req, res) => {
 // 전용으로 원본 구조를 그대로 캐시해서 내려주는 프록시를 하나 더 둔다 (카테고리/lottie_url/
 // image_url_web 등 원본 필드가 그대로 필요해서 기존 /stickers의 단순화된 목록으로는 부족함).
 let trophyEditorStickerCache = { data: null, fetchedAt: 0 }
+async function getTrophyEditorStickerData() {
+  const now = Date.now()
+  if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+    return trophyEditorStickerCache.data
+  }
+  const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+    headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+  })
+  if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+  const raw = await upstream.json()
+  // 🎯 룰렛 스티커 선택창과 동일한 기준으로, 지금 실제 판매 중인 스티커만 남긴다
+  // (개별 스티커의 is_used=false 제외 + start_date~end_date 판매기간 벗어난 것 제외).
+  const nowDate = new Date(now)
+  const filtered = {
+    ...raw,
+    categories: (raw.categories || []).map(cat => ({
+      ...cat,
+      stickers: (cat.stickers || []).filter(s => {
+        if (s.is_used === false) return false
+        if (s.start_date) { const d = new Date(s.start_date); if (!isNaN(d) && d > nowDate) return false }
+        if (s.end_date) { const d = new Date(s.end_date); if (!isNaN(d) && d < nowDate) return false }
+        return true
+      })
+    })).filter(cat => cat.stickers.length > 0)
+  }
+  trophyEditorStickerCache = { data: filtered, fetchedAt: now }
+  return filtered
+}
 app.get('/trophy-editor/stickers', async (req, res) => {
   try {
-    const now = Date.now()
-    if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
-      return res.json(trophyEditorStickerCache.data)
-    }
-    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
-      headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
-    })
-    if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
-    const raw = await upstream.json()
-    // 🎯 룰렛 스티커 선택창과 동일한 기준으로, 지금 실제 판매 중인 스티커만 남긴다
-    // (개별 스티커의 is_used=false 제외 + start_date~end_date 판매기간 벗어난 것 제외).
-    const nowDate = new Date(now)
-    const filtered = {
-      ...raw,
-      categories: (raw.categories || []).map(cat => ({
-        ...cat,
-        stickers: (cat.stickers || []).filter(s => {
-          if (s.is_used === false) return false
-          if (s.start_date) { const d = new Date(s.start_date); if (!isNaN(d) && d > nowDate) return false }
-          if (s.end_date) { const d = new Date(s.end_date); if (!isNaN(d) && d < nowDate) return false }
-          return true
-        })
-      })).filter(cat => cat.stickers.length > 0)
-    }
-    trophyEditorStickerCache = { data: filtered, fetchedAt: now }
-    res.json(filtered)
+    const data = await getTrophyEditorStickerData()
+    res.json(data)
   } catch (e) {
     if (trophyEditorStickerCache.data) return res.json(trophyEditorStickerCache.data)
     res.status(502).json({ categories: [] })
@@ -15117,6 +15203,8 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
   const inUse = new Set()
   const board = settings.trophyBoard
   if (board && board.bgImageUrl) inUse.add(board.bgImageUrl)
+  const gc = settings.giftCapture
+  if (gc && gc.bgImageUrl) inUse.add(gc.bgImageUrl) // 🎬 선물캡처판 배경도 정리 대상에서 제외
   let deletedCount = 0
   let freedBytes = 0
   try {
@@ -15137,6 +15225,116 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
     return res.json({ success: false, error: e.message })
   }
   res.json({ success: true, deletedCount, freedMB: Math.round(freedBytes / 1024 / 1024 * 10) / 10 })
+})
+
+// ── 🎬 선물 애니메이션 캡처판 ──
+app.get('/giftcapture/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getGiftCaptureSettings(req.djId, settings) })
+})
+// 📥 지금 방송 중인 라이브의 커버(배경) 이미지를 그대로 가져온다. 방송 중이 아니거나(liveId 없음),
+// 스푼 API 응답에서 커버 이미지 후보 필드를 못 찾았으면 실패로 응답한다 — 그 경우 Railway 로그에
+// [선물캡처판:배경조회] 로 실제 응답 키 목록이 남으니, 그걸 보고 정확한 필드명으로 고칠 수 있다.
+app.get('/giftcapture/fetch-live-bg', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  if (!room || !room.liveId) return res.json({ success: false, error: '지금 방송 중이 아니에요. 방송을 시작한 뒤 다시 눌러주세요.' })
+  if (!room.liveCoverUrl) return res.json({ success: false, error: '이번 방송에서 배경 이미지를 못 찾았어요. (필드명이 다를 수 있어요 — 관리자에게 문의해주세요)' })
+  res.json({ success: true, url: room.liveCoverUrl })
+})
+app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  const prevBgImageUrl = gc.bgImageUrl
+  const { bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
+  if (bgImageUrl != null) gc.bgImageUrl = String(bgImageUrl)
+  if (columns != null) gc.columns = Math.max(1, Math.min(12, parseInt(columns, 10) || 4))
+  if (rows != null) gc.rows = Math.max(1, Math.min(20, parseInt(rows, 10) || 4))
+  if (cellSize != null) gc.cellSize = Math.max(2, Math.min(50, Number(cellSize) || 12))
+  if (gridLeft != null) gc.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
+  if (gridTop != null) gc.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
+  if (Array.isArray(slots)) {
+    // 기존 칸의 lastEvent(직전 선물 기록)는 실시간으로 방금 채워졌을 수도 있으니 보존한다.
+    const prevById = {}
+    gc.slots.forEach(s => { prevById[s.id] = s })
+    gc.slots = slots.map((s, i) => {
+      const isNew = !s.id || String(s.id).startsWith('new')
+      const prev = !isNew ? prevById[s.id] : null
+      return {
+        id: isNew ? ('gcslot' + Date.now() + Math.floor(Math.random() * 1000) + i) : s.id,
+        giftName: String(s.giftName || '').trim(),
+        giftImage: String(s.giftImage || ''),
+        row: s.row != null ? Math.max(1, parseInt(s.row, 10) || 1) : null,
+        col: s.col != null ? Math.max(1, parseInt(s.col, 10) || 1) : null,
+        lastEvent: prev ? (prev.lastEvent || null) : null,
+      }
+    })
+  }
+  store.saveSettings(req.djId, { giftCapture: gc })
+  // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
+  if (prevBgImageUrl && prevBgImageUrl !== gc.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
+    const name = path.basename(prevBgImageUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
+  res.json({ success: true, settings: gc })
+})
+// 특정 칸의 "마지막 받은 선물" 기록만 지운다 (칸 자체는 유지).
+app.post('/giftcapture/reset-slot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  const { id } = req.body || {}
+  const slot = gc.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요' })
+  slot.lastEvent = null
+  store.saveSettings(req.djId, { giftCapture: gc })
+  res.json({ success: true })
+})
+
+// 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 배경 이미지 위 그 칸 자리에서
+// 마지막으로 받은 선물의 애니메이션을 재생한다. 로그인 없이 djId+slotId만으로 열리는 공개 페이지라
+// (박제판 공개 링크와 같은 신뢰 모델), 노출돼도 괜찮은 정보(선물 이름/이미지/애니메이션)만 내려준다.
+app.get('/giftcapture-popup', (req, res) => {
+  res.sendFile(__dirname + '/public/giftcapture-popup.html')
+})
+app.get('/giftcapture/popup-data', async (req, res) => {
+  try {
+    const djId = String(req.query.djId || '').trim()
+    const slotId = String(req.query.slotId || '').trim()
+    if (!djId || !slotId) return res.json({ success: false, error: '잘못된 요청이에요' })
+    const settings = store.getSettings(djId) || {}
+    const gc = getGiftCaptureSettings(djId, settings)
+    const slot = gc.slots.find(s => s.id === slotId)
+    if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요' })
+    res.json({
+      success: true,
+      bgImageUrl: gc.bgImageUrl,
+      columns: gc.columns, rows: gc.rows, cellSize: gc.cellSize, gridLeft: gc.gridLeft, gridTop: gc.gridTop,
+      slotIndex: gc.slots.indexOf(slot),
+      slots: gc.slots.map(s => ({ id: s.id, row: s.row, col: s.col })), // 자동배치 계산용 — 다른 칸 위치 참고
+      slot: { id: slot.id, giftName: slot.giftName, giftImage: slot.giftImage, row: slot.row, col: slot.col },
+      lastEvent: slot.lastEvent || null,
+    })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+// 🎬 선물캡처판 전용 — 스푼 CDN의 lottie 애니메이션 JSON을 브라우저가 직접 fetch하면 CORS로
+// 막히는 경우가 있어서, 이미지 프록시와 같은 방식으로 우리 서버를 거치게 한다. *.spooncast.net만 허용.
+app.get('/giftcapture/lottie-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 주소예요' })
+    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', 'application/json')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '애니메이션을 불러오지 못했어요' })
+  }
 })
 
 // 🐾 몬스터 잡기 — 설정 조회/저장 + 도감(수집 현황) 조회
@@ -15481,62 +15679,6 @@ app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
   }
 })
 
-// 🌐 R2 전체 백업 복구 — Base44(5개 필드만)와 달리, djs.json 전체(모든 계정)를 통째로
-// 그 시점으로 되돌리는 파괴적인 작업이다. 그래서 (1) 목록 조회 (2) 미리보기 (3) confirm:true로 적용
-// 3단계를 반드시 거치게 한다. 관리자(sum) 전용.
-
-// 📋 1단계 — R2에 저장된 전체 백업 스냅샷 목록(최신순 최대 30개)을 가져온다.
-app.post('/admin/list-backups-r2', auth.requireAuth, async (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  try {
-    const result = await r2Backup.listSnapshots(30)
-    if (!result.ok) return res.json({ success: false, error: result.error || 'R2가 비활성화되어 있어요' })
-    res.json({ success: true, list: result.list })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-
-// 🔍 2단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 시점 백업에 계정이 몇 개 들어있는지만 확인한다.
-app.post('/admin/restore-preview-r2', auth.requireAuth, async (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
-  try {
-    const result = await r2Backup.fetchDjsSnapshot(stamp)
-    if (!result.ok) return res.json({ success: false, error: result.error || '그 시점의 백업을 못 찾았어요' })
-    res.json({ success: true, stamp, accountCount: Object.keys(result.data).length, djIds: Object.keys(result.data).slice(0, 50) })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-
-// 🔄 3단계 — 실제로 덮어쓴다. djs.json 전체 + globalMonsterDex.json을 그 시점 스냅샷으로 통째로 교체.
-// confirm:true가 명시적으로 와야만 실행된다. (되돌릴 수 없는 작업 — 지금 서버에만 있는,
-// 그 시점 이후에 생긴 변경사항은 이 복구로 전부 사라진다)
-app.post('/admin/restore-apply-r2', auth.requireAuth, async (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
-  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
-  try {
-    const djsResult = await r2Backup.fetchDjsSnapshot(stamp)
-    if (!djsResult.ok) return res.json({ success: false, error: djsResult.error || '그 시점의 백업을 못 찾았어요' })
-
-    const applied = store.restoreFullDjsSnapshot(djsResult.data)
-    if (!applied.ok) return res.json({ success: false, error: applied.error })
-
-    // globalMonsterDex 스냅샷은 있으면 같이 복구, 없으면(예전 백업 등) 조용히 건너뜀
-    const mcResult = await r2Backup.fetchGlobalMonsterDexSnapshot(stamp)
-    if (mcResult.ok) store.restoreGlobalMonsterDexSnapshot(mcResult.data)
-
-    console.log(`[R2 복구] 전체 데이터를 ${stamp} 시점 백업으로 복구했어요. (계정 ${applied.accountCount}개, 몬스터잡기 데이터 ${mcResult.ok ? '포함' : '없음(스킵)'})`)
-    res.json({ success: true, stamp, accountCount: applied.accountCount, monsterDexRestored: mcResult.ok })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-
 // ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
 // 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
 app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
@@ -15586,98 +15728,6 @@ app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
     if (!merged.ok) return res.json({ success: false, error: merged.error })
     console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
     res.json({ success: true, timestamp: picked.timestamp })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-
-// ── ☁️ 셀프서비스 R2 백업/복구 — 위 Base44 방식(5개 필드만)과 달리, 로그인한 DJ 본인의
-// 계정 "전체" 설정(실드/깃발/펀딩/단축키/룰렛/애청지수/입장설정/증권거래소 등 전부)을
-// R2에 저장/복구한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
-app.post('/mydata/r2-backup', auth.requireAuth, async (req, res) => {
-  try {
-    const record = store.getDjRecord(req.djId)
-    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
-    const r = await r2Backup.backupDjToR2(req.djId, record)
-    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '백업 실패' })
-    res.json({ success: true, stamp: r.stamp })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-app.post('/mydata/r2-list-backups', auth.requireAuth, async (req, res) => {
-  try {
-    const r = await r2Backup.listDjBackups(req.djId)
-    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
-    res.json({ success: true, list: r.list })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-app.post('/mydata/r2-restore-preview', auth.requireAuth, async (req, res) => {
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
-  try {
-    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
-    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
-    res.json({ success: true, stamp })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
-  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
-  try {
-    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
-    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
-    store.restoreDjRecord(req.djId, r.data)
-    console.log(`[셀프복구-R2] ${req.djId} 계정 전체를 ${stamp} 시점 백업으로 본인이 직접 복구했어요.`)
-    res.json({ success: true, stamp })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-
-// ── ☁️ 자동 백업(30분마다, 전체 시스템) 시점에서 "내 계정 데이터만" 골라서 복구 ──
-// 위 /mydata/r2-backup 계열은 본인이 버튼을 직접 눌러야만 그 시점이 생기는데, 여기서는
-// 서버가 30분마다 자동으로 찍어두는 전체 스냅샷(관리자용과 동일한 snapshots/) 목록에서
-// 아무 시점이나 골라, 그 안에서 로그인한 본인(req.djId) 데이터만 뽑아 복구한다.
-// 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
-app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
-  try {
-    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
-    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
-    res.json({ success: true, list: r.list })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-app.post('/mydata/r2-system-restore-preview', auth.requireAuth, async (req, res) => {
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
-  try {
-    const r = await r2Backup.fetchDjsSnapshot(stamp)
-    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
-    if (!r.data[req.djId]) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요 (가입 전이거나 계정명이 바뀐 경우일 수 있어요)' })
-    res.json({ success: true, stamp })
-  } catch (e) {
-    res.json({ success: false, error: e.message })
-  }
-})
-app.post('/mydata/r2-system-restore-apply', auth.requireAuth, async (req, res) => {
-  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
-  const stamp = String((req.body || {}).stamp || '').trim()
-  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
-  try {
-    const r = await r2Backup.fetchDjsSnapshot(stamp)
-    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
-    const record = r.data[req.djId]
-    if (!record) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요' })
-    store.restoreDjRecord(req.djId, record)
-    console.log(`[셀프복구-R2 자동백업] ${req.djId} 계정만 ${stamp} 시점(전체 자동백업)으로 본인이 직접 복구했어요. (다른 계정은 영향 없음)`)
-    res.json({ success: true, stamp })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
@@ -19276,17 +19326,6 @@ app.listen(PORT, () => {
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
-
-  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
-  // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
-  // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
-  // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
-  setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
-  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
-
-  // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
-  setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
-  setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
 })
 
 // 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인

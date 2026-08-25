@@ -659,6 +659,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="webpickboard"><span class="ic ic-img"><img src="/icons/webpickboard.png" alt="" onerror="this.onerror=null;this.src='/icons/pickboard.png'"></span><span class="lbl">웹뽑기판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="mafia"><span class="ic ic-img"><img src="/icons/mafia.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">마피아 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1151,8 +1152,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="file" id="settingsImportFileInput" accept="application/json" style="margin-bottom:10px">
           <button class="btn-shield-reset" style="width:100%" onclick="startSettingsImport()">📥 가져오기 시작</button>
         </div>
-        <div class="card" style="display:none">
-          <!-- ☁️ 구버전 클라우드 백업 (Base44) — R2 전체 백업으로 대체되어 숨김 처리. 코드는 남겨둠 -->
+        <div class="card">
           <div class="card-title"><span>☁️ 클라우드 백업 (Base44)</span></div>
           <p class="hint" style="margin-bottom:14px">위 파일 방식이랑 별개로, 서버가 자동으로 30분마다 <b>룰렛 설정·룰렛 기록·애청지수·반복문구·단축명령어</b>를 외부 클라우드에도 백업해둬요. 파일 다운로드 없이 여기서 바로 최신 백업으로 되돌릴 수 있어요.</p>
           <button class="btn-connect" style="width:100%" onclick="myBackupNow()">☁️ 지금 바로 클라우드에 백업</button>
@@ -1163,24 +1163,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="myRestoreListWrap" style="margin-top:10px"></div>
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtn" disabled onclick="myRestoreApply()">♻️ 선택한 시점으로 복구</button>
           <div id="myRestoreResult" class="hint" style="margin-top:8px"></div>
-        </div>
-        <div class="card">
-          <div class="card-title"><span>☁️ 클라우드 백업</span></div>
-          <p class="hint" style="margin-bottom:14px">위 파일 방식이랑 별개로, 여기서 누르면 <b>내 계정에 저장된 모든 설정을 통째로</b> 외부 클라우드(R2)에도 백업해둬요. 파일 다운로드 없이 여기서 바로 최신 백업으로 되돌릴 수 있어요.</p>
-          <button class="btn-connect" style="width:100%" onclick="myBackupNowR2()">☁️ 지금 바로 클라우드에 백업</button>
-          <div id="myBackupResultR2" class="hint" style="margin-top:8px"></div>
-          <div style="border-top:1px solid var(--border);margin:16px 0"></div>
-          <p class="hint" style="margin-bottom:10px">복구하면 <b>계정 설정 전체</b>가 백업 시점으로 되돌아가요. 원하는 시점의 백업을 목록에서 골라서 복구할 수 있어요.</p>
-          <button class="btn-connect" style="width:100%" onclick="loadMyBackupListR2()">📋 백업 목록 불러오기</button>
-          <div id="myRestoreListWrapR2" style="margin-top:10px"></div>
-          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtnR2" disabled onclick="myRestoreApplyR2()">♻️ 선택한 시점으로 복구</button>
-          <div id="myRestoreResultR2" class="hint" style="margin-top:8px"></div>
-          <div style="border-top:1px solid var(--border);margin:16px 0"></div>
-          <p class="hint" style="margin-bottom:10px">여기서 직접 백업 버튼을 안 눌렀어도, <b>서버가 30분마다 자동으로</b> 전체 계정을 백업해두고 있어요. 그 자동 백업 시점들 중에서 골라서 <b>내 계정 데이터만</b> 복구할 수도 있어요 (다른 디제이 계정은 전혀 영향 없어요).</p>
-          <button class="btn-connect" style="width:100%" onclick="loadMySystemBackupListR2()">📋 자동 백업 시점 목록 불러오기</button>
-          <div id="mySystemRestoreListWrapR2" style="margin-top:10px"></div>
-          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
-          <div id="mySystemRestoreResultR2" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
 
@@ -3588,6 +3570,66 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎬 선물 애니메이션 캡처판 -->
+      <div class="panel" data-panel="giftcapture">
+        <div class="card">
+          <div class="card-title"><span>🎬 선물 애니메이션 캡처판 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveGiftCapture()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">배경 이미지(방송 화면과 같은 비율 추천) 위에 선물별로 칸을 만들어두면, 그 선물이 들어올 때마다 애니메이션 정보가 그 칸에 자동으로 기록돼요. 실시간으로 캡처를 못 잡았어도, 아래 칸을 클릭하면 <b>새 팝업 창</b>이 열리면서 그 칸 자리에서 애니메이션이 다시 재생돼요 — 원하는 타이밍에 직접 재생시켜서 캡처 프로그램으로 잡을 수 있어요.</p>
+          <label style="margin-top:0">배경 이미지</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="gcBgPreview" src="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="gcBgFileInput" accept="image/*" style="display:none" onchange="uploadGcBgImage(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('gcBgFileInput').click()">🖼️ 이미지 업로드</button>
+            <button class="btn-gray" onclick="fetchLiveBgForGc()">📥 지금 방송 배경 가져오기</button>
+            <button class="btn-gray" id="gcBgRemoveBtn" style="display:none" onclick="removeGcBgImage()">배경 제거</button>
+            <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
+          </div>
+          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 스푼 방송 화면과 같은 사이즈(비율)로 올리면 팝업에서 위치가 정확히 맞아요. "지금 방송 배경 가져오기"는 방송 중일 때만 동작해요 (방송 시작한 직후라면 잠시 후 다시 눌러보세요).</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div><label>가로 칸 수</label><input type="number" id="gcColumns" value="4" min="1" max="12" oninput="renderGcPreview()"></div>
+            <div><label>세로 칸 수</label><input type="number" id="gcRows" value="4" min="1" max="20" oninput="renderGcPreview()"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">
+            <div><label>칸 크기 (%)</label><input type="number" id="gcCellSize" value="12" min="2" max="50" step="0.5" oninput="renderGcPreview()"></div>
+            <div><label>가로 위치 (%)</label><input type="number" id="gcGridLeft" value="5" min="0" max="95" step="0.5" oninput="renderGcPreview()"></div>
+            <div><label>세로 위치 (%)</label><input type="number" id="gcGridTop" value="8" min="0" max="95" step="0.5" oninput="renderGcPreview()"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">칸 크기/위치는 배경 이미지 크기에 대한 비율(%)이에요 — 팝업 창에서도 이 자리 그대로 애니메이션이 나와요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🖼️ 미리보기 &amp; 위치 조정</span><span class="hint" style="margin:0">칸을 드래그해서 옮기고, 선물을 받은 칸은 클릭하면 재생 팝업이 열려요</span></div>
+          <div id="gcPreviewBox" style="position:relative;width:100%;max-width:600px;aspect-ratio:4/3;background:#1a1330;background-size:100% 100%;background-position:center;border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:8px">
+            <div id="gcPreviewGrid" style="position:absolute;display:grid;gap:4px"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">노란 테두리가 있는 칸은 최근에 선물을 받은 칸이에요. 클릭해서 재생해보세요.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎁 칸 관리</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="openGcBulkStickerPicker()">📦 카테고리로 일괄 추가</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="addGcSlot()">+ 칸 추가</button></div></div>
+          <p class="hint" style="margin-bottom:12px">각 칸에 선물을 지정해두세요. 그 선물이 들어오면 자동으로 이 칸에 애니메이션 기록이 남아요. 위치(행/열)를 비워두면 순서대로 자동 배치돼요.</p>
+          <div id="gcSlotsWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>
+        </div>
+      </div>
+
+      <!-- 스티커 선택 모달 (선물캡처판 전용) -->
+      <div id="gcStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGcStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 선물 선택</span><button class="icon-btn" onclick="closeGcStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="gcStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderGcStickerPicker()" style="flex:1">
+            <select id="gcStickerPickerCategory" onchange="renderGcStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0">
+            <span class="hint" style="margin:0"><span id="gcStickerPickerCount">0</span>개</span>
+            <button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="bulkAddFilteredGcStickers()">📦 이 목록 전체를 칸으로 추가</button>
+          </div>
+          <div id="gcStickerPickerGrid" class="sticker-grid"></div>
+        </div>
+      </div>
+
       <!-- 🎁 선물카드 갤러리 -->
       <div class="panel" data-panel="giftgallery">
         <div class="card">
@@ -4737,6 +4779,7 @@ const PANEL_META={
   mafia:['🎭 마피아 게임','DJ가 역할을 자유롭게 구성하고, 시청자가 웹페이지+채팅인증으로 참가해 진행하는 마피아 게임입니다'],
   liverank:['🏆 월간 DJ 컷랭킹','스푼 초이스 월간 랭킹에서 내 순위, 주요 컷, 위/아래 DJ와의 점수 차이를 관리자 화면에서 바로 볼 수 있습니다'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
+  giftcapture:['🎬 선물 애니메이션 캡처판','선물별 칸을 만들어두면, 그 선물이 들어올 때마다 애니메이션을 기록해뒀다가 원할 때 클릭해서 팝업으로 다시 재생할 수 있어요'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
@@ -4851,7 +4894,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -4866,7 +4909,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',
   'trophy-editor':'trophyeditor.png',
 };
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
@@ -4881,7 +4924,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','giftcapture']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐)
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -5956,6 +5999,7 @@ async function loadDjSettings(){
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); }
+      if(document.getElementById('gcSlotsWrap')){ loadGiftCapture(); }
       if(document.getElementById('ggGrid')){ loadGgSettings(); }
       if(document.getElementById('mcMonstersWrap')){ loadMonsterCatch(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
@@ -9771,6 +9815,331 @@ async function saveTrophyBoard(){
     const res=await fetch(SERVER+'/trophyboard/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
     if(d.success){showToast('설정 저장 완료 ✓');loadTrophyBoard();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🎬 선물 애니메이션 캡처판 ── */
+let gcSlots=[];
+let gcBgUrl='';
+let gcEditingSlotIndex=null;
+let gcIdSeq=1;
+
+async function loadGiftCapture(){
+  try{
+    const res=await fetch(SERVER+'/giftcapture/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('gcColumns').value=s.columns||4;
+    document.getElementById('gcRows').value=s.rows||4;
+    document.getElementById('gcCellSize').value=s.cellSize||12;
+    document.getElementById('gcGridLeft').value=s.gridLeft!=null?s.gridLeft:5;
+    document.getElementById('gcGridTop').value=s.gridTop!=null?s.gridTop:8;
+    gcBgUrl=s.bgImageUrl||'';
+    updateGcBgPreview();
+    gcSlots=(s.slots||[]).map(x=>({...x}));
+    renderGcSlots();
+  }catch(e){}
+}
+
+function updateGcBgPreview(){
+  const img=document.getElementById('gcBgPreview');
+  const removeBtn=document.getElementById('gcBgRemoveBtn');
+  if(gcBgUrl){
+    img.src=gcBgUrl; img.style.display='block';
+    removeBtn.style.display='inline-block';
+  } else {
+    img.style.display='none';
+    removeBtn.style.display='none';
+  }
+  renderGcPreview();
+}
+
+// 🖼️ 관리 화면 안에서 배경+칸을 실제 배치대로 보여준다 (박제판 미리보기와 동일한 계산식).
+// 선물을 받은 칸은 노란 테두리로 강조되고, 클릭하면 재생 팝업이 뜬다.
+let gcPreviewLastBgUrl=null;
+let gcPreviewBgAspect=1;
+function renderGcPreview(){
+  const box=document.getElementById('gcPreviewBox');
+  const grid=document.getElementById('gcPreviewGrid');
+  if(!box||!grid)return;
+
+  function drawGridContents(){
+    const columns=Math.max(1,parseInt(document.getElementById('gcColumns').value,10)||4);
+    const rows=Math.max(1,parseInt(document.getElementById('gcRows').value,10)||4);
+
+    if(gcBgUrl){
+      const cellSize=Math.max(2,Number(document.getElementById('gcCellSize').value)||12);
+      const gridLeft=Math.max(0,Number(document.getElementById('gcGridLeft').value)||0);
+      const gridTop=Math.max(0,Number(document.getElementById('gcGridTop').value)||0);
+      grid.style.left=gridLeft+'%';
+      grid.style.top=gridTop+'%';
+      grid.style.width=(columns*cellSize)+'%';
+      grid.style.height=(rows*cellSize*gcPreviewBgAspect)+'%';
+    } else {
+      grid.style.left='0';
+      grid.style.top='0';
+      grid.style.width='100%';
+      grid.style.height='100%';
+    }
+    grid.style.gridTemplateColumns=`repeat(${columns},1fr)`;
+    grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
+
+    let autoIndex=0;
+    const cellOf=gcSlots.map(s=>{
+      if(s.row && s.col) return {row:s.row,col:s.col};
+      const r=Math.floor(autoIndex/columns)+1, c=(autoIndex%columns)+1;
+      autoIndex++;
+      return {row:r,col:c};
+    });
+
+    let html='';
+    for(let r=1;r<=rows;r++){
+      for(let c=1;c<=columns;c++){
+        html+=`<div class="gc-preview-cell" data-row="${r}" data-col="${c}" ondragover="event.preventDefault()" ondrop="onGcPreviewDrop(event,${r},${c})" style="border:1px dashed rgba(255,255,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative"></div>`;
+      }
+    }
+    grid.innerHTML=html;
+
+    gcSlots.forEach((s,i)=>{
+      const pos=cellOf[i];
+      const cellEl=grid.querySelector(`.gc-preview-cell[data-row="${pos.row}"][data-col="${pos.col}"]`);
+      if(!cellEl)return;
+      const hasEvent=!!s.lastEvent;
+      const icon=document.createElement('div');
+      icon.draggable=true;
+      icon.title=(s.giftName||'')+(hasEvent?` — 최근: ${s.lastEvent.author||''}`:'');
+      icon.style.cssText=`width:80%;height:80%;display:flex;align-items:center;justify-content:center;cursor:${hasEvent?'pointer':'grab'};border-radius:8px;${hasEvent?'box-shadow:0 0 0 2px #f5c542;':''}`;
+      icon.addEventListener('dragstart',(ev)=>{ ev.dataTransfer.setData('text/plain', String(i)); });
+      icon.addEventListener('click',()=>{ if(hasEvent) playGcSlot(i); });
+      icon.innerHTML = s.giftImage
+        ? `<img src="${escapeAttr(s.giftImage)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 0 4px rgba(0,0,0,.7))" onerror="this.style.display='none'">`
+        : `<span style="font-size:10px;color:rgba(255,255,255,.7);text-align:center">?</span>`;
+      cellEl.appendChild(icon);
+    });
+  }
+
+  if(!gcBgUrl){
+    box.style.aspectRatio='4/3';
+    box.style.backgroundImage='none';
+    gcPreviewLastBgUrl=null;
+    drawGridContents();
+    return;
+  }
+  if(gcBgUrl===gcPreviewLastBgUrl){ drawGridContents(); return; }
+  const img=new Image();
+  img.onload=()=>{
+    box.style.aspectRatio=`${img.naturalWidth} / ${img.naturalHeight}`;
+    gcPreviewBgAspect=img.naturalWidth/img.naturalHeight;
+    box.style.backgroundImage=`url('${gcBgUrl}')`;
+    gcPreviewLastBgUrl=gcBgUrl;
+    drawGridContents();
+  };
+  img.onerror=()=>{ drawGridContents(); };
+  img.src=gcBgUrl;
+}
+function onGcPreviewDrop(ev,row,col){
+  ev.preventDefault();
+  const idx=Number(ev.dataTransfer.getData('text/plain'));
+  if(isNaN(idx)||!gcSlots[idx])return;
+  gcSlots[idx].row=row;
+  gcSlots[idx].col=col;
+  renderGcSlots();
+}
+
+// 🎬 이 칸의 재생 팝업을 새 창으로 연다. 아직 서버에 저장 안 된 새 칸이면 먼저 저장부터 해야
+// slotId가 확정되므로(팝업은 slotId로 데이터를 찾음) 그 경우엔 안내만 하고 열지 않는다.
+async function playGcSlot(i){
+  const slot=gcSlots[i];
+  if(!slot)return;
+  if(!slot.id || String(slot.id).startsWith('new')){
+    showToast('저장 버튼을 먼저 눌러야 재생할 수 있어요');
+    return;
+  }
+  if(!slot.lastEvent){
+    showToast('아직 이 칸으로 받은 선물이 없어요');
+    return;
+  }
+  const url=`/giftcapture-popup?djId=${encodeURIComponent(djId)}&slotId=${encodeURIComponent(slot.id)}`;
+  window.open(url,'_blank','width=480,height=480,resizable=yes');
+}
+
+async function uploadGcBgImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      gcBgUrl=d.url;
+      updateGcBgPreview();
+      showToast('배경 이미지 업로드 완료 (저장 버튼을 눌러야 반영돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeGcBgImage(){
+  gcBgUrl='';
+  updateGcBgPreview();
+}
+async function fetchLiveBgForGc(){
+  try{
+    const res=await fetch(SERVER+'/giftcapture/fetch-live-bg',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'가져오기 실패'); return; }
+    gcBgUrl=d.url;
+    updateGcBgPreview();
+    showToast('지금 방송 배경을 가져왔어요 (저장 버튼을 눌러야 반영돼요)');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+function renderGcSlots(){
+  const wrap=document.getElementById('gcSlotsWrap');
+  if(!gcSlots.length){
+    wrap.innerHTML='<div class="hint" style="grid-column:1/-1">아직 등록된 칸이 없어요. "+ 칸 추가"로 시작하세요.</div>';
+    renderGcPreview();
+    return;
+  }
+  wrap.innerHTML=gcSlots.map((s,i)=>{
+    const ev=s.lastEvent;
+    const evText=ev ? `${escapeHtml(ev.author||'')} · ${new Date(ev.ts).toLocaleString('ko-KR')}${ev.lottieUrl?'':' (애니메이션 없음, 정지이미지)'}` : '아직 받은 선물 없음';
+    return `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2)">
+      <img src="${escapeAttr(s.giftImage||'')}" style="width:48px;height:48px;object-fit:contain;${s.giftImage?'':'display:none'}" onerror="this.style.display='none'">
+      <button class="btn-gray" style="width:100%;font-size:11.5px;padding:5px 6px" onclick="openGcStickerPicker(${i})">${s.giftName?escapeHtml(s.giftName):'🎁 선물 선택'}</button>
+      <div class="hint" style="margin:0;font-size:10.5px;text-align:center;min-height:28px">${evText}</div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="hint" style="margin:0;font-size:10.5px;white-space:nowrap">위치</span>
+        <input type="number" min="1" placeholder="행" value="${s.row||''}" style="width:100%;padding:4px;font-size:11px" oninput="gcSlots[${i}].row=this.value?Number(this.value):null;renderGcPreview()">
+        <input type="number" min="1" placeholder="열" value="${s.col||''}" style="width:100%;padding:4px;font-size:11px" oninput="gcSlots[${i}].col=this.value?Number(this.value):null;renderGcPreview()">
+      </div>
+      <div style="display:flex;gap:4px;width:100%">
+        <button class="btn-connect" style="flex:1;font-size:11px;padding:4px" ${ev?'':'disabled'} onclick="playGcSlot(${i})">🎬 재생</button>
+        <button class="btn-gray" style="flex:1;font-size:11px;padding:4px" onclick="resetGcSlotEvent(${i})">지우기</button>
+        <button class="btn-shield-reset" style="flex:1;font-size:11px;padding:4px" onclick="removeGcSlotAt(${i})">삭제</button>
+      </div>
+    </div>
+  `}).join('');
+  renderGcPreview();
+}
+
+function addGcSlot(){
+  gcSlots.push({id:'new'+(gcIdSeq++)+'_'+Date.now(),giftName:'',giftImage:'',row:null,col:null,lastEvent:null});
+  renderGcSlots();
+}
+function removeGcSlotAt(i){
+  gcSlots.splice(i,1);
+  renderGcSlots();
+}
+async function resetGcSlotEvent(i){
+  const slot=gcSlots[i];
+  if(!slot)return;
+  if(slot.id && !String(slot.id).startsWith('new')){
+    try{
+      await fetch(SERVER+'/giftcapture/reset-slot',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id:slot.id})});
+    }catch(e){}
+  }
+  slot.lastEvent=null;
+  renderGcSlots();
+}
+
+async function openGcStickerPicker(i){
+  gcEditingSlotIndex=i;
+  await openGcStickerPickerCommon();
+}
+async function openGcBulkStickerPicker(){
+  gcEditingSlotIndex=null;
+  await openGcStickerPickerCommon();
+}
+async function openGcStickerPickerCommon(){
+  document.getElementById('gcStickerModalOverlay').style.display='flex';
+  document.getElementById('gcStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('gcStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderGcStickerPicker();
+}
+function closeGcStickerPicker(){
+  document.getElementById('gcStickerModalOverlay').style.display='none';
+  gcEditingSlotIndex=null;
+}
+function selectGcSticker(s){
+  if(gcEditingSlotIndex==null)return;
+  gcSlots[gcEditingSlotIndex].giftName=s.name;
+  gcSlots[gcEditingSlotIndex].giftImage=s.image||'';
+  renderGcSlots();
+  closeGcStickerPicker();
+}
+function getFilteredGcStickers(){
+  const keyword=(document.getElementById('gcStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('gcStickerPickerCategory').value;
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+  return list;
+}
+function renderGcStickerPicker(){
+  const grid=document.getElementById('gcStickerPickerGrid');
+  const countEl=document.getElementById('gcStickerPickerCount');
+  const list=getFilteredGcStickers();
+
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const card=document.createElement('div');
+    card.className='sticker-card';
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>selectGcSticker(s));
+    grid.appendChild(card);
+  });
+}
+function bulkAddFilteredGcStickers(){
+  const list=getFilteredGcStickers();
+  if(!list.length){ showToast('추가할 스티커가 없어요'); return; }
+  let idx=0;
+  if(gcEditingSlotIndex!=null && gcSlots[gcEditingSlotIndex] && !gcSlots[gcEditingSlotIndex].giftName){
+    gcSlots[gcEditingSlotIndex].giftName=list[0].name;
+    gcSlots[gcEditingSlotIndex].giftImage=list[0].image||'';
+    idx=1;
+  }
+  for(;idx<list.length;idx++){
+    gcSlots.push({id:'new'+(gcIdSeq++)+'_'+Date.now()+'_'+idx,giftName:list[idx].name,giftImage:list[idx].image||'',row:null,col:null,lastEvent:null});
+  }
+  renderGcSlots();
+  closeGcStickerPicker();
+  showToast(`${list.length}개 칸에 스티커를 채웠어요. 저장을 눌러야 반영돼요.`);
+}
+
+async function saveGiftCapture(){
+  const body={
+    bgImageUrl:gcBgUrl,
+    columns:document.getElementById('gcColumns').value,
+    rows:document.getElementById('gcRows').value,
+    cellSize:document.getElementById('gcCellSize').value,
+    gridLeft:document.getElementById('gcGridLeft').value,
+    gridTop:document.getElementById('gcGridTop').value,
+    slots:gcSlots,
+  };
+  try{
+    const res=await fetch(SERVER+'/giftcapture/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadGiftCapture();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -14501,97 +14870,6 @@ async function myRestoreApply(){
   }catch(e){box.textContent='오류: '+e.message;}
 }
 
-/* ── ☁️ 셀프 클라우드 백업 (R2, 계정 전체) ── */
-async function myBackupNowR2(){
-  const box=document.getElementById('myBackupResultR2');
-  box.textContent='백업 중...';
-  try{
-    const res=await fetch(SERVER+'/mydata/r2-backup',{method:'POST',headers:authHeaders()});
-    const d=await res.json();
-    box.textContent = d.success ? '✅ 백업 완료!' : '❌ '+(d.error||'백업 실패');
-  }catch(e){box.textContent='오류: '+e.message;}
-}
-let mySelectedStampR2=null;
-async function loadMyBackupListR2(){
-  const listWrap=document.getElementById('myRestoreListWrapR2');
-  const box=document.getElementById('myRestoreResultR2');
-  mySelectedStampR2=null;
-  document.getElementById('myRestoreApplyBtnR2').disabled=true;
-  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
-  box.textContent='';
-  try{
-    const res=await fetch(SERVER+'/mydata/r2-list-backups',{method:'POST',headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
-    if(!d.list.length){ listWrap.innerHTML='<p class="hint">저장된 백업이 없어요. 먼저 위에서 백업해주세요.</p>'; return; }
-    listWrap.innerHTML=d.list.map((item,i)=>`
-      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
-        <input type="radio" name="myRestoreStampPickR2" value="${escapeAttr(item.stamp)}" onchange="mySelectedStampR2=this.value;document.getElementById('myRestoreApplyBtnR2').disabled=false;">
-        <span>${escapeHtml(new Date(item.lastModified||item.stamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
-      </label>
-    `).join('');
-  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
-}
-async function myRestoreApplyR2(){
-  if(!mySelectedStampR2)return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
-  if(!confirm('정말로 선택한 시점으로 되돌릴까요?\n내 계정에 저장된 모든 설정이 그 시점 데이터로 통째로 덮어써져요. 되돌릴 수 없어요.'))return;
-  const box=document.getElementById('myRestoreResultR2');
-  box.textContent='복구 중...';
-  try{
-    const res=await fetch(SERVER+'/mydata/r2-restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp:mySelectedStampR2,confirm:true})});
-    const d=await res.json();
-    if(d.success){
-      box.textContent='✅ 복구 완료! 새로고침해서 확인해보세요.';
-      showToast('복구 완료 ✓');
-      mySelectedStampR2=null;
-      document.getElementById('myRestoreApplyBtnR2').disabled=true;
-    }else{
-      box.textContent='❌ '+(d.error||'복구 실패');
-    }
-  }catch(e){box.textContent='오류: '+e.message;}
-}
-
-/* ── ☁️ 자동 백업(30분마다, 전체 시스템)에서 내 계정만 골라서 복구 ── */
-let mySelectedSystemStampR2=null;
-async function loadMySystemBackupListR2(){
-  const listWrap=document.getElementById('mySystemRestoreListWrapR2');
-  const box=document.getElementById('mySystemRestoreResultR2');
-  mySelectedSystemStampR2=null;
-  document.getElementById('mySystemRestoreApplyBtnR2').disabled=true;
-  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
-  box.textContent='';
-  try{
-    const res=await fetch(SERVER+'/mydata/r2-system-backups',{method:'POST',headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+(d.error||'조회 실패')+'</p>'; return; }
-    if(!d.list.length){ listWrap.innerHTML='<p class="hint">아직 자동 백업이 하나도 안 쌓였어요. 잠시 후 다시 시도해주세요.</p>'; return; }
-    listWrap.innerHTML=d.list.map((item,i)=>`
-      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
-        <input type="radio" name="mySystemRestoreStampPickR2" value="${escapeAttr(item.stamp)}" onchange="mySelectedSystemStampR2=this.value;document.getElementById('mySystemRestoreApplyBtnR2').disabled=false;">
-        <span>${escapeHtml(new Date(item.lastModified||item.stamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
-      </label>
-    `).join('');
-  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';}
-}
-async function mySystemRestoreApplyR2(){
-  if(!mySelectedSystemStampR2)return showToast('먼저 목록을 불러와서 시점을 선택해주세요');
-  if(!confirm('정말로 선택한 시점으로 되돌릴까요?\n내 계정에 저장된 모든 설정이 그 시점 데이터로 통째로 덮어써져요 (다른 디제이 계정은 영향 없어요). 되돌릴 수 없어요.'))return;
-  const box=document.getElementById('mySystemRestoreResultR2');
-  box.textContent='복구 중...';
-  try{
-    const res=await fetch(SERVER+'/mydata/r2-system-restore-apply',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp:mySelectedSystemStampR2,confirm:true})});
-    const d=await res.json();
-    if(d.success){
-      box.textContent='✅ 복구 완료! 새로고침해서 확인해보세요.';
-      showToast('복구 완료 ✓');
-      mySelectedSystemStampR2=null;
-      document.getElementById('mySystemRestoreApplyBtnR2').disabled=true;
-    }else{
-      box.textContent='❌ '+(d.error||'복구 실패');
-    }
-  }catch(e){box.textContent='오류: '+e.message;}
-}
-
 /* ── 💾 설정 내보내기/가져오기 ── */
 // 지금 저장된 내 계정 설정 전체를 JSON 파일로 내려받는다. (백업/이전용)
 async function exportMySettings(){
@@ -14958,6 +15236,11 @@ function startSSE(){
 // 보고 있을 때만 5초마다 서버에서 최신 목록을 다시 받아와 화면을 갱신한다 (안전망).
 setInterval(()=>{
   if(document.querySelector('.panel[data-panel="giftgallery"]')?.classList.contains('active')) loadGgSettings();
+}, 5000);
+
+// 🎬 선물 애니메이션 캡처판 — 이 패널을 보고 있을 때 5초마다 최신 상태(방금 받은 선물)를 다시 받아온다.
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="giftcapture"]')?.classList.contains('active')) loadGiftCapture();
 }, 5000);
 
 function updateSessionPill(d){
