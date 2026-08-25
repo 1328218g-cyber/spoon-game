@@ -660,7 +660,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['entrysettings', 'roulettelog']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'chuseokevent'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -5984,6 +5984,147 @@ function cleanupOldGiftCaptureBackgrounds() {
   } catch (e) {
     console.log('[선물캡처판] 배경 자동 삭제 실패:', e.message)
   }
+}
+
+
+// 🎑 추석 팀배틀 이벤트 — 라운드(최대 3개)마다 팀 이름이 다르게 바뀌는 스푼 대결 이벤트.
+// 시청자는 !팀이름(예: !모듬전)을 채팅에 쳐서 그 팀에 참여하고, DJ가 "집계 시작"을 켜두면
+// 10스푼 이상 선물을 보낼 때마다 자기 팀 점수로 쌓인다. 라운드가 넘어가면(예: 1일→11일)
+// 예전 라운드에서 쌓인 기록은 그대로 남고, 새 라운드에 다시 참여해야만 그 이후 선물이
+// 새 라운드 팀 점수로 집계된다 (자동 날짜 인식은 안 하고, DJ가 직접 라운드 전환 + 집계 시작/중지).
+const CHUSEOK_MIN_SPOONS = 10 // 이 이상 보낸 선물만 스코어로 집계
+function getChuseokSettings(djId, settings) {
+  if (!settings.chuseokEvent) {
+    settings.chuseokEvent = {
+      active: false, // 지금 스푼 집계를 받고 있는지 — DJ가 직접 켜고 끔
+      currentRound: 1, // 1~3 중 지금 진행중인 라운드
+      title: '팝블리네 추석명절특집',
+      rounds: [
+        { teamA: '모듬전', teamB: '스팸세트' },
+        { teamA: '사과', teamB: '곶감' },
+        { teamA: '한우불고기', teamB: 'LA갈비' },
+      ],
+      members: {}, // key -> { nickname, tag, round, team:'A'|'B', score, joinedAt }
+    }
+    store.saveSettings(djId, { chuseokEvent: settings.chuseokEvent })
+  }
+  const ev = settings.chuseokEvent
+  if (!Array.isArray(ev.rounds) || ev.rounds.length !== 3) {
+    ev.rounds = [
+      { teamA: '모듬전', teamB: '스팸세트' },
+      { teamA: '사과', teamB: '곶감' },
+      { teamA: '한우불고기', teamB: 'LA갈비' },
+    ]
+  }
+  if (!ev.members || typeof ev.members !== 'object') ev.members = {}
+  if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > 3) ev.currentRound = 1
+  if (!ev.title) ev.title = '팝블리네 추석명절특집'
+  return ev
+}
+function chuseokMemberKey(author, tag) {
+  const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  if (t) return 't:' + t
+  return 'n:' + String(author || '').trim().toLowerCase()
+}
+let chuseokSaveDebounce = {}
+function saveChuseokDebounced(djId, ev) {
+  if (chuseokSaveDebounce[djId]) clearTimeout(chuseokSaveDebounce[djId])
+  chuseokSaveDebounce[djId] = setTimeout(() => {
+    try { store.saveSettings(djId, { chuseokEvent: ev }) } catch (e) { console.log('[추석이벤트] 저장 실패', e.message) }
+  }, 600)
+}
+// 팀 이름으로 어느 라운드/어느 편(A/B)인지 찾는다 (과거 라운드 이름도 포함해서 검색 — 지난 라운드 순위도 조회 가능하게)
+function chuseokFindTeamByName(ev, name) {
+  const target = String(name || '').trim().toLowerCase()
+  if (!target) return null
+  for (let i = 0; i < ev.rounds.length; i++) {
+    const r = ev.rounds[i]
+    if (String(r.teamA || '').trim().toLowerCase() === target) return { round: i + 1, side: 'A', teamName: r.teamA }
+    if (String(r.teamB || '').trim().toLowerCase() === target) return { round: i + 1, side: 'B', teamName: r.teamB }
+  }
+  return null
+}
+function chuseokTeamMembers(ev, round, side) {
+  return Object.values(ev.members).filter(m => m.round === round && m.team === side).sort((a, b) => b.score - a.score)
+}
+const CHUSEOK_MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
+
+// LiveDonation(선물) 이벤트마다 호출 — 집계중이고, 이 사람이 "지금 진행중인 라운드"에
+// 참여해둔 상태일 때만 점수를 쌓는다. 이전 라운드 참여 기록이 있어도 라운드가 넘어갔으면 반영 안 됨.
+function handleChuseokDonationHook(djId, settings, author, tag, amount, comboCount) {
+  if (!isModuleOn(settings, 'chuseokevent', djId)) return
+  const ev = getChuseokSettings(djId, settings)
+  if (!ev.active) return
+  const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
+  if (!(totalSpoons >= CHUSEOK_MIN_SPOONS)) return
+  const key = chuseokMemberKey(author, tag)
+  const member = ev.members[key]
+  if (!member || member.round !== ev.currentRound) return // 이번 라운드에 참여 안 해뒀으면 집계 안 함
+  member.score = Math.max(0, (Number(member.score) || 0) + totalSpoons)
+  saveChuseokDebounced(djId, ev)
+  console.log(`[추석이벤트:${djId}] ${author} +${totalSpoons}점 (팀 ${member.team === 'A' ? ev.rounds[ev.currentRound - 1].teamA : ev.rounds[ev.currentRound - 1].teamB}, 누적 ${member.score})`)
+}
+
+// 채팅 명령어 — !팀이름(참여+순위), !추석N(라운드 스코어), !내추석(내 현황)
+async function handleChuseokCommand(djId, room, settings, author, authorId, liveId, text, tag) {
+  if (!isModuleOn(settings, 'chuseokevent', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const cmd = msg.slice(1).trim()
+  if (!cmd) return
+  const ev = getChuseokSettings(djId, settings)
+
+  // !내추석
+  if (cmd === '내추석') {
+    const key = chuseokMemberKey(author, tag)
+    const member = ev.members[key]
+    if (!member) {
+      fishReply(djId, `🎑 ${ev.title} 🎑\n아직 이번 이벤트에 참여하지 않았어요. 참여하고 싶은 팀 이름을 채팅에 쳐보세요! (예: !${ev.rounds[ev.currentRound - 1].teamA})`)
+      return
+    }
+    const r = ev.rounds[member.round - 1]
+    const teamName = member.team === 'A' ? r.teamA : r.teamB
+    const list = chuseokTeamMembers(ev, member.round, member.team)
+    const rank = list.findIndex(m => m === member) + 1
+    const roundNote = member.round === ev.currentRound ? '' : ' (지난 라운드 — 지금은 참여 대상 아님)'
+    fishReply(djId, `🎑 ${ev.title} 🎑\n나의 참여 팀: ${teamName}${roundNote}\n내 점수: ${member.score}점\n팀 내 순위: ${rank}위 / ${list.length}명`)
+    return
+  }
+
+  // !추석1 / !추석2 / !추석3
+  const roundMatch = cmd.match(/^추석([123])$/)
+  if (roundMatch) {
+    const roundNum = Number(roundMatch[1])
+    const r = ev.rounds[roundNum - 1]
+    const scoreA = chuseokTeamMembers(ev, roundNum, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
+    const scoreB = chuseokTeamMembers(ev, roundNum, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
+    fishReply(djId, `🎑 ${ev.title} 🎑\n🍽️ ${r.teamA} ${scoreA}점 vs ${r.teamB} ${scoreB}점 🍽️`)
+    return
+  }
+
+  // !팀이름 — 참여(현재 라운드일 때만) + 순위 표시
+  const found = chuseokFindTeamByName(ev, cmd)
+  if (!found) return
+  const key = chuseokMemberKey(author, tag)
+  let joinNote = ''
+  if (ev.active && found.round === ev.currentRound) {
+    const existing = ev.members[key]
+    if (!existing || existing.round !== ev.currentRound) {
+      ev.members[key] = { nickname: author, tag: tag || '', round: found.round, team: found.side, score: existing && existing.round === found.round ? existing.score : 0, joinedAt: Date.now() }
+      saveChuseokDebounced(djId, ev)
+      joinNote = `✅ ${author}님, ${found.teamName}팀 참여 완료!\n`
+    } else if (existing.team !== found.side) {
+      joinNote = `⚠️ 이미 이번 라운드에 다른 팀으로 참여중이에요.\n`
+    }
+  }
+  const list = chuseokTeamMembers(ev, found.round, found.side).slice(0, 5)
+  let body = `🎑 ${ev.title} 🎑\n🍽️ ${found.teamName}팀 현재순위 🍽️\n`
+  if (!list.length) {
+    body += '아직 참여자가 없어요.'
+  } else {
+    body += list.map((m, i) => `${CHUSEOK_MEDALS[i] || '🏅'}${i + 1}위 : ${m.nickname} ${m.score}점`).join('\n')
+  }
+  fishReply(djId, joinNote + body)
 }
 
 
@@ -14555,6 +14696,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleDiscordNotifyCommand(djId, room, settings, author, authorId, text)
           handleAutoFollowCommand(djId, settings, author, actTag, text)
           handleFishingCommand(djId, room, settings, author, authorId, liveId, text)
+          handleChuseokCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleFishTournamentCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -14716,6 +14858,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
           handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
           handleGiftCaptureHook(djId, settings, author, donationTag, sticker, comboCount)
+          handleChuseokDonationHook(djId, settings, author, donationTag, amount, comboCount)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
@@ -15294,6 +15437,67 @@ app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
   const stickerName = String((req.body || {}).sticker || '비행기').trim()
   await handleGiftCaptureHook(req.djId, settings, '테스트유저', '', stickerName, 1)
   res.json({ success: true })
+})
+
+// ── 🎑 추석 팀배틀 이벤트 ──
+app.get('/chuseok/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  res.json({ success: true, settings: { ...ev, members: Object.entries(ev.members).map(([key, m]) => ({ key, ...m })) } })
+})
+app.post('/chuseok/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const ev = getChuseokSettings(req.djId, settings)
+  const { title, active, currentRound, rounds } = req.body || {}
+  if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
+  if (active != null) ev.active = !!active
+  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(3, parseInt(currentRound, 10) || 1))
+  if (Array.isArray(rounds) && rounds.length === 3) {
+    ev.rounds = rounds.map((r, i) => ({
+      teamA: String(r.teamA || '').trim() || ev.rounds[i].teamA,
+      teamB: String(r.teamB || '').trim() || ev.rounds[i].teamB,
+    }))
+  }
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true, settings: ev })
+})
+// 유저를 특정 라운드/팀에 (DJ가) 수동으로 추가/이동. 같은 라운드로 다시 지정하면 점수는 유지, 다른 라운드/새 유저면 0점부터.
+app.post('/chuseok/add-member', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { nickname, tag, round, team } = req.body || {}
+  const nick = String(nickname || '').trim()
+  if (!nick) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const roundNum = Math.max(1, Math.min(3, parseInt(round, 10) || 1))
+  const side = team === 'B' ? 'B' : 'A'
+  const key = chuseokMemberKey(nick, tag)
+  const existing = ev.members[key]
+  const keepScore = existing && existing.round === roundNum ? existing.score : 0
+  ev.members[key] = { nickname: nick, tag: String(tag || '').trim(), round: roundNum, team: side, score: keepScore, joinedAt: Date.now() }
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true })
+})
+app.post('/chuseok/remove-member', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { key } = req.body || {}
+  if (!ev.members[key]) return res.json({ success: false, error: '참가자를 찾을 수 없어요' })
+  delete ev.members[key]
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true })
+})
+// 점수 직접 수정 — 실드/룰렛 등으로 자동 발생한 선물처럼, 이벤트 참여 의도가 아닌 스푼이 잘못 집계됐을 때 보정용.
+app.post('/chuseok/adjust-score', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { key, delta, setScore } = req.body || {}
+  const member = ev.members[key]
+  if (!member) return res.json({ success: false, error: '참가자를 찾을 수 없어요' })
+  if (setScore != null) member.score = Math.max(0, Number(setScore) || 0)
+  else if (delta != null) member.score = Math.max(0, (Number(member.score) || 0) + Number(delta))
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true, score: member.score })
 })
 
 // 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 그 선물의 실제 애니메이션을

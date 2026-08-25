@@ -660,6 +660,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="mafia"><span class="ic ic-img"><img src="/icons/mafia.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">마피아 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="chuseokevent"><span class="ic ic-img"><img src="/icons/chuseokevent.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">🎑 추석 팀배틀 이벤트</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -3632,6 +3633,70 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎑 추석 팀배틀 이벤트 -->
+      <div class="panel" data-panel="chuseokevent">
+        <div class="card">
+          <div class="card-title"><span>🎑 이벤트 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveChuseokSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 팀 이름을 채팅에 치면(예: <b>!모듬전</b>) 그 팀에 참여되고, "집계 시작"이 켜져있으면 <b>10스푼 이상</b> 선물을 보낼 때마다 자기 팀 점수로 쌓여요.<br>
+          라운드가 넘어가도 자동으로 마감되지 않아요 — 직접 "현재 라운드"를 바꾸고 "집계"를 껐다 켜야 해요. 예전 라운드 기록은 그대로 남고, 새 라운드에 다시 참여해야만 그 이후 선물이 집계돼요.</p>
+          <label style="margin-top:0">이벤트 제목</label>
+          <input type="text" id="csTitle" value="팝블리네 추석명절특집" style="max-width:320px">
+          <div style="display:flex;gap:16px;align-items:center;margin-top:14px;flex-wrap:wrap">
+            <label class="check-opt" style="margin-top:0"><input type="checkbox" id="csActive"> 스푼 집계 중 (켜야 선물이 점수로 쌓여요)</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="margin:0">현재 라운드</label>
+              <select id="csCurrentRound" style="padding:6px 10px">
+                <option value="1">1라운드</option>
+                <option value="2">2라운드</option>
+                <option value="3">3라운드</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🍽️ 라운드별 팀 이름</div>
+          <p class="hint" style="margin-bottom:12px">각 라운드의 두 팀 이름을 정하세요. 이 이름이 곧 참여/순위 확인 채팅 명령어가 돼요 (예: 팀 이름이 "모듬전"이면 <b>!모듬전</b>).</p>
+          <div id="csRoundsWrap" style="display:flex;flex-direction:column;gap:12px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">💬 명령어 안내</div>
+          <div class="hint" id="csCmdHint" style="line-height:1.8"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>👤 참가자 추가</span></div>
+          <p class="hint" style="margin-bottom:12px">시청자가 채팅으로 직접 참여하지 않았어도, 여기서 직접 팀에 추가할 수 있어요. 이미 참여중인 사람을 다른 팀/라운드로 옮길 때도 사용하세요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
+            <div><label>닉네임</label><input type="text" id="csAddNickname" placeholder="닉네임"></div>
+            <div><label>고유닉 (선택)</label><input type="text" id="csAddTag" placeholder="@ 없이"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr auto;align-items:end">
+            <div><label>라운드</label>
+              <select id="csAddRound">
+                <option value="1">1라운드</option>
+                <option value="2">2라운드</option>
+                <option value="3">3라운드</option>
+              </select>
+            </div>
+            <div><label>팀</label>
+              <select id="csAddTeam">
+                <option value="A">A팀</option>
+                <option value="B">B팀</option>
+              </select>
+            </div>
+            <button class="btn-connect" onclick="chuseokAddMember()">+ 추가</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📋 참가자 목록 (<span id="csMemberCount">0</span>명)</span></div>
+          <p class="hint" style="margin-bottom:10px">실드/룰렛 등으로 자동 발생한 선물처럼, 이벤트 참여 의도가 아닌 스푼이 잘못 집계됐으면 여기서 점수를 직접 고칠 수 있어요.</p>
+          <div id="csMembersWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+      </div>
+
       <!-- 🎁 선물카드 갤러리 -->
       <div class="panel" data-panel="giftgallery">
         <div class="card">
@@ -4787,6 +4852,7 @@ const PANEL_META={
   liverank:['🏆 월간 DJ 컷랭킹','스푼 초이스 월간 랭킹에서 내 순위, 주요 컷, 위/아래 DJ와의 점수 차이를 관리자 화면에서 바로 볼 수 있습니다'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   giftcapture:['🎬 선물 애니메이션 캡처판','선물별 칸을 만들어두면, 그 선물이 들어올 때마다 애니메이션을 기록해뒀다가 원할 때 클릭해서 팝업으로 다시 재생할 수 있어요'],
+  chuseokevent:['🎑 추석 팀배틀 이벤트','라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 !팀이름으로 참여하고, 10스푼 이상 선물이 팀 점수로 쌓여요'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
@@ -4901,7 +4967,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','chuseokevent']; // fishtournament(팝블리)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -4916,7 +4982,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',
   'trophy-editor':'trophyeditor.png',
 };
 const EXPIRY_EXEMPT_KEYS=['entrysettings','roulettelog','modulemarket','settingsbackup']; // 이용기간이 만료돼도 계속 동작하는 메뉴
@@ -4931,7 +4997,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','chuseokevent']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -6007,6 +6073,7 @@ async function loadDjSettings(){
       if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); }
       if(document.getElementById('gcItemsWrap')){ loadGiftCapture(); }
+      if(document.getElementById('csRoundsWrap')){ loadChuseokSettings(); }
       if(document.getElementById('ggGrid')){ loadGgSettings(); }
       if(document.getElementById('mcMonstersWrap')){ loadMonsterCatch(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
@@ -9989,6 +10056,127 @@ function renderGcTestStickerPicker(){
     });
     grid.appendChild(card);
   });
+}
+
+
+/* ── 🎑 추석 팀배틀 이벤트 ── */
+let csRounds=[{teamA:'모듬전',teamB:'스팸세트'},{teamA:'사과',teamB:'곶감'},{teamA:'한우불고기',teamB:'LA갈비'}];
+let csMembers=[];
+
+async function loadChuseokSettings(){
+  try{
+    const res=await fetch(SERVER+'/chuseok/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const s=d.settings;
+    document.getElementById('csTitle').value=s.title||'팝블리네 추석명절특집';
+    document.getElementById('csActive').checked=!!s.active;
+    document.getElementById('csCurrentRound').value=String(s.currentRound||1);
+    csRounds=(s.rounds||csRounds).map(r=>({...r}));
+    csMembers=s.members||[];
+    renderCsRounds();
+    renderCsCmdHint();
+    renderCsMembers();
+  }catch(e){}
+}
+
+function renderCsRounds(){
+  const wrap=document.getElementById('csRoundsWrap');
+  wrap.innerHTML=csRounds.map((r,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2)">
+      <b style="min-width:56px">${i+1}라운드</b>
+      <input type="text" value="${escapeAttr(r.teamA)}" placeholder="A팀 이름" style="flex:1;min-width:100px" oninput="csRounds[${i}].teamA=this.value;renderCsCmdHint()">
+      <span class="hint" style="margin:0">vs</span>
+      <input type="text" value="${escapeAttr(r.teamB)}" placeholder="B팀 이름" style="flex:1;min-width:100px" oninput="csRounds[${i}].teamB=this.value;renderCsCmdHint()">
+    </div>
+  `).join('');
+}
+
+function renderCsCmdHint(){
+  const el=document.getElementById('csCmdHint');
+  if(!el)return;
+  const lines=csRounds.map((r,i)=>`<b>${i+1}라운드</b> — !${escapeHtml(r.teamA||'?')} · !${escapeHtml(r.teamB||'?')} (팀 순위) · !추석${i+1} (합산 스코어)`);
+  lines.push('공통 — <b>!내추석</b> (내 참여 현황)');
+  el.innerHTML=lines.join('<br>');
+}
+
+function csTeamLabel(round, team){
+  const r=csRounds[round-1];
+  if(!r)return '?';
+  return team==='B' ? (r.teamB||'?') : (r.teamA||'?');
+}
+
+function renderCsMembers(){
+  const wrap=document.getElementById('csMembersWrap');
+  const countEl=document.getElementById('csMemberCount');
+  countEl.textContent=csMembers.length;
+  if(!csMembers.length){
+    wrap.innerHTML='<p class="hint">아직 참가자가 없어요.</p>';
+    return;
+  }
+  const sorted=csMembers.slice().sort((a,b)=> b.round-a.round || (b.score-a.score));
+  wrap.innerHTML=sorted.map(m=>`
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface2)">
+      <div style="min-width:120px"><b>${escapeHtml(m.nickname)}</b>${m.tag?` <span class="hint" style="margin:0">@${escapeHtml(m.tag)}</span>`:''}</div>
+      <span class="hint" style="margin:0">${m.round}R · ${escapeHtml(csTeamLabel(m.round,m.team))}</span>
+      <input type="number" value="${m.score}" style="width:90px;padding:5px 6px" id="csScoreInput-${escapeAttr(m.key)}">
+      <button class="btn-gray" style="padding:5px 10px;font-size:12px" onclick="chuseokSetScore('${escapeAttr(m.key)}')">점수 저장</button>
+      <button class="btn-shield-reset" style="padding:5px 10px;font-size:12px" onclick="chuseokRemoveMember('${escapeAttr(m.key)}')">삭제</button>
+    </div>
+  `).join('');
+}
+
+async function saveChuseokSettings(){
+  const body={
+    title:document.getElementById('csTitle').value,
+    active:document.getElementById('csActive').checked,
+    currentRound:document.getElementById('csCurrentRound').value,
+    rounds:csRounds,
+  };
+  try{
+    const res=await fetch(SERVER+'/chuseok/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadChuseokSettings();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function chuseokAddMember(){
+  const nickname=document.getElementById('csAddNickname').value.trim();
+  const tag=document.getElementById('csAddTag').value.trim();
+  const round=document.getElementById('csAddRound').value;
+  const team=document.getElementById('csAddTeam').value;
+  if(!nickname){ showToast('닉네임을 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/chuseok/add-member',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname,tag,round,team})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'추가 실패'); return; }
+    document.getElementById('csAddNickname').value='';
+    document.getElementById('csAddTag').value='';
+    showToast('참가자 추가 완료 ✓');
+    loadChuseokSettings();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function chuseokSetScore(key){
+  const input=document.getElementById('csScoreInput-'+key);
+  if(!input)return;
+  try{
+    const res=await fetch(SERVER+'/chuseok/adjust-score',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({key,setScore:Number(input.value)||0})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'수정 실패'); return; }
+    showToast('점수 수정 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function chuseokRemoveMember(key){
+  if(!confirm('이 참가자를 목록에서 삭제할까요?'))return;
+  try{
+    await fetch(SERVER+'/chuseok/remove-member',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({key})});
+    csMembers=csMembers.filter(m=>m.key!==key);
+    renderCsMembers();
+    showToast('삭제 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 
