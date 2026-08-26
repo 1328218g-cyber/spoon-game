@@ -428,7 +428,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 /* ── 🛒 모듈 마켓 ── */
 .market-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
 .market-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s}
-.market-card.off{opacity:.6}
+.market-card.off{}
 .market-card-top{display:flex;align-items:center;justify-content:space-between}
 .market-card-icon{font-size:24px}
 .market-card-icon img{width:28px;height:28px;object-fit:contain;display:block}
@@ -674,7 +674,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="raffle"><span class="ic ic-img"><img src="/icons/raffle.png" alt=""></span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic ic-img"><img src="/icons/dice.png" alt=""></span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic ic-img"><img src="/icons/soundfx.png" alt=""></span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="giftsoundfx"><span class="ic ic-img"><img src="/icons/giftsoundfx.png" alt="" onerror="this.onerror=null;this.src='/icons/soundfx.png'"></span><span class="lbl">🎁 선물 효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="tts"><span class="ic ic-img"><img src="/icons/tts.png" alt=""></span><span class="lbl">TTS</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="wheelroulette"><span class="ic ic-img"><img src="/icons/wheelroulette.png" alt=""></span><span class="lbl">돌림판 룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="couponcheck"><span class="ic ic-img"><img src="/icons/couponcheck.png" alt=""></span><span class="lbl">쿠폰 확인</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1800,21 +1799,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
-      <!-- 스티커 선택 모달 (선물 효과음 전용, 룰렛과 같은 스티커 데이터 재사용) -->
-      <div id="giftsfxStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGiftSfxStickerPicker()">
-        <div class="sticker-modal-box">
-          <div class="modal-title"><span>🖼️ 스티커 선택</span><button class="icon-btn" onclick="closeGiftSfxStickerPicker()">✕</button></div>
-          <div class="sticker-toolbar">
-            <input type="text" id="giftsfxStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderGiftSfxStickerPicker()" style="flex:1">
-            <select id="giftsfxStickerPickerCategory" onchange="renderGiftSfxStickerPicker()">
-              <option value="">전체 카테고리</option>
-            </select>
-          </div>
-          <div class="hint" id="giftsfxStickerPickerCount" style="margin:0 0 8px">0개</div>
-          <div class="sticker-grid" id="giftsfxStickerPickerGrid"></div>
-        </div>
-      </div>
-
       <div class="panel" data-panel="roulettelog">
         <div class="card">
           <div class="card-title"><span>⌨️ 명령어 커스텀</span></div>
@@ -2461,72 +2445,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>🎵 등록된 효과음</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadSoundFxData()">🔄 새로고침</button></div>
           <div id="soundfxListWrap"><p class="hint">불러오는 중...</p></div>
-        </div>
-      </div>
-
-      <!-- 🎁 선물 효과음 -->
-      <div class="panel" data-panel="giftsoundfx">
-        <div class="card">
-          <div class="card-title">🎁 선물 효과음</div>
-          <p class="hint" style="margin-bottom:0">위 "효과음" 메뉴와는 별개의 독립 모듈이에요 — "무조건 재생" 없이, <b>지정한 스티커</b> 또는 <b>지정한 스푼 개수</b>에만 반응해서 재생돼요.</p>
-        </div>
-
-        <div class="card">
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="giftsfxEnabled" checked onchange="toggleGiftSoundFxEnabled()"> 선물 받으면 자동 재생 켜기</label>
-          <p class="hint">
-          · 소리는 서버가 아니라, 지금 이 에디봇 사이트를 열어둔 내 PC(브라우저)에서 재생돼요. 방송 중에는 이 화면을 꼭 켜두세요.<br>
-          · 조건이 여러 개 동시에 맞으면 <b>가장 높은 스푼 개수 조건</b>이 우선 재생되고, 스푼 조건이 하나도 안 맞으면 스티커 조건이 재생돼요.<br>
-          · 브라우저 정책상 페이지에서 한 번이라도 클릭한 뒤에만 자동 재생이 확실히 동작해요.<br>
-          · 화면이 꺼지거나 다른 앱으로 전환돼도 계속 재생되게 하려면 <b>🔊 효과음 메뉴 → "모바일 백그라운드 재생"</b>을 켜두세요 (사이트 전체에 적용돼요).
-          </p>
-        </div>
-
-        <div class="card">
-          <div class="card-title">➕ 선물 효과음 추가</div>
-          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="giftsfxItemEnabled" checked> 사용함</label>
-          <label>이름</label>
-          <input type="text" id="giftsfxName" placeholder="예: 하트 효과음">
-          <label>재생 조건</label>
-          <select id="giftsfxTriggerType" onchange="onGiftSfxTriggerTypeChange()">
-            <option value="sticker">특정 스티커 이름 포함 시</option>
-            <option value="amount">지급 스푼 개수</option>
-          </select>
-          <div id="giftsfxStickerWrap">
-            <label>스티커</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="giftsfxTriggerValue" placeholder="예: 하트" style="flex:1" oninput="handleGiftSfxStickerInput(this.value)" autocomplete="off">
-              <button type="button" class="btn-gray" style="white-space:nowrap;padding:11px 14px" onclick="openGiftSfxStickerPicker()">🖼️ 스티커 선택</button>
-            </div>
-            <div id="giftsfxStickerSearchResults" style="display:none;position:relative;z-index:5;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(20,20,40,.1)"></div>
-            <div class="sticker-preview-chip" id="giftsfxStickerPreview">
-              <img id="giftsfxStickerPreviewImg" src="">
-              <span id="giftsfxStickerPreviewTitle"></span>
-            </div>
-          </div>
-          <div id="giftsfxAmountWrap" style="display:none">
-            <label>스푼 개수</label>
-            <div style="display:flex;gap:8px">
-              <input type="number" id="giftsfxAmountValue" placeholder="예: 10" style="flex:1" min="1">
-              <select id="giftsfxMatchType" style="max-width:130px">
-                <option value="atLeast">이상</option>
-                <option value="exact">정확히 일치</option>
-              </select>
-            </div>
-            <p class="hint" style="margin-top:6px">
-            · <b>정확히 일치</b>: 입력한 개수와 동일한 스푼이 들어왔을 때만 재생<br>
-            · <b>이상</b>: 입력한 개수 이상의 스푼이 들어왔을 때 재생 (예: 10 이상 → 10, 50, 100 모두 재생)
-            </p>
-          </div>
-          <label>볼륨 (<span id="giftsfxVolumeLabel">100</span>%)</label>
-          <input type="range" id="giftsfxVolume" min="0" max="100" value="100" oninput="document.getElementById('giftsfxVolumeLabel').textContent=this.value">
-          <label>오디오 파일 (1MB 이하)</label>
-          <input type="file" id="giftsfxFileInput" accept="audio/*">
-          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="addGiftSoundFxItem()">➕ 추가</button>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><span>🎵 등록된 선물 효과음</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadGiftSoundFxData()">🔄 새로고침</button></div>
-          <div id="giftsoundfxListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
       </div>
 
@@ -4963,7 +4881,6 @@ const PANEL_META={
   raffle:['🎁 추첨','실시간 시청자 중 한 명을 무작위로 추첨합니다'],
   dice:['🎲 주사위','명령어를 입력하면 1~6 눈이 랜덤으로 나옵니다'],
   soundfx:['🔊 효과음','선물을 받으면 조건에 맞춰 내 PC에서 효과음을 자동으로 재생합니다'],
-  giftsoundfx:['🎁 선물 효과음','지정한 스티커 또는 지정한 스푼 개수에만 반응하는 선물 전용 효과음 모듈입니다'],
   tts:['🎙️ TTS','지정 스푼 이상 선물 시, 그 유저의 다음 채팅 1개를 내 PC에서 음성으로 읽어줍니다'],
   dashboard:['📊 대시보드','날짜별 스푼 기록, 하트 랭킹, 월간·주간 MVP를 한눈에 볼 수 있어요'],
   wheelroulette:['🎡 돌림판 룰렛','5개 페이지의 회전판을 직접 돌려서 경품을 추첨합니다'],
@@ -5097,7 +5014,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','giftsoundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -5109,7 +5026,7 @@ const MODULE_ICON_FILES={
   roulette:'roulette-settings.png',roulettelog:'roulette-history.png',autogrant:'real-time-payout.png',loyalty:'nickname-index.png',
   quiz:'quiz-settings.png',lottoauto:'lottoauto.png',lottorank:'lottorank.png',reactiontimer:'reactiontimer.png',
   dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
-  raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',giftsoundfx:'giftsoundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
+  raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',
@@ -5127,7 +5044,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','giftsoundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -6213,7 +6130,6 @@ async function loadDjSettings(){
       if(document.getElementById('raffleCmd')) loadRaffleData();
       if(document.getElementById('diceCmd')) loadDiceData();
       loadSoundFxData();
-      loadGiftSoundFxData();
       loadTtsData();
       if(document.getElementById('dashCalGrid')) loadDashboardData();
       if(document.getElementById('wheelPageTabBar')) loadWheelData();
@@ -9337,120 +9253,6 @@ function renderSfxStickerPicker(){
   });
 }
 
-/* ── 🎁 선물 효과음 (지정 스티커/스푼 전용, "효과음"과 별개의 독립 모듈) ── */
-let giftSfxData={enabled:true,items:[]};
-
-function onGiftSfxTriggerTypeChange(){
-  const type=document.getElementById('giftsfxTriggerType').value;
-  const stickerWrap=document.getElementById('giftsfxStickerWrap');
-  const amountWrap=document.getElementById('giftsfxAmountWrap');
-  if(type==='sticker'){
-    stickerWrap.style.display='block';
-    amountWrap.style.display='none';
-    loadRlStickerData();
-    updateGiftSfxStickerPreview();
-  } else {
-    stickerWrap.style.display='none';
-    amountWrap.style.display='block';
-  }
-}
-
-function handleGiftSfxStickerInput(val){
-  const resDiv=document.getElementById('giftsfxStickerSearchResults');
-  if(!val){ resDiv.style.display='none'; updateGiftSfxStickerPreview(); return; }
-  loadRlStickerData().then(()=>{
-    const q=val.toLowerCase();
-    const results=rlStickerData.filter(s=>s.name.toLowerCase().includes(q)||s.title.toLowerCase().includes(q)).slice(0,20);
-    if(!results.length){ resDiv.style.display='none'; return; }
-    resDiv.innerHTML=results.map(s=>`
-      <div onclick="selectGiftSfxSticker('${escapeAttr(s.name)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border)">
-        <img src="${escapeAttr(s.image)}" style="width:28px;height:28px;object-fit:contain" onerror="this.style.visibility='hidden'">
-        <div style="flex:1">
-          <div style="font-size:12.5px;font-weight:700">${escapeHtml(s.title)}</div>
-          <div style="font-size:10.5px;color:var(--muted)">${s.price}스푼</div>
-        </div>
-      </div>
-    `).join('');
-    resDiv.style.display='block';
-  });
-}
-
-function selectGiftSfxSticker(name){
-  document.getElementById('giftsfxTriggerValue').value=name;
-  document.getElementById('giftsfxStickerSearchResults').style.display='none';
-  updateGiftSfxStickerPreview();
-}
-
-function updateGiftSfxStickerPreview(){
-  const curName=(document.getElementById('giftsfxTriggerValue').value||'').trim();
-  const preview=document.getElementById('giftsfxStickerPreview');
-  const img=document.getElementById('giftsfxStickerPreviewImg');
-  const title=document.getElementById('giftsfxStickerPreviewTitle');
-  if(!curName){ preview.style.display='none'; return; }
-  const match=rlStickerData.find(s=>s.name===curName||s.title===curName);
-  if(match){
-    img.src=match.image||'';
-    title.textContent=match.title||match.name;
-  } else {
-    img.src='';
-    title.textContent=curName+' (직접 입력)';
-  }
-  preview.style.display='flex';
-}
-
-async function openGiftSfxStickerPicker(){
-  document.getElementById('giftsfxStickerModalOverlay').style.display='flex';
-  document.getElementById('giftsfxStickerPickerSearch').value='';
-  await loadRlStickerData();
-  if(!rlStickerData.length){
-    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
-  }
-  const catSelect=document.getElementById('giftsfxStickerPickerCategory');
-  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
-  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
-  renderGiftSfxStickerPicker();
-}
-
-function closeGiftSfxStickerPicker(){
-  document.getElementById('giftsfxStickerModalOverlay').style.display='none';
-}
-
-function renderGiftSfxStickerPicker(){
-  const grid=document.getElementById('giftsfxStickerPickerGrid');
-  const countEl=document.getElementById('giftsfxStickerPickerCount');
-  const keyword=(document.getElementById('giftsfxStickerPickerSearch').value||'').toLowerCase().trim();
-  const catFilter=document.getElementById('giftsfxStickerPickerCategory').value;
-
-  let list=rlStickerData.slice();
-  if(catFilter) list=list.filter(s=>s.category===catFilter);
-  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
-  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
-
-  countEl.textContent=list.length+'개';
-  if(!list.length){
-    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
-    return;
-  }
-
-  const curName=(document.getElementById('giftsfxTriggerValue').value||'').trim();
-  grid.innerHTML='';
-  list.forEach(s=>{
-    const isSelected=s.name===curName||s.title===curName;
-    const card=document.createElement('div');
-    card.className='sticker-card'+(isSelected?' selected':'');
-    card.innerHTML=`
-      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
-      <div class="sname">${escapeHtml(s.title||s.name)}</div>
-      <div class="sprice">💰 ${Number(s.price)||0}</div>
-    `;
-    card.addEventListener('click',()=>{
-      selectGiftSfxSticker(s.name);
-      closeGiftSfxStickerPicker();
-    });
-    grid.appendChild(card);
-  });
-}
-
 /* ── 🏆 박제판 ── */
 let tbSlots=[];
 let tbBgUrl='';
@@ -11095,141 +10897,6 @@ async function deleteSoundFxItem(id){
     loadSoundFxData();
   }catch(e){showToast('오류: '+e.message);}
 }
-
-/* ── 🎁 선물 효과음 목록 관리 ── */
-async function loadGiftSoundFxData(){
-  try{
-    const res=await fetch(SERVER+'/giftsoundfx/settings',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success)return;
-    giftSfxData=d.settings;
-    const enabledBox=document.getElementById('giftsfxEnabled');
-    if(enabledBox) enabledBox.checked=giftSfxData.enabled!==false;
-    renderGiftSoundFxList();
-  }catch(e){}
-}
-
-function renderGiftSoundFxList(){
-  const wrap=document.getElementById('giftsoundfxListWrap');
-  if(!wrap)return;
-  const items=giftSfxData.items||[];
-  if(!items.length){ wrap.innerHTML='<p class="hint">등록된 선물 효과음이 없어요.</p>'; return; }
-  wrap.innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+items.map((it,i)=>{
-    let cond;
-    if(it.triggerType==='sticker') cond='스티커: '+escapeHtml(it.triggerValue);
-    else cond='스푼 '+escapeHtml(it.triggerValue)+'개 '+(it.matchType==='exact'?'정확히 일치':'이상');
-    const on=it.enabled!==false;
-    const volPct=Math.round((it.volume!=null?it.volume:1)*100);
-    return `<div style="display:flex;flex-direction:column;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;${on?'':'opacity:.55'}">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleGiftSoundFxItemEnabled('${escapeAttr(it.id)}',this.checked)"><span class="slider"></span></label>
-          <div><b>${i+1}. ${escapeHtml(it.name)}</b><div class="hint" style="margin:2px 0 0">${cond}</div></div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewGiftSoundFx('${escapeAttr(it.id)}')">▶️ 미리듣기</button>
-          <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteGiftSoundFxItem('${escapeAttr(it.id)}')">삭제</button>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="hint" style="margin:0;white-space:nowrap">🔊 볼륨</span>
-        <input type="range" min="0" max="100" value="${volPct}" style="flex:1" oninput="document.getElementById('gsfxVolLabel-${escapeAttr(it.id)}').textContent=this.value+'%'" onchange="setGiftSoundFxItemVolume('${escapeAttr(it.id)}',this.value)">
-        <span class="hint" id="gsfxVolLabel-${escapeAttr(it.id)}" style="margin:0;min-width:34px;text-align:right">${volPct}%</span>
-      </div>
-    </div>`;
-  }).join('')+'</div>';
-}
-async function setGiftSoundFxItemVolume(id,volPct){
-  const volume=Math.max(0,Math.min(1,Number(volPct)/100));
-  try{
-    const res=await fetch(SERVER+'/giftsoundfx/items/'+encodeURIComponent(id)+'/volume',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({volume})});
-    const d=await res.json();
-    if(d.success){ const it=(giftSfxData.items||[]).find(x=>x.id===id); if(it) it.volume=volume; }
-    else showToast(d.error||'저장 실패');
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-async function toggleGiftSoundFxItemEnabled(id,enabled){
-  try{
-    const res=await fetch(SERVER+'/giftsoundfx/items/'+encodeURIComponent(id)+'/toggle',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
-    const d=await res.json();
-    if(d.success){ const it=(giftSfxData.items||[]).find(x=>x.id===id); if(it) it.enabled=enabled; }
-    else showToast(d.error||'저장 실패');
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-async function toggleGiftSoundFxEnabled(){
-  const enabled=document.getElementById('giftsfxEnabled').checked;
-  try{
-    const res=await fetch(SERVER+'/giftsoundfx/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
-    const d=await res.json();
-    if(d.success){giftSfxData.enabled=enabled;showToast(enabled?'선물 효과음 자동재생 켰어요':'선물 효과음 자동재생 껐어요');}
-    else showToast(d.error||'저장 실패');
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-function addGiftSoundFxItem(){
-  const name=document.getElementById('giftsfxName').value.trim();
-  const enabled=document.getElementById('giftsfxItemEnabled').checked;
-  const triggerType=document.getElementById('giftsfxTriggerType').value;
-  const triggerValue=triggerType==='sticker'
-    ? document.getElementById('giftsfxTriggerValue').value.trim()
-    : document.getElementById('giftsfxAmountValue').value.trim();
-  const matchType=document.getElementById('giftsfxMatchType').value;
-  const volume=Number(document.getElementById('giftsfxVolume').value)/100;
-  const fileInput=document.getElementById('giftsfxFileInput');
-  const file=fileInput.files&&fileInput.files[0];
-  if(!name)return showToast('효과음 이름을 입력해주세요');
-  if(!triggerValue)return showToast('조건 값을 입력해주세요');
-  if(!file)return showToast('오디오 파일을 선택해주세요');
-  if(!file.type||!file.type.startsWith('audio/'))return showToast('오디오 파일만 등록할 수 있어요');
-  if(file.size>1024*1024)return showToast('1MB 이하 파일로 올려주세요');
-
-  const reader=new FileReader();
-  reader.onload=async()=>{
-    try{
-      const res=await fetch(SERVER+'/giftsoundfx/items',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({name,enabled,triggerType,triggerValue,matchType,volume,audioData:reader.result})});
-      const d=await res.json();
-      if(d.success){
-        showToast('선물 효과음을 추가했어요');
-        document.getElementById('giftsfxName').value='';
-        document.getElementById('giftsfxTriggerValue').value='';
-        document.getElementById('giftsfxAmountValue').value='';
-        document.getElementById('giftsfxStickerPreview').style.display='none';
-        document.getElementById('giftsfxStickerSearchResults').style.display='none';
-        fileInput.value='';
-        loadGiftSoundFxData();
-      } else showToast(d.error||'추가 실패');
-    }catch(e){showToast('오류: '+e.message);}
-  };
-  reader.readAsDataURL(file);
-}
-
-async function deleteGiftSoundFxItem(id){
-  if(!confirm('이 효과음을 삭제할까요?'))return;
-  try{
-    await fetch(SERVER+'/giftsoundfx/items/'+encodeURIComponent(id)+'/delete',{method:'POST',headers:authHeaders()});
-    showToast('삭제했어요');
-    loadGiftSoundFxData();
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-function playGiftSfxById(id){
-  const item=(giftSfxData.items||[]).find(it=>it.id===id);
-  if(!item||!item.audioData)return;
-  try{
-    const audio=new Audio(item.audioData);
-    audio.volume=item.volume!=null?item.volume:1;
-    audio.play().catch(()=>{ showToast('🔊 선물 효과음 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
-    if('mediaSession' in navigator){
-      try{
-        navigator.mediaSession.metadata=new MediaMetadata({title:'🎁 '+(item.name||'선물 효과음'),artist:'에디봇 선물 알림'});
-        navigator.mediaSession.playbackState='playing';
-      }catch(e){}
-    }
-  }catch(e){}
-}
-function previewGiftSoundFx(id){ playGiftSfxById(id); }
 
 /* -- 모바일 백그라운드 재생 유지 --
    화면이 꺼지거나 다른 앱으로 전환돼도 브라우저가 이 탭을 완전히 재우지 못하게, 아주 작은
@@ -15751,7 +15418,6 @@ function startSSE(){
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
-    else if(d.type==='giftsoundfx')playGiftSfxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id,d.soundIndex);
     else if(d.type==='greetsound')playGreetSoundById(d.id,d.volume);

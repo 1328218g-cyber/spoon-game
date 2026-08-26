@@ -660,7 +660,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'giftsoundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4361,55 +4361,6 @@ function handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker) {
   }
   if (!winner) return
   broadcast({ type: 'soundfx', djId, id: winner.id })
-}
-
-// 🎁 선물 효과음 — 위 "효과음"(soundfx)과는 별개의 독립 모듈. "무조건 재생" 없이,
-// 지정 스티커 또는 지정 스푼 개수에만 반응하는 선물 전용 효과음이다.
-const GIFTSFX_MAX_ITEMS = 10
-const GIFTSFX_MAX_BYTES = 1.5 * 1024 * 1024
-
-function getGiftSoundFxSettings(djId, settings) {
-  if (!settings.giftSoundEffects) {
-    settings.giftSoundEffects = { enabled: true, items: [] }
-    store.saveSettings(djId, { giftSoundEffects: settings.giftSoundEffects })
-  }
-  if (!settings.giftSoundEffects.items) settings.giftSoundEffects.items = []
-  return settings.giftSoundEffects
-}
-
-// 리스트 순서 = 우선순위. 위에서부터 조건을 검사해서 처음 맞는 항목 하나만 재생한다.
-function handleGiftSoundFxTrigger(djId, settings, amount, comboCount, sticker) {
-  if (!isModuleOn(settings, 'giftsoundfx', djId)) return
-  const cfg = getGiftSoundFxSettings(djId, settings)
-  if (cfg.enabled === false || !cfg.items.length) return
-  const stickerNorm = String(sticker || '').trim().toLowerCase()
-  const totalAmount = (Number(amount) || 0) * Math.max(1, Number(comboCount) || 1)
-
-  const matches = cfg.items.filter(it => {
-    if (it.enabled === false) return false
-    if (it.triggerType === 'sticker') {
-      const t = String(it.triggerValue || '').trim().toLowerCase()
-      return !!t && !!stickerNorm && (stickerNorm === t || stickerNorm.includes(t) || t.includes(stickerNorm))
-    }
-    if (it.triggerType === 'amount') {
-      const threshold = Number(it.triggerValue) || 0
-      if (threshold <= 0) return false
-      return it.matchType === 'exact' ? totalAmount === threshold : totalAmount >= threshold
-    }
-    return false
-  })
-  if (!matches.length) return
-
-  // 우선순위: 스푼 개수 조건 중 "가장 높은 개수"에 매칭된 항목이 최우선, 그다음 스티커 조건
-  const amountMatches = matches.filter(it => it.triggerType === 'amount')
-  let winner
-  if (amountMatches.length) {
-    winner = amountMatches.reduce((a, b) => (Number(b.triggerValue) || 0) > (Number(a.triggerValue) || 0) ? b : a)
-  } else {
-    winner = matches.find(it => it.triggerType === 'sticker')
-  }
-  if (!winner) return
-  broadcast({ type: 'giftsoundfx', djId, id: winner.id })
 }
 
 // ══════════════════════════════════════════════════════
@@ -14955,7 +14906,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
-        handleGiftSoundFxTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
           handleFundingAutoDonation(djId, settings, amount * Math.max(1, comboCount))
@@ -17411,71 +17361,6 @@ app.post('/soundfx/items/:id/delete', auth.requireAuth, (req, res) => {
   const cfg = getSoundEffectSettings(req.djId, settings)
   cfg.items = cfg.items.filter(it => it.id !== req.params.id)
   store.saveSettings(req.djId, { soundEffects: cfg })
-  res.json({ success: true })
-})
-
-// 🎁 선물 효과음
-app.get('/giftsoundfx/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  res.json({ success: true, settings: getGiftSoundFxSettings(req.djId, settings) })
-})
-app.post('/giftsoundfx/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'giftsoundfx', req.djId)) return res.json({ success: false, error: '선물 효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
-  const cfg = getGiftSoundFxSettings(req.djId, settings)
-  const { enabled } = req.body || {}
-  if (enabled != null) cfg.enabled = !!enabled
-  store.saveSettings(req.djId, { giftSoundEffects: cfg })
-  res.json({ success: true })
-})
-app.post('/giftsoundfx/items', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'giftsoundfx', req.djId)) return res.json({ success: false, error: '선물 효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
-  const cfg = getGiftSoundFxSettings(req.djId, settings)
-  if (cfg.items.length >= GIFTSFX_MAX_ITEMS) return res.json({ success: false, error: `선물 효과음은 최대 ${GIFTSFX_MAX_ITEMS}개까지 등록할 수 있어요.` })
-  const { name, triggerType, triggerValue, matchType, enabled, volume, audioData } = req.body || {}
-  if (!name || !String(name).trim()) return res.json({ success: false, error: '효과음 이름을 입력해주세요' })
-  if (!['sticker', 'amount'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
-  if (!String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
-  if (!audioData || typeof audioData !== 'string' || !audioData.startsWith('data:audio')) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
-  if (audioData.length > GIFTSFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 1MB 이하 파일로 올려주세요.' })
-  const item = {
-    id: 'gsfx' + Date.now() + Math.floor(Math.random() * 1000),
-    name: String(name).trim(),
-    triggerType,
-    triggerValue: String(triggerValue).trim(),
-    matchType: triggerType === 'amount' ? (matchType === 'exact' ? 'exact' : 'atLeast') : undefined,
-    enabled: enabled !== false,
-    volume: Math.max(0, Math.min(1, Number(volume) || 1)),
-    audioData,
-  }
-  cfg.items.push(item)
-  store.saveSettings(req.djId, { giftSoundEffects: cfg })
-  res.json({ success: true, id: item.id })
-})
-app.post('/giftsoundfx/items/:id/toggle', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const cfg = getGiftSoundFxSettings(req.djId, settings)
-  const item = cfg.items.find(it => it.id === req.params.id)
-  if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
-  item.enabled = !!(req.body || {}).enabled
-  store.saveSettings(req.djId, { giftSoundEffects: cfg })
-  res.json({ success: true })
-})
-app.post('/giftsoundfx/items/:id/volume', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const cfg = getGiftSoundFxSettings(req.djId, settings)
-  const item = cfg.items.find(it => it.id === req.params.id)
-  if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
-  item.volume = Math.max(0, Math.min(1, Number((req.body || {}).volume) || 0))
-  store.saveSettings(req.djId, { giftSoundEffects: cfg })
-  res.json({ success: true })
-})
-app.post('/giftsoundfx/items/:id/delete', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const cfg = getGiftSoundFxSettings(req.djId, settings)
-  cfg.items = cfg.items.filter(it => it.id !== req.params.id)
-  store.saveSettings(req.djId, { giftSoundEffects: cfg })
   res.json({ success: true })
 })
 
