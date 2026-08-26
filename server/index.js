@@ -15431,6 +15431,8 @@ app.post('/images/cleanup', auth.requireAuth, (req, res) => {
   if (gc && gc.bgImageUrl) inUse.add(gc.bgImageUrl) // 🎬 선물캡처판 배경도 정리 대상에서 제외
   const cs = settings.chuseokEvent
   if (cs && cs.posterImageUrl) inUse.add(cs.posterImageUrl) // 🎑 추석이벤트 포스터도 정리 대상에서 제외
+  const ann = store.getAnnouncement()
+  if (ann && ann.imageUrl) inUse.add(ann.imageUrl) // 📢 공지 팝업 이미지도 정리 대상에서 제외 (sum 계정 기준)
   let deletedCount = 0
   let freedBytes = 0
   try {
@@ -16199,9 +16201,9 @@ app.get('/announcement', auth.requireAuth, (req, res) => {
 })
 app.post('/announcement', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const { title, content } = req.body || {}
-  if (!String(content || '').trim()) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
-  const result = store.setAnnouncement(title, content)
+  const { title, content, imageUrl } = req.body || {}
+  if (!String(content || '').trim() && !String(imageUrl || '').trim()) return res.json({ success: false, error: '공지 내용이나 이미지 중 하나는 입력해주세요' })
+  const result = store.setAnnouncement(title, content, imageUrl)
   res.json(result.ok ? { success: true, announcement: result.announcement } : { success: false, error: result.error })
 })
 app.post('/announcement/seen', auth.requireAuth, (req, res) => {

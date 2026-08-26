@@ -358,11 +358,11 @@ function getAnnouncementHistory() {
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.announcementHistory;
   return Array.isArray(v) ? v : [];
 }
-function setAnnouncement(title, content) {
+function setAnnouncement(title, content, imageUrl) {
   const djs = loadDjs();
   if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
   if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
-  const announcement = { id: Date.now(), title: String(title || '').trim(), content: String(content || '').trim(), createdAt: Date.now() };
+  const announcement = { id: Date.now(), title: String(title || '').trim(), content: String(content || '').trim(), imageUrl: String(imageUrl || '').trim(), createdAt: Date.now() };
   djs['sum'].settings.announcement = announcement;
   const history = Array.isArray(djs['sum'].settings.announcementHistory) ? djs['sum'].settings.announcementHistory : [];
   history.unshift(announcement) // 최신이 맨 앞

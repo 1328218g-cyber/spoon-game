@@ -1034,8 +1034,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">위 실시간 공지랑은 달라요 — 이건 <b>등록해두면 그 뒤로 로그인하는 모든 유저</b>한테 딱 한 번 팝업창으로 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 한 번씩 떠요.</p>
           <label>제목</label>
           <input type="text" id="updateNoticeTitle" placeholder="예: 업데이트 안내 (2026.08.07)">
-          <label>내용</label>
+          <label>내용 (이미지만 올릴 거면 비워둬도 돼요)</label>
           <textarea id="updateNoticeContent" placeholder="예: 사주팔자 모듈이 추가됐어요! 모듈 마켓에서 켜보세요." style="height:90px"></textarea>
+          <label>이미지 (선택, 5MB 이하)</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="updateNoticeImgPreview" src="" style="max-width:160px;max-height:100px;object-fit:contain;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="updateNoticeImgInput" accept="image/*" style="display:none" onchange="uploadUpdateNoticeImage(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('updateNoticeImgInput').click()">🖼️ 이미지 업로드</button>
+            <button class="btn-gray" id="updateNoticeImgRemoveBtn" style="display:none" onclick="removeUpdateNoticeImage()">이미지 제거</button>
+          </div>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="postUpdateNotice()">🔔 공지 등록 (전체 유저에게 팝업)</button>
           <div id="updateNoticeCurrent" class="hint" style="margin-top:10px"></div>
         </div>
@@ -3764,8 +3771,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>📅 날짜별로 보기</span><span class="hint" id="ggCalMonthLabel" style="margin:0"></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button class="btn-gray" style="padding:5px 12px;font-size:12px" onclick="changeGgCalMonth(-1)">◀ 이전달</button>
+            <button class="btn-gray" style="padding:5px 12px;font-size:12px" id="ggCalTodayBtn" onclick="clearGgDateFilter()" disabled>전체 보기</button>
+            <button class="btn-gray" style="padding:5px 12px;font-size:12px" onclick="changeGgCalMonth(1)">다음달 ▶</button>
+          </div>
+          <div id="ggCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center"></div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
-          <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px"></div>
+          <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:12px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
       </div>
@@ -4148,8 +4164,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </div>
 <!-- 📢 업데이트 공지 팝업 -->
 <div id="announcementOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAnnouncementModal()">
-  <div class="modal-box" style="max-width:480px;max-height:80vh;overflow-y:auto">
+  <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
     <div class="modal-title"><span>📢 <span id="announcementTitle">업데이트 안내</span></span><button class="icon-btn" onclick="closeAnnouncementModal()">✕</button></div>
+    <img id="announcementImg" src="" style="width:100%;border-radius:12px;margin-bottom:14px;display:none">
     <div id="announcementBody" style="font-size:14px;line-height:1.75;white-space:pre-line"></div>
     <button class="btn-connect" style="width:100%;margin-top:18px" onclick="closeAnnouncementModal()">확인</button>
   </div>
@@ -4627,6 +4644,9 @@ async function checkAnnouncement(thenShowTutorialForNewUser){
     pendingTutorialAfterAnnouncement=!!thenShowTutorialForNewUser;
     document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
     document.getElementById('announcementBody').textContent=d.announcement.content||'';
+    const imgEl=document.getElementById('announcementImg');
+    if(d.announcement.imageUrl){ imgEl.src=d.announcement.imageUrl; imgEl.style.display='block'; }
+    else { imgEl.style.display='none'; }
     document.getElementById('announcementOverlay').style.display='flex';
   }catch(e){
     if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
@@ -6230,6 +6250,34 @@ async function sendAnnouncement(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+let updateNoticeImgUrl='';
+function updateUpdateNoticeImgPreview(){
+  const img=document.getElementById('updateNoticeImgPreview');
+  const removeBtn=document.getElementById('updateNoticeImgRemoveBtn');
+  if(updateNoticeImgUrl){ img.src=updateNoticeImgUrl; img.style.display='block'; removeBtn.style.display='inline-block'; }
+  else { img.style.display='none'; removeBtn.style.display='none'; }
+}
+async function uploadUpdateNoticeImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      updateNoticeImgUrl=d.url;
+      updateUpdateNoticeImgPreview();
+      showToast('이미지 업로드 완료 (아래 "공지 등록" 버튼을 눌러야 반영돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeUpdateNoticeImage(){
+  updateNoticeImgUrl='';
+  updateUpdateNoticeImgPreview();
+}
+
 async function loadUpdateNoticeCurrent(){
   const box=document.getElementById('updateNoticeCurrent');
   if(!box)return;
@@ -6238,7 +6286,7 @@ async function loadUpdateNoticeCurrent(){
     const d=await res.json();
     if(d.success&&d.announcement){
       const dt=new Date(d.announcement.createdAt).toLocaleString('ko-KR');
-      box.textContent=`현재 등록된 공지: "${d.announcement.title||'(제목 없음)'}" (${dt} 등록)`;
+      box.textContent=`현재 등록된 공지: "${d.announcement.title||'(제목 없음)'}"${d.announcement.imageUrl?' 🖼️':''} (${dt} 등록)`;
     }else{
       box.textContent='등록된 공지가 없어요.';
     }
@@ -6247,14 +6295,16 @@ async function loadUpdateNoticeCurrent(){
 async function postUpdateNotice(){
   const title=document.getElementById('updateNoticeTitle').value.trim();
   const content=document.getElementById('updateNoticeContent').value.trim();
-  if(!content)return showToast('공지 내용을 입력해주세요');
+  if(!content && !updateNoticeImgUrl)return showToast('공지 내용이나 이미지 중 하나는 입력해주세요');
   try{
-    const res=await fetch(SERVER+'/announcement',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title,content})});
+    const res=await fetch(SERVER+'/announcement',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title,content,imageUrl:updateNoticeImgUrl})});
     const d=await res.json();
     if(d.success){
       showToast('공지를 등록했어요 🔔 다음 로그인부터 유저들에게 팝업으로 떠요');
       document.getElementById('updateNoticeTitle').value='';
       document.getElementById('updateNoticeContent').value='';
+      updateNoticeImgUrl='';
+      updateUpdateNoticeImgPreview();
       loadUpdateNoticeCurrent();
     }else showToast(d.error||'등록 실패');
   }catch(e){showToast('오류: '+e.message);}
@@ -6566,6 +6616,7 @@ async function openAnnouncementHistory(){
       return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
         <div style="font-weight:700;margin-bottom:4px">${escapeHtml(a.title||'(제목 없음)')}</div>
         <div class="hint" style="margin-bottom:8px">${dt}</div>
+        ${a.imageUrl?`<img src="${escapeAttr(a.imageUrl)}" style="width:100%;border-radius:8px;margin-bottom:8px">`:''}
         <div style="font-size:13.5px;line-height:1.7;white-space:pre-line">${escapeHtml(a.content||'')}</div>
       </div>`;
     }).join('');
@@ -9274,6 +9325,7 @@ async function loadGgSettings(){
     const modeRadio=document.querySelector(`input[name="ggAvatarMode"][value="${ggData.avatarMode==='senderOnly'?'senderOnly':'both'}"]`);
     if(modeRadio)modeRadio.checked=true;
     renderGgGrid();
+    renderGgCalendar();
   }catch(e){}
 }
 async function saveGgSettings(){
@@ -9286,7 +9338,7 @@ async function saveGgSettings(){
   try{
     const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode})});
     const d=await res.json();
-    if(d.success){ggData=d.settings;renderGgGrid();showToast('설정 저장 완료 ✓');}
+    if(d.success){ggData=d.settings;renderGgGrid();renderGgCalendar();showToast('설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('저장 실패');}
 }
@@ -9304,6 +9356,72 @@ function ggDateGroupKey(ts){
   const d=new Date(ts);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+
+/* ── 📅 날짜별 달력 필터 ── */
+let ggCalMonth=new Date(); // 지금 보고 있는 달 (1일로 고정해서 씀)
+let ggSelectedDate=null; // null이면 전체 보기, 'YYYY-MM-DD'면 그 날짜만
+
+function changeGgCalMonth(delta){
+  ggCalMonth=new Date(ggCalMonth.getFullYear(), ggCalMonth.getMonth()+delta, 1);
+  renderGgCalendar();
+}
+function selectGgDate(dateStr){
+  ggSelectedDate = (ggSelectedDate===dateStr) ? null : dateStr; // 같은 날 다시 누르면 필터 해제
+  renderGgCalendar();
+  renderGgGrid();
+}
+function clearGgDateFilter(){
+  ggSelectedDate=null;
+  renderGgCalendar();
+  renderGgGrid();
+}
+
+function renderGgCalendar(){
+  const grid=document.getElementById('ggCalGrid');
+  const label=document.getElementById('ggCalMonthLabel');
+  const todayBtn=document.getElementById('ggCalTodayBtn');
+  if(!grid)return;
+  todayBtn.disabled = !ggSelectedDate;
+
+  const year=ggCalMonth.getFullYear(), month=ggCalMonth.getMonth();
+  label.textContent=`${year}년 ${month+1}월`;
+
+  // 이 달에 선물이 있는 날짜별 개수 집계
+  const countByDate={};
+  ggData.items.forEach(it=>{
+    const d=new Date(it.ts);
+    if(d.getFullYear()===year && d.getMonth()===month){
+      const key=ggDateGroupKey(it.ts);
+      countByDate[key]=(countByDate[key]||0)+1;
+    }
+  });
+
+  const firstDay=new Date(year,month,1).getDay(); // 0=일요일
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const todayKey=ggDateGroupKey(Date.now());
+
+  let html='';
+  ['일','월','화','수','목','금','토'].forEach(w=>{
+    html+=`<div style="font-size:10.5px;color:var(--text-dim);padding:2px 0">${w}</div>`;
+  });
+  for(let i=0;i<firstDay;i++) html+='<div></div>';
+  for(let day=1;day<=daysInMonth;day++){
+    const key=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const cnt=countByDate[key]||0;
+    const isSelected=ggSelectedDate===key;
+    const isToday=key===todayKey;
+    const bg=isSelected?'#f97316':(cnt?'#fff7ed':'transparent');
+    const color=isSelected?'#fff':(cnt?'#c2410c':(cnt===0?'var(--text-dim)':'inherit'));
+    const border=isToday&&!isSelected?'1px solid #f97316':'1px solid transparent';
+    const cursor=cnt?'pointer':'default';
+    html+=`<div onclick="${cnt?`selectGgDate('${key}')`:''}" style="padding:6px 2px;border-radius:8px;font-size:12px;cursor:${cursor};background:${bg};color:${color};border:${border}">
+      <div>${day}</div>
+      ${cnt?`<div style="font-size:9px;margin-top:2px">${cnt}개</div>`:''}
+    </div>`;
+  }
+  grid.innerHTML=html;
+}
+
 function renderGgGrid(){
   const wrap=document.getElementById('ggGrid');
   const count=document.getElementById('ggCount');
@@ -9318,7 +9436,8 @@ function renderGgGrid(){
   const senderOnly=ggData.avatarMode==='senderOnly';
   let html='';
   let lastGroupKey=null;
-  ggData.items.forEach(it=>{
+  const filteredItems = ggSelectedDate ? ggData.items.filter(it=>ggDateGroupKey(it.ts)===ggSelectedDate) : ggData.items;
+  filteredItems.forEach(it=>{
     const groupKey=ggDateGroupKey(it.ts);
     if(groupKey!==lastGroupKey){
       const dateLabel=new Date(it.ts).toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',weekday:'short'});
@@ -9586,6 +9705,7 @@ async function downloadAllGgItems(){
 async function deleteGgItem(id){
   ggData.items=ggData.items.filter(it=>it.id!==id);
   renderGgGrid();
+  renderGgCalendar();
   try{ await fetch(SERVER+'/giftgallery/delete-item',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})}); }catch(e){}
 }
 async function clearGgGallery(){
@@ -9593,7 +9713,7 @@ async function clearGgGallery(){
   try{
     const res=await fetch(SERVER+'/giftgallery/clear',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
     const d=await res.json();
-    if(d.success){ggData=d.settings;renderGgGrid();showToast('전체 삭제 완료');}
+    if(d.success){ggData=d.settings;ggSelectedDate=null;renderGgGrid();renderGgCalendar();showToast('전체 삭제 완료');}
   }catch(e){showToast('삭제 실패');}
 }
 
@@ -15459,7 +15579,7 @@ function startSSE(){
       }
     }
     else if(d.type==='giftgallery'){
-      if(document.getElementById('ggGrid')){ ggData.items.unshift(d.item); renderGgGrid(); }
+      if(document.getElementById('ggGrid')){ ggData.items.unshift(d.item); renderGgGrid(); renderGgCalendar(); }
     }
     else if(d.type==='giftcapture'){
       if(document.getElementById('gcItemsWrap')){ gcItems.unshift(d.item); renderGcItems(); }
