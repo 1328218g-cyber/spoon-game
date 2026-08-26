@@ -14582,6 +14582,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
+  // 🐛 버그 수정 — 봇이 튕겨서 자동 재접속할 때도 이 함수가 다시 호출되는데, liveId(방)가 그대로면
+  // "재접속"이지 "새 방송 시작"이 아니다. 예전엔 이 구분 없이 매번 복권 차등지급 등수 카운터를
+  // 0으로 되돌려서, 재접속 직후 다음 입장자가 무조건 1등으로 다시 집계되며 복권이 중복 지급됐다.
+  const isNewLiveSession = room.liveId !== liveId
+
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
   room.streamName = streamName
@@ -14628,8 +14633,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     notifyDiscordOnConnect(djId, room.watchingTag)
     // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
     startLeavePolling(djId, liveId)
-    // 🎟️ 복권 차등지급 등수 카운터도 이번 입장 시점부터 새로 센다
-    resetLottoRankCounter(room)
+    // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
+    // 봇이 튕겨서 같은 방으로 자동 재접속한 거면 건너뛴다 (안 그러면 재접속 직후 다음
+    // 입장자가 또 1등으로 집계되면서 복권이 중복 지급되는 버그가 있었음).
+    if (isNewLiveSession) {
+      resetLottoRankCounter(room)
+    } else {
+      console.log(`[${djId}] 같은 방(${liveId})으로 재접속 — 복권 차등지급 등수 카운터 유지 (현재 ${room._lottoRankCounter || 0}명째)`)
+    }
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
