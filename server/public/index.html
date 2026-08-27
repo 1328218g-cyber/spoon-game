@@ -989,6 +989,49 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="gmcMonsterListWrap" style="margin-top:12px;max-height:520px;overflow-y:auto"></div>
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGmcMonsters()">💾 몬스터 목록 저장</button>
         </div>
+
+        <div class="card">
+          <div class="card-title"><span>🐉 던전/보스 통합 관리</span></div>
+          <p class="hint" style="margin-bottom:12px">켜두면 각 디제이가 개인적으로 설정해둔 던전 목록/파티 규칙/보스 스탯/주사위 설정 대신, 여기서 설정한 값을 <b>모든 디제이 방이 동일하게</b> 사용해요. (안내 멘트 문구는 이거랑 별개로 디제이별로 계속 커스텀할 수 있어요)</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="gdbEnabled" onchange="saveGdbEnabled()"> 전체 통합 관리 켜기</label>
+          <div class="hint" id="gdbStatusHint" style="margin-top:6px"></div>
+
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+            <div class="card-title" style="font-size:14px">🌿 보스 몬스터</div>
+            <label style="margin-top:0">보스 이름</label>
+            <input type="text" id="gdbBossMonsterName" value="풀잎" style="max-width:220px">
+            <label class="check-opt" style="margin-top:10px"><input type="checkbox" id="gdbBossEnabled"> 보스 몬스터 활성화</label>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+              <div><label>보스 공격력(체력)</label><input type="number" id="gdbBossPower" value="100" min="1" max="1000000"></div>
+              <div><label>등장 주기 (분)</label><input type="number" id="gdbBossIntervalMin" value="60" min="1" max="720"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+              <div><label>참여 마감 시간 (초)</label><input type="number" id="gdbBossJoinWindowSec" value="90" min="10" max="1800"></div>
+              <div><label>참여 명령어</label><input type="text" id="gdbCmdBossJoin" value="!참여"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+              <div><label>주사위 명령어</label><input type="text" id="gdbCmdBossRoll" value="!주사위"></div>
+              <div><label>주사위 굴리는 시간 (초)</label><input type="number" id="gdbBossRollWindowSec" value="30" min="5" max="600"></div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px">
+            <div class="card-title" style="font-size:14px">🗺️ 던전 탐험</div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
+              <div><label>최소 파티 인원</label><input type="number" id="gdbDungeonMinParty" value="2" min="1" max="8"></div>
+              <div><label>최대 파티 인원</label><input type="number" id="gdbDungeonMaxParty" value="4" min="1" max="8"></div>
+            </div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+              <div><label>인당 몬스터 마리 수</label><input type="number" id="gdbDungeonMonstersPerMember" value="3" min="1" max="6"></div>
+              <div><label>재도전 쿨타임 (초)</label><input type="number" id="gdbDungeonCooldownSec" value="60" min="0" max="3600"></div>
+            </div>
+            <label style="margin-top:14px">던전 목록</label>
+            <div id="gdbDungeonList" style="display:flex;flex-direction:column;gap:10px;margin-top:6px"></div>
+            <button class="btn-gray" style="width:100%;margin-top:10px" onclick="addGdbDungeon()">+ 던전 추가</button>
+          </div>
+
+          <button class="btn-connect" style="width:100%;margin-top:16px" onclick="saveGdbConfig()">💾 던전/보스 통합 설정 저장</button>
+        </div>
       </div>
 
       <!-- 🛰️ 이벤트 뷰어 -->
@@ -4043,10 +4086,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
         <div class="card">
           <div class="card-title">🗺️ 던전 탐험</div>
-          <p class="hint" style="margin-bottom:12px">채팅 명령어가 아니라 <b>웹 도감 페이지의 "탐험" 버튼</b>으로만 진행돼요. 시청자 <b>3~4명이 코드 하나로 파티를 모아</b>, 각자 몬스터 1마리씩 데리고 함께 도전해요. 던전 몬스터는 아래서 고른 카탈로그 몬스터를 그대로 쓰되 <b>공격력을 자동으로 2배</b>로 쳐서 더 강하게 등장하고, <b>타입 상성</b>까지 반영한 파티 총 피해량이 그 층의 체력(공격력×2) 이상이어야 층을 넘어가요. 한 층이라도 못 넘으면 실패, 전 층 클리어하면 <b>보상 포인트를 파티원 수만큼 균등하게</b> 나눠 받아요.</p>
+          <p class="hint" style="margin-bottom:12px">채팅 명령어가 아니라 <b>웹 도감 페이지의 "탐험" 버튼</b>으로만 진행돼요. 시청자 <b>2~4명이 코드 하나로 파티를 모아</b>, 각자 정해진 마리 수만큼 몬스터를 데리고 함께 도전해요. 던전 몬스터는 아래서 고른 카탈로그 몬스터를 그대로 쓰되 <b>공격력을 자동으로 2배</b>로 쳐서 더 강하게 등장하고, <b>타입 상성</b>까지 반영한 파티 총 피해량이 그 층의 체력(공격력×2) 이상이어야 층을 넘어가요. 한 층이라도 못 넘으면 실패, 전 층 클리어하면 <b>보상 포인트를 파티원 수만큼 균등하게</b> 나눠 받아요.</p>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
-            <div><label>최소 파티 인원</label><input type="number" id="mcDungeonMinParty" value="3" min="1" max="8"></div>
+            <div><label>최소 파티 인원</label><input type="number" id="mcDungeonMinParty" value="2" min="1" max="8"></div>
             <div><label>최대 파티 인원</label><input type="number" id="mcDungeonMaxParty" value="4" min="1" max="8"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr;margin-top:10px">
+            <div><label>인당 데려가는 몬스터 마리 수</label><input type="number" id="mcDungeonMonstersPerMember" value="3" min="1" max="6"></div>
           </div>
           <div class="btn-row" style="grid-template-columns:1fr;margin-top:10px">
             <div><label>재도전 쿨타임 (초) <span class="hint" style="margin:0">— 파티원 중 한 명이라도 쿨타임이면 시작 불가</span></label><input type="number" id="mcDungeonCooldownSec" value="60" min="0" max="3600"></div>
@@ -4876,7 +4922,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -5036,7 +5082,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); }
+  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
@@ -10614,8 +10660,9 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgBossRollAlready').value=s.msgBossRollAlready||'';
     document.getElementById('mcMsgBossRollNotParticipant').value=s.msgBossRollNotParticipant||'';
     document.getElementById('mcMsgBossRollNoOne').value=s.msgBossRollNoOne||'';
-    document.getElementById('mcDungeonMinParty').value=s.dungeonMinParty!=null?s.dungeonMinParty:3;
+    document.getElementById('mcDungeonMinParty').value=s.dungeonMinParty!=null?s.dungeonMinParty:2;
     document.getElementById('mcDungeonMaxParty').value=s.dungeonMaxParty!=null?s.dungeonMaxParty:4;
+    document.getElementById('mcDungeonMonstersPerMember').value=s.dungeonMonstersPerMember!=null?s.dungeonMonstersPerMember:3;
     document.getElementById('mcDungeonCooldownSec').value=s.dungeonCooldownSec!=null?s.dungeonCooldownSec:60;
     mcDungeons=(s.dungeons||[]).map(x=>({...x}));
     const shop=s.shop||{};
@@ -10928,6 +10975,118 @@ async function saveGmcMonsters(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+/* ══════════════════════════════════════════════════════
+   🌍 관리자(sum) 전용 — 던전/보스 통합 관리. 던전 목록 편집 UI는 위의 mcDungeons(개인용) 편집기랑
+   같은 모양이지만 완전히 별개의 상태(gdbDungeons)와 별개 카탈로그(gdbCatalog)로 관리한다. */
+let gdbDungeons=[];
+let gdbCatalog=[];
+
+async function loadGlobalDungeonBoss(){
+  try{
+    const res=await fetch(SERVER+'/globaldungeonboss-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const g=d.data;
+    gdbCatalog=d.catalog||[];
+    document.getElementById('gdbEnabled').checked=!!g.enabled;
+    document.getElementById('gdbStatusHint').textContent=g.enabled
+      ?'✅ 켜짐 — 모든 디제이 방이 이 던전/보스 설정을 동일하게 써요'
+      :'⏸️ 꺼짐 — 각 디제이가 개인 설정을 그대로 써요';
+    document.getElementById('gdbBossEnabled').checked=!!g.bossEnabled;
+    document.getElementById('gdbBossMonsterName').value=g.bossMonsterName||'풀잎';
+    document.getElementById('gdbBossPower').value=g.bossPower!=null?g.bossPower:100;
+    document.getElementById('gdbBossIntervalMin').value=g.bossIntervalMin!=null?g.bossIntervalMin:60;
+    document.getElementById('gdbBossJoinWindowSec').value=g.bossJoinWindowSec!=null?g.bossJoinWindowSec:90;
+    document.getElementById('gdbCmdBossJoin').value=g.cmdBossJoin||'!참여';
+    document.getElementById('gdbCmdBossRoll').value=g.cmdBossRoll||'!주사위';
+    document.getElementById('gdbBossRollWindowSec').value=g.bossRollWindowSec!=null?g.bossRollWindowSec:30;
+    document.getElementById('gdbDungeonMinParty').value=g.dungeonMinParty!=null?g.dungeonMinParty:2;
+    document.getElementById('gdbDungeonMaxParty').value=g.dungeonMaxParty!=null?g.dungeonMaxParty:4;
+    document.getElementById('gdbDungeonMonstersPerMember').value=g.dungeonMonstersPerMember!=null?g.dungeonMonstersPerMember:3;
+    document.getElementById('gdbDungeonCooldownSec').value=g.dungeonCooldownSec!=null?g.dungeonCooldownSec:60;
+    gdbDungeons=(g.dungeons||[]).map(x=>({...x}));
+    renderGdbDungeonList();
+  }catch(e){}
+}
+async function saveGdbEnabled(){
+  const enabled=document.getElementById('gdbEnabled').checked;
+  try{
+    const res=await fetch(SERVER+'/globaldungeonboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    if(d.success){ showToast(enabled?'통합 관리를 켰어요':'통합 관리를 껐어요'); loadGlobalDungeonBoss(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+function renderGdbDungeonList(){
+  const wrap=document.getElementById('gdbDungeonList');
+  if(!gdbDungeons.length){
+    wrap.innerHTML='<div class="hint">등록된 던전이 없어요. "+ 던전 추가"로 만들어보세요.</div>';
+    return;
+  }
+  const monsterOptions=(selectedId)=>`<option value="">-- 몬스터 선택 --</option>`+gdbCatalog.map(m=>`<option value="${escapeAttr(m.id)}" ${String(m.id)===String(selectedId)?'selected':''}>${escapeHtml(m.name)} (공격력 ${m.power}→던전 ${Math.round((Number(m.power)||10)*2)})</option>`).join('');
+  wrap.innerHTML=gdbDungeons.map((d,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <input type="text" value="${escapeAttr(d.name||'')}" placeholder="예: 초급 던전" style="flex:1;font-weight:600" oninput="gdbDungeons[${i}].name=this.value">
+        <button class="icon-btn danger" onclick="removeGdbDungeonAt(${i})" title="삭제">🗑</button>
+      </div>
+      <label style="margin-top:0">성공 시 보상 포인트 (파티원 수만큼 균등 분배)</label>
+      <input type="number" min="0" value="${d.rewardPoints!=null?d.rewardPoints:0}" oninput="gdbDungeons[${i}].rewardPoints=Number(this.value)||0">
+      <label style="margin-top:10px">층 구성 (순서대로 등장, 공격력은 자동 2배 적용)</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        ${(d.floors||[]).map((f,fi)=>`
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="hint" style="margin:0;min-width:34px">${fi+1}층</span>
+            <select style="flex:1" onchange="gdbDungeons[${i}].floors[${fi}].monsterId=this.value">${monsterOptions(f.monsterId)}</select>
+            <button class="icon-btn danger" onclick="removeGdbDungeonFloor(${i},${fi})" title="이 층 삭제">🗑</button>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn-gray" style="width:100%;margin-top:8px;padding:8px" onclick="addGdbDungeonFloor(${i})">+ 층 추가</button>
+    </div>
+  `).join('');
+}
+function addGdbDungeon(){
+  gdbDungeons.push({id:'new'+Date.now()+Math.floor(Math.random()*1000),name:'',floors:[],rewardPoints:20});
+  renderGdbDungeonList();
+}
+function removeGdbDungeonAt(i){
+  gdbDungeons.splice(i,1);
+  renderGdbDungeonList();
+}
+function addGdbDungeonFloor(i){
+  if(!gdbDungeons[i].floors) gdbDungeons[i].floors=[];
+  gdbDungeons[i].floors.push({monsterId:''});
+  renderGdbDungeonList();
+}
+function removeGdbDungeonFloor(i,fi){
+  gdbDungeons[i].floors.splice(fi,1);
+  renderGdbDungeonList();
+}
+async function saveGdbConfig(){
+  const body={
+    bossEnabled:document.getElementById('gdbBossEnabled').checked,
+    bossMonsterName:document.getElementById('gdbBossMonsterName').value,
+    bossPower:document.getElementById('gdbBossPower').value,
+    bossIntervalMin:document.getElementById('gdbBossIntervalMin').value,
+    bossJoinWindowSec:document.getElementById('gdbBossJoinWindowSec').value,
+    cmdBossJoin:document.getElementById('gdbCmdBossJoin').value,
+    cmdBossRoll:document.getElementById('gdbCmdBossRoll').value,
+    bossRollWindowSec:document.getElementById('gdbBossRollWindowSec').value,
+    dungeonMinParty:document.getElementById('gdbDungeonMinParty').value,
+    dungeonMaxParty:document.getElementById('gdbDungeonMaxParty').value,
+    dungeonMonstersPerMember:document.getElementById('gdbDungeonMonstersPerMember').value,
+    dungeonCooldownSec:document.getElementById('gdbDungeonCooldownSec').value,
+    dungeons:gdbDungeons,
+  };
+  try{
+    const res=await fetch(SERVER+'/globaldungeonboss-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){ showToast('던전/보스 통합 설정을 저장했어요.'); loadGlobalDungeonBoss(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 function addMcMonster(){
   mcMonsters.push({id:'new'+(mcIdSeq++)+'_'+Date.now(),name:'',image:'',weight:10,catchRate:50,power:10,trait:'',types:['노말'],moves:[],evolvesTo:'',evolveCount:10,legendary:false});
   renderMcMonsters();
@@ -11089,6 +11248,7 @@ async function saveMonsterCatch(){
     msgBossRollNoOne:document.getElementById('mcMsgBossRollNoOne').value,
     dungeonMinParty:document.getElementById('mcDungeonMinParty').value,
     dungeonMaxParty:document.getElementById('mcDungeonMaxParty').value,
+    dungeonMonstersPerMember:document.getElementById('mcDungeonMonstersPerMember').value,
     dungeonCooldownSec:document.getElementById('mcDungeonCooldownSec').value,
     dungeons:mcDungeons,
     monsters:mcMonsters,

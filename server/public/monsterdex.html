@@ -106,7 +106,7 @@
         </div>
       </div>
       <div class="hint" style="margin:0">P는 몬스터 분해로 얻는 포인트예요. 레벨업에 사용해요.</div>
-      <button class="btn" style="margin-top:12px;background:linear-gradient(135deg,#2b6cb0,#38a6ff)" onclick="mdOpenDungeon()">🗺️ 던전 탐험 (3~4인 파티)</button>
+      <button class="btn" style="margin-top:12px;background:linear-gradient(135deg,#2b6cb0,#38a6ff)" onclick="mdOpenDungeon()">🗺️ 던전 탐험 (2~4인 파티)</button>
     </div>
 
     <div class="tabs">
@@ -164,10 +164,10 @@
     <!-- 1) 던전 목록 -->
     <div id="dungeonListView">
       <div style="font-weight:800;font-size:16px;margin-bottom:4px">🗺️ 던전 탐험</div>
-      <div class="hint" style="margin-top:0">3~4명이 파티를 꾸려서 층마다 등장하는 던전 몬스터와 맞붙어요. 던전 몬스터는 일반 출현 개체보다 공격력이 2배 강하고, 타입 상성에 따라 피해량이 달라져요. 전 층을 다 넘으면 파티원 수만큼 포인트를 나눠 받아요.</div>
+      <div class="hint" style="margin-top:0">2~4명이 파티를 꾸려서, 인당 정해진 마리 수만큼 몬스터를 데려가 층마다 등장하는 던전 몬스터와 맞붙어요. 던전 몬스터는 일반 출현 개체보다 공격력이 2배 강하고, 타입 상성에 따라 피해량이 달라져요. 전 층을 다 넘으면 파티원 수만큼 포인트를 나눠 받아요.</div>
       <div id="dungeonList" style="margin-top:10px;display:flex;flex-direction:column;gap:10px"></div>
       <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
-        <div class="hint" style="margin-top:0">이미 만들어진 파티가 있다면 코드로 바로 참가하세요.</div>
+        <div class="hint" style="margin-top:0">코드를 알고 있다면 직접 입력해서 참가할 수도 있어요.</div>
         <div style="display:flex;gap:8px">
           <input type="text" id="dungeonJoinCodeInput" placeholder="파티 코드 5자리" maxlength="5" style="flex:1;background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:10px;color:#fff;text-transform:uppercase">
           <button class="btn" style="width:auto;padding:10px 16px;margin:0" onclick="mdJoinDungeonParty()">참가</button>
@@ -580,13 +580,15 @@ async function mdLevelUp(){
   }catch(e){ showToast('오류: '+e.message); }
 }
 
-/* 🗺️ 던전 탐험 — 3~4명이 파티 코드로 모여서 함께 도전한다 */
+/* 🗺️ 던전 탐험 — 2~4명이 파티 코드로 모여서, 인당 정해진 마리 수만큼 몬스터를 데려가 함께 도전한다 */
 let dungeonList = [];
-let dungeonMinParty = 2, dungeonMaxParty = 4;
+let dungeonMinParty = 2, dungeonMaxParty = 4, dungeonMonstersPerMember = 3;
+let openParties = []; // 지금 열려있는(참가 가능한) 파티 목록 — 코드 몰라도 목록에서 바로 참가
 const DUNGEON_LS_KEY = 'md_dungeonparty_' + DJ_ID;
 let currentPartyCode = localStorage.getItem(DUNGEON_LS_KEY) || '';
 let currentParty = null;
 let dungeonPollTimer = null;
+let dungeonListPollTimer = null;
 
 function mdShowDungeonView(which){
   document.getElementById('dungeonListView').style.display = which==='list' ? 'block' : 'none';
@@ -599,15 +601,30 @@ async function mdOpenDungeon(){
   try{
     const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeons?webUserId=${encodeURIComponent(webUserId)}`);
     const d = await res.json();
-    if(d.success){ dungeonList = d.dungeons||[]; dungeonMinParty = d.minParty||2; dungeonMaxParty = d.maxParty||4; }
+    if(d.success){ dungeonList = d.dungeons||[]; dungeonMinParty = d.minParty||2; dungeonMaxParty = d.maxParty||4; dungeonMonstersPerMember = d.monstersPerMember||3; }
   }catch(e){}
   if(currentPartyCode){ mdShowDungeonView('lobby'); mdStartPartyPolling(); }
-  else { renderDungeonList(); mdShowDungeonView('list'); }
+  else {
+    await mdLoadOpenParties();
+    renderDungeonList();
+    mdShowDungeonView('list');
+    clearInterval(dungeonListPollTimer);
+    dungeonListPollTimer = setInterval(async()=>{ await mdLoadOpenParties(); renderDungeonList(); }, 3000);
+  }
+}
+
+async function mdLoadOpenParties(){
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeon/parties`);
+    const d = await res.json();
+    if(d.success) openParties = d.parties||[];
+  }catch(e){}
 }
 
 function mdCloseDungeon(){
   document.getElementById('dungeonModalBg').classList.remove('show');
   clearInterval(dungeonPollTimer); dungeonPollTimer = null;
+  clearInterval(dungeonListPollTimer); dungeonListPollTimer = null;
 }
 
 function mdTypeLabel(types){ return (types&&types.length) ? types.join('/') : '무속성'; }
@@ -615,13 +632,15 @@ function mdTypeLabel(types){ return (types&&types.length) ? types.join('/') : '�
 function renderDungeonList(){
   const wrap = document.getElementById('dungeonList');
   if(!dungeonList.length){ wrap.innerHTML = '<div class="hint">아직 등록된 던전이 없어요.</div>'; return; }
-  wrap.innerHTML = dungeonList.map(dg=>`
+  wrap.innerHTML = dungeonList.map(dg=>{
+    const parties = openParties.filter(p=>p.dungeonId===dg.id);
+    return `
     <div style="background:#1c2440;border:1px solid var(--border);border-radius:12px;padding:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div style="font-weight:700">${escapeHtml(dg.name)}</div>
         <div style="font-size:12px;color:var(--gold);font-weight:700">보상 ${dg.rewardPoints}P (파티 분배)</div>
       </div>
-      <div class="hint" style="margin:4px 0 8px">${dg.floorCount}층 던전</div>
+      <div class="hint" style="margin:4px 0 8px">${dg.floorCount}층 던전 · 인당 몬스터 ${dungeonMonstersPerMember}마리</div>
       <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px">
         ${(dg.floors||[]).map((f,i)=>`
           <div style="flex:0 0 auto;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 8px;min-width:64px">
@@ -632,9 +651,20 @@ function renderDungeonList(){
           </div>
         `).join('')}
       </div>
-      <button class="btn" style="margin-top:10px;margin-bottom:0" onclick="mdCreateDungeonParty('${escapeHtml(dg.id)}')">🙋 이 던전 파티 만들기</button>
-    </div>
-  `).join('');
+      ${parties.length?`
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div class="hint" style="margin:0">🙋 참가 가능한 파티</div>
+        ${parties.map(p=>{
+          const full = p.memberCount>=dungeonMaxParty;
+          return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+            <span style="font-size:12.5px">${escapeHtml(p.memberNicknames.join(', '))} (${p.memberCount}/${dungeonMaxParty}명)</span>
+            <button class="btn" style="width:auto;margin:0;padding:6px 12px;font-size:12px${full?';background:#3a3f52;cursor:not-allowed':''}" ${full?'disabled':''} onclick="mdJoinPartyByCode('${escapeHtml(p.code)}')">${full?'정원 마감':'참가하기'}</button>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+      <button class="btn" style="margin-top:10px;margin-bottom:0" onclick="mdCreateDungeonParty('${escapeHtml(dg.id)}')">🙋 새 파티 만들기</button>
+    </div>`;
+  }).join('');
 }
 
 async function mdCreateDungeonParty(dungeonId){
@@ -645,7 +675,27 @@ async function mdCreateDungeonParty(dungeonId){
     });
     const d = await res.json();
     if(!d.success){ showToast(d.error||'파티 생성 실패'); return; }
+    clearInterval(dungeonListPollTimer); dungeonListPollTimer = null;
     currentPartyCode = d.party.code;
+    localStorage.setItem(DUNGEON_LS_KEY, currentPartyCode);
+    currentParty = d.party;
+    mdShowDungeonView('lobby');
+    mdRenderLobby();
+    mdStartPartyPolling();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+// 🙋 목록에서 파티 카드를 눌러 바로 참가 — 코드를 직접 입력할 필요 없이 클릭 한 번으로 들어간다.
+async function mdJoinPartyByCode(code){
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeon/party/join`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, code })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'참가 실패'); return; }
+    clearInterval(dungeonListPollTimer); dungeonListPollTimer = null;
+    currentPartyCode = code;
     localStorage.setItem(DUNGEON_LS_KEY, currentPartyCode);
     currentParty = d.party;
     mdShowDungeonView('lobby');
@@ -657,20 +707,7 @@ async function mdCreateDungeonParty(dungeonId){
 async function mdJoinDungeonParty(){
   const code = (document.getElementById('dungeonJoinCodeInput').value||'').trim().toUpperCase();
   if(!code){ showToast('파티 코드를 입력해주세요'); return; }
-  try{
-    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeon/party/join`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ webUserId, code })
-    });
-    const d = await res.json();
-    if(!d.success){ showToast(d.error||'참가 실패'); return; }
-    currentPartyCode = code;
-    localStorage.setItem(DUNGEON_LS_KEY, currentPartyCode);
-    currentParty = d.party;
-    mdShowDungeonView('lobby');
-    mdRenderLobby();
-    mdStartPartyPolling();
-  }catch(e){ showToast('오류: '+e.message); }
+  await mdJoinPartyByCode(code);
 }
 
 function mdStartPartyPolling(){
@@ -708,36 +745,49 @@ async function mdPollParty(){
 function mdRenderLobby(){
   if(!currentParty) return;
   document.getElementById('dungeonPartyCodeBox').textContent = currentParty.code;
-  document.getElementById('dungeonPartySizeHint').textContent = `현재 ${currentParty.members.length}명 참가중 (최소 ${dungeonMinParty}명 · 최대 ${dungeonMaxParty}명)`;
-  document.getElementById('dungeonPartyMembers').innerHTML = currentParty.members.map(m=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:8px 12px">
+  document.getElementById('dungeonPartySizeHint').textContent = `현재 ${currentParty.members.length}명 참가중 (최소 ${dungeonMinParty}명 · 최대 ${dungeonMaxParty}명) · 인당 몬스터 ${dungeonMonstersPerMember}마리`;
+  document.getElementById('dungeonPartyMembers').innerHTML = currentParty.members.map(m=>{
+    const cnt = (m.monsters||[]).length;
+    const ready = cnt>=dungeonMonstersPerMember;
+    const names = (m.monsters||[]).map(x=>x.name).join(', ');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:8px 12px">
       <span>${escapeHtml(m.nickname)}${m.webUserId===webUserId?' (나)':''}</span>
-      <span style="font-size:12.5px;color:${m.monsterId?'var(--green)':'var(--text-dim)'}">${m.monsterId?('✅ '+escapeHtml(m.monsterName)+' (공격력 '+m.monsterPower+')'):'⏳ 몬스터 미선택'}</span>
-    </div>
-  `).join('');
+      <span style="font-size:12.5px;color:${ready?'var(--green)':'var(--text-dim)'};text-align:right;max-width:60%">${cnt>0?('✅ '+escapeHtml(names)+` (${cnt}/${dungeonMonstersPerMember})`):'⏳ 몬스터 미선택'}</span>
+    </div>`;
+  }).join('');
   const me = currentParty.members.find(m=>m.webUserId===webUserId);
-  document.getElementById('dungeonMyMonsterHint').textContent = me && me.monsterId ? `선택한 몬스터: ${me.monsterName}` : '파티에 데려갈 몬스터를 골라주세요.';
+  const myIds = me ? (me.monsterIds||[]) : [];
+  document.getElementById('dungeonMyMonsterHint').textContent = `파티에 데려갈 몬스터를 ${dungeonMonstersPerMember}마리 골라주세요. (${myIds.length}/${dungeonMonstersPerMember} 선택됨)`;
   const picker = document.getElementById('dungeonMonsterPicker');
   const owned = dexList.filter(m=>m.count>0);
   picker.innerHTML = owned.length ? owned.map(m=>{
-    const selected = me && me.monsterId===String(m.id);
-    return `<div class="dex-cell owned${selected?' selected':''}" onclick="mdPickDungeonMonster('${escapeHtml(String(m.id))}')">
+    const selected = myIds.includes(String(m.id));
+    return `<div class="dex-cell owned${selected?' selected':''}" onclick="mdToggleDungeonMonster('${escapeHtml(String(m.id))}')">
       <img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none'">
       <div class="nm">${escapeHtml(m.name)}</div>
       <div class="lv">공격력 ${m.power}</div>
     </div>`;
   }).join('') : '<div class="hint">보유한 몬스터가 없어요. 채팅에서 먼저 몬스터를 잡아보세요.</div>';
-  const canStart = currentParty.members.length>=dungeonMinParty && currentParty.members.length<=dungeonMaxParty && currentParty.members.every(m=>m.monsterId);
+  const canStart = currentParty.members.length>=dungeonMinParty && currentParty.members.length<=dungeonMaxParty && currentParty.members.every(m=>(m.monsterIds||[]).length>=dungeonMonstersPerMember);
   const startBtn = document.getElementById('dungeonStartBtn');
   startBtn.disabled = !canStart;
-  startBtn.textContent = canStart ? '⚔️ 탐험 시작' : `⚔️ 탐험 시작 (${dungeonMinParty}~${dungeonMaxParty}명 전원 몬스터 선택 필요)`;
+  startBtn.textContent = canStart ? '⚔️ 탐험 시작' : `⚔️ 탐험 시작 (${dungeonMinParty}~${dungeonMaxParty}명 전원 ${dungeonMonstersPerMember}마리씩 선택 필요)`;
 }
 
-async function mdPickDungeonMonster(monsterId){
+async function mdToggleDungeonMonster(monsterId){
+  const me = currentParty && currentParty.members.find(m=>m.webUserId===webUserId);
+  if(!me) return;
+  let ids = (me.monsterIds||[]).slice();
+  if(ids.includes(monsterId)){
+    ids = ids.filter(x=>x!==monsterId);
+  } else {
+    if(ids.length>=dungeonMonstersPerMember){ showToast(`이미 ${dungeonMonstersPerMember}마리를 다 골랐어요. 다른 몬스터를 빼고 골라주세요.`); return; }
+    ids.push(monsterId);
+  }
   try{
     const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeon/party/pick`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ webUserId, code: currentPartyCode, monsterId })
+      body: JSON.stringify({ webUserId, code: currentPartyCode, monsterIds: ids })
     });
     const d = await res.json();
     if(!d.success){ showToast(d.error||'선택 실패'); return; }
@@ -769,8 +819,11 @@ async function mdLeaveDungeonParty(){
   clearInterval(dungeonPollTimer); dungeonPollTimer = null;
   try{ await fetch(`${SERVER}/monsterdex/${DJ_ID}/dungeon/party/leave`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, code: currentPartyCode }) }); }catch(e){}
   localStorage.removeItem(DUNGEON_LS_KEY); currentPartyCode=''; currentParty=null;
+  await mdLoadOpenParties();
   renderDungeonList();
   mdShowDungeonView('list');
+  clearInterval(dungeonListPollTimer);
+  dungeonListPollTimer = setInterval(async()=>{ await mdLoadOpenParties(); renderDungeonList(); }, 3000);
 }
 
 function mdCopyPartyCode(){
