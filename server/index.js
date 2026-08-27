@@ -2015,7 +2015,17 @@ function getMonsterCatchSettings(djId, settings) {
       msgBossNoActive: '⚠️ 지금 진행 중인 보스전이 없어요.',
       msgBossNoParticipants: '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...',
       msgBossFail: '💔 참여 {count}명 · 총 공격력 {totalPower}(으)로는 보스 [{monster}](공격력 {bossPower})를 처치하지 못했어요...',
-      msgBossResult: '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!',
+      msgBossResult: '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🎲 주사위 대결 결과 {mvpNickname}님이 {mvpPower} 눈으로 승리! → 🌈이로치 [{reward}] 획득!',
+
+      // 🎲 보스 격파 후 "누가 보상을 가져갈지"는 대미지(공격력)가 아니라, 참여자들이 채팅으로
+      // 주사위를 굴려서 가장 높은 눈이 나온 사람이 가져간다. (참여했지만 안 굴린 사람은 탈락)
+      cmdBossRoll: '!주사위',
+      bossRollWindowSec: 30, // ⏱ 격파 후 주사위를 굴릴 수 있는 시간(초)
+      msgBossRollPrompt: '⚔️ 보스 [{monster}] 격파! 보상은 주사위 대결로 정해요 — 참여자분들은 {sec}초 안에 {cmd}로 주사위를 굴려주세요!',
+      msgBossRollResult: '🎲 {nickname}님이 주사위를 굴려 {roll}이 나왔어요!',
+      msgBossRollAlready: '⚠️ {nickname}님은 이미 주사위를 굴렸어요! ({roll})',
+      msgBossRollNotParticipant: '⚠️ 보스전에 참여하지 않으셨어요.',
+      msgBossRollNoOne: '💨 아무도 주사위를 굴리지 않아서 보상이 사라졌어요...',
     }
     store.saveSettings(djId, { monsterCatch: settings.monsterCatch })
   }
@@ -2093,7 +2103,29 @@ function getMonsterCatchSettings(djId, settings) {
   if (mc.msgBossNoMonsters == null) mc.msgBossNoMonsters = '⚠️ {nickname}님, 참여하려면 몬스터를 먼저 잡아야 해요!'
   if (mc.msgBossNoActive == null) mc.msgBossNoActive = '⚠️ 지금 진행 중인 보스전이 없어요.'
   if (mc.msgBossNoParticipants == null) mc.msgBossNoParticipants = '💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...'
-  if (mc.msgBossResult == null) mc.msgBossResult = '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!'
+  if (mc.msgBossResult == null) mc.msgBossResult = '🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}\n🎲 주사위 대결 결과 {mvpNickname}님이 {mvpPower} 눈으로 승리! → 🌈이로치 [{reward}] 획득!'
+  if (mc.cmdBossRoll == null) mc.cmdBossRoll = '!주사위'
+  if (mc.bossRollWindowSec == null) mc.bossRollWindowSec = 30
+  if (mc.msgBossRollPrompt == null) mc.msgBossRollPrompt = '⚔️ 보스 [{monster}] 격파! 보상은 주사위 대결로 정해요 — 참여자분들은 {sec}초 안에 {cmd}로 주사위를 굴려주세요!'
+  if (mc.msgBossRollResult == null) mc.msgBossRollResult = '🎲 {nickname}님이 주사위를 굴려 {roll}이 나왔어요!'
+  if (mc.msgBossRollAlready == null) mc.msgBossRollAlready = '⚠️ {nickname}님은 이미 주사위를 굴렸어요! ({roll})'
+  if (mc.msgBossRollNotParticipant == null) mc.msgBossRollNotParticipant = '⚠️ 보스전에 참여하지 않으셨어요.'
+  if (mc.msgBossRollNoOne == null) mc.msgBossRollNoOne = '💨 아무도 주사위를 굴리지 않아서 보상이 사라졌어요...'
+
+  // 🗺️ 던전 탐험 — 채팅 명령어가 아니라 웹 도감 페이지의 "탐험" 버튼으로만 진행한다. 2~4명이 파티를
+  // 꾸려서(각자 몬스터 1마리씩 데려옴) 층마다 등장하는 던전 몬스터와 맞붙는다. 던전 몬스터는 항상
+  // 일반 카탈로그 몬스터를 그대로 참조하되 공격력을 2배로 쳐서(더 강하게) 등장하고, 타입 상성까지
+  // 반영한 "파티 총 피해량"이 그 층의 체력(공격력*2) 이상이면 그 층 클리어. 한 층이라도 못 넘으면
+  // 던전 실패. 전 층 클리어하면 보상 포인트를 파티원 수만큼 균등하게 나눠 받는다.
+  if (!Array.isArray(mc.dungeons)) {
+    mc.dungeons = [
+      { id: 'dg_easy', name: '초급 던전', floors: [], rewardPoints: 20 },
+    ]
+  }
+  mc.dungeons.forEach(d => { if (!Array.isArray(d.floors)) d.floors = [] }) // 예전 형식(requiredPower 단일값) 호환 — 층 목록 없으면 빈 배열로
+  if (mc.dungeonMinParty == null) mc.dungeonMinParty = 3 // 👥 최소 파티 인원 — 최소 3마리(3명)는 데려가야 시작할 수 있음
+  if (mc.dungeonMaxParty == null) mc.dungeonMaxParty = 4 // 👥 최대 파티 인원
+  if (mc.dungeonCooldownSec == null) mc.dungeonCooldownSec = 60 // ⏱ 같은 사람이 다시 탐험을 돌 수 있는 최소 간격(초) — 포인트 파밍 방지
 
   // 🌐 포획볼/고급볼/도감(잡은 몬스터)/채팅카운트는 디제이별로 따로 두지 않고, 전체 플랫폼
   // 공용 저장소를 그대로 참조한다 — A디제이 방에서 모험 시작하고 몬스터를 모았으면 B디제이
@@ -2206,6 +2238,8 @@ function mcFormat(tpl, data) {
     .replace(/{mvpNickname}/g, data.mvpNickname || '')
     .replace(/{mvpPower}/g, v(data.mvpPower))
     .replace(/{bossPower}/g, v(data.bossPower))
+    .replace(/{roll}/g, v(data.roll))
+    .replace(/{cmdBossRoll}/g, data.cmdBossRoll || '')
 }
 
 function mcPickMonster(mc) {
@@ -2389,6 +2423,7 @@ function mcSaveWebData() {
   }, 300)
 }
 let mcSaveWebDataDebounce = null
+const mcDungeonCooldownMap = new Map() // 🗺️ 던전 탐험 쿨타임 — key: 고유닉(tag) -> 마지막 탐험 시각(ms). 서버 재시작하면 초기화되는 인메모리 값(대결 쿨타임과 동일한 방식)
 const MC_LEVEL_ATTACK_BONUS = 3 // 레벨 1당 공격력 +3
 function mcLevelBonus(level) { return Math.max(0, (Number(level) || 1) - 1) * MC_LEVEL_ATTACK_BONUS }
 function mcMonsterLevel(tag, monsterId) {
@@ -2842,22 +2877,78 @@ function resolveBoss(djId) {
     sendChatToRoom(djId, mcFormat(mc.msgBossFail, { monster: boss.monster.name, count: participants.length, totalPower, bossPower }))
     return
   }
-  let mvp = participants[0]
-  participants.forEach(p => { if (p.power > mvp.power) mvp = p })
-  const mvpKey = Object.keys(boss.participants).find(k => boss.participants[k] === mvp)
+
+  // 🎲 격파 성공 — 누가 보상을 가져갈지는 대미지(공격력) 순이 아니라, 참여자들이 채팅으로
+  // 주사위를 굴려서 가장 높은 눈이 나온 사람이 가져간다. 여기서 바로 보상을 지급하지 않고,
+  // 주사위를 굴릴 수 있는 시간(cmdBossRoll 창)을 연 뒤 resolveBossLoot()에서 최종 지급한다.
+  const rollWindowSec = Math.max(5, Math.min(600, parseInt(mc.bossRollWindowSec, 10) || 30))
+  room.bossLootRoll = {
+    boss, participants: boss.participants, rolls: {}, totalPower, resolvedAt: Date.now() + rollWindowSec * 1000,
+  }
+  sendChatToRoom(djId, mcFormat(mc.msgBossRollPrompt, { monster: boss.monster.name, cmd: mc.cmdBossRoll || '!주사위', cmdBossRoll: mc.cmdBossRoll || '!주사위', sec: rollWindowSec }))
+  room.bossLootRollTimeout = setTimeout(() => {
+    try { resolveBossLoot(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 주사위 결과 처리 중 오류:`, e && e.stack || e) }
+  }, rollWindowSec * 1000)
+}
+
+// 🎲 보스전 참여자만 굴릴 수 있는 전용 주사위 — 사이드바의 "주사위" 모듈(!주사위, 아무나 사용 가능)과는
+// 별개다. 이 명령어는 room.bossLootRoll이 열려있을 때만 반응하고, 보스전에 참여했던 사람만, 한 번만
+// 굴릴 수 있다.
+function handleBossRollCommand(djId, room, settings, author, tag, text) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  const mc = getMonsterCatchSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg !== (mc.cmdBossRoll || '!주사위')) return
+  const loot = room.bossLootRoll
+  if (!loot) return // 지금 열려있는 주사위 판이 없으면 조용히 무시 (일반 채팅과 섞이지 않게)
+  const key = String(tag || '').trim().toLowerCase()
+  if (!key) return
+  if (!loot.participants[key]) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossRollNotParticipant, { nickname: author })), 300); return }
+  if (loot.rolls[key] != null) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossRollAlready, { nickname: author, roll: loot.rolls[key].roll })), 300); return }
+  const roll = Math.floor(Math.random() * 100) + 1 // 1~100 — 더 촘촘해서 동점이 잘 안 남
+  loot.rolls[key] = { nickname: author, roll }
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgBossRollResult, { nickname: author, roll })), 300)
+}
+
+function resolveBossLoot(djId) {
+  const room = getRoom(djId)
+  const loot = room.bossLootRoll
+  if (!loot) return
+  room.bossLootRoll = null
+  if (room.bossLootRollTimeout) { clearTimeout(room.bossLootRollTimeout); room.bossLootRollTimeout = null }
+  const settings = store.getSettings(djId) || {}
+  const mc = getMonsterCatchSettings(djId, settings)
+  const boss = loot.boss
+  const participants = Object.values(loot.participants || {})
+
+  const rollKeys = Object.keys(loot.rolls)
+  if (!rollKeys.length) {
+    sendChatToRoom(djId, mcFormat(mc.msgBossRollNoOne, { monster: boss.monster.name }))
+    return
+  }
+  // 🎲 가장 높은 눈이 나온 사람 — 동점이면(1~100이라 흔치 않지만) 그중 랜덤으로 한 명.
+  let bestRoll = -1
+  let winners = []
+  rollKeys.forEach(k => {
+    const r = loot.rolls[k].roll
+    if (r > bestRoll) { bestRoll = r; winners = [k] }
+    else if (r === bestRoll) { winners.push(k) }
+  })
+  const winnerKey = winners[Math.floor(Math.random() * winners.length)]
+  const winnerNickname = loot.rolls[winnerKey].nickname
 
   let rewardName = '(보상 없음)'
   if (boss.isWorldBoss) {
     // 🏆 월드보스는 관리자가 설정해둔 보상 목록(복권/이로치몬스터/포획볼/고급볼 등)을 그대로 지급한다.
-    if (mvpKey) rewardName = grantWorldBossRewards(djId, settings, mc, mvpKey, mvp.nickname)
+    rewardName = grantWorldBossRewards(djId, settings, mc, winnerKey, winnerNickname)
     mcSaveUserData()
   } else {
-    // 🌈 (기존 방식) 일반 보스는 MVP에게 랜덤 이로치 몬스터 1마리를 준다.
+    // 🌈 (기존 방식) 일반 보스는 주사위 우승자에게 랜덤 이로치 몬스터 1마리를 준다.
     const picked = mcPickMonster(mc)
-    if (picked && mvpKey) {
+    if (picked) {
       const grantId = MC_SHINY_PREFIX + picked.id
-      if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
-      mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+      if (!mc.collections[winnerKey]) mc.collections[winnerKey] = {}
+      mc.collections[winnerKey][grantId] = (mc.collections[winnerKey][grantId] || 0) + 1
       rewardName = picked.name
       mcSaveUserData()
     }
@@ -2866,12 +2957,13 @@ function resolveBoss(djId) {
   sendChatToRoom(djId, mcFormat(mc.msgBossResult, {
     monster: boss.monster.name,
     count: participants.length,
-    totalPower,
-    mvpNickname: mvp.nickname,
-    mvpPower: mvp.power,
+    totalPower: loot.totalPower,
+    mvpNickname: winnerNickname,
+    mvpPower: bestRoll,
     reward: rewardName,
   }))
 }
+
 
 // ══════════════════════════════════════════════════════
 // 🌍 월드보스 — 관리자(sum) 계정에서 딱 한 번만 설정해두면, 지금 방송 연결되어있고
@@ -14775,6 +14867,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
           handleMonsterEvolveCommand(djId, room, settings, author, actTag, text)
           handleBossJoinCommand(djId, room, settings, author, actTag, text)
+          handleBossRollCommand(djId, room, settings, author, actTag, text)
           handlePlanSubHook(djId, settings, author, actTag, isSubscribe, userPlanLevel)
           updateVipTierForUser(djId, settings, author, actTag, gen) // 🌟 채팅 칠 때마다 최신 필드로 등급 갱신 (subscribeToDj는 채팅에만 있음)
           handleVipTierCommand(djId, settings, author, actTag, text)
@@ -15661,7 +15754,9 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
     cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
     msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
     cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
-    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, bossPower, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossFail, msgBossResult } = req.body || {}
+    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, bossPower, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossFail, msgBossResult,
+    cmdBossRoll, bossRollWindowSec, msgBossRollPrompt, msgBossRollResult, msgBossRollAlready, msgBossRollNotParticipant, msgBossRollNoOne,
+    dungeons, dungeonMinParty, dungeonMaxParty, dungeonCooldownSec } = req.body || {}
   if (enabled != null) mc.enabled = !!enabled
   if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
   if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
@@ -15750,6 +15845,31 @@ app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
   if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
   if (msgBossFail != null) mc.msgBossFail = msgBossFail
   if (msgBossResult != null) mc.msgBossResult = msgBossResult
+  if (cmdBossRoll != null) mc.cmdBossRoll = String(cmdBossRoll).trim() || '!주사위'
+  if (bossRollWindowSec != null) mc.bossRollWindowSec = Math.max(5, Math.min(600, parseInt(bossRollWindowSec, 10) || 30))
+  if (msgBossRollPrompt != null) mc.msgBossRollPrompt = msgBossRollPrompt
+  if (msgBossRollResult != null) mc.msgBossRollResult = msgBossRollResult
+  if (msgBossRollAlready != null) mc.msgBossRollAlready = msgBossRollAlready
+  if (msgBossRollNotParticipant != null) mc.msgBossRollNotParticipant = msgBossRollNotParticipant
+  if (msgBossRollNoOne != null) mc.msgBossRollNoOne = msgBossRollNoOne
+  // 🗺️ 던전 탐험 설정 — 던전마다 층 목록(각 층은 카탈로그 몬스터 참조, 공격력 자동 2배)과 클리어
+  // 보상 포인트(파티원 수만큼 균등 분배), 파티 최소/최대 인원, 탐험 쿨타임.
+  if (Array.isArray(dungeons)) {
+    mc.dungeons = dungeons.map((d, i) => ({
+      id: d.id && !String(d.id).startsWith('new') ? d.id : ('dg' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      name: String(d.name || '').trim().slice(0, 40) || `던전 ${i + 1}`,
+      floors: Array.isArray(d.floors) ? d.floors.map(f => ({ monsterId: String(f.monsterId || '') })).filter(f => f.monsterId) : [],
+      rewardPoints: Math.max(0, Math.min(999999, parseInt(d.rewardPoints, 10) || 0)),
+    }))
+  }
+  if (dungeonMinParty != null || dungeonMaxParty != null) {
+    let minP = Math.max(1, Math.min(8, parseInt(dungeonMinParty, 10) || 3))
+    let maxP = Math.max(1, Math.min(8, parseInt(dungeonMaxParty, 10) || 4))
+    if (minP > maxP) maxP = minP // 최소가 최대보다 크게 설정되는 걸 막는다
+    mc.dungeonMinParty = minP
+    mc.dungeonMaxParty = maxP
+  }
+  if (dungeonCooldownSec != null) mc.dungeonCooldownSec = Math.max(0, Math.min(3600, parseInt(dungeonCooldownSec, 10) || 0))
   let monsterUpdateBlocked = false
   if (Array.isArray(monsters) && mc._globalCatalogActive) {
     // ⚠️ 관리자가 전체 몬스터 도감을 통합 관리 중이면 개인 몬스터 목록 수정은 무시한다.
@@ -19190,6 +19310,246 @@ app.post('/monsterdex/:djId/levelup', (req, res) => {
   const catalog = mcCatalog(djId)
   const resolved = mcResolveMonster(monsterId, catalog, tag)
   res.json({ success: true, level: curLevel + 1, points: d.points[tag], power: resolved ? resolved.power : null, gainedPower: MC_LEVEL_ATTACK_BONUS })
+})
+// 🗺️ 던전 목록 — 웹 도감 "탐험" 화면에서 던전 목록(이름/층 수/보상 포인트)과 파티 최소/최대
+// 인원, 지금 쿨타임이 남았는지를 보여주기 위한 조회용 API.
+app.get('/monsterdex/:djId/dungeons', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const mc = getMonsterCatchSettings(djId, settings)
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  let cooldownRemainSec = 0
+  if (tag) {
+    const lastAt = mcDungeonCooldownMap.get(tag) || 0
+    const cooldownSec = Math.max(0, parseInt(mc.dungeonCooldownSec, 10) || 0)
+    const remainMs = cooldownSec * 1000 - (Date.now() - lastAt)
+    if (remainMs > 0) cooldownRemainSec = Math.ceil(remainMs / 1000)
+  }
+  const catalog = mcCatalog(djId)
+  res.json({
+    success: true,
+    minParty: mc.dungeonMinParty || 2,
+    maxParty: mc.dungeonMaxParty || 4,
+    cooldownRemainSec,
+    dungeons: (mc.dungeons || []).map(x => ({
+      id: x.id,
+      name: x.name,
+      rewardPoints: x.rewardPoints,
+      floorCount: (x.floors || []).length,
+      // 🗺️ 층별 미리보기(이름/이미지/타입/체력=공격력*2) — 파티 꾸리기 전에 어떤 몬스터들이
+      // 나오는지 미리 보여주기 위함. 실제 전투 계산도 서버가 항상 이 카탈로그를 다시 조회해서 한다.
+      floors: (x.floors || []).map(f => {
+        const base = catalog.find(m => m.id === f.monsterId)
+        if (!base) return null
+        return { monsterId: f.monsterId, name: base.name, image: base.image, types: base.types || [], hp: Math.round((Number(base.power) || 10) * 2) }
+      }).filter(Boolean),
+    })),
+  })
+})
+
+// 🗺️ 던전 파티 — 2~4명이 코드 하나로 모여서 함께 도전한다. 파티 정보는 디스크에 저장하지 않고
+// 인메모리로만 관리한다(대결 쿨타임과 같은 방식) — 파티는 원래 몇 분 안에 만들고 바로 끝내는
+// 휘발성 로비라 서버 재시작 시 사라져도 괜찮다. 코드는 djId+dungeonId까지 같이 저장해서, 다른
+// 방/다른 던전 코드가 우연히 겹쳐 섞이는 일이 없게 한다.
+const mcDungeonParties = new Map() // code -> { code, djId, dungeonId, members:[{webUserId,tag,nickname,monsterId}], result, createdAt }
+const MC_DUNGEON_PARTY_TTL_MS = 30 * 60 * 1000 // 30분 넘게 방치된 로비는 정리
+function mcGenPartyCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcDungeonParties.has(code))
+  return code
+}
+function mcCleanDungeonParties() {
+  const now = Date.now()
+  for (const [code, p] of mcDungeonParties.entries()) {
+    if (now - p.createdAt > MC_DUNGEON_PARTY_TTL_MS) mcDungeonParties.delete(code)
+  }
+}
+// 파티 상태를 클라이언트에 보낼 형태로 가공 — 멤버별 몬스터 이름/공격력까지 미리 계산해서 같이 내려준다.
+function mcSerializeParty(djId, party) {
+  const catalog = mcCatalog(djId)
+  return {
+    code: party.code,
+    dungeonId: party.dungeonId,
+    members: party.members.map(m => {
+      const resolved = m.monsterId ? mcResolveMonster(m.monsterId, catalog, m.tag) : null
+      return { webUserId: m.webUserId, nickname: m.nickname, monsterId: m.monsterId, monsterName: resolved ? resolved.name : '', monsterPower: resolved ? resolved.power : null }
+    }),
+    result: party.result || null,
+  }
+}
+app.post('/monsterdex/:djId/dungeon/party/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  mcCleanDungeonParties()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const dungeonId = (req.body || {}).dungeonId
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const dungeon = (mc.dungeons || []).find(x => x.id === dungeonId)
+  if (!dungeon) return res.json({ success: false, error: '존재하지 않는 던전이에요.' })
+  if (monsterId) {
+    const collection = mc_collectionsForTag(djId, tag) || {}
+    if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  }
+  const code = mcGenPartyCode()
+  const party = { code, djId, dungeonId, members: [{ webUserId, tag, nickname: tag, monsterId: monsterId || '' }], result: null, createdAt: Date.now() }
+  mcDungeonParties.set(code, party)
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+app.post('/monsterdex/:djId/dungeon/party/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: false, error: '이미 진행이 끝난 파티예요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const maxParty = Math.max(1, parseInt(mc.dungeonMaxParty, 10) || 4)
+  const existing = party.members.find(m => m.webUserId === webUserId)
+  if (!existing && party.members.length >= maxParty) return res.json({ success: false, error: `파티 정원(최대 ${maxParty}명)이 꽉 찼어요.` })
+  if (monsterId) {
+    const collection = mc_collectionsForTag(djId, tag) || {}
+    if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  }
+  if (existing) { if (monsterId) existing.monsterId = monsterId }
+  else party.members.push({ webUserId, tag, nickname: tag, monsterId: monsterId || '' })
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+app.post('/monsterdex/:djId/dungeon/party/pick', (req, res) => {
+  const djId = req.params.djId
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: false, error: '이미 진행이 끝난 파티예요.' })
+  const member = party.members.find(m => m.webUserId === webUserId)
+  if (!member) return res.json({ success: false, error: '이 파티의 멤버가 아니에요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  member.monsterId = monsterId
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+app.post('/monsterdex/:djId/dungeon/party/leave', (req, res) => {
+  const djId = req.params.djId
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: true }) // 이미 없는 파티면 조용히 성공 처리
+  party.members = party.members.filter(m => m.webUserId !== webUserId)
+  if (!party.members.length) mcDungeonParties.delete(code)
+  res.json({ success: true })
+})
+app.get('/monsterdex/:djId/dungeon/party/:code', (req, res) => {
+  const djId = req.params.djId
+  const code = String(req.params.code || '').trim().toUpperCase()
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+// ⚔️ 파티 총 피해량(타입 상성 반영) vs 층 체력(카탈로그 공격력*2)을 층 순서대로 비교해서 진행한다.
+// 한 층이라도 못 넘으면 그 자리에서 실패, 전 층을 다 넘으면 던전 클리어.
+function mcRunDungeonFloors(djId, dungeon, members) {
+  const catalog = mcCatalog(djId)
+  const partyMonsters = members.map(m => {
+    const resolved = m.monsterId ? mcResolveMonster(m.monsterId, catalog, m.tag) : null
+    return {
+      tag: m.tag, nickname: m.nickname, monsterId: m.monsterId,
+      name: resolved ? resolved.name : '(미선택)',
+      types: resolved ? (resolved.monster.types || []) : [],
+      power: resolved ? resolved.power : 0,
+    }
+  })
+  const floorLogs = []
+  let cleared = true
+  for (const floor of (dungeon.floors || [])) {
+    const base = catalog.find(m => m.id === floor.monsterId)
+    if (!base) continue // 관리자가 나중에 지운 몬스터를 참조 중이면 그 층은 건너뜀
+    const hp = Math.round((Number(base.power) || 10) * 2) // 🗺️ 던전 몬스터는 일반 출현 개체보다 공격력 2배
+    const floorTypes = base.types || []
+    let totalDamage = 0
+    const hits = partyMonsters.map(pm => {
+      const mult = mcTypeMultiplier(pm.types, floorTypes)
+      const dmg = Math.round(pm.power * mult)
+      totalDamage += dmg
+      return { nickname: pm.nickname, monster: pm.name, damage: dmg, typeMultiplier: mult }
+    })
+    const win = totalDamage >= hp
+    floorLogs.push({ floorName: base.name, floorImage: base.image, floorTypes, hp, totalDamage, win, hits })
+    if (!win) { cleared = false; break }
+  }
+  return { cleared, floorLogs, party: partyMonsters }
+}
+// 🗺️ 던전 탐험 실행 — 파티원 아무나 눌러서 시작할 수 있다. 최소/최대 인원을 만족해야 하고, 전원이
+// 몬스터를 골라둔 상태여야 한다. 성공하면 던전의 rewardPoints를 파티원 수만큼 균등하게 나눠 각자
+// 도감 포인트(레벨업에 쓰는 그 포인트)에 더해준다.
+app.post('/monsterdex/:djId/dungeon/party/start', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: true, party: mcSerializeParty(djId, party) }) // 이미 끝난 파티면 그 결과 그대로 다시 보여줌 (중복 시작 방지)
+  if (!party.members.find(m => m.webUserId === webUserId)) return res.json({ success: false, error: '이 파티의 멤버가 아니에요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const dungeon = (mc.dungeons || []).find(x => x.id === party.dungeonId)
+  if (!dungeon) return res.json({ success: false, error: '존재하지 않는 던전이에요.' })
+  const minParty = Math.max(1, parseInt(mc.dungeonMinParty, 10) || 2)
+  const maxParty = Math.max(minParty, parseInt(mc.dungeonMaxParty, 10) || 4)
+  if (party.members.length < minParty) return res.json({ success: false, error: `최소 ${minParty}명이 모여야 시작할 수 있어요. (현재 ${party.members.length}명)` })
+  if (party.members.length > maxParty) return res.json({ success: false, error: `파티 정원(최대 ${maxParty}명)을 초과했어요.` })
+  if (party.members.some(m => !m.monsterId)) return res.json({ success: false, error: '아직 몬스터를 안 고른 파티원이 있어요.' })
+
+  // ⏱ 쿨타임 체크 — 파티원 중 한 명이라도 쿨타임 중이면 시작 불가 (다 같이 파밍하는 걸 막기 위함).
+  const cooldownSec = Math.max(0, parseInt(mc.dungeonCooldownSec, 10) || 0)
+  if (cooldownSec > 0) {
+    for (const m of party.members) {
+      const lastAt = mcDungeonCooldownMap.get(m.tag) || 0
+      const remainMs = cooldownSec * 1000 - (Date.now() - lastAt)
+      if (remainMs > 0) return res.json({ success: false, error: `${m.nickname}님이 아직 쿨타임이에요. (${Math.ceil(remainMs / 1000)}초 후 재시도)` })
+    }
+  }
+
+  const { cleared, floorLogs, party: partyMonsters } = mcRunDungeonFloors(djId, dungeon, party.members)
+
+  // 실제로 전투가 진행된 시점부터 파티원 전원의 쿨타임을 시작한다.
+  if (cooldownSec > 0) party.members.forEach(m => mcDungeonCooldownMap.set(m.tag, Date.now()))
+
+  let rewardPoints = 0, sharePerMember = 0
+  if (cleared) {
+    rewardPoints = Math.max(0, parseInt(dungeon.rewardPoints, 10) || 0)
+    sharePerMember = Math.floor(rewardPoints / party.members.length) // ✂️ 파티원 수만큼 균등 분배(둘이면 반반)
+    if (sharePerMember > 0) {
+      party.members.forEach(m => { d.points[m.tag] = (d.points[m.tag] || 0) + sharePerMember })
+      mcSaveWebData()
+    }
+  }
+  party.result = {
+    cleared, floorLogs, dungeonName: dungeon.name, rewardPoints, sharePerMember,
+    party: partyMonsters.map(pm => ({ nickname: pm.nickname, name: pm.name, power: pm.power, points: d.points[pm.tag] || 0 })),
+  }
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
 })
 // 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
 // register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.

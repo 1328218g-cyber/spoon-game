@@ -4020,10 +4020,40 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <textarea id="mcMsgBossNoActive" style="height:44px">⚠️ 지금 진행 중인 보스전이 없어요.</textarea>
           <label style="margin-top:10px">아무도 참여 안 했을 때</label>
           <textarea id="mcMsgBossNoParticipants" style="height:44px">💨 아무도 도전하지 않아서 보스 [{monster}]이(가) 조용히 사라졌어요...</textarea>
-          <label style="margin-top:10px">보스 격파 결과</label>
+
+          <div class="hint" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">🎲 보스를 격파하면 대미지(공격력) 순이 아니라, 참여자들이 채팅으로 주사위를 굴려서 <b>가장 높은 눈이 나온 사람</b>이 보상을 가져가요.</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:8px">
+            <div><label>주사위 명령어</label><input type="text" id="mcCmdBossRoll" value="!주사위" style="max-width:220px"></div>
+            <div><label>주사위 굴리는 시간 (초)</label><input type="number" id="mcBossRollWindowSec" value="30" min="5" max="600"></div>
+          </div>
+          <label style="margin-top:10px">격파 직후 주사위 안내</label>
+          <textarea id="mcMsgBossRollPrompt" style="height:56px">⚔️ 보스 [{monster}] 격파! 보상은 주사위 대결로 정해요 — 참여자분들은 {sec}초 안에 {cmd}로 주사위를 굴려주세요!</textarea>
+          <label style="margin-top:10px">주사위 굴림 결과 (개인별)</label>
+          <textarea id="mcMsgBossRollResult" style="height:44px">🎲 {nickname}님이 주사위를 굴려 {roll}이 나왔어요!</textarea>
+          <label style="margin-top:10px">이미 굴렸을 때</label>
+          <textarea id="mcMsgBossRollAlready" style="height:44px">⚠️ {nickname}님은 이미 주사위를 굴렸어요! ({roll})</textarea>
+          <label style="margin-top:10px">보스전 미참여자가 굴렸을 때</label>
+          <textarea id="mcMsgBossRollNotParticipant" style="height:44px">⚠️ 보스전에 참여하지 않으셨어요.</textarea>
+          <label style="margin-top:10px">아무도 주사위를 안 굴렸을 때</label>
+          <textarea id="mcMsgBossRollNoOne" style="height:44px">💨 아무도 주사위를 굴리지 않아서 보상이 사라졌어요...</textarea>
+          <label style="margin-top:10px">최종 결과 (주사위 우승자에게 보상 지급)</label>
           <textarea id="mcMsgBossResult" style="height:70px">🎉 보스 [{monster}] 격파! 참여 {count}명 · 총 공격력 {totalPower}
-🏆 MVP {mvpNickname}님(공격력 {mvpPower}) → 🌈이로치 [{reward}] 획득!</textarea>
-          <div class="hint" style="margin-top:8px">변수: {monster}, {cmdBossJoin}, {sec}, {nickname}, {power}, {count}, {totalPower}, {mvpNickname}, {mvpPower}, {reward}</div>
+🎲 주사위 대결 결과 {mvpNickname}님이 {mvpPower} 눈으로 승리! → 🌈이로치 [{reward}] 획득!</textarea>
+          <div class="hint" style="margin-top:8px">변수: {monster}, {cmdBossJoin}, {cmd}(={cmdBossRoll}), {sec}, {nickname}, {power}, {roll}, {count}, {totalPower}, {mvpNickname}(주사위 우승자), {mvpPower}(우승 주사위 눈), {reward}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">🗺️ 던전 탐험</div>
+          <p class="hint" style="margin-bottom:12px">채팅 명령어가 아니라 <b>웹 도감 페이지의 "탐험" 버튼</b>으로만 진행돼요. 시청자 <b>3~4명이 코드 하나로 파티를 모아</b>, 각자 몬스터 1마리씩 데리고 함께 도전해요. 던전 몬스터는 아래서 고른 카탈로그 몬스터를 그대로 쓰되 <b>공격력을 자동으로 2배</b>로 쳐서 더 강하게 등장하고, <b>타입 상성</b>까지 반영한 파티 총 피해량이 그 층의 체력(공격력×2) 이상이어야 층을 넘어가요. 한 층이라도 못 넘으면 실패, 전 층 클리어하면 <b>보상 포인트를 파티원 수만큼 균등하게</b> 나눠 받아요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
+            <div><label>최소 파티 인원</label><input type="number" id="mcDungeonMinParty" value="3" min="1" max="8"></div>
+            <div><label>최대 파티 인원</label><input type="number" id="mcDungeonMaxParty" value="4" min="1" max="8"></div>
+          </div>
+          <div class="btn-row" style="grid-template-columns:1fr;margin-top:10px">
+            <div><label>재도전 쿨타임 (초) <span class="hint" style="margin:0">— 파티원 중 한 명이라도 쿨타임이면 시작 불가</span></label><input type="number" id="mcDungeonCooldownSec" value="60" min="0" max="3600"></div>
+          </div>
+          <label style="margin-top:14px">던전 목록</label>
+          <div id="mcDungeonList" style="display:flex;flex-direction:column;gap:10px;margin-top:6px"></div>
+          <button class="btn-gray" style="width:100%;margin-top:10px" onclick="addMcDungeon()">+ 던전 추가</button>
         </div>
       </div>
 
@@ -10577,6 +10607,17 @@ async function loadMonsterCatch(){
     document.getElementById('mcMsgBossNoActive').value=s.msgBossNoActive||'';
     document.getElementById('mcMsgBossNoParticipants').value=s.msgBossNoParticipants||'';
     document.getElementById('mcMsgBossResult').value=s.msgBossResult||'';
+    document.getElementById('mcCmdBossRoll').value=s.cmdBossRoll||'!주사위';
+    document.getElementById('mcBossRollWindowSec').value=s.bossRollWindowSec!=null?s.bossRollWindowSec:30;
+    document.getElementById('mcMsgBossRollPrompt').value=s.msgBossRollPrompt||'';
+    document.getElementById('mcMsgBossRollResult').value=s.msgBossRollResult||'';
+    document.getElementById('mcMsgBossRollAlready').value=s.msgBossRollAlready||'';
+    document.getElementById('mcMsgBossRollNotParticipant').value=s.msgBossRollNotParticipant||'';
+    document.getElementById('mcMsgBossRollNoOne').value=s.msgBossRollNoOne||'';
+    document.getElementById('mcDungeonMinParty').value=s.dungeonMinParty!=null?s.dungeonMinParty:3;
+    document.getElementById('mcDungeonMaxParty').value=s.dungeonMaxParty!=null?s.dungeonMaxParty:4;
+    document.getElementById('mcDungeonCooldownSec').value=s.dungeonCooldownSec!=null?s.dungeonCooldownSec:60;
+    mcDungeons=(s.dungeons||[]).map(x=>({...x}));
     const shop=s.shop||{};
     document.getElementById('mcCmdShop').value=shop.cmdShop||'!상점';
     document.getElementById('mcMsgShopList').value=shop.msgShopList||'';
@@ -10587,6 +10628,7 @@ async function loadMonsterCatch(){
     renderMcShopItems();
     mcMonsters=(s.monsters||[]).map(x=>({...x}));
     renderMcMonsters();
+    renderMcDungeonList(); // ⚠️ mcMonsters를 채운 뒤에 그려야 던전 층 편집기의 몬스터 드롭다운이 제대로 나온다
     // 🐾 [자동화] 몬스터가 하나도 등록 안 되어있으면(첫 사용) 포켓몬 1세대 151마리를 자동으로
     // 등록하고 곧바로 저장까지 해준다 — 예전엔 "일괄 등록" 버튼 누르고 또 "저장"까지 따로
     // 눌러야 했는데, 그 두 단계를 사람이 직접 안 해도 되게 자동으로 처리한다.
@@ -10656,6 +10698,54 @@ function addMcShopItem(){
 function removeMcShopItemAt(i){
   mcShopItems.splice(i,1);
   renderMcShopItems();
+}
+
+let mcDungeons=[];
+function renderMcDungeonList(){
+  const wrap=document.getElementById('mcDungeonList');
+  if(!mcDungeons.length){
+    wrap.innerHTML='<div class="hint">등록된 던전이 없어요. "+ 던전 추가"로 만들어보세요.</div>';
+    return;
+  }
+  const monsterOptions=(selectedId)=>`<option value="">-- 몬스터 선택 --</option>`+mcMonsters.map(m=>`<option value="${escapeAttr(m.id)}" ${String(m.id)===String(selectedId)?'selected':''}>${escapeHtml(m.name)} (공격력 ${m.power}→던전 ${Math.round((Number(m.power)||10)*2)})</option>`).join('');
+  wrap.innerHTML=mcDungeons.map((d,i)=>`
+    <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <input type="text" value="${escapeAttr(d.name||'')}" placeholder="예: 초급 던전" style="flex:1;font-weight:600" oninput="mcDungeons[${i}].name=this.value">
+        <button class="icon-btn danger" onclick="removeMcDungeonAt(${i})" title="삭제">🗑</button>
+      </div>
+      <label style="margin-top:0">성공 시 보상 포인트 (파티원 수만큼 균등 분배, 둘이면 반반)</label>
+      <input type="number" min="0" value="${d.rewardPoints!=null?d.rewardPoints:0}" oninput="mcDungeons[${i}].rewardPoints=Number(this.value)||0">
+      <label style="margin-top:10px">층 구성 (순서대로 등장, 공격력은 자동 2배 적용)</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        ${(d.floors||[]).map((f,fi)=>`
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="hint" style="margin:0;min-width:34px">${fi+1}층</span>
+            <select style="flex:1" onchange="mcDungeons[${i}].floors[${fi}].monsterId=this.value">${monsterOptions(f.monsterId)}</select>
+            <button class="icon-btn danger" onclick="removeMcDungeonFloor(${i},${fi})" title="이 층 삭제">🗑</button>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn-gray" style="width:100%;margin-top:8px;padding:8px" onclick="addMcDungeonFloor(${i})">+ 층 추가</button>
+    </div>
+  `).join('');
+}
+function addMcDungeon(){
+  mcDungeons.push({id:'new'+Date.now()+Math.floor(Math.random()*1000),name:'',floors:[],rewardPoints:20});
+  renderMcDungeonList();
+}
+function addMcDungeonFloor(i){
+  if(!mcDungeons[i].floors) mcDungeons[i].floors=[];
+  mcDungeons[i].floors.push({monsterId:''});
+  renderMcDungeonList();
+}
+function removeMcDungeonFloor(i,fi){
+  mcDungeons[i].floors.splice(fi,1);
+  renderMcDungeonList();
+}
+function removeMcDungeonAt(i){
+  mcDungeons.splice(i,1);
+  renderMcDungeonList();
 }
 
 function renderMcMonsters(){
@@ -10990,6 +11080,17 @@ async function saveMonsterCatch(){
     msgBossNoActive:document.getElementById('mcMsgBossNoActive').value,
     msgBossNoParticipants:document.getElementById('mcMsgBossNoParticipants').value,
     msgBossResult:document.getElementById('mcMsgBossResult').value,
+    cmdBossRoll:document.getElementById('mcCmdBossRoll').value,
+    bossRollWindowSec:document.getElementById('mcBossRollWindowSec').value,
+    msgBossRollPrompt:document.getElementById('mcMsgBossRollPrompt').value,
+    msgBossRollResult:document.getElementById('mcMsgBossRollResult').value,
+    msgBossRollAlready:document.getElementById('mcMsgBossRollAlready').value,
+    msgBossRollNotParticipant:document.getElementById('mcMsgBossRollNotParticipant').value,
+    msgBossRollNoOne:document.getElementById('mcMsgBossRollNoOne').value,
+    dungeonMinParty:document.getElementById('mcDungeonMinParty').value,
+    dungeonMaxParty:document.getElementById('mcDungeonMaxParty').value,
+    dungeonCooldownSec:document.getElementById('mcDungeonCooldownSec').value,
+    dungeons:mcDungeons,
     monsters:mcMonsters,
     greatBallBonus:document.getElementById('mcGreatBallBonus').value,
     shop:{
