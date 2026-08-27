@@ -5999,7 +5999,7 @@ function cleanupOldGiftCaptureBackgrounds() {
 // 10스푼 이상 선물을 보낼 때마다 자기 팀 점수로 쌓인다. 라운드가 넘어가면(예: 1일→11일)
 // 예전 라운드에서 쌓인 기록은 그대로 남고, 새 라운드에 다시 참여해야만 그 이후 선물이
 // 새 라운드 팀 점수로 집계된다 (자동 날짜 인식은 안 하고, DJ가 직접 라운드 전환 + 집계 시작/중지).
-const CHUSEOK_MIN_SPOONS = 10 // 이 이상 보낸 선물만 스코어로 집계
+const CHUSEOK_MIN_SPOONS_DEFAULT = 10 // ev.minSpoons가 없는 과거 데이터에 쓰는 기본값 — 이 이상 보낸 선물만 스코어로 집계
 function getChuseokSettings(djId, settings) {
   if (!settings.chuseokEvent) {
     settings.chuseokEvent = {
@@ -6007,12 +6007,17 @@ function getChuseokSettings(djId, settings) {
       currentRound: 1, // 1~3 중 지금 진행중인 라운드
       title: '팝블리네 추석명절특집',
       posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
+      minSpoons: CHUSEOK_MIN_SPOONS_DEFAULT, // 이 이상 보낸 선물만 스코어로 집계 — DJ가 설정페이지에서 직접 조절 가능
       rounds: [
         { teamA: '모듬전', teamB: '스팸세트' },
         { teamA: '사과', teamB: '곶감' },
         { teamA: '한우불고기', teamB: 'LA갈비' },
       ],
-      members: {}, // key -> { nickname, tag, round, team:'A'|'B', score, joinedAt }
+      members: {}, // key(=`${round}|t:태그` 또는 `${round}|n:닉네임`) -> { nickname, tag, round, team:'A'|'B', score, joinedAt }
+      // ⚠️ key에 라운드가 포함돼 있어서, 같은 사람이 라운드마다 별도의 기록을 갖는다 — 라운드가
+      // 넘어가도 예전 라운드 기록이 덮어써지지 않고 그대로 남는다. 과거엔 라운드 구분 없이
+      // 사람 기준으로만 키를 만들어서 라운드가 바뀌면 이전 기록이 사라졌는데, 아래 마이그레이션에서
+      // 기존 데이터를 이 새 키 형식으로 한 번만 옮겨준다.
       authKeys: {}, // code -> { webUserId, createdAt, expiresAt } — 공개 페이지 "채팅 인증"용
       webUsers: {}, // webUserId -> tag — 인증 완료된 웹 세션 ↔ 고유닉 연결
     }
@@ -6032,6 +6037,21 @@ function getChuseokSettings(djId, settings) {
   if (ev.posterImageUrl == null) ev.posterImageUrl = ''
   if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > 3) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
+  if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
+  // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
+  // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
+  // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
+  const legacyKeys = Object.keys(ev.members).filter(k => !/^[1-3]\|/.test(k))
+  if (legacyKeys.length) {
+    legacyKeys.forEach(k => {
+      const m = ev.members[k]
+      if (!m) { delete ev.members[k]; return }
+      const newKey = chuseokMemberKey(m.round || 1, m.nickname, m.tag)
+      if (!ev.members[newKey]) ev.members[newKey] = m
+      delete ev.members[k]
+    })
+    store.saveSettings(djId, { chuseokEvent: ev })
+  }
   return ev
 }
 const CHUSEOK_AUTH_KEY_TTL_MS = 10 * 60 * 1000
@@ -6045,10 +6065,23 @@ function chuseokCleanExpiredKeys(ev) {
   const now = Date.now()
   for (const k of Object.keys(ev.authKeys)) { if (!ev.authKeys[k] || ev.authKeys[k].expiresAt < now) delete ev.authKeys[k] }
 }
-function chuseokMemberKey(author, tag) {
+// 🔑 라운드가 포함된 키 — 같은 사람이라도 라운드별로 별도 기록을 갖게 해서, 라운드가 넘어가도
+// 예전 라운드 점수/참여기록이 덮어써지지 않고 남아있게 한다 (지난 라운드 조회 !추석N, !내추석에서 사용).
+function chuseokMemberKey(round, author, tag) {
   const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
-  if (t) return 't:' + t
-  return 'n:' + String(author || '').trim().toLowerCase()
+  const base = t ? ('t:' + t) : ('n:' + String(author || '').trim().toLowerCase())
+  return String(Math.max(1, Math.min(3, parseInt(round, 10) || 1))) + '|' + base
+}
+// 지금 라운드에 참여했으면 그걸 먼저 보여주고, 없으면 과거 라운드 중 가장 최근에 참여한 기록을 찾는다 (!내추석용)
+function chuseokFindMemberAnyRound(ev, author, tag) {
+  const cur = ev.members[chuseokMemberKey(ev.currentRound, author, tag)]
+  if (cur) return cur
+  let best = null
+  for (let r = 1; r <= 3; r++) {
+    const m = ev.members[chuseokMemberKey(r, author, tag)]
+    if (m && (!best || (m.joinedAt || 0) > (best.joinedAt || 0))) best = m
+  }
+  return best
 }
 let chuseokSaveDebounce = {}
 function saveChuseokDebounced(djId, ev) {
@@ -6080,10 +6113,10 @@ function handleChuseokDonationHook(djId, settings, author, tag, amount, comboCou
   const ev = getChuseokSettings(djId, settings)
   if (!ev.active) return
   const totalSpoons = Number(amount) * Math.max(1, Number(comboCount) || 1)
-  if (!(totalSpoons >= CHUSEOK_MIN_SPOONS)) return
-  const key = chuseokMemberKey(author, tag)
+  if (!(totalSpoons >= ev.minSpoons)) return
+  const key = chuseokMemberKey(ev.currentRound, author, tag) // 라운드가 포함된 키라, 이번 라운드에 참여해둔 기록이 있을 때만 잡힌다
   const member = ev.members[key]
-  if (!member || member.round !== ev.currentRound) return // 이번 라운드에 참여 안 해뒀으면 집계 안 함
+  if (!member) return // 이번 라운드에 참여 안 해뒀으면 집계 안 함
   member.score = Math.max(0, (Number(member.score) || 0) + totalSpoons)
   saveChuseokDebounced(djId, ev)
   console.log(`[추석이벤트:${djId}] ${author} +${totalSpoons}점 (팀 ${member.team === 'A' ? ev.rounds[ev.currentRound - 1].teamA : ev.rounds[ev.currentRound - 1].teamB}, 누적 ${member.score})`)
@@ -6128,8 +6161,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
 
   // !내추석
   if (cmd === '내추석') {
-    const key = chuseokMemberKey(author, tag)
-    const member = ev.members[key]
+    const member = chuseokFindMemberAnyRound(ev, author, tag)
     if (!member) {
       fishReply(djId, `🎑 ${ev.title} 🎑\n아직 이번 이벤트에 참여하지 않았어요. 참여하고 싶은 팀 이름을 채팅에 쳐보세요! (예: !${ev.rounds[ev.currentRound - 1].teamA})`)
       return
@@ -6157,12 +6189,12 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
   // !팀이름 — 참여(현재 라운드일 때만) + 순위 표시
   const found = chuseokFindTeamByName(ev, cmd)
   if (!found) return
-  const key = chuseokMemberKey(author, tag)
   let joinNote = ''
   if (ev.active && found.round === ev.currentRound) {
+    const key = chuseokMemberKey(found.round, author, tag) // 라운드가 포함된 키라 이 라운드 기록만 만들고, 지난 라운드 기록은 안 건드림
     const existing = ev.members[key]
-    if (!existing || existing.round !== ev.currentRound) {
-      ev.members[key] = { nickname: author, tag: tag || '', round: found.round, team: found.side, score: existing && existing.round === found.round ? existing.score : 0, joinedAt: Date.now() }
+    if (!existing) {
+      ev.members[key] = { nickname: author, tag: tag || '', round: found.round, team: found.side, score: 0, joinedAt: Date.now() }
       saveChuseokDebounced(djId, ev)
       joinNote = `✅ ${author}님, ${found.teamName}팀 참여 완료!\n`
     } else if (existing.team !== found.side) {
@@ -15519,11 +15551,12 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
   const prevPosterUrl = ev.posterImageUrl
-  const { title, active, currentRound, rounds, posterImageUrl } = req.body || {}
+  const { title, active, currentRound, rounds, posterImageUrl, minSpoons } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
   if (currentRound != null) ev.currentRound = Math.max(1, Math.min(3, parseInt(currentRound, 10) || 1))
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
+  if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
   if (Array.isArray(rounds) && rounds.length === 3) {
     ev.rounds = rounds.map((r, i) => ({
       teamA: String(r.teamA || '').trim() || ev.rounds[i].teamA,
@@ -15547,9 +15580,9 @@ app.post('/chuseok/add-member', auth.requireAuth, requireRequestModuleAccess('ch
   if (!nick) return res.json({ success: false, error: '닉네임을 입력해주세요' })
   const roundNum = Math.max(1, Math.min(3, parseInt(round, 10) || 1))
   const side = team === 'B' ? 'B' : 'A'
-  const key = chuseokMemberKey(nick, tag)
+  const key = chuseokMemberKey(roundNum, nick, tag) // 라운드가 포함된 키라, 다른 라운드로 옮겨도 그 라운드의 기존 기록은 그대로 남는다
   const existing = ev.members[key]
-  const keepScore = existing && existing.round === roundNum ? existing.score : 0
+  const keepScore = existing ? existing.score : 0
   ev.members[key] = { nickname: nick, tag: String(tag || '').trim(), round: roundNum, team: side, score: keepScore, joinedAt: Date.now() }
   store.saveSettings(req.djId, { chuseokEvent: ev })
   res.json({ success: true })
@@ -16214,6 +16247,17 @@ app.post('/announcement/seen', auth.requireAuth, (req, res) => {
 })
 app.get('/announcement/history', auth.requireAuth, (req, res) => {
   res.json({ success: true, history: store.getAnnouncementHistory() })
+})
+
+// 🎓 처음 오신 분 튜토리얼 — 최초 가입 후 딱 한 번만 자동으로 뜨게 서버(계정) 기준으로 관리한다.
+// localStorage 기준이 아니라서, 다른 기기/브라우저로 로그인해도 이미 본 계정이면 다시 안 뜬다.
+app.get('/tutorial/status', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, shouldShow: settings.tutorialShown === false })
+})
+app.post('/tutorial/seen', auth.requireAuth, (req, res) => {
+  store.saveSettings(req.djId, { tutorialShown: true })
+  res.json({ success: true })
 })
 
 // 🚨 서비스 상태 배너 — 점검/장애 등을 사이드바 상단에 계속 떠있는 배너로 표시

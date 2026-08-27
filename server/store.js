@@ -168,6 +168,11 @@ function defaultSettings() {
     autoJoinTags: [], // 다중 감시용 (여러 고유닉)
     autoJoinWatch: false,
     botEnabled: true, // 꺼두면 이 계정은 어떤 봇 명령어/자동멘트에도 반응하지 않는 순수 시청 모드가 된다
+    // 🎓 처음 오신 분 튜토리얼을 자동으로 띄웠는지 여부. true(기본값)면 자동으로는 안 띄운다 —
+    // signup() 안에서 신규가입 계정에 한해 false로 덮어써서, 그 계정만 최초 로그인 때 한 번 자동으로 뜨게 한다.
+    // (기존에 이미 가입된 계정들은 이 필드 자체가 없는 상태로 저장돼있는데, 그런 경우도 "이미 봤다"와
+    // 똑같이 취급해서 갑자기 튜토리얼이 뜨지 않게 한다 — 관련 로직은 /tutorial/status 참고)
+    tutorialShown: true,
     // 사이드바 각 메뉴별 ON/OFF. false로 꺼두면 그 메뉴 화면이 잠기고,
     // 채팅 명령어 처리 로직으로 이어지는 항목(실드/깃발/펀딩/단축키/지정인사/신청곡/
     // 룰렛/애청지수/퀴즈/입장설정/자동입장/채팅)은 실제로도 응답하지 않게 된다.
@@ -458,6 +463,8 @@ function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck =
   // 0으로 설정해두면 신규가입자도 처음부터 무제한으로 시작한다. 이후 관리자가 유저 관리 화면에서
   // 개별 유저의 만료일을 언제든 연장/해제할 수 있다.
   const settings = defaultSettings();
+  // 🎓 신규 가입 계정만 최초 로그인 때 튜토리얼이 자동으로 뜨게 false로 시작한다 (기본값은 true=이미 봄).
+  settings.tutorialShown = false;
   if (djId !== 'sum') {
     const trialDays = getDefaultTrialDays();
     if (trialDays > 0) {

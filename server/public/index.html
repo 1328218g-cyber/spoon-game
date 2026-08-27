@@ -3671,7 +3671,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="chuseokevent">
         <div class="card">
           <div class="card-title"><span>🎑 이벤트 기본 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveChuseokSettings()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:12px">라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 팀 이름을 채팅에 치면(예: <b>!모듬전</b>) 그 팀에 참여되고, "집계 시작"이 켜져있으면 <b>10스푼 이상</b> 선물을 보낼 때마다 자기 팀 점수로 쌓여요.<br>
+          <p class="hint" style="margin-bottom:12px">라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 팀 이름을 채팅에 치면(예: <b>!모듬전</b>) 그 팀에 참여되고, "집계 시작"이 켜져있으면 아래 <b>집계 스푼수</b> 이상 선물을 보낼 때마다 자기 팀 점수로 쌓여요.<br>
           라운드가 넘어가도 자동으로 마감되지 않아요 — 직접 "현재 라운드"를 바꾸고 "집계"를 껐다 켜야 해요. 예전 라운드 기록은 그대로 남고, 새 라운드에 다시 참여해야만 그 이후 선물이 집계돼요.</p>
           <label style="margin-top:0">이벤트 제목</label>
           <input type="text" id="csTitle" value="팝블리네 추석명절특집" style="max-width:320px">
@@ -3684,6 +3684,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
                 <option value="2">2라운드</option>
                 <option value="3">3라운드</option>
               </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="margin:0">집계 스푼수</label>
+              <input type="number" id="csMinSpoons" min="1" max="99999" value="10" style="width:90px;padding:6px 8px">
+              <span class="hint" style="margin:0">개 이상부터 집계</span>
             </div>
           </div>
           <label style="margin-top:16px">포스터 이미지</label>
@@ -4159,14 +4164,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <button class="btn-gray" id="tutorialPrevBtn" onclick="tutorialMove(-1)">← 이전</button>
       <button class="btn-connect" id="tutorialNextBtn" onclick="tutorialMove(1)">다음 →</button>
     </div>
-    <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="tutorialDontShowAgain"> 다시 보지 않기 <span class="hint-inline">(상단의 "❓ 튜토리얼" 버튼으로 언제든 다시 볼 수 있어요)</span></label>
+  </div>
+</div>
+<!-- 🖼️ 업데이트 공지 이미지 팝업 — 업데이트 공지(텍스트)랑 별개로 독립적으로 먼저 뜬다 -->
+<div id="announcementImageOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAnnouncementImageModal()">
+  <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
+    <div class="modal-title"><span>🖼️ 알림</span><button class="icon-btn" onclick="closeAnnouncementImageModal()">✕</button></div>
+    <img id="announcementImageOnly" src="" style="width:100%;border-radius:12px;display:block">
+    <button class="btn-connect" style="width:100%;margin-top:18px" onclick="closeAnnouncementImageModal()">확인</button>
   </div>
 </div>
 <!-- 📢 업데이트 공지 팝업 -->
 <div id="announcementOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAnnouncementModal()">
   <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
     <div class="modal-title"><span>📢 <span id="announcementTitle">업데이트 안내</span></span><button class="icon-btn" onclick="closeAnnouncementModal()">✕</button></div>
-    <img id="announcementImg" src="" style="width:100%;border-radius:12px;margin-bottom:14px;display:none">
     <div id="announcementBody" style="font-size:14px;line-height:1.75;white-space:pre-line"></div>
     <button class="btn-connect" style="width:100%;margin-top:18px" onclick="closeAnnouncementModal()">확인</button>
   </div>
@@ -4591,18 +4602,16 @@ const TUTORIAL_STEPS=[
 ];
 let tutorialStepIdx=0;
 
-function tutorialSeenKey(){ return 'tutorialSeen:'+(djId||'guest'); }
-
 function openTutorial(){
   tutorialStepIdx=0;
   document.getElementById('tutorialOverlay').style.display='flex';
   renderTutorialStep();
 }
-function closeTutorial(){
+async function closeTutorial(){
   document.getElementById('tutorialOverlay').style.display='none';
-  if(document.getElementById('tutorialDontShowAgain').checked){
-    try{ localStorage.setItem(tutorialSeenKey(),'1'); }catch(e){}
-  }
+  // 🎓 최초 가입 후 한 번만 자동으로 뜨게 하는 게 목적이라, 닫힐 때마다(끝까지 봤든 중간에 닫았든)
+  // 서버에 "봤음"으로 표시해둔다 — 이미 표시돼 있으면 그냥 덮어쓰는 거라 문제 없음.
+  try{ await fetch(SERVER+'/tutorial/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
 }
 function tutorialMove(dir){
   const next=tutorialStepIdx+dir;
@@ -4620,18 +4629,23 @@ function renderTutorialStep(){
   document.getElementById('tutorialBody').scrollTop=0;
 }
 function maybeAutoShowTutorial(){
-  // 📢 순서 변경: 신규/기존 유저 모두 업데이트 공지부터 먼저 체크하고,
-  // 공지가 없거나 확인 후에 신규 유저면 그때 튜토리얼을 띄운다.
-  const isNewUser=(()=>{ try{ return !localStorage.getItem(tutorialSeenKey()); }catch(e){ return false; } })();
-  checkAnnouncement(isNewUser);
+  // 📢 순서: 1) 업데이트 공지 이미지(있으면) → 2) 업데이트 공지 텍스트(있으면) → 3) 신규가입자면 튜토리얼.
+  // 튜토리얼은 브라우저 localStorage가 아니라 서버(가입 계정 기준)로 판단해서, 최초 가입 후 한 번만 뜨고
+  // 그 뒤로는 다른 기기/브라우저에서 로그인해도 다시 뜨지 않는다.
+  checkAnnouncement(true);
 }
 
-function maybeShowTutorialIfNew(){
-  try{ if(!localStorage.getItem(tutorialSeenKey())) openTutorial(); }catch(e){}
+async function maybeShowTutorialIfNew(){
+  try{
+    const res=await fetch(SERVER+'/tutorial/status',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success && d.shouldShow) openTutorial();
+  }catch(e){}
 }
 
 let currentAnnouncementId=null;
 let pendingTutorialAfterAnnouncement=false;
+let pendingAnnouncementBodyShow=null; // 이미지 팝업을 먼저 닫은 뒤에 이어서 보여줄 텍스트 팝업 정보
 async function checkAnnouncement(thenShowTutorialForNewUser){
   try{
     const res=await fetch(SERVER+'/announcement',{headers:authHeaders()});
@@ -4642,19 +4656,41 @@ async function checkAnnouncement(thenShowTutorialForNewUser){
     }
     currentAnnouncementId=d.announcement.id;
     pendingTutorialAfterAnnouncement=!!thenShowTutorialForNewUser;
-    document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
-    document.getElementById('announcementBody').textContent=d.announcement.content||'';
-    const imgEl=document.getElementById('announcementImg');
-    if(d.announcement.imageUrl){ imgEl.src=d.announcement.imageUrl; imgEl.style.display='block'; }
-    else { imgEl.style.display='none'; }
-    document.getElementById('announcementOverlay').style.display='flex';
+    pendingAnnouncementBodyShow={ title:d.announcement.title||'업데이트 안내', content:d.announcement.content||'' };
+    if(d.announcement.imageUrl){
+      // 🖼️ 이미지가 있으면 텍스트 팝업이랑 합치지 않고, 독립적인 이미지 팝업을 먼저 보여준다.
+      document.getElementById('announcementImageOnly').src=d.announcement.imageUrl;
+      document.getElementById('announcementImageOverlay').style.display='flex';
+    } else {
+      showAnnouncementBodyPopup();
+    }
   }catch(e){
     if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
   }
 }
+function showAnnouncementBodyPopup(){
+  const info=pendingAnnouncementBodyShow;
+  pendingAnnouncementBodyShow=null;
+  if(!info || !info.content){
+    // 내용 없이 이미지만 등록된 공지면 텍스트 팝업 없이 바로 마무리
+    finishAnnouncementFlow();
+    return;
+  }
+  document.getElementById('announcementTitle').textContent=info.title;
+  document.getElementById('announcementBody').textContent=info.content;
+  document.getElementById('announcementOverlay').style.display='flex';
+}
+function closeAnnouncementImageModal(){
+  document.getElementById('announcementImageOverlay').style.display='none';
+  showAnnouncementBodyPopup();
+}
 async function closeAnnouncementModal(){
   document.getElementById('announcementOverlay').style.display='none';
+  await finishAnnouncementFlow();
+}
+async function finishAnnouncementFlow(){
   if(currentAnnouncementId!=null){
+    currentAnnouncementId=null;
     try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
   }
   if(pendingTutorialAfterAnnouncement){
@@ -10240,6 +10276,7 @@ async function loadChuseokSettings(){
     document.getElementById('csTitle').value=s.title||'팝블리네 추석명절특집';
     document.getElementById('csActive').checked=!!s.active;
     document.getElementById('csCurrentRound').value=String(s.currentRound||1);
+    document.getElementById('csMinSpoons').value=String(s.minSpoons||10);
     csRounds=(s.rounds||csRounds).map(r=>({...r}));
     csMembers=s.members||[];
     csPosterUrl=s.posterImageUrl||'';
@@ -10346,6 +10383,7 @@ async function saveChuseokSettings(){
     title:document.getElementById('csTitle').value,
     active:document.getElementById('csActive').checked,
     currentRound:document.getElementById('csCurrentRound').value,
+    minSpoons:document.getElementById('csMinSpoons').value,
     rounds:csRounds,
   };
   try{
@@ -15603,6 +15641,24 @@ setInterval(()=>{
 // 🎬 선물 애니메이션 캡처판 — 이 패널을 보고 있을 때 5초마다 최신 상태(방금 받은 선물)를 다시 받아온다.
 setInterval(()=>{
   if(document.querySelector('.panel[data-panel="giftcapture"]')?.classList.contains('active')) loadGiftCapture();
+}, 5000);
+
+// 🎑 추석 팀배틀 이벤트 — 선물이 들어와도 그 처리는 SSE로 방송되지 않아서(팀 순위는 채팅
+// 명령어/공개페이지로 확인하는 구조라), 설정 페이지를 계속 보고 있으면 점수가 실제로는 쌓이고
+// 있는데도 참가자 목록엔 옛날 값(추가 당시의 0 등)이 그대로 남아있는 것처럼 보이는 문제가 있었다.
+// 이 패널을 보고 있을 때만 5초마다 참가자 목록/점수만 다시 받아와 갱신한다 (안전망) — 제목/라운드
+// 등 DJ가 입력 중일 수 있는 다른 필드는 건드리지 않도록 참가자 목록만 따로 갱신한다.
+async function refreshCsMembersOnly(){
+  try{
+    const res=await fetch(SERVER+'/chuseok/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    csMembers=d.settings.members||[];
+    renderCsMembers();
+  }catch(e){}
+}
+setInterval(()=>{
+  if(document.querySelector('.panel[data-panel="chuseokevent"]')?.classList.contains('active')) refreshCsMembersOnly();
 }, 5000);
 
 function updateSessionPill(d){
