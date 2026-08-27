@@ -353,6 +353,7 @@ function removeDuplicateCheckAllowedIp(ip) {
 // (관리자 계정의 settings 안에 저장해두고, 각 유저는 자기 settings에 마지막으로 본 공지 id를 기록해서
 //  다음에 접속했을 때 이미 본 공지면 다시 안 뜨게 한다)
 // 등록할 때마다 announcementHistory에도 같이 쌓아서, 유저가 지난 공지들을 "업데이트 내역"에서 볼 수 있게 한다.
+// ⚠️ 아래 "이미지 팝업"이랑은 완전히 독립된 별개 기능이다 — 텍스트 공지엔 이미지 필드가 없다.
 function getAnnouncement() {
   const djs = loadDjs();
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.announcement;
@@ -363,17 +364,52 @@ function getAnnouncementHistory() {
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.announcementHistory;
   return Array.isArray(v) ? v : [];
 }
-function setAnnouncement(title, content, imageUrl) {
+function setAnnouncement(title, content) {
   const djs = loadDjs();
   if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
   if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
-  const announcement = { id: Date.now(), title: String(title || '').trim(), content: String(content || '').trim(), imageUrl: String(imageUrl || '').trim(), createdAt: Date.now() };
+  const announcement = { id: Date.now(), title: String(title || '').trim(), content: String(content || '').trim(), createdAt: Date.now() };
   djs['sum'].settings.announcement = announcement;
   const history = Array.isArray(djs['sum'].settings.announcementHistory) ? djs['sum'].settings.announcementHistory : [];
   history.unshift(announcement) // 최신이 맨 앞
   djs['sum'].settings.announcementHistory = history.slice(0, 50) // 최근 50개까지만 보관
   saveDjs(djs);
   return { ok: true, announcement };
+}
+
+// 🖼️ 이미지 팝업 — 위 "업데이트 공지"(텍스트)랑 완전히 독립된 별개 기능. 로그인할 때 이 이미지 팝업이
+// 먼저 뜨고, 그 다음에 업데이트 공지(텍스트) 팝업이 뜬다. 각자 등록/이력/확인여부를 따로 관리한다.
+function getImagePopup() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.imagePopup;
+  return v && v.id ? v : null;
+}
+function getImagePopupHistory() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.imagePopupHistory;
+  return Array.isArray(v) ? v : [];
+}
+function setImagePopup(imageUrl) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const url = String(imageUrl || '').trim();
+  if (!url) return { ok: false, error: '이미지를 먼저 업로드해주세요' };
+  const popup = { id: Date.now(), imageUrl: url, createdAt: Date.now() };
+  djs['sum'].settings.imagePopup = popup;
+  const history = Array.isArray(djs['sum'].settings.imagePopupHistory) ? djs['sum'].settings.imagePopupHistory : [];
+  history.unshift(popup) // 최신이 맨 앞
+  djs['sum'].settings.imagePopupHistory = history.slice(0, 50) // 최근 50개까지만 보관
+  saveDjs(djs);
+  return { ok: true, popup };
+}
+// 지금 활성화된 이미지 팝업을 끈다 (더 이상 로그인할 때 안 뜸). 지난 이력(imagePopupHistory)은 그대로 남는다.
+function clearImagePopup() {
+  const djs = loadDjs();
+  if (!djs['sum'] || !djs['sum'].settings) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  djs['sum'].settings.imagePopup = null;
+  saveDjs(djs);
+  return { ok: true };
 }
 
 // 🚨 서비스 상태 배너 — 점검/장애 등 안내를 사이드바 상단에 항상 떠있는 배너로 표시한다.
@@ -908,6 +944,10 @@ module.exports = {
   getAnnouncement,
   setAnnouncement,
   getAnnouncementHistory,
+  getImagePopup,
+  setImagePopup,
+  clearImagePopup,
+  getImagePopupHistory,
   getStatusBanner,
   setStatusBanner,
   getSessionModuleGlobalOff,

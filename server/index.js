@@ -16234,9 +16234,9 @@ app.get('/announcement', auth.requireAuth, (req, res) => {
 })
 app.post('/announcement', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const { title, content, imageUrl } = req.body || {}
-  if (!String(content || '').trim() && !String(imageUrl || '').trim()) return res.json({ success: false, error: '공지 내용이나 이미지 중 하나는 입력해주세요' })
-  const result = store.setAnnouncement(title, content, imageUrl)
+  const { title, content } = req.body || {}
+  if (!String(content || '').trim()) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
+  const result = store.setAnnouncement(title, content)
   res.json(result.ok ? { success: true, announcement: result.announcement } : { success: false, error: result.error })
 })
 app.post('/announcement/seen', auth.requireAuth, (req, res) => {
@@ -16247,6 +16247,35 @@ app.post('/announcement/seen', auth.requireAuth, (req, res) => {
 })
 app.get('/announcement/history', auth.requireAuth, (req, res) => {
   res.json({ success: true, history: store.getAnnouncementHistory() })
+})
+
+// 🖼️ 이미지 팝업 — 업데이트 공지(텍스트)랑 완전히 독립된 별개 기능. 등록/이력/확인여부를 각각 따로 관리한다.
+app.get('/image-popup', auth.requireAuth, (req, res) => {
+  const popup = store.getImagePopup()
+  if (!popup) return res.json({ success: true, popup: null })
+  const settings = store.getSettings(req.djId) || {}
+  const seen = settings.lastSeenImagePopupId === popup.id
+  res.json({ success: true, popup, seen })
+})
+app.post('/image-popup', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { imageUrl } = req.body || {}
+  const result = store.setImagePopup(imageUrl)
+  res.json(result.ok ? { success: true, popup: result.popup } : { success: false, error: result.error })
+})
+app.post('/image-popup/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.clearImagePopup()
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+app.post('/image-popup/seen', auth.requireAuth, (req, res) => {
+  const popup = store.getImagePopup()
+  if (!popup) return res.json({ success: true })
+  store.saveSettings(req.djId, { lastSeenImagePopupId: popup.id })
+  res.json({ success: true })
+})
+app.get('/image-popup/history', auth.requireAuth, (req, res) => {
+  res.json({ success: true, history: store.getImagePopupHistory() })
 })
 
 // 🎓 처음 오신 분 튜토리얼 — 최초 가입 후 딱 한 번만 자동으로 뜨게 서버(계정) 기준으로 관리한다.

@@ -1030,21 +1030,30 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendAnnouncement()">📢 공지 보내기</button>
         </div>
         <div class="card">
-          <div class="card-title">🔔 업데이트 공지 (로그인 팝업)</div>
-          <p class="hint" style="margin-bottom:12px">위 실시간 공지랑은 달라요 — 이건 <b>등록해두면 그 뒤로 로그인하는 모든 유저</b>한테 딱 한 번 팝업창으로 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 한 번씩 떠요.</p>
+          <div class="card-title">🔔 업데이트 공지 (텍스트, 로그인 팝업)</div>
+          <p class="hint" style="margin-bottom:12px">위 실시간 공지랑은 달라요 — 이건 <b>등록해두면 그 뒤로 로그인하는 모든 유저</b>한테 딱 한 번 팝업창으로 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 한 번씩 떠요.<br>
+          아래 <b>"🖼️ 이미지 팝업"</b>이랑은 완전히 별개예요 — 여기는 글자만 관리해요. 지금 등록돼있는 공지가 있으면 아래 입력칸에 자동으로 불러와져요.</p>
           <label>제목</label>
           <input type="text" id="updateNoticeTitle" placeholder="예: 업데이트 안내 (2026.08.07)">
-          <label>내용 (이미지만 올릴 거면 비워둬도 돼요)</label>
+          <label>내용</label>
           <textarea id="updateNoticeContent" placeholder="예: 사주팔자 모듈이 추가됐어요! 모듈 마켓에서 켜보세요." style="height:90px"></textarea>
-          <label>이미지 (선택, 5MB 이하)</label>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <img id="updateNoticeImgPreview" src="" style="max-width:160px;max-height:100px;object-fit:contain;border-radius:8px;border:1px solid var(--border);display:none">
-            <input type="file" id="updateNoticeImgInput" accept="image/*" style="display:none" onchange="uploadUpdateNoticeImage(this.files[0])">
-            <button class="btn-gray" onclick="document.getElementById('updateNoticeImgInput').click()">🖼️ 이미지 업로드</button>
-            <button class="btn-gray" id="updateNoticeImgRemoveBtn" style="display:none" onclick="removeUpdateNoticeImage()">이미지 제거</button>
-          </div>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="postUpdateNotice()">🔔 공지 등록 (전체 유저에게 팝업)</button>
           <div id="updateNoticeCurrent" class="hint" style="margin-top:10px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🖼️ 이미지 팝업 (로그인 팝업)</div>
+          <p class="hint" style="margin-bottom:12px">위 "업데이트 공지"(텍스트)랑 완전히 독립된 별개 기능이에요. 등록해두면 로그인하는 모든 유저한테 <b>이미지 팝업이 먼저</b> 뜨고, 그 다음에 업데이트 공지(텍스트)가 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 떠요.<br>
+          지금 등록돼있는 이미지가 있으면 아래에 자동으로 불러와져요.</p>
+          <label>이미지 (5MB 이하)</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <img id="imagePopupPreview" src="" style="max-width:160px;max-height:100px;object-fit:contain;border-radius:8px;border:1px solid var(--border);display:none">
+            <input type="file" id="imagePopupInput" accept="image/*" style="display:none" onchange="uploadImagePopupImage(this.files[0])">
+            <button class="btn-gray" onclick="document.getElementById('imagePopupInput').click()">🖼️ 이미지 업로드</button>
+            <button class="btn-gray" id="imagePopupRemoveBtn" style="display:none" onclick="removeImagePopupImage()">이미지 제거</button>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveImagePopup()">🖼️ 이미지 팝업 등록 (전체 유저에게 팝업)</button>
+          <button class="btn-gray" id="imagePopupClearBtn" style="width:100%;margin-top:8px;display:none" onclick="clearImagePopupNow()">⛔ 지금 등록된 이미지 팝업 끄기 (더 이상 안 뜨게)</button>
+          <div id="imagePopupCurrent" class="hint" style="margin-top:10px"></div>
         </div>
         <div class="card">
           <div class="card-title"><span>🆕 신규 가입 기본 이용기간</span></div>
@@ -4630,10 +4639,10 @@ function renderTutorialStep(){
   document.getElementById('tutorialBody').scrollTop=0;
 }
 function maybeAutoShowTutorial(){
-  // 📢 순서: 1) 업데이트 공지 이미지(있으면) → 2) 업데이트 공지 텍스트(있으면) → 3) 신규가입자면 튜토리얼.
-  // 튜토리얼은 브라우저 localStorage가 아니라 서버(가입 계정 기준)로 판단해서, 최초 가입 후 한 번만 뜨고
-  // 그 뒤로는 다른 기기/브라우저에서 로그인해도 다시 뜨지 않는다.
-  checkAnnouncement(true);
+  // 📢 순서: 1) 이미지 팝업(있으면, 업데이트 공지랑 완전 별개) → 2) 업데이트 공지(텍스트, 있으면) →
+  // 3) 신규가입자면 튜토리얼. 튜토리얼은 브라우저 localStorage가 아니라 서버(가입 계정 기준)로
+  // 판단해서, 최초 가입 후 한 번만 뜨고 그 뒤로는 다른 기기/브라우저에서 로그인해도 다시 뜨지 않는다.
+  checkImagePopup(true);
 }
 
 async function maybeShowTutorialIfNew(){
@@ -4644,9 +4653,47 @@ async function maybeShowTutorialIfNew(){
   }catch(e){}
 }
 
+// 🖼️ 이미지 팝업 — 업데이트 공지(텍스트)랑 완전히 독립된 별개 기능. 자기만의 등록/확인여부를 갖는다.
+let currentImagePopupId=null;
+async function checkImagePopup(thenContinueToAnnouncement){
+  try{
+    const res=await fetch(SERVER+'/image-popup',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success||!d.popup||d.seen){
+      if(thenContinueToAnnouncement) checkAnnouncement(true);
+      return;
+    }
+    currentImagePopupId=d.popup.id;
+    document.getElementById('announcementImageOnly').src=d.popup.imageUrl;
+    document.getElementById('announcementImageOverlay').dataset.thenAnnouncement=thenContinueToAnnouncement?'1':'';
+    document.getElementById('announcementImageOverlay').style.display='flex';
+  }catch(e){
+    if(thenContinueToAnnouncement) checkAnnouncement(true);
+  }
+}
+async function closeAnnouncementImageModal(){
+  const overlay=document.getElementById('announcementImageOverlay');
+  overlay.style.display='none';
+  const thenContinueToAnnouncement=overlay.dataset.thenAnnouncement==='1';
+  overlay.dataset.thenAnnouncement='';
+  if(currentImagePopupId!=null){
+    currentImagePopupId=null;
+    try{ await fetch(SERVER+'/image-popup/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
+  }
+  if(thenContinueToAnnouncement) checkAnnouncement(true);
+}
+// 🔍 업데이트 내역 목록의 썸네일을 눌렀을 때 — 카드 안에 이미지를 그대로 박아넣지 않고, 로그인 때 쓰는
+// 것과 같은 독립 이미지 팝업으로 크게 보여준다. dataset.thenAnnouncement를 비워두므로, 닫아도 다른
+// 흐름(업데이트 공지/튜토리얼)으로 안 이어진다.
+function viewAnnouncementImage(url){
+  document.getElementById('announcementImageOnly').src=url;
+  document.getElementById('announcementImageOverlay').dataset.thenAnnouncement='';
+  document.getElementById('announcementImageOverlay').style.display='flex';
+}
+
+// 📢 업데이트 공지(텍스트) — 위 이미지 팝업이랑 완전히 독립된 별개 기능.
 let currentAnnouncementId=null;
 let pendingTutorialAfterAnnouncement=false;
-let pendingAnnouncementBodyShow=null; // 이미지 팝업을 먼저 닫은 뒤에 이어서 보여줄 텍스트 팝업 정보
 async function checkAnnouncement(thenShowTutorialForNewUser){
   try{
     const res=await fetch(SERVER+'/announcement',{headers:authHeaders()});
@@ -4657,39 +4704,15 @@ async function checkAnnouncement(thenShowTutorialForNewUser){
     }
     currentAnnouncementId=d.announcement.id;
     pendingTutorialAfterAnnouncement=!!thenShowTutorialForNewUser;
-    pendingAnnouncementBodyShow={ title:d.announcement.title||'업데이트 안내', content:d.announcement.content||'' };
-    if(d.announcement.imageUrl){
-      // 🖼️ 이미지가 있으면 텍스트 팝업이랑 합치지 않고, 독립적인 이미지 팝업을 먼저 보여준다.
-      document.getElementById('announcementImageOnly').src=d.announcement.imageUrl;
-      document.getElementById('announcementImageOverlay').style.display='flex';
-    } else {
-      showAnnouncementBodyPopup();
-    }
+    document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
+    document.getElementById('announcementBody').textContent=d.announcement.content||'';
+    document.getElementById('announcementOverlay').style.display='flex';
   }catch(e){
     if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
   }
 }
-function showAnnouncementBodyPopup(){
-  const info=pendingAnnouncementBodyShow;
-  pendingAnnouncementBodyShow=null;
-  if(!info || !info.content){
-    // 내용 없이 이미지만 등록된 공지면 텍스트 팝업 없이 바로 마무리
-    finishAnnouncementFlow();
-    return;
-  }
-  document.getElementById('announcementTitle').textContent=info.title;
-  document.getElementById('announcementBody').textContent=info.content;
-  document.getElementById('announcementOverlay').style.display='flex';
-}
-function closeAnnouncementImageModal(){
-  document.getElementById('announcementImageOverlay').style.display='none';
-  showAnnouncementBodyPopup();
-}
 async function closeAnnouncementModal(){
   document.getElementById('announcementOverlay').style.display='none';
-  await finishAnnouncementFlow();
-}
-async function finishAnnouncementFlow(){
   if(currentAnnouncementId!=null){
     currentAnnouncementId=null;
     try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
@@ -4823,7 +4846,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -6287,34 +6310,7 @@ async function sendAnnouncement(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
-let updateNoticeImgUrl='';
-function updateUpdateNoticeImgPreview(){
-  const img=document.getElementById('updateNoticeImgPreview');
-  const removeBtn=document.getElementById('updateNoticeImgRemoveBtn');
-  if(updateNoticeImgUrl){ img.src=updateNoticeImgUrl; img.style.display='block'; removeBtn.style.display='inline-block'; }
-  else { img.style.display='none'; removeBtn.style.display='none'; }
-}
-async function uploadUpdateNoticeImage(file){
-  if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
-  const reader=new FileReader();
-  reader.onload=async()=>{
-    try{
-      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
-      const d=await res.json();
-      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
-      updateNoticeImgUrl=d.url;
-      updateUpdateNoticeImgPreview();
-      showToast('이미지 업로드 완료 (아래 "공지 등록" 버튼을 눌러야 반영돼요)');
-    }catch(e){ showToast('오류: '+e.message); }
-  };
-  reader.readAsDataURL(file);
-}
-function removeUpdateNoticeImage(){
-  updateNoticeImgUrl='';
-  updateUpdateNoticeImgPreview();
-}
-
+// 🔔 업데이트 공지(텍스트) — 이미지 팝업이랑 완전히 별개. 여기는 글자만 다룬다.
 async function loadUpdateNoticeCurrent(){
   const box=document.getElementById('updateNoticeCurrent');
   if(!box)return;
@@ -6323,7 +6319,9 @@ async function loadUpdateNoticeCurrent(){
     const d=await res.json();
     if(d.success&&d.announcement){
       const dt=new Date(d.announcement.createdAt).toLocaleString('ko-KR');
-      box.textContent=`현재 등록된 공지: "${d.announcement.title||'(제목 없음)'}"${d.announcement.imageUrl?' 🖼️':''} (${dt} 등록)`;
+      box.textContent=`현재 등록된 공지: "${d.announcement.title||'(제목 없음)'}" (${dt} 등록)`;
+      document.getElementById('updateNoticeTitle').value=d.announcement.title||'';
+      document.getElementById('updateNoticeContent').value=d.announcement.content||'';
     }else{
       box.textContent='등록된 공지가 없어요.';
     }
@@ -6332,18 +6330,88 @@ async function loadUpdateNoticeCurrent(){
 async function postUpdateNotice(){
   const title=document.getElementById('updateNoticeTitle').value.trim();
   const content=document.getElementById('updateNoticeContent').value.trim();
-  if(!content && !updateNoticeImgUrl)return showToast('공지 내용이나 이미지 중 하나는 입력해주세요');
+  if(!content)return showToast('공지 내용을 입력해주세요');
   try{
-    const res=await fetch(SERVER+'/announcement',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title,content,imageUrl:updateNoticeImgUrl})});
+    const res=await fetch(SERVER+'/announcement',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({title,content})});
     const d=await res.json();
     if(d.success){
       showToast('공지를 등록했어요 🔔 다음 로그인부터 유저들에게 팝업으로 떠요');
       document.getElementById('updateNoticeTitle').value='';
       document.getElementById('updateNoticeContent').value='';
-      updateNoticeImgUrl='';
-      updateUpdateNoticeImgPreview();
       loadUpdateNoticeCurrent();
     }else showToast(d.error||'등록 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🖼️ 이미지 팝업 — 위 업데이트 공지(텍스트)랑 완전히 독립된 별개 기능. 여기는 이미지만 다룬다.
+let imagePopupPendingUrl='';
+function updateImagePopupPreview(){
+  const img=document.getElementById('imagePopupPreview');
+  const removeBtn=document.getElementById('imagePopupRemoveBtn');
+  if(imagePopupPendingUrl){ img.src=imagePopupPendingUrl; img.style.display='block'; removeBtn.style.display='inline-block'; }
+  else { img.style.display='none'; removeBtn.style.display='none'; }
+}
+async function uploadImagePopupImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      imagePopupPendingUrl=d.url;
+      updateImagePopupPreview();
+      showToast('이미지 업로드 완료 (아래 "이미지 팝업 등록" 버튼을 눌러야 반영돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeImagePopupImage(){
+  imagePopupPendingUrl='';
+  updateImagePopupPreview();
+}
+async function loadImagePopupCurrent(){
+  const box=document.getElementById('imagePopupCurrent');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/image-popup',{headers:authHeaders()});
+    const d=await res.json();
+    const clearBtn=document.getElementById('imagePopupClearBtn');
+    if(d.success&&d.popup){
+      const dt=new Date(d.popup.createdAt).toLocaleString('ko-KR');
+      box.textContent=`현재 등록된 이미지 팝업 (${dt} 등록)`;
+      imagePopupPendingUrl=d.popup.imageUrl||'';
+      updateImagePopupPreview();
+      clearBtn.style.display='block';
+    }else{
+      box.textContent='등록된 이미지 팝업이 없어요.';
+      clearBtn.style.display='none';
+    }
+  }catch(e){}
+}
+async function saveImagePopup(){
+  if(!imagePopupPendingUrl)return showToast('이미지를 먼저 업로드해주세요');
+  try{
+    const res=await fetch(SERVER+'/image-popup',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({imageUrl:imagePopupPendingUrl})});
+    const d=await res.json();
+    if(d.success){
+      showToast('이미지 팝업을 등록했어요 🖼️ 다음 로그인부터 유저들에게 팝업으로 떠요');
+      loadImagePopupCurrent();
+    }else showToast(d.error||'등록 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function clearImagePopupNow(){
+  if(!confirm('지금 등록된 이미지 팝업을 끌까요? 앞으로 로그인해도 더 이상 뜨지 않아요.'))return;
+  try{
+    const res=await fetch(SERVER+'/image-popup/clear',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})});
+    const d=await res.json();
+    if(d.success){
+      showToast('이미지 팝업을 껐어요');
+      imagePopupPendingUrl='';
+      updateImagePopupPreview();
+      loadImagePopupCurrent();
+    }else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -6653,7 +6721,6 @@ async function openAnnouncementHistory(){
       return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
         <div style="font-weight:700;margin-bottom:4px">${escapeHtml(a.title||'(제목 없음)')}</div>
         <div class="hint" style="margin-bottom:8px">${dt}</div>
-        ${a.imageUrl?`<img src="${escapeAttr(a.imageUrl)}" style="width:100%;border-radius:8px;margin-bottom:8px">`:''}
         <div style="font-size:13.5px;line-height:1.7;white-space:pre-line">${escapeHtml(a.content||'')}</div>
       </div>`;
     }).join('');
