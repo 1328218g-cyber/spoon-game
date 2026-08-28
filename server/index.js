@@ -207,16 +207,66 @@ async function backupToBase44() {
   console.log(`[Base44 백업] 완료 — 성공 ${okCount}건 / 실패 ${failCount}건 / 변경없음(건너뜀) ${skipCount}건 (전체 ${djIds.length}명)`)
 }
 
-// ⚠️ 지금은 djId별 멀티 계정 대신, 모든 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
+// ⚠️ 지금은 djId별 멀티 계정 대신, 대부분의 DJ가 관리자(sum) 계정의 토큰을 공유해서 사용한다.
 // (tokenManager 자체는 계속 djId 기반 멀티 계정을 지원하므로, 나중에 다시 DJ별로 나누고 싶으면
 //  아래 상수 대신 실제 djId를 넘기도록 되돌리기만 하면 된다.)
+// ⚠️ SHARED_TOKEN_DJID는 게임/설정 저장용 "관리자 공용 네임스페이스"로도 계속 쓰이기 때문에
+// (globalMonsterCatalog, worldBoss 등) 건드리지 않는다 — 웹소켓 접속 계정 선택 로직만 아래 풀로 분리.
 const SHARED_TOKEN_DJID = 'sum'
+
+// 🔀 공용 계정 풀 — 스푼이 계정 하나당 동시 접속(웹소켓) 개수를 제한하는 것으로 보여서,
+// 공용 계정 하나만 쓰면 동접 DJ가 일정 인원(약 19~20명)을 넘는 순간부터 새 DJ가 방에
+// 못 들어가게 된다. 공용 계정을 여러 개 등록해두고, 앞 계정이 SHARED_TOKEN_CAPACITY만큼
+// 차면 다음 계정으로 자동으로 넘겨서 받는다.
+// 풀에 넣을 계정은 실제로 그 djId로 에디봇에 가입한 뒤 "세션 연결" 화면에서 스푼 세션을
+// 올려둬야 한다(=본인 계정 취급). Railway 환경변수 SHARED_TOKEN_POOL에 "sum,sum2"처럼
+// 콤마로 나열하면 되고, 안 정해두면 기존처럼 sum 하나만 쓴다.
+const SHARED_TOKEN_POOL = (process.env.SHARED_TOKEN_POOL || SHARED_TOKEN_DJID)
+  .split(',').map(s => s.trim()).filter(Boolean)
+const SHARED_TOKEN_CAPACITY = Number(process.env.SHARED_TOKEN_CAPACITY || 18) // 계정 하나당 이 인원(동접)까지만 받고 다음 계정으로 넘김
+
+// 지금 그 공용 계정 토큰으로 실제 연결돼있는(room.isConnected) DJ가 몇 명인지 센다.
+// ⚠️ rooms를 직접 순회만 하고 getRoom()은 절대 안 부른다 — getRoom은 없으면 room을 새로 만들기
+// 때문에, 여기서 잘못 부르면 room 개수가 쓸데없이 계속 불어난다.
+function countConnectedOnToken(tokenDjId) {
+  let n = 0
+  for (const djId of Object.keys(rooms)) {
+    const room = rooms[djId]
+    if (room && room.isConnected && room.tokenDjId === tokenDjId) n++
+  }
+  return n
+}
+
+// 공용 계정 풀 중 지금 제일 여유 있는(세션 연결돼있고, 정원 안 찬) 계정을 고른다.
+// 전부 꽉 찼거나 세션이 없으면 그래도 뭔가는 리턴해야 하니 그중 가장 여유 있는 곳으로 폴백한다.
+function pickSharedTokenDjId() {
+  let fallback = null
+  let fallbackCount = Infinity
+  for (const tokenDjId of SHARED_TOKEN_POOL) {
+    if (!tokenManager.hasCookies(tokenDjId)) continue // 세션 연결 안 된 계정은 건너뜀
+    const count = countConnectedOnToken(tokenDjId)
+    if (count < SHARED_TOKEN_CAPACITY) return tokenDjId
+    if (count < fallbackCount) { fallbackCount = count; fallback = tokenDjId }
+  }
+  return fallback || SHARED_TOKEN_DJID
+}
+
 // 🔀 각 DJ가 본인 스푼 계정 세션을 직접 업로드했으면 그 계정 토큰을 쓰고,
-// 안 올렸으면(대부분의 경우) 지금까지처럼 관리자(sum)의 공용 계정 토큰을 그대로 쓴다.
-// tokenManager는 이미 djId별로 완전히 독립된 계정을 관리할 수 있게 만들어져 있어서(v2),
-// 이 함수 하나로 "쓰던 사람은 그대로, 원하는 사람만 자기 계정"이 자연스럽게 갈린다.
+// 안 올렸으면(대부분의 경우) 공용 계정 풀에서 여유 있는 계정을 골라서 쓴다.
+// ⚠️ getRoom()을 쓰지 않고 rooms[djId]를 직접 조회한다 — 이 함수는 15초마다 도는
+// 자동입장 감시(checkAdminAutoJoin)에서 "가입된 djId 전체"를 대상으로 호출되기 때문에,
+// 여기서 room을 새로 만들면 방송 안 하는 계정들 것까지 room 객체가 계속 쌓이게 된다.
+// 이미 room이 있는(=실제 접속을 시도해본 적 있는) DJ에 한해서만 배정을 room에 기억해두고
+// 재사용한다(재부팅 전까진 안 바뀜) — 없으면 그냥 매번 다시 고르되 아무것도 안 남긴다.
 function tokenDjIdFor(djId) {
-  return tokenManager.hasCookies(djId) ? djId : SHARED_TOKEN_DJID
+  if (tokenManager.hasCookies(djId)) return djId
+  const existingRoom = rooms[djId]
+  if (existingRoom && existingRoom.tokenDjId && SHARED_TOKEN_POOL.includes(existingRoom.tokenDjId)) {
+    return existingRoom.tokenDjId
+  }
+  const picked = pickSharedTokenDjId()
+  if (existingRoom) existingRoom.tokenDjId = picked
+  return picked
 }
 
 // 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
@@ -14833,6 +14883,24 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
   ws.on('unexpected-response', (req, res) => {
     console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
+    // 🚨 핸드셰이크 자체가 거절된 경우엔 'open'도 'close'도 안 타서, 정리 안 해두면
+    // room.ws가 죽은 채로 남고 프론트는 방금 보낸 "접속중" 상태에 영원히 멈춰있게 된다.
+    // (close 핸들러랑 같은 정리 로직 + 실패했다는 걸 프론트에 알려주는 브로드캐스트만 추가)
+    try { ws.terminate() } catch (e) {}
+    room.isConnected = false
+    room.ws = null
+    stopLeavePolling(djId)
+    stopLottoAutoTimer(djId)
+    stopStockTimers(djId)
+    clearReminderTimers(room)
+    clearTtsAccess(room)
+    clearQuizTimers(room)
+    if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+    const reason = (res.statusCode === 429 || res.statusCode === 403)
+      ? '같은 계정으로 동시에 접속 가능한 방 개수를 초과했어요. (관리자 공용 계정을 쓰고 있다면 본인 계정 세션을 연결하면 이 제한을 피할 수 있어요)'
+      : `스푼 서버가 연결을 거절했어요 (status ${res.statusCode})`
+    broadcast({ type: 'status', djId, isConnected: false })
+    broadcast({ type: 'autojoin', djId, status: 'error', msg: reason })
   })
 
   ws.on('open', () => {
