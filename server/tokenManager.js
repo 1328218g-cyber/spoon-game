@@ -90,7 +90,19 @@ async function closeBrowserSafely(browser) {
     console.log('[tokenManager] 브라우저 정상 종료 실패 → 강제 종료 시도:', e.message)
     try {
       const proc = browser.process && browser.process()
-      if (proc && !proc.killed) proc.kill('SIGKILL')
+      if (proc && !proc.killed && proc.pid) {
+        // 🚨 proc.kill()은 크롬 메인 프로세스 하나만 죽인다. 크롬은 렌더러/GPU/네트워크
+        // 서비스 같은 하위 프로세스를 같이 띄우는데, 메인만 죽이면 그것들이 고아가 돼서
+        // (컨테이너엔 좀비를 정리해줄 별도 init이 없어서) 좀비로 계속 쌓인다.
+        // Puppeteer는 브라우저를 자신만의 프로세스 그룹으로 띄워두므로, PID를 음수로 넘기면
+        // (process.kill(-pid, ...)) 그 그룹 전체를 한번에 죽여서 하위 프로세스까지 정리된다.
+        try {
+          process.kill(-proc.pid, 'SIGKILL')
+        } catch (groupErr) {
+          // 그룹킬이 안 먹히는 환경(플랫폼 차이 등)이면 최소한 메인 프로세스라도 죽인다.
+          proc.kill('SIGKILL')
+        }
+      }
     } catch (_) { /* ignore */ }
   }
 }
