@@ -20085,10 +20085,33 @@ app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
 
 // 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
 // 각자 본인 계정을 연결해뒀으면 그 계정으로, 아니면 관리자(sum) 공용 계정으로 입장한다.
+// 🚦 roomToken 발급(=크롬 실행)이 계속 실패하는 djId를 15초마다 무한 재시도하면, 실패할
+// 때마다 크롬 실행 시도가 쌓여서 좀비 프로세스만 계속 만들어낼 수 있다. 연속 실패 횟수에 따라
+// 재시도 간격을 늘려서(백오프) 폭주를 막는다 — 성공하면 즉시 초기화된다.
+const roomTokenFailState = {} // { [djId]: { failCount, nextRetryAt } }
+function roomTokenBackoffMs(failCount) {
+  return Math.min(failCount, 6) * 30000 // 30초, 60초 ... 최대 3분
+}
+function isRoomTokenBackedOff(djId) {
+  const s = roomTokenFailState[djId]
+  return !!(s && s.nextRetryAt > Date.now())
+}
+function markRoomTokenFailure(djId) {
+  const s = roomTokenFailState[djId] || { failCount: 0 }
+  s.failCount++
+  s.nextRetryAt = Date.now() + roomTokenBackoffMs(s.failCount)
+  roomTokenFailState[djId] = s
+  console.log(`[roomToken:${djId}] 발급 실패 누적 ${s.failCount}회 → ${Math.round(roomTokenBackoffMs(s.failCount) / 1000)}초 뒤 재시도`)
+}
+function clearRoomTokenFailure(djId) {
+  delete roomTokenFailState[djId]
+}
+
 async function checkAdminAutoJoin() {
   for (const djId of store.listDjIds()) {
     if (!canAutoJoin(djId)) continue
     if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) continue // 이 계정(본인 것 또는 관리자 공용)에 아직 발급된 토큰이 없으면 건너뜀
+    if (isRoomTokenBackedOff(djId)) continue // roomToken 발급이 계속 실패 중이면 백오프 기간 동안 건너뜀
 
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
@@ -20135,6 +20158,12 @@ async function checkAdminAutoJoin() {
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
           const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+          if (!roomToken) {
+            markRoomTokenFailure(djId)
+            broadcast({ type: 'autojoin', djId, status: 'error', tag, msg: 'roomToken 발급에 계속 실패하고 있어요. 잠시 후 다시 시도해요.' })
+            break
+          }
+          clearRoomTokenFailure(djId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -20250,6 +20279,9 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) {
     return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
   }
+  if (isRoomTokenBackedOff(djId)) {
+    return res.json({ success: false, error: 'roomToken 발급이 계속 실패하고 있어서 잠시 대기 중이에요. 조금 뒤에 다시 시도해주세요.' })
+  }
   const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
   if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
 
@@ -20273,6 +20305,12 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 
     const liveId = String(status.current_live_id)
     const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+    if (!roomToken) {
+      markRoomTokenFailure(djId)
+      broadcast({ type: 'autojoin', djId, status: 'error', tag: cleanTag, msg: 'roomToken 발급에 실패했어요.' })
+      return res.json({ success: false, error: 'roomToken 발급에 실패했어요. 잠시 후 다시 시도해주세요.' })
+    }
+    clearRoomTokenFailure(djId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -20372,6 +20410,20 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
 // 본인 계정을 연결한 DJ의 상태는 /status(인증 필요)에서 tokenDjIdFor로 정확히 보여준다.
 app.get('/session/status', (req, res) => {
   res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
+})
+
+// 🔎 관리자(sum) 전용 — 공용 계정 풀이 실제로 어떤 상태인지(세션 연결 여부/토큰 발급 여부/
+// 지금 그 계정으로 몇 명 붙어있는지) 로그 안 뒤지고 바로 확인하려고 만든 진단용 엔드포인트.
+app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 볼 수 있어요' })
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId),
+    connected: countConnectedOnToken(tokenDjId),
+    capacity: SHARED_TOKEN_CAPACITY
+  }))
+  res.json({ success: true, pool })
 })
 
 app.get('/events', (req, res) => {
