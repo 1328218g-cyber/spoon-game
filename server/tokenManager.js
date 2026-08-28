@@ -81,6 +81,7 @@ async function launchBrowser() {
 // 그래서 일정 시간 안에 안 닫히면 프로세스를 강제로 죽인다(SIGKILL).
 async function closeBrowserSafely(browser) {
   if (!browser) return
+  const proc = browser.process && browser.process()
   try {
     await Promise.race([
       browser.close(),
@@ -88,23 +89,21 @@ async function closeBrowserSafely(browser) {
     ])
   } catch (e) {
     console.log('[tokenManager] 브라우저 정상 종료 실패 → 강제 종료 시도:', e.message)
-    try {
-      const proc = browser.process && browser.process()
-      if (proc && !proc.killed && proc.pid) {
-        // 🚨 proc.kill()은 크롬 메인 프로세스 하나만 죽인다. 크롬은 렌더러/GPU/네트워크
-        // 서비스 같은 하위 프로세스를 같이 띄우는데, 메인만 죽이면 그것들이 고아가 돼서
-        // (컨테이너엔 좀비를 정리해줄 별도 init이 없어서) 좀비로 계속 쌓인다.
-        // Puppeteer는 브라우저를 자신만의 프로세스 그룹으로 띄워두므로, PID를 음수로 넘기면
-        // (process.kill(-pid, ...)) 그 그룹 전체를 한번에 죽여서 하위 프로세스까지 정리된다.
-        try {
-          process.kill(-proc.pid, 'SIGKILL')
-        } catch (groupErr) {
-          // 그룹킬이 안 먹히는 환경(플랫폼 차이 등)이면 최소한 메인 프로세스라도 죽인다.
-          proc.kill('SIGKILL')
-        }
-      }
-    } catch (_) { /* ignore */ }
   }
+  // 🚨 browser.close()가 "성공"으로 끝나도, Puppeteer가 크롬 메인 프로세스만 정리하고
+  // 렌더러/GPU/네트워크 서비스 같은 하위 프로세스는 못 정리하는 경우가 있다(정상 종료 경로에서도
+  // 좀비가 쌓이는 게 실제로 확인됨). 그래서 위에서 정상 종료가 됐든 타임아웃났든 상관없이,
+  // 마지막에 항상 한 번 더 프로세스 그룹 전체를 정리한다. 이미 죽은 프로세스에 시그널을 보내면
+  // 그냥 에러(ESRCH)만 나고 아무 해가 없어서 안전하다.
+  try {
+    if (proc && proc.pid) {
+      try {
+        process.kill(-proc.pid, 'SIGKILL') // 그룹 전체(메인+하위 프로세스) 정리
+      } catch (groupErr) {
+        try { if (!proc.killed) proc.kill('SIGKILL') } catch (_) { /* 이미 죽었으면 무시 */ }
+      }
+    }
+  } catch (_) { /* ignore */ }
 }
 // Puppeteer(크롬)를 계정 여러 개가 동시에 띄우면 Railway의 적은 메모리로는
 // 죽어버릴 수 있다. 그래서 계정과 무관하게 항상 하나씩만 실행되도록 전역으로 줄 세운다.
