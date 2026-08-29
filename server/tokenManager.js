@@ -76,9 +76,12 @@ async function launchBrowser() {
     return await puppeteer.launch({ headless: 'new', args: LAUNCH_ARGS, protocolTimeout: PROTOCOL_TIMEOUT_MS })
   }
 }
-// browser.close()가 응답 없이 멈추거나 조용히 실패하면 Chrome 프로세스가 좀비로 남아
-// 메모리를 계속 잡아먹다가 결국 컨테이너 전체가 OOM으로 죽을 수 있다.
-// 그래서 일정 시간 안에 안 닫히면 프로세스를 강제로 죽인다(SIGKILL).
+
+// browser.close()가 응답 없이 멈추거나 조용히 실패하면 Chrome 프로세스가 좀비로 남는다.
+// 그래서 일정 시간 안에 안 닫히면 프로세스 "그룹" 전체를(메인+렌더러+crashpad 등 하위
+// 프로세스까지) 강제로 죽인다. 정상 종료가 성공했더라도, 하위 프로세스만 못 정리하고
+// 남는 경우가 있어서 마지막에 한 번 더 그룹킬을 시도한다 — 이미 죽은 프로세스에 시그널을
+// 보내는 건 에러만 나고 무해하므로 안전하다.
 async function closeBrowserSafely(browser) {
   if (!browser) return
   const proc = browser.process && browser.process()
@@ -90,11 +93,6 @@ async function closeBrowserSafely(browser) {
   } catch (e) {
     console.log('[tokenManager] 브라우저 정상 종료 실패 → 강제 종료 시도:', e.message)
   }
-  // 🚨 browser.close()가 "성공"으로 끝나도, Puppeteer가 크롬 메인 프로세스만 정리하고
-  // 렌더러/GPU/네트워크 서비스 같은 하위 프로세스는 못 정리하는 경우가 있다(정상 종료 경로에서도
-  // 좀비가 쌓이는 게 실제로 확인됨). 그래서 위에서 정상 종료가 됐든 타임아웃났든 상관없이,
-  // 마지막에 항상 한 번 더 프로세스 그룹 전체를 정리한다. 이미 죽은 프로세스에 시그널을 보내면
-  // 그냥 에러(ESRCH)만 나고 아무 해가 없어서 안전하다.
   try {
     if (proc && proc.pid) {
       try {
@@ -105,8 +103,57 @@ async function closeBrowserSafely(browser) {
     }
   } catch (_) { /* ignore */ }
 }
-// Puppeteer(크롬)를 계정 여러 개가 동시에 띄우면 Railway의 적은 메모리로는
-// 죽어버릴 수 있다. 그래서 계정과 무관하게 항상 하나씩만 실행되도록 전역으로 줄 세운다.
+
+// 🌐 크롬을 요청마다 새로 켰다 껐다 하지 않고, 서버가 켜져있는 동안 하나만 계속 재사용한다.
+// (매번 새 프로세스를 띄우고 강제종료하는 과정에서 렌더러/crashpad 같은 하위 프로세스가
+// 좀비로 새는 게 근본 원인이었다 — 아예 그 launch/kill 자체를 왕창 줄이는 게 제일 확실하다)
+// djId별 쿠키/스토리지 격리는 브라우저를 통째로 새로 켜는 대신, 매번 격리된 "브라우저
+// 컨텍스트"(시크릿 창과 같은 개념 — 쿠키가 다른 컨텍스트랑 완전히 분리됨)를 새로 만들고
+// 다 쓰면 그 컨텍스트만 닫는 방식으로 해결한다. 브라우저 프로세스 자체는 안 죽는다.
+let sharedBrowserPromise = null
+async function getSharedBrowser() {
+  if (sharedBrowserPromise) {
+    try {
+      const b = await sharedBrowserPromise
+      if (b && b.connected) return b
+    } catch (e) { /* 아래에서 재생성 */ }
+    sharedBrowserPromise = null
+  }
+  sharedBrowserPromise = launchBrowser()
+  const browser = await sharedBrowserPromise
+  browser.on('disconnected', () => {
+    console.log('[tokenManager] 공유 브라우저 연결이 끊겼어요 → 다음 요청 때 새로 켭니다')
+    sharedBrowserPromise = null
+  })
+  return browser
+}
+
+// 컨텍스트(=격리된 쿠키/스토리지 공간)만 닫는다 — 브라우저 프로세스 자체는 계속 살려둔다.
+async function closeContextSafely(context) {
+  if (!context) return
+  try {
+    await Promise.race([
+      context.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('context close timeout')), 5000)),
+    ])
+  } catch (e) {
+    console.log('[tokenManager] 컨텍스트 정리 실패(무시하고 계속):', e.message)
+  }
+}
+
+// 서버 종료 시(배포 재시작 등) 공유 브라우저까지 확실히 정리하고 싶을 때 쓰는 함수.
+// index.js에서 SIGTERM 등을 받았을 때 호출해주면 더 깔끔하지만, 필수는 아니다.
+async function shutdownSharedBrowser() {
+  if (!sharedBrowserPromise) return
+  try {
+    const b = await sharedBrowserPromise
+    await closeBrowserSafely(b)
+  } catch (_) { /* ignore */ }
+  sharedBrowserPromise = null
+}
+
+// Puppeteer(크롬) 작업을 계정과 무관하게 항상 하나씩만 실행되도록 전역으로 줄 세운다.
+// (브라우저 자체는 공유하지만, 페이지 이동/쿠키주입 같은 작업이 뒤섞이지 않게 순서를 지킨다)
 let puppeteerQueue = Promise.resolve()
 function withPuppeteerLock(fn) {
   const run = puppeteerQueue.then(() => fn())
@@ -238,9 +285,14 @@ function listAccountIds() {
 //   1) 먼저 쿠키를 심고 홈으로 가볍게 로드(domcontentloaded)
 //   2) 그 문서 컨텍스트에서 localStorage/sessionStorage 주입
 //   3) 이후 실제 목적지로 이동(reload 또는 goto) — 이때부터 로그인 상태로 인식됨
-async function newAuthenticatedPage(browser, djId) {
+async function newAuthenticatedPage(djId) {
+  const browser = await getSharedBrowser()
+  // 격리된 컨텍스트(시크릿 창과 같은 개념) — 다른 djId 작업이랑 쿠키가 절대 안 섞인다.
+  const context = browser.createBrowserContext
+    ? await browser.createBrowserContext()
+    : await browser.createIncognitoBrowserContext()
   const a = getAccount(djId)
-  const page = await browser.newPage()
+  const page = await context.newPage()
   await page.setUserAgent(CHROME_UA)
   page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS)
   page.setDefaultTimeout(NAV_TIMEOUT_MS)
@@ -258,7 +310,7 @@ async function newAuthenticatedPage(browser, djId) {
     }, a.localStorage || {}, a.sessionStorage || {})
   }
 
-  return page
+  return { page, context }
 }
 
 // 방 입장 시 발급되는 roomToken(x-live-authorization)은 REST API로 직접 발급받을 수 없고,
@@ -283,10 +335,11 @@ async function fetchRoomToken(djId, liveId) {
 }
 
 async function fetchRoomTokenInner(djId, liveId) {
-  let browser
+  let context
   try {
-    browser = await launchBrowser()
-    const page = await newAuthenticatedPage(browser, djId)
+    const opened = await newAuthenticatedPage(djId)
+    const page = opened.page
+    context = opened.context
     await page.setRequestInterception(true)
 
     let captured = ''
@@ -308,8 +361,8 @@ async function fetchRoomTokenInner(djId, liveId) {
       console.log(`[tokenManager:${djId}] ⚠️ 로그인 화면으로 리다이렉트됨 — 세션이 만료된 것으로 보입니다.`)
     }
 
-    await closeBrowserSafely(browser)
-    browser = null
+    await closeContextSafely(context)
+    context = null
 
     if (captured) {
       console.log(`[tokenManager:${djId}] ✅ roomToken 발급 성공`)
@@ -321,7 +374,7 @@ async function fetchRoomTokenInner(djId, liveId) {
     console.log(`[tokenManager:${djId}] roomToken 발급 오류:`, e.message)
     return null
   } finally {
-    await closeBrowserSafely(browser)
+    await closeContextSafely(context)
   }
 }
 
@@ -342,10 +395,11 @@ async function refreshAccessToken(djId) {
 
 async function refreshAccessTokenInner(djId) {
   const a = getAccount(djId)
-  let browser
+  let context
   try {
-    browser = await launchBrowser()
-    const page = await newAuthenticatedPage(browser, djId)
+    const opened = await newAuthenticatedPage(djId)
+    const page = opened.page
+    context = opened.context
 
     // localStorage 주입 후 다시 로드해야 사이트가 로그인 상태로 인식한다.
     await page.reload({ waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS })
@@ -353,8 +407,8 @@ async function refreshAccessTokenInner(djId) {
     await new Promise((r) => setTimeout(r, 2000))
 
     const freshCookies = await page.cookies()
-    await closeBrowserSafely(browser)
-    browser = null
+    await closeContextSafely(context)
+    context = null
 
     const atCookie = freshCookies.find(c => c.name === 'spoon_at_kr')
 
@@ -376,7 +430,7 @@ async function refreshAccessTokenInner(djId) {
     if (onSessionExpired) onSessionExpired(djId)
     return null
   } finally {
-    await closeBrowserSafely(browser)
+    await closeContextSafely(context)
   }
 }
 
@@ -422,4 +476,5 @@ module.exports = {
   setOnSessionExpired,
   initFromDisk,
   listAccountIds,
+  shutdownSharedBrowser,
 }
