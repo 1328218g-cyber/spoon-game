@@ -10907,6 +10907,8 @@ function renderGmcMonsters(){
   wrap.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">'+gmcMonsters.map((m,i)=>`
     <div style="border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2)">
       <img src="${escapeAttr(m.image||'')}" style="width:48px;height:48px;object-fit:contain;${m.image?'':'display:none'}" onerror="this.style.display='none'">
+      <input type="file" accept="image/*" id="gmcImgFile${i}" style="display:none" onchange="uploadGmcMonsterImage(${i},this.files[0])">
+      <button class="btn-gray" style="width:100%;font-size:11px;padding:4px" onclick="document.getElementById('gmcImgFile${i}').click()">🖼️ 이미지 첨부</button>
       <input type="text" value="${escapeAttr(m.name||'')}" placeholder="몬스터 이름" style="width:100%;text-align:center;font-size:12px;font-weight:600;padding:5px 4px" oninput="gmcMonsters[${i}].name=this.value">
       <div style="display:flex;gap:4px;width:100%;align-items:center">
         <span class="hint" style="margin:0;font-size:10px;white-space:nowrap">가중치</span>
@@ -10942,6 +10944,23 @@ function renderGmcMonsters(){
 function addGmcMonster(){
   gmcMonsters.push({id:'gnew'+(gmcIdSeq++)+'_'+Date.now(),name:'',image:'',weight:10,catchRate:50,power:10,trait:'',types:['노말'],moves:[],evolvesTo:'',evolveCount:10,legendary:false});
   renderGmcMonsters();
+}
+async function uploadGmcMonsterImage(i,file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      showToast('이미지 업로드 중...');
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      gmcMonsters[i].image=d.url;
+      renderGmcMonsters();
+      showToast('이미지 첨부 완료! 저장을 눌러야 최종 반영돼요.');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
 }
 function removeGmcMonsterAt(i){
   gmcMonsters.splice(i,1);
