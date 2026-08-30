@@ -8,7 +8,7 @@
   html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
   #outer{width:100vw;min-height:150px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
   #canvas{position:relative;overflow:hidden}
-  #bgImgEl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;z-index:1}
+  #bgImgEl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;z-index:1;object-fit:cover}
   #fgWrap{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
   #animBox{position:absolute}
   #animBox img{display:block;width:100%;height:100%}
@@ -68,6 +68,18 @@
     // 크기/위치는 더 이상 슬라이더로 조절하지 않고 고정값 사용 (배경 대비 스푼 표준 화면 비율로 자동 계산된 크기 + 얼굴 근처 기본 위치)
     const FIXED_X_PCT = 50; // 가로 가운데
     const FIXED_Y_PCT = 35; // 세로 위쪽(얼굴 근처)
+
+    // 🎬 배경 비율("9:16" 등) 문자열을 캔버스 픽셀 크기로 변환한다. 긴 변을 1280으로 고정해두고
+    // 짧은 변을 비율에 맞게 계산한다 — 배경 이미지의 실제 픽셀 크기와는 무관하게, 항상 설정한
+    // 비율대로 캔버스가 잡힌다 (이미지는 이 캔버스에 꽉 채워지도록 잘려서(object-fit:cover) 들어간다).
+    function ratioToCanvasSize(ratioStr){
+      const parts = String(ratioStr||'9:16').split(':').map(Number);
+      const rw = parts[0], rh = parts[1];
+      if(!rw || !rh) return { w:720, h:1280 };
+      const REF = 1280; // 긴 변 기준 픽셀 수
+      if(rh >= rw) return { w: Math.round(REF*rw/rh), h: REF }; // 세로형/정사각형
+      return { w: REF, h: Math.round(REF*rh/rw) }; // 가로형
+    }
 
     function availableArea(){
       const controls = document.getElementById('controls');
@@ -143,12 +155,10 @@
           return;
         }
 
-        let hasBg = false;
-        canvasNaturalW = 720; canvasNaturalH = 1280;
-        if(d.bgImageUrl){
-          const bgSize = await probeImageSize(d.bgImageUrl);
-          if(bgSize){ canvasNaturalW = bgSize.w; canvasNaturalH = bgSize.h; hasBg = true; }
-        }
+        // 🎬 캔버스 크기는 이제 배경 이미지의 실제 픽셀 크기가 아니라, 설정해둔 비율로 정해진다.
+        const size = ratioToCanvasSize(d.aspectRatio);
+        canvasNaturalW = size.w; canvasNaturalH = size.h;
+        const hasBg = !!d.bgImageUrl;
 
         // 🎯 스푼 표준 세로영상 가로폭(추정치 720px) 대비 스티커 원본 크기 비율로 자동 계산.
         const REFERENCE_CANVAS_WIDTH = 720;
@@ -245,13 +255,25 @@
       isPlaying ? pause() : play();
     }
 
+    // 배경 이미지의 원본(iw,ih) 안에서, 목표 캔버스 비율(outW/outH)에 꽉 채워지도록(=object-fit:cover)
+    // 잘라낼 영역(sx,sy,sw,sh)을 계산한다. 화면에 보이는 것과 캡처 결과가 똑같이 나오게 하기 위함.
+    function coverCropRect(iw, ih, outW, outH){
+      const canvasRatio = outW/outH, imgRatio = iw/ih;
+      if(imgRatio > canvasRatio){
+        const sh = ih, sw = ih*canvasRatio;
+        return { sx:(iw-sw)/2, sy:0, sw, sh };
+      }
+      const sw = iw, sh = iw/canvasRatio;
+      return { sx:0, sy:(ih-sh)/2, sw, sh };
+    }
+
     // 📸 캡처 — 지금 보이는 화면(배경 + 지금 프레임의 애니메이션)을 그대로 이미지 파일로 저장한다.
     async function captureFrame(){
       pause(); // 캡처하는 동안 움직이지 않게 먼저 멈춤
       try{
-        // 🖼️ 화면엔 창 크기에 맞춰 축소해서 보여주고 있지만, 저장은 배경 원본 해상도 그대로 한다
-        // (화면 표시 크기로 캡처하면 원본보다 화질이 떨어져 보였음). 화면 좌표(px)는 그 축소 비율
-        // 그대로 배율만 키워서 원본 좌표로 환산한다.
+        // 🖼️ 화면엔 창 크기에 맞춰 축소해서 보여주고 있지만, 저장은 설정된 비율의 원본 해상도
+        // (canvasNaturalW x canvasNaturalH) 그대로 한다. 화면 좌표(px)는 그 축소 비율 그대로
+        // 배율만 키워서 원본 좌표로 환산한다.
         const scale = canvasElW > 0 ? (canvasNaturalW / canvasElW) : 1;
         const outW = canvasNaturalW, outH = canvasNaturalH;
         const outCanvas = document.createElement('canvas');
@@ -263,7 +285,9 @@
         const bgEl = document.getElementById('bgImgEl');
         if(bgEl){
           if(!bgEl.complete) await new Promise(r=>{ bgEl.onload=r; bgEl.onerror=r; });
-          ctx.drawImage(bgEl, 0, 0, outW, outH); // 원본 이미지 자체의 실제 해상도로 그대로 그림 (업스케일/다운스케일 없음)
+          // 화면에서 object-fit:cover로 잘려 보이는 것과 동일하게, 원본에서 같은 비율만큼 잘라서 그린다.
+          const crop = coverCropRect(bgEl.naturalWidth, bgEl.naturalHeight, outW, outH);
+          ctx.drawImage(bgEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, outW, outH);
         }
 
         const animBox = document.getElementById('animBox');
