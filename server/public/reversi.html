@@ -61,6 +61,9 @@
     display:flex;align-items:center;justify-content:center;flex-direction:column}
   .center-gauge-num{font-size:18px;font-weight:800;color:#f0c987}
   .center-gauge-label{font-size:8px;color:var(--sub);margin-top:-2px}
+  .center-gauge.low{background:conic-gradient(#e24b4a var(--gauge-pct,50%),#3a2a1a 0)}
+  .center-gauge.low .center-gauge-num{color:#ff8a8a}
+  .record-label{font-size:10.5px;color:var(--sub);margin-top:2px}
 
   .turn-banner{text-align:center;font-weight:700;font-size:14.5px;padding:10px;border-radius:10px;
     background:var(--surface2);border:1px solid var(--border)}
@@ -91,6 +94,18 @@
   .result-banner{text-align:center;padding:16px;border-radius:14px;font-weight:800;font-size:17px}
   .result-win{background:rgba(74,222,128,.15);color:#8ff0b0;border:1px solid rgba(74,222,128,.4)}
   .result-lose{background:rgba(248,113,113,.15);color:#ffb0b0;border:1px solid rgba(248,113,113,.4)}
+  .record-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;
+    justify-content:center;z-index:100;padding:20px}
+  .record-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;
+    max-width:280px;width:100%;text-align:center}
+  .record-modal-avatar{width:64px;height:64px;border-radius:50%;margin:0 auto 10px;overflow:hidden;
+    background:var(--surface2)}
+  .record-modal-avatar img{width:100%;height:100%;object-fit:cover}
+  .record-modal-name{font-size:16px;font-weight:800}
+  .record-modal-sub{font-size:12px;color:var(--sub);margin-top:2px}
+  .record-modal-stats{display:flex;justify-content:center;gap:20px;margin:16px 0}
+  .record-modal-num{font-size:22px;font-weight:800;color:var(--accent)}
+  .record-modal-label{font-size:11px;color:var(--sub);margin-top:2px}
   .result-draw{background:rgba(250,204,21,.15);color:#ffe58a;border:1px solid rgba(250,204,21,.4)}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2c2438;color:#fff;
     padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.4);
@@ -117,6 +132,9 @@ let authCode = '';
 let myTag = '';
 let roomCode = localStorage.getItem('reversi_room_'+djId) || '';
 let pollTimer = null;
+let tickTimer = null;
+let lobbyPollTimer = null;
+let currentRoomPlayers = { black: null, white: null };
 let authPollTimer = null;
 
 function showToast(msg){
@@ -177,14 +195,18 @@ function renderAuthStart(){
 function renderAuthCode(){
   document.getElementById('content').innerHTML = `
     <div class="card center">
-      <p class="hint" style="margin-top:0">방송 채팅창에 아래 명령어를 그대로 입력해주세요</p>
-      <div class="code-display">!도감인증 ${authCode}</div>
-      <div class="spinner"></div>
-      <p class="hint">입력하면 자동으로 인증돼요. 잠시만 기다려주세요...</p>
+      <p class="hint" style="margin-top:0">아래 코드를 복사해서 방송 채팅창에 붙여넣어주세요</p>
+      <div class="code-display" id="authCodeText">${authCode}</div>
+      <button class="btn-gray" onclick="copyAuthCode()">📋 코드 복사</button>
+      <div class="spinner" style="margin-top:14px"></div>
+      <p class="hint">채팅에 붙여넣으면 자동으로 인증돼요. 잠시만 기다려주세요...</p>
     </div>`;
 }
+function copyAuthCode(){
+  navigator.clipboard?.writeText(authCode).then(()=>showToast('코드를 복사했어요')).catch(()=>showToast('복사에 실패했어요'));
+}
 
-/* ── 로비 (방 만들기 / 코드로 참가) ── */
+/* ── 로비 (방 만들기 / 열린 방 목록에서 참가·관전) ── */
 function renderLobby(){
   clearInterval(pollTimer);
   document.getElementById('content').innerHTML = `
@@ -193,28 +215,56 @@ function renderLobby(){
       <button class="btn" onclick="createRoom()">➕ 새 방 만들기</button>
     </div>
     <div class="card">
-      <label class="hint" style="margin-top:0">코드로 참가하기</label>
-      <div class="row" style="margin-top:8px">
-        <input type="text" id="joinCodeInput" maxlength="5" placeholder="코드 5자리" autocomplete="off">
-      </div>
-      <div style="margin-top:8px"><button class="btn-gray" onclick="joinRoom()">참가하기</button></div>
+      <label class="hint" style="margin-top:0">지금 열려있는 방</label>
+      <div id="roomListWrap" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
     </div>`;
-  const input = document.getElementById('joinCodeInput');
-  input.addEventListener('input', ()=>{ input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g,''); });
-  input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') joinRoom(); });
+  refreshRoomList();
+  clearInterval(lobbyPollTimer);
+  lobbyPollTimer = setInterval(refreshRoomList, 3000);
+}
+async function refreshRoomList(){
+  const wrap = document.getElementById('roomListWrap');
+  if(!wrap) { clearInterval(lobbyPollTimer); return; }
+  const d = await api('/reversi/rooms');
+  if(!d.success || !d.rooms.length){
+    wrap.innerHTML = '<p class="hint" style="margin:0">아직 열린 방이 없어요. 방을 만들어서 시작해보세요!</p>';
+    return;
+  }
+  wrap.innerHTML = d.rooms.map(r=>{
+    const names = r.players.map(p=>escapeHtml(p.nickname)).join(' vs ') || '대기중';
+    const statusLabel = r.status==='waiting' ? '상대를 기다리는 중' : '대결 중';
+    const actionBtn = r.status==='waiting'
+      ? `<button class="btn-gray" style="width:auto;padding:8px 14px" onclick="joinRoomByCode('${r.code}')">참가</button>`
+      : `<button class="btn-gray" style="width:auto;padding:8px 14px" onclick="spectateRoomByCode('${r.code}')">관전</button>`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div>
+        <div style="font-size:13px;font-weight:700">${names}</div>
+        <div style="font-size:11.5px;color:var(--sub);margin-top:2px">${statusLabel}${r.spectatorCount?' · 관전 '+r.spectatorCount+'명':''}</div>
+      </div>
+      ${actionBtn}
+    </div>`;
+  }).join('');
 }
 async function createRoom(){
+  clearInterval(lobbyPollTimer);
   const d = await api('/reversi/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId})});
-  if(!d.success){ showToast(d.error||'방 생성 실패'); return; }
+  if(!d.success){ showToast(d.error||'방 생성 실패'); renderLobby(); return; }
   setRoomCode(d.code);
   renderRoom(d);
   startPolling();
 }
-async function joinRoom(){
-  const code = (document.getElementById('joinCodeInput').value||'').trim();
-  if(!code){ showToast('코드를 입력해주세요'); return; }
+async function joinRoomByCode(code){
+  clearInterval(lobbyPollTimer);
   const d = await api('/reversi/join', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code})});
-  if(!d.success){ showToast(d.error||'참가 실패'); return; }
+  if(!d.success){ showToast(d.error||'참가 실패'); renderLobby(); return; }
+  setRoomCode(d.code);
+  renderRoom(d);
+  startPolling();
+}
+async function spectateRoomByCode(code){
+  clearInterval(lobbyPollTimer);
+  const d = await api('/reversi/spectate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code})});
+  if(!d.success){ showToast(d.error||'관전 실패'); renderLobby(); return; }
   setRoomCode(d.code);
   renderRoom(d);
   startPolling();
@@ -224,7 +274,7 @@ async function joinRoom(){
 async function tryResumeRoom(){
   if(!roomCode) return false;
   const d = await api('/reversi/state?webUserId='+encodeURIComponent(webUserId)+'&code='+encodeURIComponent(roomCode));
-  if(!d.success || !d.myColor){ setRoomCode(''); return false; }
+  if(!d.success || (!d.myColor && !d.isSpectator)){ setRoomCode(''); return false; }
   renderRoom(d);
   startPolling();
   return true;
@@ -233,6 +283,7 @@ async function tryResumeRoom(){
 /* ── 대국 화면 ── */
 function startPolling(){
   clearInterval(pollTimer);
+  clearInterval(lobbyPollTimer);
   pollTimer = setInterval(pollState, 1400);
 }
 async function pollState(){
@@ -243,21 +294,33 @@ async function pollState(){
   if(d.status==='ended') clearInterval(pollTimer);
 }
 function renderRoom(d){
+  clearInterval(tickTimer);
+  closeRecordPopup();
   const me = d.players.find(p=>p.isMe);
   const opp = d.players.find(p=>!p.isMe);
   const myColor = d.myColor;
   const waiting = d.status==='waiting';
+  const spectating = !!d.isSpectator;
 
   let banner = '';
   if(waiting){
-    banner = `<div class="turn-banner">상대를 기다리는 중이에요 — 아래 코드를 공유해주세요</div>
-      <div class="code-display" style="font-size:26px">${escapeHtml(d.code)}</div>`;
+    banner = spectating
+      ? `<div class="turn-banner">상대를 기다리는 중이에요 (관전 중)</div>`
+      : `<div class="turn-banner">상대를 기다리는 중이에요 — 로비 목록에서 다른 사람이 참가할 거예요</div>
+      <p class="hint" style="text-align:center;margin:6px 0 0">방 번호 ${escapeHtml(d.code)}</p>`;
   } else if(d.status==='playing'){
-    const mine = d.turn===myColor;
-    banner = `<div class="turn-banner ${mine?'mine':''}">${mine?'✋ 당신 차례입니다':'상대 차례를 기다리는 중...'}</div>`;
+    if(spectating){
+      banner = `<div class="turn-banner">👀 관전 중 — ${d.turn===1?'흑돌':'백돌'} 차례</div>`;
+    } else {
+      const mine = d.turn===myColor;
+      banner = `<div class="turn-banner ${mine?'mine':''}">${mine?'✋ 당신 차례입니다':'상대 차례를 기다리는 중...'}</div>`;
+    }
   } else if(d.status==='ended'){
     let cls='result-draw', label='무승부예요';
-    if(d.winner==='draw'){ cls='result-draw'; label='무승부예요 🤝'; }
+    if(spectating){
+      cls='result-draw';
+      label = d.winner==='draw' ? '무승부로 끝났어요' : (d.winner===1?'흑돌 승리로 끝났어요':'백돌 승리로 끝났어요');
+    } else if(d.winner==='draw'){ cls='result-draw'; label='무승부예요 🤝'; }
     else if(d.winner===myColor){ cls='result-win'; label='승리했어요! 🎉'; }
     else { cls='result-lose'; label='아쉽게 패배했어요'; }
     banner = `<div class="result-banner ${cls}">${label}</div>`;
@@ -283,16 +346,20 @@ function renderRoom(d){
   const rowsHtml = Array.from({length:8},(_,i)=>`<span>${i+1}</span>`).join('');
 
   const meBlack = myColor===1;
-  const blackPlayer = meBlack ? me : opp;
-  const whitePlayer = !meBlack ? me : opp;
+  const blackPlayer = d.players.find(p=>p.color===1);
+  const whitePlayer = d.players.find(p=>p.color===2);
+  currentRoomPlayers = { black: blackPlayer, white: whitePlayer };
   function avatarHtml(p, colorClass, dim){
     const inner = (p && p.profileUrl)
       ? `<img class="piece-icon has-avatar" src="${escapeHtml(p.profileUrl)}" onerror="this.outerHTML='<div class=&quot;piece-icon ${colorClass}&quot;></div>'">`
       : `<div class="piece-icon ${colorClass}"></div>`;
-    return `<div class="avatar-wrap"><div class="avatar-ring ${dim?'dim':''}">${inner}</div></div>`;
+    const clickAttr = p ? `onclick="showRecordPopup('${colorClass}')" style="cursor:pointer"` : '';
+    return `<div class="avatar-wrap" ${clickAttr}><div class="avatar-ring ${dim?'dim':''}">${inner}</div></div>`;
   }
-  const emptyCells = 64 - counts.black - counts.white;
-  const gaugePct = Math.round((1 - emptyCells/60) * 100);
+  const limitSec = d.turnLimitSec || 30;
+  const remainSec = d.status==='playing' ? (d.turnRemainSec!=null?d.turnRemainSec:limitSec) : limitSec;
+  const timerPct = Math.round((remainSec/limitSec) * 100);
+  const timerLow = d.status==='playing' && remainSec<=10;
   document.getElementById('content').innerHTML = `
     <div class="players">
       <div class="player-group">
@@ -300,14 +367,14 @@ function renderRoom(d){
           ${avatarHtml(blackPlayer,'black', d.status==='playing' && d.turn!==1)}
           <div class="count-badge">${counts.black}</div>
         </div>
-        <div class="player-name">
-          <span class="color-label">흑돌</span> ${escapeHtml(blackPlayer?blackPlayer.nickname:'대기중')}${meBlack?' (나)':''}
+        <div class="player-name" ${blackPlayer?`onclick="showRecordPopup('black')" style="cursor:pointer"`:''}>
+          <span class="color-label">흑돌</span> ${escapeHtml(blackPlayer?blackPlayer.nickname:'대기중')}${(!spectating&&meBlack)?' (나)':''}
         </div>
       </div>
-      <div class="center-gauge" style="--gauge-pct:${gaugePct}%">
+      <div class="center-gauge ${timerLow?'low':''}" style="--gauge-pct:${timerPct}%">
         <div class="center-gauge-inner">
-          <div class="center-gauge-num">${emptyCells}</div>
-          <div class="center-gauge-label">남은칸</div>
+          <div class="center-gauge-num">${d.status==='playing'?remainSec:limitSec}</div>
+          <div class="center-gauge-label">${d.status==='playing'?'초 남음':'제한시간'}</div>
         </div>
       </div>
       <div class="player-group">
@@ -315,8 +382,8 @@ function renderRoom(d){
           <div class="count-badge">${counts.white}</div>
           ${avatarHtml(whitePlayer,'white', d.status==='playing' && d.turn!==2)}
         </div>
-        <div class="player-name">
-          <span class="color-label">백돌</span> ${escapeHtml(whitePlayer?whitePlayer.nickname:'대기중')}${!meBlack?' (나)':''}
+        <div class="player-name" ${whitePlayer?`onclick="showRecordPopup('white')" style="cursor:pointer"`:''}>
+          <span class="color-label">백돌</span> ${escapeHtml(whitePlayer?whitePlayer.nickname:'대기중')}${(!spectating&&!meBlack&&myColor!=null)?' (나)':''}
         </div>
       </div>
     </div>
@@ -328,8 +395,22 @@ function renderRoom(d){
         <div id="board">${boardHtml}</div>
       </div>
     </div>
-    <button class="btn-gray" onclick="leaveRoom()">${d.status==='ended'?'나가기':'기권하고 나가기'}</button>
+    ${d.spectatorCount?`<p class="hint" style="text-align:center;margin:0">👀 관전 ${d.spectatorCount}명</p>`:''}
+    <button class="btn-gray" onclick="leaveRoom()">${spectating?'관전 그만하기':(d.status==='ended'?'나가기':'기권하고 나가기')}</button>
   `;
+  if(d.status==='playing'){
+    let tickRemain = remainSec;
+    tickTimer = setInterval(()=>{
+      tickRemain = Math.max(0, tickRemain-1);
+      const numEl = document.querySelector('.center-gauge-num');
+      const gaugeEl = document.querySelector('.center-gauge');
+      if(!numEl||!gaugeEl){ clearInterval(tickTimer); return; }
+      numEl.textContent = tickRemain;
+      gaugeEl.style.setProperty('--gauge-pct', Math.round((tickRemain/limitSec)*100)+'%');
+      if(tickRemain<=10) gaugeEl.classList.add('low'); else gaugeEl.classList.remove('low');
+      if(tickRemain<=0) clearInterval(tickTimer);
+    }, 1000);
+  }
 }
 async function makeMove(row, col){
   const d = await api('/reversi/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code:roomCode, row, col})});
@@ -342,6 +423,32 @@ async function leaveRoom(){
   await api('/reversi/leave', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code:roomCode})});
   setRoomCode('');
   renderLobby();
+}
+
+function showRecordPopup(colorKey){
+  const p = currentRoomPlayers[colorKey];
+  if(!p) return;
+  const r = p.record || {wins:0,losses:0,draws:0};
+  const colorLabel = colorKey==='black' ? '흑돌' : '백돌';
+  const overlay = document.createElement('div');
+  overlay.className = 'record-modal-overlay';
+  overlay.onclick = (e)=>{ if(e.target===overlay) closeRecordPopup(); };
+  overlay.innerHTML = `
+    <div class="record-modal">
+      <div class="record-modal-avatar">${p.profileUrl?`<img src="${escapeHtml(p.profileUrl)}" onerror="this.style.display='none'">`:''}</div>
+      <div class="record-modal-name">${escapeHtml(p.nickname)}</div>
+      <div class="record-modal-sub">${colorLabel}</div>
+      <div class="record-modal-stats">
+        <div><div class="record-modal-num">${r.wins}</div><div class="record-modal-label">승</div></div>
+        <div><div class="record-modal-num">${r.losses}</div><div class="record-modal-label">패</div></div>
+        <div><div class="record-modal-num">${r.draws}</div><div class="record-modal-label">무</div></div>
+      </div>
+      <button class="btn-gray" onclick="closeRecordPopup()">닫기</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function closeRecordPopup(){
+  document.querySelectorAll('.record-modal-overlay').forEach(el=>el.remove());
 }
 
 function escapeHtml(s){
