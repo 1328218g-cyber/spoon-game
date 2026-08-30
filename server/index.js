@@ -14933,6 +14933,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     try { ws.terminate() } catch (e) {}
     room.isConnected = false
     room.ws = null
+    room.tokenDjId = null // 🔀 다음 접속 시도 때 그 시점 기준으로 여유 있는 공용 계정으로 다시 배정받게 초기화
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
     stopStockTimers(djId)
@@ -15286,6 +15287,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[${djId}] 스푼 연결 종료 code:`, code)
     room.isConnected = false
     room.ws = null
+    // 🔀 공용 계정 배정을 여기서 같이 초기화한다. 안 그러면 한 번 sum으로 배정된 DJ는
+    // 서버 재시작 전까지 방송을 껐다 켜도 계속 sum으로만 재접속돼서, sum이 꽉 찬 뒤에도
+    // "단골" DJ들이 sum2로 안 넘어가는 문제가 있었다 — 연결 끊길 때마다 초기화해두면,
+    // 다음 접속 시점 기준으로 그때 여유 있는 계정으로 다시 배정받는다.
+    room.tokenDjId = null
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
     stopStockTimers(djId)
@@ -20703,6 +20709,20 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
 // 본인 계정을 연결한 DJ의 상태는 /status(인증 필요)에서 tokenDjIdFor로 정확히 보여준다.
 app.get('/session/status', (req, res) => {
   res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
+})
+
+// 🔎 관리자(sum) 전용 — 공용 계정 풀이 실제로 어떤 상태인지(세션 연결 여부/토큰 발급 여부/
+// 지금 그 계정으로 몇 명 붙어있는지) 로그 안 뒤지고 바로 확인하려고 만든 진단용 엔드포인트.
+app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 볼 수 있어요' })
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId),
+    connected: countConnectedOnToken(tokenDjId),
+    capacity: SHARED_TOKEN_CAPACITY,
+  }))
+  res.json({ success: true, pool })
 })
 
 app.get('/events', (req, res) => {
