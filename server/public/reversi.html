@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>리버시 게임</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+  :root{
+    --bg:#141018; --surface:#1e1826; --surface2:#241d30; --border:#382e46;
+    --text:#f2eefb; --sub:#a99cc2; --accent:#8b5cf6; --accent2:#7a4bdb;
+    --hint:#facc15;
+    --wood-frame1:#8a5a34; --wood-frame2:#5e3a1f; --wood-light:#e8d9bc; --wood-dark:#b8a077;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100%}
+  #app{max-width:480px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:16px}
+  h1{font-size:19px;margin:4px 0 0;text-align:center}
+  .sub{color:var(--sub);font-size:13px;text-align:center;margin:0 0 4px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:13px 18px;
+    font-size:15px;font-weight:700;cursor:pointer;width:100%}
+  .btn:hover{background:var(--accent2)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn-gray{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:12px;
+    padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;width:100%}
+  .btn-gray:hover{background:#2c2438}
+  input[type=text]{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+    color:var(--text);padding:12px 14px;font-size:16px;text-align:center;letter-spacing:2px;font-weight:700}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  .hint{color:var(--sub);font-size:12.5px;line-height:1.6;margin:8px 0 0}
+  .code-display{font-size:30px;font-weight:800;letter-spacing:6px;text-align:center;color:var(--accent);
+    background:var(--surface2);border-radius:12px;padding:14px;margin:10px 0;user-select:all}
+  .spinner{width:22px;height:22px;border:3px solid var(--border);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .center{text-align:center}
+
+  .players{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 2px}
+  .player-group{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0}
+  .player-row{display:flex;align-items:center;gap:6px}
+  .player-row.right{flex-direction:row-reverse}
+  .avatar-wrap{width:48px;height:48px;flex-shrink:0}
+  .avatar-ring{width:48px;height:48px;border-radius:50%;padding:2px;
+    background:linear-gradient(135deg,#e8c974,#8a5a1f);display:flex}
+  .avatar-ring.dim{background:var(--border)}
+  .piece-icon{width:100%;height:100%;border-radius:50%;object-fit:cover;background:var(--surface2);
+    border:2px solid var(--surface)}
+  .piece-icon.black{background:radial-gradient(circle at 35% 30%,#555,#0a0a0a)}
+  .piece-icon.white{background:radial-gradient(circle at 35% 30%,#fff,#cfcfcf)}
+  .count-badge{background:#2b2436;border:1px solid var(--border);border-radius:8px;padding:4px 9px;
+    font-size:14px;font-weight:800;white-space:nowrap;flex-shrink:0}
+  .player-name{font-size:11.5px;font-weight:700;max-width:110px;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;color:var(--sub);text-align:center}
+  .color-label{color:var(--sub);font-weight:600;opacity:.75}
+  .player-row.active + .player-name,.player-group:has(.player-row.active) .player-name{color:var(--text)}
+  .center-gauge{width:60px;height:60px;border-radius:50%;flex-shrink:0;position:relative;
+    background:conic-gradient(#c98a3e var(--gauge-pct,50%),#3a2a1a 0);padding:5px}
+  .center-gauge-inner{width:100%;height:100%;border-radius:50%;background:#2c2035;
+    display:flex;align-items:center;justify-content:center;flex-direction:column}
+  .center-gauge-num{font-size:18px;font-weight:800;color:#f0c987}
+  .center-gauge-label{font-size:8px;color:var(--sub);margin-top:-2px}
+
+  .turn-banner{text-align:center;font-weight:700;font-size:14.5px;padding:10px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--border)}
+  .turn-banner.mine{background:rgba(139,92,246,.22);border-color:var(--accent);color:#e5d9ff}
+
+  #board-frame{background:linear-gradient(160deg,var(--wood-frame1),var(--wood-frame2));
+    border-radius:14px;padding:22px 10px 10px;box-shadow:inset 0 2px 6px rgba(0,0,0,.4)}
+  #board-cols{display:grid;grid-template-columns:repeat(8,1fr);margin:0 0 4px;padding:0 3px}
+  #board-cols span{text-align:center;font-size:10px;font-weight:700;color:#f0dcb8}
+  #board-rowwrap{display:flex;gap:4px}
+  #board-rows{display:flex;flex-direction:column;justify-content:space-around;padding:2px 0}
+  #board-rows span{font-size:10px;font-weight:700;color:#f0dcb8;line-height:1}
+  #board{display:grid;grid-template-columns:repeat(8,1fr);flex:1;border-radius:4px;overflow:hidden;
+    border:2px solid #4a3016}
+  .cell{position:relative;display:flex;align-items:center;justify-content:center;cursor:default;aspect-ratio:1/1}
+  .cell:nth-child(16n+1),.cell:nth-child(16n+3),.cell:nth-child(16n+5),.cell:nth-child(16n+7),
+  .cell:nth-child(16n+10),.cell:nth-child(16n+12),.cell:nth-child(16n+14),.cell:nth-child(16n+16){background:var(--wood-light)}
+  .cell:nth-child(16n+2),.cell:nth-child(16n+4),.cell:nth-child(16n+6),.cell:nth-child(16n+8),
+  .cell:nth-child(16n+9),.cell:nth-child(16n+11),.cell:nth-child(16n+13),.cell:nth-child(16n+15){background:var(--wood-dark)}
+  .cell.clickable{cursor:pointer}
+  .cell.clickable::after{content:'';position:absolute;width:20%;height:20%;border-radius:50%;
+    background:var(--hint);opacity:.9;box-shadow:0 0 4px rgba(250,204,21,.7)}
+  .cell .piece{width:84%;height:84%;border-radius:50%;transition:transform .15s ease}
+  .cell .piece.black{background:radial-gradient(circle at 35% 28%,#6a6a6a,#0a0a0a 70%);
+    box-shadow:0 2px 3px rgba(0,0,0,.6),inset 0 -2px 3px rgba(0,0,0,.5)}
+  .cell .piece.white{background:radial-gradient(circle at 35% 28%,#ffffff,#d8d3c8 70%);
+    box-shadow:0 2px 3px rgba(0,0,0,.4),inset 0 -2px 3px rgba(160,150,130,.4)}
+  .result-banner{text-align:center;padding:16px;border-radius:14px;font-weight:800;font-size:17px}
+  .result-win{background:rgba(74,222,128,.15);color:#8ff0b0;border:1px solid rgba(74,222,128,.4)}
+  .result-lose{background:rgba(248,113,113,.15);color:#ffb0b0;border:1px solid rgba(248,113,113,.4)}
+  .result-draw{background:rgba(250,204,21,.15);color:#ffe58a;border:1px solid rgba(250,204,21,.4)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2c2438;color:#fff;
+    padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.4);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+  .toast.show{opacity:1}
+  a.link{color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>⚫⚪ 리버시 게임</h1>
+  <p class="sub" id="djLabel"></p>
+  <div id="content"><div class="card center"><div class="spinner"></div></div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const djId = location.pathname.split('/').filter(Boolean)[1] || '';
+document.getElementById('djLabel').textContent = djId ? '@'+djId+' 방' : '';
+
+const WU_KEY = 'reversi_webUserId_'+djId;
+let webUserId = localStorage.getItem(WU_KEY) || '';
+let authCode = '';
+let myTag = '';
+let roomCode = localStorage.getItem('reversi_room_'+djId) || '';
+let pollTimer = null;
+let authPollTimer = null;
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function setRoomCode(code){
+  roomCode = code || '';
+  if(roomCode) localStorage.setItem('reversi_room_'+djId, roomCode);
+  else localStorage.removeItem('reversi_room_'+djId);
+}
+
+async function api(path, opts){
+  const res = await fetch('/monsterdex/'+encodeURIComponent(djId)+path, opts);
+  return res.json();
+}
+
+/* ── 인증 (몬스터 도감이랑 같은 API 재사용) ── */
+async function checkAuth(){
+  if(!webUserId){ renderAuthStart(); return; }
+  const d = await api('/data?webUserId='+encodeURIComponent(webUserId));
+  if(d.linked){
+    myTag = d.tag;
+    clearInterval(authPollTimer);
+    authPollTimer = null;
+    await afterAuthed();
+  } else if(d.code){
+    authCode = d.code;
+    renderAuthCode();
+    if(!authPollTimer) authPollTimer = setInterval(checkAuth, 2500);
+  } else {
+    renderAuthStart();
+  }
+}
+async function afterAuthed(){
+  const resumed = await tryResumeRoom();
+  if(!resumed) renderLobby();
+}
+async function startAuth(){
+  const body = webUserId ? {webUserId} : {};
+  const d = await api('/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if(!d.success){ showToast(d.error||'오류가 발생했어요'); return; }
+  webUserId = d.webUserId;
+  localStorage.setItem(WU_KEY, webUserId);
+  authCode = d.code;
+  renderAuthCode();
+  clearInterval(authPollTimer);
+  authPollTimer = setInterval(checkAuth, 2500);
+}
+function renderAuthStart(){
+  document.getElementById('content').innerHTML = `
+    <div class="card center">
+      <p class="hint" style="margin-top:0">리버시를 두려면 먼저 본인 계정을 확인해야 해요.<br>방송 채팅으로 인증코드를 입력하는 방식이에요.</p>
+      <button class="btn" onclick="startAuth()">인증코드 받기</button>
+    </div>`;
+}
+function renderAuthCode(){
+  document.getElementById('content').innerHTML = `
+    <div class="card center">
+      <p class="hint" style="margin-top:0">방송 채팅창에 아래 명령어를 그대로 입력해주세요</p>
+      <div class="code-display">!도감인증 ${authCode}</div>
+      <div class="spinner"></div>
+      <p class="hint">입력하면 자동으로 인증돼요. 잠시만 기다려주세요...</p>
+    </div>`;
+}
+
+/* ── 로비 (방 만들기 / 코드로 참가) ── */
+function renderLobby(){
+  clearInterval(pollTimer);
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <p class="hint" style="margin-top:0">${escapeHtml(myTag)}님으로 인증됐어요.</p>
+      <button class="btn" onclick="createRoom()">➕ 새 방 만들기</button>
+    </div>
+    <div class="card">
+      <label class="hint" style="margin-top:0">코드로 참가하기</label>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="joinCodeInput" maxlength="5" placeholder="코드 5자리" autocomplete="off">
+      </div>
+      <div style="margin-top:8px"><button class="btn-gray" onclick="joinRoom()">참가하기</button></div>
+    </div>`;
+  const input = document.getElementById('joinCodeInput');
+  input.addEventListener('input', ()=>{ input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g,''); });
+  input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') joinRoom(); });
+}
+async function createRoom(){
+  const d = await api('/reversi/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId})});
+  if(!d.success){ showToast(d.error||'방 생성 실패'); return; }
+  setRoomCode(d.code);
+  renderRoom(d);
+  startPolling();
+}
+async function joinRoom(){
+  const code = (document.getElementById('joinCodeInput').value||'').trim();
+  if(!code){ showToast('코드를 입력해주세요'); return; }
+  const d = await api('/reversi/join', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code})});
+  if(!d.success){ showToast(d.error||'참가 실패'); return; }
+  setRoomCode(d.code);
+  renderRoom(d);
+  startPolling();
+}
+
+/* ── 방 재접속 시도 (새로고침 등) ── */
+async function tryResumeRoom(){
+  if(!roomCode) return false;
+  const d = await api('/reversi/state?webUserId='+encodeURIComponent(webUserId)+'&code='+encodeURIComponent(roomCode));
+  if(!d.success || !d.myColor){ setRoomCode(''); return false; }
+  renderRoom(d);
+  startPolling();
+  return true;
+}
+
+/* ── 대국 화면 ── */
+function startPolling(){
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollState, 1400);
+}
+async function pollState(){
+  if(!roomCode) return;
+  const d = await api('/reversi/state?webUserId='+encodeURIComponent(webUserId)+'&code='+encodeURIComponent(roomCode));
+  if(!d.success){ clearInterval(pollTimer); showToast(d.error||'연결이 끊겼어요'); setRoomCode(''); renderLobby(); return; }
+  renderRoom(d);
+  if(d.status==='ended') clearInterval(pollTimer);
+}
+function renderRoom(d){
+  const me = d.players.find(p=>p.isMe);
+  const opp = d.players.find(p=>!p.isMe);
+  const myColor = d.myColor;
+  const waiting = d.status==='waiting';
+
+  let banner = '';
+  if(waiting){
+    banner = `<div class="turn-banner">상대를 기다리는 중이에요 — 아래 코드를 공유해주세요</div>
+      <div class="code-display" style="font-size:26px">${escapeHtml(d.code)}</div>`;
+  } else if(d.status==='playing'){
+    const mine = d.turn===myColor;
+    banner = `<div class="turn-banner ${mine?'mine':''}">${mine?'✋ 당신 차례입니다':'상대 차례를 기다리는 중...'}</div>`;
+  } else if(d.status==='ended'){
+    let cls='result-draw', label='무승부예요';
+    if(d.winner==='draw'){ cls='result-draw'; label='무승부예요 🤝'; }
+    else if(d.winner===myColor){ cls='result-win'; label='승리했어요! 🎉'; }
+    else { cls='result-lose'; label='아쉽게 패배했어요'; }
+    banner = `<div class="result-banner ${cls}">${label}</div>`;
+  }
+
+  const counts = d.counts||{black:0,white:0};
+  const validSet = new Set((d.validMoves||[]).map(v=>v.row+'_'+v.col));
+
+  const colLabels = ['A','B','C','D','E','F','G','H'];
+  let boardHtml = '';
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      const v = d.board[r][c];
+      const key = r+'_'+c;
+      const clickable = d.status==='playing' && d.turn===myColor && validSet.has(key);
+      let inner = '';
+      if(v===1) inner = '<div class="piece black"></div>';
+      else if(v===2) inner = '<div class="piece white"></div>';
+      boardHtml += `<div class="cell ${clickable?'clickable':''}" ${clickable?`onclick="makeMove(${r},${c})"`:''}>${inner}</div>`;
+    }
+  }
+  const colsHtml = colLabels.map(l=>`<span>${l}</span>`).join('');
+  const rowsHtml = Array.from({length:8},(_,i)=>`<span>${i+1}</span>`).join('');
+
+  const meBlack = myColor===1;
+  const blackPlayer = meBlack ? me : opp;
+  const whitePlayer = !meBlack ? me : opp;
+  function avatarHtml(p, colorClass, dim){
+    const inner = (p && p.profileUrl)
+      ? `<img class="piece-icon has-avatar" src="${escapeHtml(p.profileUrl)}" onerror="this.outerHTML='<div class=&quot;piece-icon ${colorClass}&quot;></div>'">`
+      : `<div class="piece-icon ${colorClass}"></div>`;
+    return `<div class="avatar-wrap"><div class="avatar-ring ${dim?'dim':''}">${inner}</div></div>`;
+  }
+  const emptyCells = 64 - counts.black - counts.white;
+  const gaugePct = Math.round((1 - emptyCells/60) * 100);
+  document.getElementById('content').innerHTML = `
+    <div class="players">
+      <div class="player-group">
+        <div class="player-row ${d.status==='playing' && d.turn===1 ? 'active':''}">
+          ${avatarHtml(blackPlayer,'black', d.status==='playing' && d.turn!==1)}
+          <div class="count-badge">${counts.black}</div>
+        </div>
+        <div class="player-name">
+          <span class="color-label">흑돌</span> ${escapeHtml(blackPlayer?blackPlayer.nickname:'대기중')}${meBlack?' (나)':''}
+        </div>
+      </div>
+      <div class="center-gauge" style="--gauge-pct:${gaugePct}%">
+        <div class="center-gauge-inner">
+          <div class="center-gauge-num">${emptyCells}</div>
+          <div class="center-gauge-label">남은칸</div>
+        </div>
+      </div>
+      <div class="player-group">
+        <div class="player-row right ${d.status==='playing' && d.turn===2 ? 'active':''}">
+          <div class="count-badge">${counts.white}</div>
+          ${avatarHtml(whitePlayer,'white', d.status==='playing' && d.turn!==2)}
+        </div>
+        <div class="player-name">
+          <span class="color-label">백돌</span> ${escapeHtml(whitePlayer?whitePlayer.nickname:'대기중')}${!meBlack?' (나)':''}
+        </div>
+      </div>
+    </div>
+    ${banner}
+    <div id="board-frame">
+      <div id="board-cols">${colsHtml}</div>
+      <div id="board-rowwrap">
+        <div id="board-rows">${rowsHtml}</div>
+        <div id="board">${boardHtml}</div>
+      </div>
+    </div>
+    <button class="btn-gray" onclick="leaveRoom()">${d.status==='ended'?'나가기':'기권하고 나가기'}</button>
+  `;
+}
+async function makeMove(row, col){
+  const d = await api('/reversi/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code:roomCode, row, col})});
+  if(!d.success){ showToast(d.error||'둘 수 없는 자리예요'); return; }
+  renderRoom(d);
+  if(d.status==='ended') clearInterval(pollTimer);
+}
+async function leaveRoom(){
+  clearInterval(pollTimer);
+  await api('/reversi/leave', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, code:roomCode})});
+  setRoomCode('');
+  renderLobby();
+}
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+(async function init(){
+  if(!djId){ document.getElementById('content').innerHTML = '<div class="card center">잘못된 주소예요.</div>'; return; }
+  await checkAuth();
+})();
+</script>
+</body>
+</html>
