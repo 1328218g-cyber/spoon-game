@@ -983,7 +983,15 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
 
   const msg = String(text || '').trim()
   const cmd = commands.find(c => c.trigger === msg)
-  if (!cmd) return
+  if (!cmd) {
+    // ⚠️ 진단용: '!'로 시작하는데(=명령어처럼 보이는데) 등록된 트리거랑 하나도 안 맞으면
+    // 실제로 도착한 원문을 문자 코드까지 남긴다. 특수문자가 스푼 쪽에서 다른 문자로
+    // 바뀌어서 오는 경우(예: '<' → '&lt;') 여기 로그로 바로 확인 가능하다.
+    if (msg.startsWith('!') && msg.length <= 10) {
+      console.log(`[단축키 불일치] 원문="${msg}" 문자코드=[${Array.from(msg).map(c => c.charCodeAt(0)).join(',')}]`)
+    }
+    return
+  }
 
   // 권한 체크
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
@@ -4147,6 +4155,23 @@ function getTierForScore(tiers, score) {
 }
 // 채팅/입장 이벤트마다 호출해서 그 유저의 등급을 최신 상태로 갱신한다. 반환값은 매칭된 tier 객체(또는 null).
 let settingsDirty = false // 채팅마다 도는 고빈도 갱신용 — true면 다음 flush 타이밍에 한 번 저장
+
+// 🔢 입장 메시지의 {count} — 이 사람이 지금까지 이 방에 누적으로 몇 번 입장했는지.
+// 고유닉(태그) 기준으로 세고, 태그를 아직 못 받아온 경우에만 닉네임으로 대신 센다
+// (닉네임은 겹칠 수 있어서 태그보다 부정확하지만, 아예 안 세는 것보단 낫다).
+// updateVipTierForUser/updateTempRanking이랑 같은 패턴으로, 매번 디스크에 쓰지 않고
+// dirty 플래그만 세워서 8초마다 몰아서 저장한다.
+function incrementVisitCount(djId, settings, author, tag) {
+  const key = String(tag || author || '').trim().toLowerCase()
+  if (!key) return 1
+  if (!settings.visitCounts) settings.visitCounts = { users: {} }
+  if (!settings.visitCounts.users) settings.visitCounts.users = {}
+  const prev = (settings.visitCounts.users[key] && settings.visitCounts.users[key].count) || 0
+  const count = prev + 1
+  settings.visitCounts.users[key] = { count, nickname: author, updatedAt: Date.now() }
+  settingsDirty = true
+  return count
+}
 
 function updateVipTierForUser(djId, settings, author, tag, gen) {
   if (!isModuleOn(settings, 'viptier', djId)) return null
@@ -14707,6 +14732,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
+  const visitCount = incrementVisitCount(djId, settings, author, tag) // 🔢 {count} — 누적 입장 횟수
   if (gen) updateTempRanking(djId, settings, author, tag, gen) // 🌡️ 스푼 온도 기록
   if (gen && gen.favoriteTemperature != null) checkTempMilestones(djId, settings, author, tag, Number(gen.favoriteTemperature))
 
@@ -14714,7 +14740,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
   if (greeting) {
-    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName)
+    const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
     setTimeout(() => sendChatToRoom(djId, text), 200)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
       broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
@@ -14723,7 +14749,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
     const msgs = (settings.joinMessages && settings.joinMessages.length ? settings.joinMessages : (settings.useDefaultEntryMessages ? DEFAULT_JOIN_MESSAGES : [])).filter(m => m.enabled)
     if (msgs.length > 0) {
-      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName)
+      let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
       text = applyDashboardRankVars(text, settings)
       setTimeout(() => sendChatToRoom(djId, text), 200)
     }
