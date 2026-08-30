@@ -7,8 +7,8 @@
 <style>
   html,body{margin:0;padding:0;background:#0a0a0a;overflow:hidden;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
   #outer{width:100vw;min-height:150px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
-  #canvas{position:relative;overflow:hidden}
-  #bgImgEl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;z-index:1;object-fit:cover}
+  #canvas{position:relative;overflow:hidden;background:#000}
+  #bgImgEl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;z-index:1;object-fit:contain}
   #fgWrap{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
   #animBox{position:absolute}
   #animBox img{display:block;width:100%;height:100%}
@@ -71,7 +71,7 @@
 
     // 🎬 배경 비율("9:16" 등) 문자열을 캔버스 픽셀 크기로 변환한다. 긴 변을 1280으로 고정해두고
     // 짧은 변을 비율에 맞게 계산한다 — 배경 이미지의 실제 픽셀 크기와는 무관하게, 항상 설정한
-    // 비율대로 캔버스가 잡힌다 (이미지는 이 캔버스에 꽉 채워지도록 잘려서(object-fit:cover) 들어간다).
+    // 비율대로 캔버스가 잡힌다 (이미지는 안 잘리고 통째로 들어가며, 남는 공간은 검게 채워진다 — object-fit:contain).
     function ratioToCanvasSize(ratioStr){
       const parts = String(ratioStr||'9:16').split(':').map(Number);
       const rw = parts[0], rh = parts[1];
@@ -255,16 +255,13 @@
       isPlaying ? pause() : play();
     }
 
-    // 배경 이미지의 원본(iw,ih) 안에서, 목표 캔버스 비율(outW/outH)에 꽉 채워지도록(=object-fit:cover)
-    // 잘라낼 영역(sx,sy,sw,sh)을 계산한다. 화면에 보이는 것과 캡처 결과가 똑같이 나오게 하기 위함.
-    function coverCropRect(iw, ih, outW, outH){
-      const canvasRatio = outW/outH, imgRatio = iw/ih;
-      if(imgRatio > canvasRatio){
-        const sh = ih, sw = ih*canvasRatio;
-        return { sx:(iw-sw)/2, sy:0, sw, sh };
-      }
-      const sw = iw, sh = iw/canvasRatio;
-      return { sx:0, sy:(ih-sh)/2, sw, sh };
+    // 배경 이미지의 원본(iw,ih)이 목표 캔버스(outW,outH) 안에 안 잘리고 통째로 들어가도록
+    // (=object-fit:contain, 실제 스푼 화면이 하는 것과 동일하게) 그릴 크기/위치를 계산한다.
+    // 남는 공간은 화면에서 검은 배경이 그대로 보이는 것처럼, 캡처본에도 검게 채운다.
+    function containDrawRect(iw, ih, outW, outH){
+      const scale = Math.min(outW/iw, outH/ih);
+      const dw = iw*scale, dh = ih*scale;
+      return { dw, dh, dx:(outW-dw)/2, dy:(outH-dh)/2 };
     }
 
     // 📸 캡처 — 지금 보이는 화면(배경 + 지금 프레임의 애니메이션)을 그대로 이미지 파일로 저장한다.
@@ -285,9 +282,11 @@
         const bgEl = document.getElementById('bgImgEl');
         if(bgEl){
           if(!bgEl.complete) await new Promise(r=>{ bgEl.onload=r; bgEl.onerror=r; });
-          // 화면에서 object-fit:cover로 잘려 보이는 것과 동일하게, 원본에서 같은 비율만큼 잘라서 그린다.
-          const crop = coverCropRect(bgEl.naturalWidth, bgEl.naturalHeight, outW, outH);
-          ctx.drawImage(bgEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, outW, outH);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, outW, outH);
+          // 화면에서 object-fit:contain으로 안 잘리고 레터박스 처리되는 것과 동일하게 그린다.
+          const rect = containDrawRect(bgEl.naturalWidth, bgEl.naturalHeight, outW, outH);
+          ctx.drawImage(bgEl, 0, 0, bgEl.naturalWidth, bgEl.naturalHeight, rect.dx, rect.dy, rect.dw, rect.dh);
         }
 
         const animBox = document.getElementById('animBox');
