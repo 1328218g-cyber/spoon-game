@@ -14640,7 +14640,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
 // ══════════════════════════════════════════════════════
 // 🚪 퇴장 감지 폴링 — 스푼은 소켓으로 퇴장 이벤트를 보내지 않으므로,
 // 시청자 명단 API를 주기적으로 조회해서 직전 스냅샷과 비교하는 방식으로 판정한다.
-const LEAVE_POLL_MS = 1000          // 몇 초마다 명단을 조회할지 (⚠️ 1초마다 스푼 API를 호출하므로 API 호출량이 많이 늘어남 — 문제 생기면 값을 올릴 것)
+const LEAVE_POLL_MS = 5000          // 몇 초마다 명단을 조회할지 (⚠️ 1초로 뒀다가 동접 DJ가 많아지면서 스푼 API가 이 서버 IP를 403으로 차단하는 문제가 실제로 발생해서 5초로 완화함 — 더 자주 필요하면 신중하게 낮출 것)
 const LEAVE_ABSENCE_THRESHOLD = 2   // 연속 몇 회 명단에 안 보이면 퇴장 확정할지 (1초 주기 × 2회 = 최대 2초 안에 감지)
 
 function registerJoinSnapshot(room, nickname, tag, prevKey) {
