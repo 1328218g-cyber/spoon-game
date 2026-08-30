@@ -3690,6 +3690,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
           </div>
           <div class="hint" style="margin-top:6px">재생 팝업 뒷배경으로 쓰여요. 안 올려도 검정 배경으로 재생돼요.</div>
+          <label style="margin-top:14px">배경 비율</label>
+          <select id="gcAspectRatio" onchange="saveGcAspectRatio(this.value)" style="max-width:160px">
+            <option value="1:1">1:1</option>
+            <option value="3:4">3:4</option>
+            <option value="9:16">9:16</option>
+            <option value="2:3">2:3</option>
+            <option value="3:5">3:5</option>
+            <option value="4:5">4:5</option>
+          </select>
+          <div class="hint" style="margin-top:6px">재생 팝업 창과 배경 이미지가 이 비율로 표시돼요.</div>
         </div>
 
         <div class="card">
@@ -10242,7 +10252,17 @@ async function saveTrophyBoard(){
 
 /* ── 🎬 선물 애니메이션 캡처판 ── */
 let gcBgUrl='';
+let gcAspectRatio='1:1';
 let gcItems=[];
+
+// 비율 문자열("9:16")을 기준으로, 팝업 창 크기를 적당한 크기로 계산한다 (가로/세로 중 긴 쪽을 640으로 고정).
+function gcRatioToSize(ratio){
+  const [w,h]=String(ratio||'1:1').split(':').map(Number);
+  if(!w||!h) return {width:480,height:480};
+  const base=640;
+  if(w>=h) return {width:base,height:Math.round(base*h/w)};
+  return {width:Math.round(base*w/h),height:base};
+}
 
 async function loadGiftCapture(){
   try{
@@ -10250,10 +10270,23 @@ async function loadGiftCapture(){
     const d=await res.json();
     if(!d.success)return;
     gcBgUrl=d.settings.bgImageUrl||'';
+    gcAspectRatio=d.settings.aspectRatio||'1:1';
     updateGcBgPreview();
+    const sel=document.getElementById('gcAspectRatio');
+    if(sel) sel.value=gcAspectRatio;
     gcItems=d.settings.items||[];
     renderGcItems();
   }catch(e){}
+}
+
+async function saveGcAspectRatio(ratio){
+  gcAspectRatio=ratio;
+  try{
+    const res=await fetch(SERVER+'/giftcapture/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({aspectRatio:ratio})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('배경 비율 저장 완료 ✓');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 function updateGcBgPreview(){
@@ -10323,7 +10356,8 @@ function renderGcItems(){
 
 function playGcItem(id){
   const url=`/giftcapture-popup?djId=${encodeURIComponent(djId)}&itemId=${encodeURIComponent(id)}`;
-  window.open(url,'_blank','width=480,height=480,resizable=yes');
+  const size=gcRatioToSize(gcAspectRatio);
+  window.open(url,'_blank',`width=${size.width},height=${size.height},resizable=yes`);
 }
 
 async function deleteGcItem(id){
