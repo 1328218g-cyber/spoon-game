@@ -2521,6 +2521,7 @@ function mcGetWebData() {
   if (!mcWebDataCache.points) mcWebDataCache.points = {} // { tag: number } — 분해로 모은 경험치 포인트
   if (!mcWebDataCache.webUsers) mcWebDataCache.webUsers = {} // { webUserId: tag }
   if (!mcWebDataCache.authKeys) mcWebDataCache.authKeys = {} // { code: { webUserId, expiresAt } }
+  if (!mcWebDataCache.profiles) mcWebDataCache.profiles = {} // { tag: profileImageUrl } — 인증 시점에 채팅 이벤트에서 캡처
   return mcWebDataCache
 }
 function mcSaveWebData() {
@@ -2561,7 +2562,7 @@ function mcCleanExpiredKeys(d) {
 }
 // 💬 웹 도감 인증 — 몬스터잡기 모듈이 켜져있는 어느 방에서든(도감이 전체 공용이라) 채팅으로
 // "!도감인증 코드"(또는 코드만 딱)를 치면 그 채팅 계정(고유닉)과 웹 세션을 연결해준다.
-async function handleMonsterDexCommand(djId, settings, author, actTag, text) {
+async function handleMonsterDexCommand(djId, settings, author, actTag, text, profileUrl) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   // ⚠️ mc.collections/mc.levels/mc.points 등은 전부 "소문자로 통일한 고유닉"을 키로 쓰고 있어서
   // (다른 몬스터잡기 명령어들이 다 key.toLowerCase()로 처리함), 여기도 반드시 소문자로 맞춰야
@@ -2577,6 +2578,7 @@ async function handleMonsterDexCommand(djId, settings, author, actTag, text) {
     const entry = d.authKeys[code]
     if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹 도감 페이지에서 다시 발급받아주세요.', 150, 300)
     d.webUsers[entry.webUserId] = tag
+    if (profileUrl) d.profiles[tag] = profileUrl // 🖼️ 인증 순간의 채팅 이벤트에 실려온 프로필 이미지를 같이 저장 (리버시 등에서 표시용)
     delete d.authKeys[code]
     mcSaveWebData()
     return sendChatSplit(djId, `✅ ${author}님 웹 도감 인증 완료! 이제 웹에서 본인 도감을 확인할 수 있어요.`, 150, 300)
@@ -15092,7 +15094,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
-          handleMonsterDexCommand(djId, settings, author, actTag, text)
+          handleMonsterDexCommand(djId, settings, author, actTag, text, gen.profileUrl || eventPayload.profileUrl || '')
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -19796,10 +19798,188 @@ app.post('/monsterdex/:djId/dungeon/party/start', (req, res) => {
   }
   res.json({ success: true, party: mcSerializeParty(djId, party) })
 })
+
+// 🎮 리버시(오델로) — 몬스터 도감 웹페이지에서 시청자/디제이 누구나 1:1로 두는 미니게임.
+// 웹 도감이랑 완전히 같은 인증(webUserId ↔ 고유닉)을 그대로 재사용한다 — 이미 !도감인증으로
+// 로그인된 사람이면 별도 절차 없이 바로 방을 만들거나 코드로 참가할 수 있다.
+// 방(room)은 던전 파티(mcDungeonParties)와 같은 이유로 디스크에 저장하지 않고 인메모리로만
+// 관리한다 — 몇 분~몇십 분 안에 끝나는 휘발성 대국이라 서버 재시작 시 사라져도 괜찮다.
+function reversiInitialBoard() {
+  const b = Array.from({ length: 8 }, () => Array(8).fill(0))
+  b[3][3] = 2; b[3][4] = 1; b[4][3] = 1; b[4][4] = 2 // 1=흑, 2=백
+  return b
+}
+const REVERSI_DIRS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]
+function reversiFlipsForMove(board, color, row, col) {
+  if (row < 0 || row > 7 || col < 0 || col > 7 || board[row][col] !== 0) return []
+  const opp = color === 1 ? 2 : 1
+  const allFlips = []
+  for (const [dr, dc] of REVERSI_DIRS) {
+    let r = row + dr, c = col + dc
+    const line = []
+    while (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r][c] === opp) {
+      line.push([r, c])
+      r += dr; c += dc
+    }
+    if (line.length && r >= 0 && r < 8 && c >= 0 && c < 8 && board[r][c] === color) allFlips.push(...line)
+  }
+  return allFlips
+}
+function reversiValidMoves(board, color) {
+  const moves = []
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if (board[r][c] !== 0) continue
+    if (reversiFlipsForMove(board, color, r, c).length) moves.push([r, c])
+  }
+  return moves
+}
+function reversiApplyMove(board, color, row, col) {
+  const flips = reversiFlipsForMove(board, color, row, col)
+  if (!flips.length) return null
+  const next = board.map(row => row.slice())
+  next[row][col] = color
+  for (const [r, c] of flips) next[r][c] = color
+  return next
+}
+function reversiCount(board) {
+  let black = 0, white = 0
+  for (const row of board) for (const cell of row) { if (cell === 1) black++; else if (cell === 2) white++ }
+  return { black, white }
+}
+
+const mcReversiRooms = new Map() // code -> { code, djId, players:[{webUserId,tag,nickname,color}], board, turn, status, winner, createdAt, lastMoveAt }
+const MC_REVERSI_ROOM_TTL_MS = 30 * 60 * 1000 // 30분 넘게 움직임 없는 방은 정리
+function mcGenReversiCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcReversiRooms.has(code))
+  return code
+}
+function mcCleanReversiRooms() {
+  const now = Date.now()
+  for (const [code, r] of mcReversiRooms.entries()) {
+    if (now - (r.lastMoveAt || r.createdAt) > MC_REVERSI_ROOM_TTL_MS) mcReversiRooms.delete(code)
+  }
+}
+function mcSerializeReversiRoom(room, forWebUserId) {
+  const me = room.players.find(p => p.webUserId === forWebUserId)
+  const validMoves = (room.status === 'playing' && me && me.color === room.turn)
+    ? reversiValidMoves(room.board, room.turn).map(([r, c]) => ({ row: r, col: c }))
+    : []
+  const profiles = mcGetWebData().profiles || {}
+  return {
+    success: true,
+    code: room.code,
+    status: room.status, // waiting(상대 기다림) | playing | ended
+    board: room.board,
+    turn: room.turn,
+    players: room.players.map(p => ({ nickname: p.nickname, color: p.color, isMe: p.webUserId === forWebUserId, profileUrl: profiles[p.tag] || '' })),
+    myColor: me ? me.color : null,
+    validMoves,
+    counts: reversiCount(room.board),
+    winner: room.winner || null, // 1 | 2 | 'draw' | null
+  }
+}
+app.post('/monsterdex/:djId/reversi/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanReversiRooms()
+  const code = mcGenReversiCode()
+  const room = {
+    code, djId,
+    players: [{ webUserId, tag, nickname: tag, color: 1 }],
+    board: reversiInitialBoard(),
+    turn: 1,
+    status: 'waiting',
+    winner: null,
+    createdAt: Date.now(),
+    lastMoveAt: Date.now(),
+  }
+  mcReversiRooms.set(code, room)
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/reversi/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanReversiRooms()
+  const room = mcReversiRooms.get(code)
+  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방 코드예요.' })
+  const already = room.players.find(p => p.webUserId === webUserId)
+  if (already) return res.json(mcSerializeReversiRoom(room, webUserId)) // 새로고침 등으로 재접속
+  if (room.players.length >= 2) return res.json({ success: false, error: '이미 두 명이 꽉 찬 방이에요.' })
+  if (room.players.some(p => p.tag === tag)) return res.json({ success: false, error: '본인이 만든 방에는 참가할 수 없어요.' })
+  room.players.push({ webUserId, tag, nickname: tag, color: 2 })
+  room.status = 'playing'
+  room.lastMoveAt = Date.now()
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/reversi/state', (req, res) => {
+  const djId = req.params.djId
+  const webUserId = String(req.query.webUserId || '').trim()
+  const code = String(req.query.code || '').trim().toUpperCase()
+  const room = mcReversiRooms.get(code)
+  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/reversi/move', (req, res) => {
+  const djId = req.params.djId
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const row = Number((req.body || {}).row)
+  const col = Number((req.body || {}).col)
+  const room = mcReversiRooms.get(code)
+  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (room.status !== 'playing') return res.json({ success: false, error: '아직 시작 전이거나 이미 끝난 게임이에요.' })
+  const me = room.players.find(p => p.webUserId === webUserId)
+  if (!me) return res.json({ success: false, error: '이 방의 참가자가 아니에요.' })
+  if (me.color !== room.turn) return res.json({ success: false, error: '상대 차례예요.' })
+  const next = reversiApplyMove(room.board, me.color, row, col)
+  if (!next) return res.json({ success: false, error: '둘 수 없는 자리예요.' })
+  room.board = next
+  room.lastMoveAt = Date.now()
+  const opp = me.color === 1 ? 2 : 1
+  if (reversiValidMoves(next, opp).length) {
+    room.turn = opp
+  } else if (reversiValidMoves(next, me.color).length) {
+    room.turn = me.color // 상대가 둘 곳이 없으면 턴 안 넘기고 한 번 더
+  } else {
+    room.status = 'ended'
+    const counts = reversiCount(next)
+    room.winner = counts.black === counts.white ? 'draw' : (counts.black > counts.white ? 1 : 2)
+  }
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/reversi/leave', (req, res) => {
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const room = mcReversiRooms.get(code)
+  if (room && room.status !== 'ended') {
+    room.status = 'ended'
+    const other = room.players.find(p => p.webUserId !== webUserId)
+    room.winner = other ? other.color : null // 상대가 나가면 남은 사람 승리 처리
+  }
+  res.json({ success: true })
+})
+
 // 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
 // register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.
 app.get('/monsterdex/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/monsterdex.html')
+})
+// 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
+// /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
+app.get('/reversi/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/reversi.html')
 })
 
 // ══════════════════════════════════════════════════════
@@ -19811,6 +19991,7 @@ const WEB_HUB_FEATURES = [
   { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
+  { key: 'monstercatch', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
   const djId = req.params.djId
