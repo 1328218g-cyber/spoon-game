@@ -6190,12 +6190,14 @@ function getGiftCaptureSettings(djId, settings) {
     settings.giftCapture = {
       bgImageUrl: '',
       bgImageSetAt: null, // 배경 이미지를 등록한 시각 — 하루 지나면 자동 삭제하는 데 사용
+      aspectRatio: '9:16', // 재생 팝업 배경 비율 — 1:1, 3:4, 9:16, 2:3, 3:5, 4:5 (기존 기본 동작과 맞춰 9:16을 기본값으로)
       items: [], // { id, ts, author, tag, sticker, stickerImage, lottieUrl, comboCount }
     }
     store.saveSettings(djId, { giftCapture: settings.giftCapture })
   }
   if (!Array.isArray(settings.giftCapture.items)) settings.giftCapture.items = []
   if (settings.giftCapture.bgImageSetAt === undefined) settings.giftCapture.bgImageSetAt = null
+  if (!settings.giftCapture.aspectRatio) settings.giftCapture.aspectRatio = '9:16'
   return settings.giftCapture
 }
 let giftCaptureSaveDebounce = {}
@@ -15784,16 +15786,23 @@ app.get('/giftcapture/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings: getGiftCaptureSettings(req.djId, settings) })
 })
 // 배경 이미지만 저장 (선물 목록은 실시간 훅에서 자동으로 쌓이므로 여기선 안 건드림)
+const GIFT_CAPTURE_ALLOWED_RATIOS = ['1:1', '3:4', '9:16', '2:3', '3:5', '4:5']
 app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gc = getGiftCaptureSettings(req.djId, settings)
   const prevBgImageUrl = gc.bgImageUrl
-  const { bgImageUrl } = req.body || {}
+  const { bgImageUrl, aspectRatio } = req.body || {}
   if (bgImageUrl != null) {
     gc.bgImageUrl = String(bgImageUrl)
     // 🧹 배경을 새로 등록/변경한 시점을 기록 — 하루(24시간) 지나면 자동 삭제하는 데 쓰임
     gc.bgImageSetAt = gc.bgImageUrl ? Date.now() : null
+  }
+  if (aspectRatio != null) {
+    if (!GIFT_CAPTURE_ALLOWED_RATIOS.includes(aspectRatio)) {
+      return res.json({ success: false, error: '지원하지 않는 비율이에요' })
+    }
+    gc.aspectRatio = aspectRatio
   }
   store.saveSettings(req.djId, { giftCapture: gc })
   // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
@@ -15915,7 +15924,7 @@ app.get('/giftcapture/popup-data', async (req, res) => {
     const gc = getGiftCaptureSettings(djId, settings)
     const item = gc.items.find(it => it.id === itemId)
     if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
-    res.json({ success: true, bgImageUrl: gc.bgImageUrl, item })
+    res.json({ success: true, bgImageUrl: gc.bgImageUrl, aspectRatio: gc.aspectRatio || '9:16', item })
   } catch (e) {
     res.json({ success: false, error: e.message })
   }
