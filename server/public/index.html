@@ -527,8 +527,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </head>
 <body>
 
+<!-- ══════════ 채널(서버) 선택 화면 ══════════ -->
+<div id="channelSelectScreen" style="display:flex;min-height:100vh;align-items:center;justify-content:center;flex-direction:column;gap:20px;padding:24px;text-align:center">
+  <div>
+    <div style="font-size:26px;margin-bottom:6px">🥄</div>
+    <h2 style="margin:0 0 6px">채널을 선택해주세요</h2>
+    <p class="hint" style="margin:0">가입/로그인은 채널마다 완전히 따로 관리돼요. 평소 쓰시던 채널을 골라주세요.</p>
+  </div>
+  <div id="channelBtnWrap" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px"></div>
+</div>
+
 <!-- ══════════ 로그인 / 회원가입 (라이트 랜딩 테마) ══════════ -->
-<div id="authScreen">
+<div id="authScreen" style="display:none">
   <div class="hero-topbar" style="justify-content:flex-end">
     <button class="hero-menu-btn" onclick="document.querySelector('.feature-wrap').scrollIntoView({behavior:'smooth'})" title="기능 살펴보기">☰</button>
   </div>
@@ -1878,8 +1888,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
             <div id="rlNicknameWarn" style="display:none;font-size:11.5px;color:var(--danger);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:6px 8px;margin-bottom:8px"></div>
             <input type="text" id="rlSearchInput" placeholder="시청자 검색" oninput="renderRouletteUserList()" style="margin-bottom:8px">
-            <div class="chip-input-row" style="margin-bottom:10px">
-              <input type="text" id="rlNewTagInput" placeholder="닉네임 추가" onkeydown="if(event.key==='Enter')trackRouletteUser()">
+            <div class="chip-input-row" style="margin-bottom:10px;flex-direction:column;gap:6px">
+              <input type="text" id="rlNewTagInput" placeholder="고유닉 추가 (필수, @ 없이)" onkeydown="if(event.key==='Enter')trackRouletteUser()">
+              <input type="text" id="rlNewNicknameInput" placeholder="닉네임 (선택, 표시용)" onkeydown="if(event.key==='Enter')trackRouletteUser()">
               <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="trackRouletteUser()">+ 추가</button>
             </div>
             <button class="btn-shield-reset" style="width:100%;margin-bottom:10px" onclick="deleteAllRouletteHistory()">🗑️ 전체 기록 삭제</button>
@@ -4965,7 +4976,37 @@ async function tryAutoLogin(){
   logout();
 }
 
-tryAutoLogin();
+// 🔀 채널(서버) 선택 — 서버를 여러 대로 나눠 운영할 때, 각 채널의 실제 배포 도메인을
+// 여기 등록해둔다. 새 채널(서버)을 추가할 때마다 이 배열에 한 줄만 추가하면 된다.
+const CHANNELS = [
+  { name: '채널1', url: 'https://spoon-game-production.up.railway.app' },
+  { name: '채널2', url: 'https://REPLACE_WITH_CHANNEL2_URL.up.railway.app' },
+];
+function initChannelSelect(){
+  if(localStorage.getItem('edibot_channel')){
+    document.getElementById('channelSelectScreen').style.display='none';
+    tryAutoLogin();
+    return;
+  }
+  const wrap = document.getElementById('channelBtnWrap');
+  wrap.innerHTML = CHANNELS.map(c=>{
+    let isHere=false;
+    try{ isHere = new URL(c.url).origin===window.location.origin; }catch(e){}
+    return `<button class="btn-connect" style="width:100%" onclick="chooseChannel('${c.url.replace(/'/g,"\\'")}')">${c.name}${isHere?' (지금 여기)':''}</button>`;
+  }).join('');
+}
+function chooseChannel(url){
+  let sameOrigin=false;
+  try{ sameOrigin = new URL(url).origin===window.location.origin; }catch(e){}
+  localStorage.setItem('edibot_channel', url);
+  if(sameOrigin){
+    document.getElementById('channelSelectScreen').style.display='none';
+    tryAutoLogin();
+  } else {
+    window.location.href = url;
+  }
+}
+initChannelSelect();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
@@ -5208,7 +5249,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -5230,7 +5271,12 @@ function isModulePreferenceOn(key){
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
   return v!==false;
 }
-function isModuleVisible(key){ return moduleVisible[key]!==false; }
+function isModuleVisible(key){
+  if(moduleVisible[key]!==undefined) return moduleVisible[key]!==false;
+  // 한 번도 안 건드린 모듈이면, "새 모듈"(기본 꺼짐) 목록에 있는지로 기본 표시 여부를 정한다
+  // — 마켓에서 한 번이라도 켜봐야 사이드바에 나타난다.
+  return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
+}
 
 function isModuleOn(key){
   if(isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(key)) return false;
@@ -5260,7 +5306,10 @@ function renderNavVisibility(key){
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
   const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?!sessionModuleGlobalOff:true;
-  navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
+  // ⚠️ 켜짐/꺼짐(isModuleOn)이랑 사이드바에 보이는지(isModuleVisible)는 이제 별개다.
+  // 사이드바 뱃지로 끈 경우엔 꺼진 상태에서도 메뉴는 그대로 남아있고(OFF로만 표시),
+  // 모듈 마켓에서 끌 때만 메뉴에서 실제로 사라지도록 toggleModuleByKey에서 처리한다.
+  navItem.style.display=(adminGate&&sessionGate&&isModuleVisible(key))?'':'none';
 }
 function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); updateMarketNewBadge(); }
 
@@ -5293,16 +5342,28 @@ function applyPanelLockState(name){
   }
 }
 
-function toggleModuleByKey(key){
+function toggleModuleByKey(key, opts){
+  opts = opts || {};
   if(key==='autojoin'){ showToast('자동입장은 항상 켜져 있어서 끌 수 없어요'); return; }
-  moduleEnabled[key]=!isModulePreferenceOn(key);
+  const turningOn = !isModulePreferenceOn(key);
+  moduleEnabled[key]=turningOn;
   renderModuleBadge(key);
-  renderNavVisibility(key);
+  // 🔒 켜짐/꺼짐(moduleEnabled)이랑 사이드바에 보이는지(moduleVisible)는 이제 별개다.
+  // - 켜질 땐 어디서 켜든(사이드바/마켓 상관없이) 사이드바에 나타나야 한다.
+  // - 꺼질 땐 "모듈 마켓"에서 끈 경우에만 사이드바에서도 실제로 사라진다. 사이드바 자체의
+  //   ON/OFF 뱃지로 끈 경우엔 메뉴는 그 자리에 남아있고 OFF 상태로만 표시된다.
+  let visibilityChanged=false;
+  if(turningOn){
+    if(!isModuleVisible(key)){ moduleVisible[key]=true; visibilityChanged=true; }
+  } else if(opts.fromMarket){
+    moduleVisible[key]=false; visibilityChanged=true;
+  }
+  if(visibilityChanged){ renderNavVisibility(key); saveModuleVisible(); }
   applyPanelLockState(key);
   saveModuleEnabled();
   updateMarketNewBadge();
   const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
-  if(curActive===key && !isModuleOn(key)){
+  if(curActive===key && !isModuleOn(key) && opts.fromMarket){
     selectPanel('modulemarket');
   }
 }
@@ -5363,7 +5424,7 @@ function renderModuleMarket(){
       ${isNew?'<span style="position:absolute;top:-8px;right:10px;background:linear-gradient(135deg,#fb923c,#f59e0b);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(245,158,11,.4)">NEW</span>':''}
       <div class="market-card-top">
         <div class="market-card-icon">${MODULE_ICON_FILES[key]?`<img src="/icons/${MODULE_ICON_FILES[key]}" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'">`:icon}</div>
-        <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}');renderModuleMarket()"><span class="slider"></span></label>
+        <label class="switch"><input type="checkbox" ${on?'checked':''} onchange="toggleModuleByKey('${key}',{fromMarket:true});renderModuleMarket()"><span class="slider"></span></label>
       </div>
       <div class="market-card-title">${escapeHtml(label)}</div>
       <div class="market-card-desc">${escapeHtml(desc)}</div>
@@ -15353,10 +15414,12 @@ async function deleteAllRouletteHistory(){
 
 async function trackRouletteUser(){
   const tag=document.getElementById('rlNewTagInput').value.trim().replace('@','');
-  if(!tag)return showToast('닉네임을 입력해주세요');
+  const nickname=document.getElementById('rlNewNicknameInput').value.trim();
+  if(!tag)return showToast('고유닉을 입력해주세요');
   try{
-    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:authHeaders()});
+    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname})});
     document.getElementById('rlNewTagInput').value='';
+    document.getElementById('rlNewNicknameInput').value='';
     await loadRouletteUsers();
     loadRouletteHistory(tag);
   }catch(e){showToast('오류: '+e.message);}

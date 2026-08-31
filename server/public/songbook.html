@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>노래책 검색</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+  :root{
+    --bg:#141018; --surface:#1e1826; --surface2:#241d30; --border:#382e46;
+    --text:#f2eefb; --sub:#a99cc2; --accent:#8b5cf6; --accent2:#7a4bdb;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100%}
+  #app{max-width:480px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+  h1{font-size:19px;margin:4px 0 0;text-align:center}
+  .sub{color:var(--sub);font-size:13px;text-align:center;margin:0 0 4px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:13px 18px;
+    font-size:15px;font-weight:700;cursor:pointer;width:100%}
+  .btn:hover{background:var(--accent2)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn-gray{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:12px;
+    padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;width:100%}
+  .btn-gray:hover{background:#2c2438}
+  input[type=text]{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+    color:var(--text);padding:12px 14px;font-size:16px}
+  .code-input{text-align:center;letter-spacing:2px;font-weight:700}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  .hint{color:var(--sub);font-size:12.5px;line-height:1.6;margin:8px 0 0}
+  .code-display{font-size:30px;font-weight:800;letter-spacing:6px;text-align:center;color:var(--accent);
+    background:var(--surface2);border-radius:12px;padding:14px;margin:10px 0;user-select:all}
+  .spinner{width:22px;height:22px;border:3px solid var(--border);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .center{text-align:center}
+  .tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+  .tab-btn{flex-shrink:0;background:var(--surface2);border:1px solid var(--border);color:var(--sub);
+    border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+  .tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .initial-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .initial-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:8px 0;font-size:13px;font-weight:700;cursor:pointer}
+  .initial-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .song-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .song-info{min-width:0}
+  .song-title{font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .song-sub{font-size:12px;color:var(--sub);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .req-btn{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:8px;
+    padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer}
+  .req-btn:disabled{opacity:.5;cursor:default}
+  .req-btn.done{background:#3a2e4a}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2c2438;color:#fff;
+    padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.4);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+  .toast.show{opacity:1}
+  .pager{display:flex;justify-content:center;gap:10px;align-items:center;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>🎤 노래책 검색</h1>
+  <p class="sub" id="djLabel"></p>
+  <div id="content"><div class="card center"><div class="spinner"></div></div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const djId = location.pathname.split('/').filter(Boolean)[1] || '';
+document.getElementById('djLabel').textContent = djId ? '@'+djId+' 방' : '';
+
+const WU_KEY = 'songbook_webUserId_'+djId;
+let webUserId = localStorage.getItem(WU_KEY) || '';
+let authCode = '';
+let authPollTimer = null;
+let myTag = '';
+
+let browseCity = 'kr';
+let browseInitial = 'ㄱ';
+let browsePage = 1;
+const INITIALS = ['ㄱ','ㄴ','ㄷ','ㄹ','ㅁ','ㅂ','ㅅ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+async function api(path, opts){
+  const res = await fetch('/monsterdex/'+encodeURIComponent(djId)+path, opts);
+  return res.json();
+}
+async function songApi(path, opts){
+  const res = await fetch('/songbook/'+encodeURIComponent(djId)+path, opts);
+  return res.json();
+}
+
+/* ── 인증 (몬스터 도감이랑 같은 API 재사용) ── */
+async function checkAuth(){
+  if(!webUserId){ renderAuthStart(); return; }
+  const d = await api('/data?webUserId='+encodeURIComponent(webUserId));
+  if(d.linked){
+    myTag = d.tag;
+    clearInterval(authPollTimer);
+    authPollTimer = null;
+    renderMain();
+  } else if(d.code){
+    authCode = d.code;
+    renderAuthCode();
+    if(!authPollTimer) authPollTimer = setInterval(checkAuth, 2500);
+  } else {
+    renderAuthStart();
+  }
+}
+async function startAuth(){
+  const body = webUserId ? {webUserId} : {};
+  const d = await api('/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if(!d.success){ showToast(d.error||'오류가 발생했어요'); return; }
+  webUserId = d.webUserId;
+  localStorage.setItem(WU_KEY, webUserId);
+  authCode = d.code;
+  renderAuthCode();
+  clearInterval(authPollTimer);
+  authPollTimer = setInterval(checkAuth, 2500);
+}
+function renderAuthStart(){
+  document.getElementById('content').innerHTML = `
+    <div class="card center">
+      <p class="hint" style="margin-top:0">노래를 신청하려면 먼저 본인 확인이 필요해요.<br>방송 채팅으로 인증코드를 입력하는 방식이에요.</p>
+      <button class="btn" onclick="startAuth()">인증코드 받기</button>
+    </div>`;
+}
+function renderAuthCode(){
+  document.getElementById('content').innerHTML = `
+    <div class="card center">
+      <p class="hint" style="margin-top:0">아래 코드를 복사해서 방송 채팅창에 붙여넣어주세요</p>
+      <div class="code-display" id="authCodeText">${authCode}</div>
+      <button class="btn-gray" onclick="copyAuthCode()">📋 코드 복사</button>
+      <div class="spinner" style="margin-top:14px"></div>
+      <p class="hint">채팅에 붙여넣으면 자동으로 인증돼요. 잠시만 기다려주세요...</p>
+    </div>`;
+}
+function copyAuthCode(){
+  navigator.clipboard?.writeText(authCode).then(()=>showToast('코드를 복사했어요')).catch(()=>showToast('복사에 실패했어요'));
+}
+
+/* ── 메인 화면 (검색 / 초성 목록) ── */
+let activeTab = 'picks';
+function renderMain(){
+  document.getElementById('content').innerHTML = `
+    <div class="tabs">
+      <button class="tab-btn ${activeTab==='picks'?'active':''}" onclick="switchTab('picks')">🎧 디제이 선곡</button>
+      <button class="tab-btn ${activeTab==='search'?'active':''}" onclick="switchTab('search')">🔍 검색</button>
+      <button class="tab-btn ${activeTab==='browse'?'active':''}" onclick="switchTab('browse')">📖 초성별 목록</button>
+    </div>
+    <div id="tabBody"></div>
+  `;
+  renderTabBody();
+}
+function switchTab(tab){
+  activeTab = tab;
+  renderMain();
+}
+function renderTabBody(){
+  const body = document.getElementById('tabBody');
+  if(activeTab==='picks'){
+    body.innerHTML = `<div id="resultsWrap" style="display:flex;flex-direction:column;gap:8px"></div>`;
+    doPicks();
+  } else if(activeTab==='search'){
+    body.innerHTML = `
+      <div class="card">
+        <div class="row">
+          <input type="text" id="searchInput" placeholder="곡명 또는 가수 검색" autocomplete="off">
+        </div>
+        <button class="btn" style="margin-top:8px" onclick="doSearch()">검색</button>
+      </div>
+      <div id="resultsWrap" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
+    `;
+    const input = document.getElementById('searchInput');
+    input.addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+  } else {
+    body.innerHTML = `
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <button class="tab-btn ${browseCity==='kr'?'active':''}" style="flex:1" onclick="setBrowseCity('kr')">가요</button>
+          <button class="tab-btn ${browseCity==='en'?'active':''}" style="flex:1" onclick="setBrowseCity('en')">POP</button>
+          <button class="tab-btn ${browseCity==='jp'?'active':''}" style="flex:1" onclick="setBrowseCity('jp')">일본곡</button>
+        </div>
+        <div class="initial-grid" id="initialGrid"></div>
+      </div>
+      <div id="resultsWrap" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
+      <div class="pager" id="pagerWrap" style="display:none">
+        <button class="btn-gray" style="width:auto;padding:8px 16px" onclick="changePage(-1)">◀ 이전</button>
+        <span class="hint" id="pageLabel" style="margin:0"></span>
+        <button class="btn-gray" style="width:auto;padding:8px 16px" onclick="changePage(1)">다음 ▶</button>
+      </div>
+    `;
+    const grid = document.getElementById('initialGrid');
+    grid.innerHTML = INITIALS.map(ch=>`<button class="initial-btn ${browseInitial===ch?'active':''}" onclick="setBrowseInitial('${ch}')">${ch}</button>`).join('');
+    doBrowse();
+  }
+}
+async function doPicks(){
+  const wrap = document.getElementById('resultsWrap');
+  wrap.innerHTML = '<div class="card center"><div class="spinner"></div></div>';
+  const d = await songApi('/picks');
+  if(!d.success){ wrap.innerHTML = `<p class="hint center">${d.error||'목록을 불러오지 못했어요'}</p>`; return; }
+  if(!d.picks || !d.picks.length){ wrap.innerHTML = '<p class="hint center">아직 디제이가 등록해둔 곡이 없어요.</p>'; return; }
+  renderSongList(wrap, d.picks);
+}
+function setBrowseCity(city){ browseCity=city; browsePage=1; renderTabBody(); }
+function setBrowseInitial(ch){ browseInitial=ch; browsePage=1; renderTabBody(); }
+function changePage(delta){ browsePage=Math.max(1, browsePage+delta); doBrowse(); }
+
+async function doSearch(){
+  const keyword = (document.getElementById('searchInput').value||'').trim();
+  if(!keyword){ showToast('검색어를 입력해주세요'); return; }
+  const wrap = document.getElementById('resultsWrap');
+  wrap.innerHTML = '<div class="card center"><div class="spinner"></div><p class="hint">검색 중이에요, 몇 초 걸릴 수 있어요...</p></div>';
+  const d = await songApi('/search?keyword='+encodeURIComponent(keyword));
+  if(!d.success){ wrap.innerHTML = `<p class="hint center">${d.error||'검색에 실패했어요'}</p>`; return; }
+  renderSongList(wrap, d.songs);
+}
+async function doBrowse(){
+  document.getElementById('pagerWrap').style.display='none';
+  const wrap = document.getElementById('resultsWrap');
+  wrap.innerHTML = '<div class="card center"><div class="spinner"></div></div>';
+  const params = new URLSearchParams({city:browseCity, sCd:'2', sValue:browseInitial, sPage:String(browsePage)});
+  const d = await songApi('/browse?'+params.toString());
+  if(!d.success){ wrap.innerHTML = `<p class="hint center">${d.error||'목록을 불러오지 못했어요'}</p>`; return; }
+  renderSongList(wrap, d.songs);
+  document.getElementById('pagerWrap').style.display='flex';
+  document.getElementById('pageLabel').textContent = browsePage+'페이지';
+}
+function renderSongList(wrap, songs){
+  if(!songs || !songs.length){ wrap.innerHTML = '<p class="hint center">결과가 없어요</p>'; return; }
+  wrap.innerHTML = songs.map((s,i)=>`
+    <div class="song-row">
+      <div class="song-info">
+        <div class="song-title">${escapeHtml(s.title)}</div>
+        <div class="song-sub">${escapeHtml(s.artist)}${s.number?' · No.'+escapeHtml(s.number):''}</div>
+      </div>
+      <button class="req-btn" id="reqBtn${i}" onclick="requestSong(${i})">신청</button>
+    </div>
+  `).join('');
+  window._songListCache = songs;
+}
+async function requestSong(i){
+  const song = (window._songListCache||[])[i];
+  if(!song) return;
+  const btn = document.getElementById('reqBtn'+i);
+  btn.disabled = true; btn.textContent = '신청 중...';
+  const d = await songApi('/request', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webUserId, title:song.title, artist:song.artist})});
+  if(!d.success){
+    showToast(d.error||'신청 실패');
+    btn.disabled = false; btn.textContent = '신청';
+    return;
+  }
+  btn.textContent = '신청완료 ✓';
+  btn.classList.add('done');
+  showToast('채팅창에 신청곡을 올렸어요');
+  setTimeout(()=>{ btn.disabled=false; btn.textContent='신청'; btn.classList.remove('done'); }, 5000);
+}
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+(async function init(){
+  if(!djId){ document.getElementById('content').innerHTML = '<div class="card center">잘못된 주소예요.</div>'; return; }
+  await checkAuth();
+})();
+</script>
+</body>
+</html>

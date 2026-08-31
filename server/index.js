@@ -239,13 +239,22 @@ function countConnectedOnToken(tokenDjId) {
 
 // 공용 계정 풀 중 지금 제일 여유 있는(세션 연결돼있고, 정원 안 찬) 계정을 고른다.
 // 전부 꽉 찼거나 세션이 없으면 그래도 뭔가는 리턴해야 하니 그중 가장 여유 있는 곳으로 폴백한다.
+// 🎲 여유 있는(정원 안 찬) 공용 계정 중에서 랜덤으로 하나를 골라서 쓴다 — sum부터 순서대로
+// 다 채우고 나서야 sum2로 넘어가는 방식이 아니라, 방송을 시작할 때마다 그때 여유 있는
+// 계정들 중 무작위로 배정한다. 여러 계정에 골고루 부하가 퍼지게 하려는 목적.
 function pickSharedTokenDjId() {
+  const available = []
+  for (const tokenDjId of SHARED_TOKEN_POOL) {
+    if (!tokenManager.hasCookies(tokenDjId)) continue // 세션 연결 안 된 계정은 건너뜀
+    if (countConnectedOnToken(tokenDjId) < SHARED_TOKEN_CAPACITY) available.push(tokenDjId)
+  }
+  if (available.length) return available[Math.floor(Math.random() * available.length)]
+  // 전부 꽉 찼으면(또는 세션 연결된 계정이 하나도 없으면) 그나마 가장 여유 있는 곳으로 폴백한다.
   let fallback = null
   let fallbackCount = Infinity
   for (const tokenDjId of SHARED_TOKEN_POOL) {
-    if (!tokenManager.hasCookies(tokenDjId)) continue // 세션 연결 안 된 계정은 건너뜀
+    if (!tokenManager.hasCookies(tokenDjId)) continue
     const count = countConnectedOnToken(tokenDjId)
-    if (count < SHARED_TOKEN_CAPACITY) return tokenDjId
     if (count < fallbackCount) { fallbackCount = count; fallback = tokenDjId }
   }
   return fallback || SHARED_TOKEN_DJID
@@ -981,14 +990,19 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
   const commands = settings.commands
   if (!commands || !commands.length) return
 
-  const msg = String(text || '').trim()
-  const cmd = commands.find(c => c.trigger === msg)
+  // ⚠️ 특수문자/장식문자(예: 《_ ᴇɴᴛʀʏ _》 같은 폰트 변형 유니코드)는 겉보기엔 똑같아도
+  // 입력 경로(관리자 화면 vs 스푼 채팅)에 따라 내부적으로 다른 바이트 조합(정규화 형태)으로
+  // 인코딩될 수 있어서, 그냥 === 비교로는 서로 달라서 안 맞을 수 있다. NFC로 정규화해서
+  // 비교하면 이런 경우까지 같은 문자로 인식된다.
+  const msg = String(text || '').trim().normalize('NFC')
+  const cmd = commands.find(c => String(c.trigger || '').normalize('NFC') === msg)
   if (!cmd) {
     // ⚠️ 진단용: '!'로 시작하는데(=명령어처럼 보이는데) 등록된 트리거랑 하나도 안 맞으면
     // 실제로 도착한 원문을 문자 코드까지 남긴다. 특수문자가 스푼 쪽에서 다른 문자로
     // 바뀌어서 오는 경우(예: '<' → '&lt;') 여기 로그로 바로 확인 가능하다.
-    if (msg.startsWith('!') && msg.length <= 10) {
-      console.log(`[단축키 불일치] 원문="${msg}" 문자코드=[${Array.from(msg).map(c => c.charCodeAt(0)).join(',')}]`)
+    // 장식 문자가 섞인 긴 명령어도 진단할 수 있게 길이 제한을 넉넉하게 뒀다.
+    if (msg.startsWith('!') && msg.length <= 40) {
+      console.log(`[단축키 불일치] 원문="${msg}" 문자코드=[${Array.from(msg).map(c => c.codePointAt(0)).join(',')}]`)
     }
     return
   }
@@ -19971,11 +19985,14 @@ app.get('/monsterdex/:djId/reversi/rooms', (req, res) => {
   mcCleanReversiRooms()
   const d = mcGetWebData()
   const profiles = d.profiles || {}
+  // 🌐 방은 특정 디제이 방송에 안 갇혀있다 — 어느 디제이 방에서 만들었든 전체 목록에 다 뜨고,
+  // 다른 방송을 보고 있는 시청자도 그 방에 참가/관전할 수 있다. originDjId는 표시용으로만 쓴다.
   const rooms = Array.from(mcReversiRooms.values())
-    .filter(r => r.djId === djId && r.status !== 'ended')
+    .filter(r => r.status !== 'ended')
     .sort((a, b) => b.createdAt - a.createdAt)
     .map(r => ({
       code: r.code,
+      originDjId: r.djId,
       status: r.status, // waiting | playing
       players: r.players.map(p => ({ nickname: p.nickname, color: p.color, profileUrl: profiles[p.tag] || '' })),
       spectatorCount: (r.spectators || []).length,
@@ -19992,8 +20009,8 @@ app.post('/monsterdex/:djId/reversi/join', (req, res) => {
   const tag = webUserId ? d.webUsers[webUserId] : ''
   if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
   mcCleanReversiRooms()
-  const room = mcReversiRooms.get(code)
-  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  const room = mcReversiRooms.get(code) // 🌐 방이 어느 디제이 방송에서 만들어졌는지는 안 따진다 — 코드만 맞으면 참가 가능
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
   const already = room.players.find(p => p.webUserId === webUserId)
   if (already) return res.json(mcSerializeReversiRoom(room, webUserId)) // 새로고침 등으로 재접속
   if (room.players.length >= 2) return res.json({ success: false, error: '이미 두 명이 꽉 찬 방이에요. 관전은 가능해요.' })
@@ -20018,29 +20035,27 @@ app.post('/monsterdex/:djId/reversi/spectate', (req, res) => {
   const tag = webUserId ? d.webUsers[webUserId] : ''
   if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
   const room = mcReversiRooms.get(code)
-  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
   if (room.players.some(p => p.webUserId === webUserId)) return res.json(mcSerializeReversiRoom(room, webUserId)) // 이미 참가자면 그대로 대국 화면
   if (!room.spectators) room.spectators = []
   if (!room.spectators.some(s => s.webUserId === webUserId)) room.spectators.push({ webUserId, tag, nickname: tag })
   res.json(mcSerializeReversiRoom(room, webUserId))
 })
 app.get('/monsterdex/:djId/reversi/state', (req, res) => {
-  const djId = req.params.djId
   const webUserId = String(req.query.webUserId || '').trim()
   const code = String(req.query.code || '').trim().toUpperCase()
   const room = mcReversiRooms.get(code)
-  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
   reversiCheckTimeout(room)
   res.json(mcSerializeReversiRoom(room, webUserId))
 })
 app.post('/monsterdex/:djId/reversi/move', (req, res) => {
-  const djId = req.params.djId
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const code = String((req.body || {}).code || '').trim().toUpperCase()
   const row = Number((req.body || {}).row)
   const col = Number((req.body || {}).col)
   const room = mcReversiRooms.get(code)
-  if (!room || room.djId !== djId) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
   reversiCheckTimeout(room)
   if (room.status !== 'playing') return res.json({ success: false, error: '아직 시작 전이거나 이미 끝난 게임이에요.' })
   const me = room.players.find(p => p.webUserId === webUserId)
@@ -20306,7 +20321,9 @@ app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
 app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const cleanTag = String(req.params.tag || '').trim().toLowerCase()
-  getHistoryRec(settings, cleanTag)
+  const nickname = String((req.body || {}).nickname || '').trim()
+  const rec = getHistoryRec(settings, cleanTag)
+  if (nickname) rec.nickname = nickname // 수동 추가 시 표시용 닉네임을 같이 입력했으면 바로 반영
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   res.json({ success: true })
 })

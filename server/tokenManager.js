@@ -477,4 +477,5 @@ module.exports = {
   initFromDisk,
   listAccountIds,
   shutdownSharedBrowser,
+  getSharedBrowser, // 🎤 노래책 검색처럼 스푼이랑 무관한 다른 크롤링에도 같은 공유 브라우저를 재사용하기 위해 노출
 }

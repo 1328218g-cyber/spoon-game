@@ -126,11 +126,11 @@
 const djId = location.pathname.split('/').filter(Boolean)[1] || '';
 document.getElementById('djLabel').textContent = djId ? '@'+djId+' 방' : '';
 
-const WU_KEY = 'reversi_webUserId_'+djId;
+const WU_KEY = 'reversi_webUserId'; // 🌐 디제이별로 안 나누고 공용으로 저장 — 한 번 인증하면 어느 방에서든 그대로 쓴다
 let webUserId = localStorage.getItem(WU_KEY) || '';
 let authCode = '';
 let myTag = '';
-let roomCode = localStorage.getItem('reversi_room_'+djId) || '';
+let roomCode = localStorage.getItem('reversi_room') || '';
 let pollTimer = null;
 let tickTimer = null;
 let lobbyPollTimer = null;
@@ -144,8 +144,8 @@ function showToast(msg){
 }
 function setRoomCode(code){
   roomCode = code || '';
-  if(roomCode) localStorage.setItem('reversi_room_'+djId, roomCode);
-  else localStorage.removeItem('reversi_room_'+djId);
+  if(roomCode) localStorage.setItem('reversi_room', roomCode);
+  else localStorage.removeItem('reversi_room');
 }
 
 async function api(path, opts){
@@ -233,13 +233,14 @@ async function refreshRoomList(){
   wrap.innerHTML = d.rooms.map(r=>{
     const names = r.players.map(p=>escapeHtml(p.nickname)).join(' vs ') || '대기중';
     const statusLabel = r.status==='waiting' ? '상대를 기다리는 중' : '대결 중';
+    const originLabel = r.originDjId ? `@${escapeHtml(r.originDjId)} 방 · ` : '';
     const actionBtn = r.status==='waiting'
       ? `<button class="btn-gray" style="width:auto;padding:8px 14px" onclick="joinRoomByCode('${r.code}')">참가</button>`
       : `<button class="btn-gray" style="width:auto;padding:8px 14px" onclick="spectateRoomByCode('${r.code}')">관전</button>`;
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
       <div>
         <div style="font-size:13px;font-weight:700">${names}</div>
-        <div style="font-size:11.5px;color:var(--sub);margin-top:2px">${statusLabel}${r.spectatorCount?' · 관전 '+r.spectatorCount+'명':''}</div>
+        <div style="font-size:11.5px;color:var(--sub);margin-top:2px">${originLabel}${statusLabel}${r.spectatorCount?' · 관전 '+r.spectatorCount+'명':''}</div>
       </div>
       ${actionBtn}
     </div>`;
