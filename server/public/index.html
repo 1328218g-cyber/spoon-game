@@ -527,16 +527,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 </head>
 <body>
 
-<!-- ══════════ 채널(서버) 선택 화면 ══════════ -->
-<div id="channelSelectScreen" style="display:flex;min-height:100vh;align-items:center;justify-content:center;flex-direction:column;gap:20px;padding:24px;text-align:center">
-  <div>
-    <div style="font-size:26px;margin-bottom:6px">🥄</div>
-    <h2 style="margin:0 0 6px">채널을 선택해주세요</h2>
-    <p class="hint" style="margin:0">가입/로그인은 채널마다 완전히 따로 관리돼요. 평소 쓰시던 채널을 골라주세요.</p>
-  </div>
-  <div id="channelBtnWrap" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px"></div>
-</div>
-
 <!-- ══════════ 로그인 / 회원가입 (라이트 랜딩 테마) ══════════ -->
 <div id="authScreen" style="display:none">
   <div class="hero-topbar" style="justify-content:flex-end">
@@ -4976,37 +4966,7 @@ async function tryAutoLogin(){
   logout();
 }
 
-// 🔀 채널(서버) 선택 — 서버를 여러 대로 나눠 운영할 때, 각 채널의 실제 배포 도메인을
-// 여기 등록해둔다. 새 채널(서버)을 추가할 때마다 이 배열에 한 줄만 추가하면 된다.
-const CHANNELS = [
-  { name: '채널1', url: 'https://spoon-game-production.up.railway.app' },
-  { name: '채널2', url: 'https://REPLACE_WITH_CHANNEL2_URL.up.railway.app' },
-];
-function initChannelSelect(){
-  if(localStorage.getItem('edibot_channel')){
-    document.getElementById('channelSelectScreen').style.display='none';
-    tryAutoLogin();
-    return;
-  }
-  const wrap = document.getElementById('channelBtnWrap');
-  wrap.innerHTML = CHANNELS.map(c=>{
-    let isHere=false;
-    try{ isHere = new URL(c.url).origin===window.location.origin; }catch(e){}
-    return `<button class="btn-connect" style="width:100%" onclick="chooseChannel('${c.url.replace(/'/g,"\\'")}')">${c.name}${isHere?' (지금 여기)':''}</button>`;
-  }).join('');
-}
-function chooseChannel(url){
-  let sameOrigin=false;
-  try{ sameOrigin = new URL(url).origin===window.location.origin; }catch(e){}
-  localStorage.setItem('edibot_channel', url);
-  if(sameOrigin){
-    document.getElementById('channelSelectScreen').style.display='none';
-    tryAutoLogin();
-  } else {
-    window.location.href = url;
-  }
-}
-initChannelSelect();
+tryAutoLogin();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
