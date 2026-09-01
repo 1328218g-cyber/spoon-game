@@ -732,7 +732,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'tamagotchi'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -1485,7 +1485,6 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   const chatMulti = chatTier ? (Number(settings.vipTier?.tiers?.find(t => t.name === chatTier.tier)?.expMulti) || 1) : 1
   const chatExp = Math.round((Number(act.scoreChat) || 2) * chatMulti)
   actGrantExp(djId, act, key, chatExp)
-  if (tag) tgGrantPoints(djId, settings, tag, chatExp)
   store.saveSettings(djId, { activity: act })
 }
 
@@ -1503,7 +1502,6 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   d.heart = (d.heart || 0) + 1
   const heartExp = Number(act.scoreHeart) || 1
   actGrantExp(djId, act, key, heartExp)
-  if (tag) tgGrantPoints(djId, settings, tag, heartExp)
   store.saveSettings(djId, { activity: act })
 }
 
@@ -1523,7 +1521,6 @@ function handleActAttendHook(djId, settings, author, tag) {
   d.attend = (d.attend || 0) + 1
   const attendExp = Number(act.scoreAttend) || 10
   actGrantExp(djId, act, key, attendExp)
-  if (tag) tgGrantPoints(djId, settings, tag, attendExp)
   store.saveSettings(djId, { activity: act })
 }
 
@@ -1541,7 +1538,6 @@ function handleActLottoPointHook(djId, settings, author, amount, tag) {
   d.lp = (d.lp || 0) + amount
   if (amount > 0 && expPerPoint > 0) {
     actGrantExp(djId, act, key, amount * expPerPoint)
-    if (tag) tgGrantPoints(djId, settings, tag, amount * expPerPoint)
   }
   let gained = 0
   while (d.lp >= exchange) { d.lp -= exchange; d.lotto = (d.lotto || 0) + 1; gained++ }
@@ -2748,144 +2744,6 @@ async function miBuildProfile(djId, settings, tag) {
   }
 }
 
-// ══════════════════════════════════════════════════════
-// 🐣 다마고치 웹페이지 — DJ 방(djId)별로, 채팅·좋아요·하트·선물로 쌓은 포인트로 상점에서
-// 아이템을 사서 다마고치를 키우는 웹 게임. 인증은 내정보와 완전히 같은 방식(코드 발급 →
-// 채팅에 코드 입력)을 그대로 재사용한다. 성장(알→성체)과 방치(5단계)는 서로 다른 축으로
-// 굴러가고, 방치 끝까지 방치하면 다마고치가 통째로 사라져서 처음부터 다시 키워야 한다.
-// 성장치 필요량 — "하루 평균 60~70P 정도 모으는 시청자가 한 달(30일)치 포인트를 다 쓰면
-// 딱 성체가 된다"를 기준으로 잡았다 (하루 채팅15~20회+하트20개+출석2~3회 ≈ 60~70P/일 가정).
-const TG_GROWTH_STAGES = [
-  { key: 'egg', label: '🥚 알', need: 0 },
-  { key: 'baby', label: '🐣 아기', need: 70 },
-  { key: 'child', label: '🐥 소년', need: 200 },
-  { key: 'teen', label: '🐤 청년', need: 450 },
-  { key: 'adult', label: '🦆 성체', need: 900 },
-]
-const TG_NEGLECT_STAGES = [
-  { label: '😊 행복해요', hours: 0 },
-  { label: '🙂 심심해요', hours: 18 },
-  { label: '😟 외로워요', hours: 36 },
-  { label: '😢 삐졌어요', hours: 54 },
-  { label: '😭 가출 위기예요!', hours: 72 },
-]
-const TG_RUNAWAY_HOURS = 96 // 마지막 방치 단계(72h)에서 24시간 더 방치하면 가출(삭제)
-const TG_SHOP_ITEMS = [
-  { id: 'water', name: '물', price: 10, growth: 5, icon: '💧' },
-  { id: 'feed', name: '사료', price: 20, growth: 10, icon: '🍚' },
-  { id: 'toy', name: '장난감', price: 40, growth: 15, icon: '🧸' },
-  { id: 'treat', name: '고급 간식', price: 60, growth: 30, icon: '🍖' },
-]
-
-function getTamagotchiSettings(djId, settings) {
-  if (!settings.tamagotchi) {
-    settings.tamagotchi = { webUsers: {}, authKeys: {}, pets: {} }
-    store.saveSettings(djId, { tamagotchi: settings.tamagotchi })
-  }
-  const tg = settings.tamagotchi
-  if (!tg.webUsers || typeof tg.webUsers !== 'object') tg.webUsers = {}
-  if (!tg.authKeys || typeof tg.authKeys !== 'object') tg.authKeys = {}
-  if (!tg.pets || typeof tg.pets !== 'object') tg.pets = {}
-  return tg
-}
-function saveTamagotchi(djId, tg) { store.saveSettings(djId, { tamagotchi: tg }) }
-
-const TG_AUTH_KEY_TTL_MS = 10 * 60 * 1000
-function tgRand(max) { return Math.floor(Math.random() * max) }
-function tgGenAuthKey(tg) {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
-  let key
-  do { key = Array.from({ length: 6 }, () => chars[tgRand(chars.length)]).join('') } while (tg.authKeys[key])
-  return key
-}
-function tgCleanExpiredKeys(tg) {
-  const now = Date.now()
-  for (const k of Object.keys(tg.authKeys)) { if (!tg.authKeys[k] || tg.authKeys[k].expiresAt < now) delete tg.authKeys[k] }
-}
-function tgHandleAuth(djId, tg, tag, author, code) {
-  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
-  tgCleanExpiredKeys(tg)
-  const entry = tg.authKeys[code]
-  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
-  tg.webUsers[entry.webUserId] = tag
-  delete tg.authKeys[code]
-  saveTamagotchi(djId, tg)
-  return sendChatSplit(djId, `✅ ${author}님 다마고치 웹페이지 인증 완료! 웹에서 바로 키워보세요 🐣`, 150, 300)
-}
-function handleTamagotchiCommand(djId, settings, author, actTag, text) {
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return
-  const tg = getTamagotchiSettings(djId, settings)
-  const msg = String(text || '').trim()
-  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
-  if (!msg.startsWith('!')) {
-    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
-    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
-      tgCleanExpiredKeys(tg)
-      if (tg.authKeys[rawCode]) return tgHandleAuth(djId, tg, tag, author, rawCode)
-    }
-    return
-  }
-  const parts = msg.split(/\s+/)
-  if (parts[0] === '!다마고치인증') {
-    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
-    const code = String(parts[1] || '').trim().toUpperCase()
-    if (!code) return sendChatSplit(djId, '사용법: !다마고치인증 코드6자리', 150, 300)
-    return tgHandleAuth(djId, tg, tag, author, code)
-  }
-}
-
-// 채팅/하트/출석 등으로 애청지수가 오를 때 다마고치 포인트도 같은 배율로 같이 쌓는다
-// (애청지수 exp 자체를 깎아쓰는 게 아니라, 별도 잔액으로 분리해서 랭킹에 영향 없게 한다).
-function tgGrantPoints(djId, settings, tag, delta) {
-  if (!tag || !delta) return
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return
-  const tg = getTamagotchiSettings(djId, settings)
-  if (!tg.pets[tag]) tg.pets[tag] = { points: 0, growth: 0, lastCareAt: Date.now(), createdAt: Date.now(), fed: 0 }
-  tg.pets[tag].points = (tg.pets[tag].points || 0) + Math.max(0, Math.round(delta))
-  saveTamagotchi(djId, tg)
-}
-
-function tgGrowthStageFor(growth) {
-  let cur = TG_GROWTH_STAGES[0]
-  for (const s of TG_GROWTH_STAGES) { if (growth >= s.need) cur = s }
-  const idx = TG_GROWTH_STAGES.indexOf(cur)
-  const next = TG_GROWTH_STAGES[idx + 1] || null
-  return { idx, key: cur.key, label: cur.label, next: next ? { label: next.label, need: next.need } : null }
-}
-function tgNeglectStageFor(hoursSince) {
-  let idx = 0
-  for (let i = 0; i < TG_NEGLECT_STAGES.length; i++) { if (hoursSince >= TG_NEGLECT_STAGES[i].hours) idx = i }
-  return { idx, label: TG_NEGLECT_STAGES[idx].label }
-}
-
-// 웹페이지에서 보여줄 다마고치 상태를 계산 — 방치 시간이 가출 기준(96h)을 넘겼으면 이 시점에
-// 펫을 완전히 삭제하고(처음부터 다시 키워야 함) runaway:true로 알려준다.
-function tgBuildState(djId, settings, tag) {
-  const tg = getTamagotchiSettings(djId, settings)
-  const pet = tg.pets[tag]
-  if (!pet) return { exists: false, points: 0, shop: TG_SHOP_ITEMS }
-
-  const hoursSince = (Date.now() - (pet.lastCareAt || pet.createdAt || Date.now())) / 3600000
-  if (hoursSince >= TG_RUNAWAY_HOURS) {
-    delete tg.pets[tag]
-    saveTamagotchi(djId, tg)
-    return { exists: false, runaway: true, points: 0, shop: TG_SHOP_ITEMS }
-  }
-
-  const growthInfo = tgGrowthStageFor(pet.growth || 0)
-  const neglectInfo = tgNeglectStageFor(hoursSince)
-  return {
-    exists: true,
-    points: pet.points || 0,
-    growth: pet.growth || 0,
-    growthStage: growthInfo,
-    neglectStage: neglectInfo,
-    hoursSinceCare: Math.round(hoursSince * 10) / 10,
-    fed: pet.fed || 0,
-    createdAt: pet.createdAt,
-    shop: TG_SHOP_ITEMS,
-  }
-}
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
 // 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
@@ -15408,7 +15266,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMonsterDexCommand(djId, settings, author, actTag, text, gen.profileUrl || eventPayload.profileUrl || '')
           handleMyInfoCommand(djId, settings, author, actTag, text)
-          handleTamagotchiCommand(djId, settings, author, actTag, text)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -19674,90 +19531,6 @@ app.get('/myinfo/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
-// 🐣 다마고치 웹페이지 — 공개(로그인 없음) API. 내정보와 같은 register→code→채팅인증 패턴.
-app.post('/tamagotchi/:djId/register', (req, res) => {
-  const djId = req.params.djId
-  const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return res.json({ success: false, error: '다마고치 웹페이지를 찾을 수 없어요.' })
-  const tg = getTamagotchiSettings(djId, settings)
-  tgCleanExpiredKeys(tg)
-  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
-  let webUserId = requestedWebUserId
-  if (webUserId && !tg.webUsers[webUserId]) {
-    for (const code of Object.keys(tg.authKeys)) { if (tg.authKeys[code].webUserId === webUserId) delete tg.authKeys[code] }
-  } else if (!webUserId || tg.webUsers[webUserId]) {
-    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
-  }
-  const code = tgGenAuthKey(tg)
-  tg.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + TG_AUTH_KEY_TTL_MS }
-  saveTamagotchi(djId, tg)
-  res.json({ success: true, webUserId, code, cmd: '!다마고치인증', expiresInSec: TG_AUTH_KEY_TTL_MS / 1000 })
-})
-app.get('/tamagotchi/:djId/me', (req, res) => {
-  const djId = req.params.djId
-  const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return res.json({ success: false, error: '다마고치 웹페이지를 찾을 수 없어요.' })
-  const tg = getTamagotchiSettings(djId, settings)
-  const webUserId = String(req.query.webUserId || '').trim()
-  if (!webUserId) return res.json({ success: true, linked: false })
-  const tag = tg.webUsers[webUserId]
-  if (!tag) {
-    tgCleanExpiredKeys(tg)
-    for (const [code, entry] of Object.entries(tg.authKeys)) {
-      if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
-    }
-    return res.json({ success: true, linked: false, expired: true })
-  }
-  const state = tgBuildState(djId, settings, tag)
-  res.json({ success: true, linked: true, tag, ...state })
-})
-// 🐣👀 내정보 페이지 헤더에 다마고치를 작게 보여주기 위한 최소 정보 공개 API — 로그인/인증
-// 없이 tag만으로 "성장 단계 이미지"만 알려준다 (포인트·방치시간 등 민감할 것 없는 정보만 노출).
-app.get('/tamagotchi/:djId/peek', (req, res) => {
-  const djId = req.params.djId
-  const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return res.json({ success: true, exists: false })
-  const tag = String(req.query.tag || '').trim()
-  if (!tag) return res.json({ success: true, exists: false })
-  const state = tgBuildState(djId, settings, tag)
-  res.json({ success: true, exists: !!state.exists, growthStage: state.growthStage || null })
-})
-// 상점에서 아이템 구매 = 그 즉시 먹이주기(방치 타이머 리셋 + 성장치 증가)
-app.post('/tamagotchi/:djId/buy', (req, res) => {
-  const djId = req.params.djId
-  const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'tamagotchi', djId)) return res.json({ success: false, error: '다마고치 웹페이지를 찾을 수 없어요.' })
-  const tg = getTamagotchiSettings(djId, settings)
-  const webUserId = String((req.body || {}).webUserId || '').trim()
-  const itemId = String((req.body || {}).itemId || '').trim()
-  const tag = webUserId ? tg.webUsers[webUserId] : ''
-  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
-  const item = TG_SHOP_ITEMS.find(it => it.id === itemId)
-  if (!item) return res.json({ success: false, error: '존재하지 않는 아이템이에요.' })
-
-  if (!tg.pets[tag]) tg.pets[tag] = { points: 0, growth: 0, lastCareAt: Date.now(), createdAt: Date.now(), fed: 0 }
-  const pet = tg.pets[tag]
-  if ((pet.points || 0) < item.price) return res.json({ success: false, error: '포인트가 부족해요.' })
-
-  pet.points -= item.price
-  pet.growth = (pet.growth || 0) + item.growth
-  pet.lastCareAt = Date.now()
-  pet.fed = (pet.fed || 0) + 1
-  saveTamagotchi(djId, tg)
-
-  const nickname = (settings.rouletteHistory && settings.rouletteHistory[tag] && settings.rouletteHistory[tag].nickname) || tag
-  sendChatSplit(djId, `🐣 ${nickname}님이 다마고치에게 ${item.icon} ${item.name}(을)를 줬어요!`, 150, 300)
-
-  const state = tgBuildState(djId, settings, tag)
-  res.json({ success: true, ...state })
-})
-// 공개 다마고치 페이지 (로그인 불필요) — 위의 register/me/buy 라우트들보다 뒤에 둬야 /:djId
-// 파라미터가 하위 경로를 가로채지 않는다.
-app.get('/tamagotchi/:djId', (req, res) => {
-  res.sendFile(__dirname + '/public/tamagotchi.html')
-})
-
-// ══════════════════════════════════════════════════════
 // 🎑 추석 팀배틀 이벤트 — 공개(로그인 없음) 웹 페이지. 포스터 이미지 + 실시간 팀 스코어를
 // 보여주고, 시청자는 마피아/몬스터도감과 같은 방식으로 채팅 인증코드를 쳐서 본인 참여 현황을
 // 확인할 수 있다. 반드시 :djId 정적 페이지 라우트보다 앞에 register/me를 둬야 하위 경로가
@@ -20611,7 +20384,6 @@ const WEB_HUB_FEATURES = [
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
   { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
-  { key: 'tamagotchi', path: 'tamagotchi', icon: '🐣', title: '다마고치 키우기', desc: '채팅·하트·선물로 모은 포인트로 상점에서 아이템을 사서 다마고치를 키워요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
   const djId = req.params.djId
