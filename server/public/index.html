@@ -5286,6 +5286,11 @@ function isAccountExpired(){
 }
 
 const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','myinfo']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+// 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
+// (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
+// 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
+// 모듈 마켓에서 언제든 켜서 메뉴에 꺼낼 수 있다.
+const DEFAULT_VISIBLE_KEYS=['dashboard','autojoin','entrysettings','roulette','roulettelog','loyalty','giftcapture','giftgallery','shield'];
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -5294,9 +5299,9 @@ function isModulePreferenceOn(key){
 }
 function isModuleVisible(key){
   if(moduleVisible[key]!==undefined) return moduleVisible[key]!==false;
-  // 한 번도 안 건드린 모듈이면, "새 모듈"(기본 꺼짐) 목록에 있는지로 기본 표시 여부를 정한다
-  // — 마켓에서 한 번이라도 켜봐야 사이드바에 나타난다.
-  return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
+  // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다
+  // — 그 외 메뉴는 모듈 마켓에서 한 번이라도 켜봐야 사이드바에 나타난다.
+  return DEFAULT_VISIBLE_KEYS.includes(key);
 }
 
 function isModuleOn(key){
