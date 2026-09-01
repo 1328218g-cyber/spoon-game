@@ -14815,6 +14815,27 @@ function pickEntryMessage(entryData, type, author, tag) {
   return targeted || enabled[0]
 }
 
+// 💖 좋아요 메시지가 반응할 하트 종류 — 무료/광고/플랜(구독)/유료 중 체크해둔 종류만, 지금
+// "좋아요" 탭에 등록된 문구를 그대로(문구는 likeMessages 첫 번째 활성 항목, 랭킹 변수 포함,
+// 음원은 entryData.like)를 재사용해서 보낸다. 기본값은 무료만 켜짐(기존 동작 그대로 유지).
+function isLikeHeartTypeOn(settings, type) {
+  const cfg = settings.likeHeartTypes
+  if (!cfg || typeof cfg[type] !== 'boolean') return type === 'free' // 기본값: 무료만 ON
+  return cfg[type]
+}
+function sendLikeHeartMessage(djId, settings, heartType, author, tag) {
+  if (!isModuleOn(settings, 'entrysettings', djId)) return
+  if (!isLikeHeartTypeOn(settings, heartType)) return
+  const msgs = (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
+  if (msgs.length > 0) {
+    let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
+    text = applyDashboardRankVars(text, settings)
+    setTimeout(() => sendChatToRoom(djId, text), 500)
+  }
+  const em = pickEntryMessage(settings.entryData, 'like', author, tag)
+  fireEntrySound(djId, settings, 'like', em)
+}
+
 function sendLeaveMessage(djId, settings, nickname, tag) {
   broadcast({ type: 'leave', djId, nick: nickname })
   if (settings.botEnabled === false) return
@@ -15263,16 +15284,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
-        const msgs = (isLurker || !isModuleOn(settings, 'entrysettings', djId)) ? [] : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
-        if (msgs.length > 0) {
-          let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, likeTag ? `@${likeTag}` : `@${author}`)
-          text = applyDashboardRankVars(text, settings)
-          setTimeout(() => sendChatToRoom(djId, text), 500)
-        }
-        if (!isLurker && isModuleOn(settings, 'entrysettings', djId)) {
-          const em = pickEntryMessage(settings.entryData, 'like', author, likeTag)
-          fireEntrySound(djId, settings, 'like', em)
-        }
+        if (!isLurker) sendLikeHeartMessage(djId, settings, 'free', author, likeTag)
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
 
       } else if (eventName === 'LiveFollow' || eventName === 'live_follow' || eventName === 'Follow' || eventName === 'FollowMessage') {
@@ -15316,6 +15328,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             const likeTag = isLurker ? null : await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
             rememberTagNickname(room, likeTag, author)
             if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
+            if (!isLurker) sendLikeHeartMessage(djId, settings, likeType, author, likeTag)
           }
         }
 
@@ -15331,6 +15344,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, likeTag, author)
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
           if (!isLurker) handlePickboardPaidHeartHook(djId, settings, likeTag, author, total)
+          if (!isLurker) sendLikeHeartMessage(djId, settings, 'paid', author, likeTag)
         }
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
@@ -20574,13 +20588,14 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
   if (leaveMessages) patch.leaveMessages = leaveMessages
   if (entryData) patch.entryData = entryData
   if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
+  if (likeHeartTypes) patch.likeHeartTypes = likeHeartTypes
   if (funding) patch.funding = funding
   if (shield) patch.shield = shield
   if (flags) patch.flags = flags

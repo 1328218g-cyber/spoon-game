@@ -1352,7 +1352,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="addEntryMessage()">+ 메시지 추가</button>
             <button class="btn-connect" onclick="saveSettings()">💾 저장</button>
           </div>
-          <p class="hint">※ <b>입장</b>·<b>좋아요</b>·<b>퇴장</b>·<b>선물</b>·<b>반복문구</b> 탭 전부 실제로 채팅에 전송돼요. 음원을 첨부하면 방송 중인 내 PC(브라우저)에서 같이 재생돼요.</p>
+          <p class="hint">※ <b>입장</b>·<b>좋아요</b>·<b>퇴장</b>·<b>선물</b>·<b>반복문구</b> 탭 전부 실제로 채팅에 전송돼요. 음원을 첨부하면 방송 중인 내 PC(브라우저)에서 같이 재생돼요. <b>좋아요</b> 탭은 체크한 하트 종류(무료/광고/플랜/유료)에만 반응해요.</p>
         </div>
       </div>
 
@@ -6057,6 +6057,12 @@ const entryData={
   follow:[],
   repeat:[],
 };
+// 💖 좋아요 메시지가 반응할 하트 종류 — 기본은 무료만 켜짐(기존 동작 그대로)
+const likeHeartTypes={free:true,ad:false,plan:false,paid:false};
+
+function toggleLikeHeartType(type,checked){
+  likeHeartTypes[type]=checked;
+}
 
 function switchEntryTab(tab){
   entryTab=tab;
@@ -6065,11 +6071,28 @@ function switchEntryTab(tab){
   renderEntryList();
 }
 
+const LIKE_HEART_TYPE_LABELS={free:'💖 무료',ad:'📢 광고',plan:'💳 플랜(구독)',paid:'💎 유료'};
 function renderEntryList(){
   const wrap=document.getElementById('entryMsgList');
+
+  // ❤️ 좋아요 탭에서만: 이 문구가 어떤 하트 종류에도 반응할지 체크박스로 고른다.
+  // 체크해둔 종류의 하트가 오면 여기 등록된 좋아요 문구를 그대로 보낸다 (문구/음원은 공용).
+  let checkboxHtml='';
+  if(entryTab==='like'){
+    checkboxHtml=`
+      <div class="hint" style="margin-bottom:12px">이 메시지가 반응할 하트 종류를 골라주세요 (체크한 종류만 아래 문구가 나가요)</div>
+      <div class="chip-row" style="margin-bottom:16px">
+        ${Object.keys(LIKE_HEART_TYPE_LABELS).map(type=>`
+          <label class="check-opt" style="margin:0">
+            <input type="checkbox" ${likeHeartTypes[type]?'checked':''} onchange="toggleLikeHeartType('${type}',this.checked)">
+            ${LIKE_HEART_TYPE_LABELS[type]}
+          </label>`).join('')}
+      </div>`;
+  }
+
   const list=entryData[entryTab];
   if(!list.length){
-    wrap.innerHTML='<p class="hint" style="margin-bottom:12px">등록된 메시지가 없습니다. 아래 버튼으로 추가해주세요.</p>';
+    wrap.innerHTML=checkboxHtml+'<p class="hint" style="margin-bottom:12px">등록된 메시지가 없습니다. 아래 버튼으로 추가해주세요.</p>';
     return;
   }
   if(entryTab==='repeat'){
@@ -6102,7 +6125,7 @@ function renderEntryList(){
     `).join('');
     return;
   }
-  wrap.innerHTML=list.map(m=>`
+  wrap.innerHTML=checkboxHtml+list.map(m=>`
     <div class="msg-entry" data-id="${m.id}">
       <div class="msg-entry-top">
         <label class="switch">
@@ -6317,11 +6340,11 @@ async function loadDjSettings(){
       if(s.entryData && (s.entryData.entry?.length || s.entryData.like?.length || s.entryData.leave?.length || s.entryData.gift?.length || s.entryData.repeat?.length)){
         Object.assign(entryData, s.entryData);
       } else {
-        // 예전 방식(입장멘트/좋아요멘트)으로 저장된 게 있으면 새 구조로 변환
         if(s.joinMessages?.length) entryData.entry = s.joinMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
         if(s.likeMessages?.length) entryData.like = s.likeMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
         if(s.leaveMessages?.length) entryData.leave = s.leaveMessages.map(m=>({id:entryIdSeq++,enabled:m.enabled!==false,target:'',text:m.text,delay:1,sound:''}));
       }
+      if(s.likeHeartTypes) Object.assign(likeHeartTypes, s.likeHeartTypes);
       const allIds=[].concat(entryData.entry,entryData.leave,entryData.like,entryData.gift,entryData.repeat).map(m=>m.id).filter(n=>typeof n==='number');
       if(allIds.length) entryIdSeq=Math.max(...allIds)+1;
 
@@ -15964,7 +15987,7 @@ async function saveSettings(){
   const leaveM=(entryData.leave||[]).filter(m=>m.enabled && m.text.trim()).map(m=>({text:m.text.trim(),enabled:true}));
   const entryCooldown=Number(document.getElementById('entryCooldown')?.value)||0;
   try{
-    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown})});
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({joinMessages:jm,likeMessages:lm,leaveMessages:leaveM,entryData,entryCooldown,likeHeartTypes})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
