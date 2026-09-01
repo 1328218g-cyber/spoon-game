@@ -5373,10 +5373,9 @@ function renderNavVisibility(key){
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
   const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?!sessionModuleGlobalOff:true;
-  // ⚠️ 켜짐/꺼짐(isModuleOn)이랑 사이드바에 보이는지(isModuleVisible)는 이제 별개다.
-  // 사이드바 뱃지로 끈 경우엔 꺼진 상태에서도 메뉴는 그대로 남아있고(OFF로만 표시),
-  // 모듈 마켓에서 끌 때만 메뉴에서 실제로 사라지도록 toggleModuleByKey에서 처리한다.
-  navItem.style.display=(adminGate&&sessionGate&&isModuleVisible(key))?'':'none';
+  // 🚫 꺼진(OFF) 모듈은 사이드바 배지로 껐든 모듈 마켓에서 껐든 상관없이 목록에서 바로 사라진다.
+  // 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 순간 사이드바에도 다시 나타난다.
+  navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
 }
 function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); updateMarketNewBadge(); }
 
@@ -5415,17 +5414,12 @@ function toggleModuleByKey(key, opts){
   const turningOn = !isModulePreferenceOn(key);
   moduleEnabled[key]=turningOn;
   renderModuleBadge(key);
-  // 🔒 켜짐/꺼짐(moduleEnabled)이랑 사이드바에 보이는지(moduleVisible)는 이제 별개다.
-  // - 켜질 땐 어디서 켜든(사이드바/마켓 상관없이) 사이드바에 나타나야 한다.
-  // - 꺼질 땐 "모듈 마켓"에서 끈 경우에만 사이드바에서도 실제로 사라진다. 사이드바 자체의
-  //   ON/OFF 뱃지로 끈 경우엔 메뉴는 그 자리에 남아있고 OFF 상태로만 표시된다.
+  // 🚫 이제 꺼지면(OFF) 어디서 껐든(사이드바 배지/모듈 마켓 상관없이) 사이드바 목록에서 바로
+  // 사라진다. 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 즉시 사이드바에도 다시 나타난다.
   let visibilityChanged=false;
-  if(turningOn){
-    if(!isModuleVisible(key)){ moduleVisible[key]=true; visibilityChanged=true; }
-  } else if(opts.fromMarket){
-    moduleVisible[key]=false; visibilityChanged=true;
-  }
-  if(visibilityChanged){ renderNavVisibility(key); saveModuleVisible(); }
+  if(turningOn && !isModuleVisible(key)){ moduleVisible[key]=true; visibilityChanged=true; }
+  renderNavVisibility(key);
+  if(visibilityChanged){ saveModuleVisible(); }
   applyPanelLockState(key);
   saveModuleEnabled();
   updateMarketNewBadge();
