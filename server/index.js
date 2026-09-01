@@ -15007,8 +15007,12 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   if (!isModuleOn(settings, 'entrysettings', djId)) return
   const msgs = (settings.leaveMessages && settings.leaveMessages.length ? settings.leaveMessages : (settings.useDefaultEntryMessages ? DEFAULT_LEAVE_MESSAGES : [])).filter(m => m.enabled)
   if (msgs.length > 0) {
+    // {count} — 입장 때와 같은 누적 입장 횟수(태그 기준)를 그대로 보여준다. 새로 세지 않고
+    // 이미 저장된 값만 조회하므로, 이번 방문 카운트를 두 번 올리는 일은 없다.
+    const visitKey = String(tag || nickname || '').trim().toLowerCase()
+    const visitCount = (settings.visitCounts && settings.visitCounts.users && settings.visitCounts.users[visitKey] && settings.visitCounts.users[visitKey].count) || 1
     // 퇴장 감지 스냅샷에 이미 확인된 태그가 있으면 그걸 쓰고, 없으면 닉네임으로 대체 (빈 값으로 나가지 않도록)
-    let text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`)
+    let text = msgs[0].text.replace(/{nickname}/g, nickname).replace(/{tag}/g, tag ? `@${tag}` : `@${nickname}`).replace(/{count}/g, visitCount)
     text = applyDashboardRankVars(text, settings)
     setTimeout(() => sendChatToRoom(djId, text), 200)
   }
