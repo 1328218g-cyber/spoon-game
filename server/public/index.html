@@ -630,6 +630,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="autofollow"><span class="ic ic-img"><img src="/icons/autofollow.png" alt=""></span><span class="lbl">고정매니저신청</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="tamagotchi"><span class="ic ic-img"><img src="/icons/tamagotchi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">다마고치 키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">모듈</div>
@@ -838,9 +839,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 🛒 모듈 마켓 -->
       <div class="panel" data-panel="modulemarket">
-        <div class="card">
-          <div class="card-title"><span>🛒 모듈 마켓</span></div>
-          <p class="hint" style="margin-bottom:0">필요한 기능만 켜고 나머지는 꺼두세요. 여기서 켜고 끄는 건 사이드바 메뉴 옆 ON/OFF 배지랑 완전히 같은 설정이라, 어디서 바꿔도 똑같이 반영돼요.</p>
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div class="card-title"><span>🛒 모듈 마켓</span></div>
+            <p class="hint" style="margin-bottom:0">필요한 기능만 켜고 나머지는 꺼두세요. 여기서 켜고 끄는 건 사이드바 메뉴 옆 ON/OFF 배지랑 완전히 같은 설정이라, 어디서 바꿔도 똑같이 반영돼요.</p>
+          </div>
+          <button class="btn-gray" style="padding:8px 14px;font-size:12.5px;white-space:nowrap" onclick="resetMenuVisibility()">🔄 사이드바 메뉴 기본값으로 초기화</button>
         </div>
         <div class="tab-bar" id="marketTabBar">
           <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
@@ -3664,6 +3668,41 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🐣 다마고치 웹페이지 -->
+      <div class="panel" data-panel="tamagotchi">
+        <div class="card">
+          <div style="font-weight:700;font-size:14px">🐣 다마고치 웹페이지 설정</div>
+          <p class="hint" style="margin:4px 0 0">시청자가 채팅·좋아요·하트·선물로 쌓은 포인트(애청지수와 같은 배율로 자동 적립)로 상점에서 아이템을 사서 다마고치를 키워요. 오래 안 돌보면 방치 단계가 올라가고, 끝까지 방치하면 다마고치가 가출해서 처음부터 다시 키워야 해요.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔗 공개 페이지</span></div>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 다마고치 페이지로 접속할 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="tgHubUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('tgHubUrl')">복사</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🛒 상점 아이템 (고정)</span></div>
+          <p class="hint" style="margin-bottom:10px">지금은 아래 4종으로 고정이에요. 포인트는 애청지수 채팅·하트·출석·후원 점수와 같은 배율로 자동 적립돼요.</p>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:12.5px">💧 물 — 10P</div>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:12.5px">🍚 사료 — 20P</div>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:12.5px">🧸 장난감 — 40P</div>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:12.5px">🍖 고급 간식 — 60P</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📈 성장 / 방치 단계</span></div>
+          <p class="hint">🥚 알(0) → 🐣 아기(70) → 🐥 소년(200) → 🐤 청년(450) → 🦆 성체(900) — 누적 성장치 기준</p>
+          <p class="hint">하루 60~70P 정도 모으는 시청자가 한 달치 포인트를 다 쓰면 딱 성체가 되도록 잡은 기준이에요.</p>
+          <p class="hint">😊 행복 → 🙂 심심 → 😟 외로움 → 😢 삐짐 → 😭 가출위기 (18시간마다 한 단계씩, 마지막에서 24시간 더 방치하면 가출해서 사라짐)</p>
+        </div>
+      </div>
+
       <!-- 🔴 실시간 랭킹 -->
       <div class="panel" data-panel="liverank">
         <div class="card">
@@ -5143,6 +5182,7 @@ const PANEL_META={
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
+  tamagotchi:['🐣 다마고치 키우기','채팅·하트·출석·후원으로 쌓은 포인트로 상점에서 아이템을 사서 다마고치를 키우는 웹 게임입니다. 오래 방치하면 가출해서 처음부터 다시 키워야 해요'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -5162,6 +5202,7 @@ function selectPanel(name){
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
+  if(name==='tamagotchi'&&document.getElementById('tgHubUrl'))loadTamagotchiSettings();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
@@ -5255,7 +5296,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','tamagotchi']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -5271,7 +5312,7 @@ const MODULE_ICON_FILES={
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
-  'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',
+  'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',tamagotchi:'tamagotchi.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
@@ -5285,12 +5326,12 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','myinfo']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','myinfo','tamagotchi']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
 // 모듈 마켓에서 언제든 켜서 메뉴에 꺼낼 수 있다.
-const DEFAULT_VISIBLE_KEYS=['dashboard','autojoin','entrysettings','roulette','roulettelog','loyalty','giftcapture','giftgallery','shield'];
+const DEFAULT_VISIBLE_KEYS=['dashboard','myinfo','liverank','autojoin','chat','entrysettings','funding','shortcuts','greet','shield','roulette','roulettelog','loyalty','quiz','lottoauto','wheelroulette','giftcapture','giftgallery'];
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
@@ -5677,6 +5718,19 @@ async function saveModuleVisible(){
   try{
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleVisible})});
   }catch(e){showToast('저장 실패');}
+}
+
+// 🔄 사이드바 메뉴 표시 상태를 "처음 가입했을 때" 기본값(DEFAULT_VISIBLE_KEYS 9개만 보임)으로
+// 되돌린다. 설정 가져오기 등으로 예전 계정의 moduleVisible이 통째로 들어와버린 경우에 쓴다.
+// 기능(ON/OFF) 자체는 안 건드리고, "사이드바에 보이는지"만 초기화한다.
+async function resetMenuVisibility(){
+  if(!confirm('사이드바 메뉴 표시 상태를 처음 가입했을 때 기본값(9개 메뉴만 표시)으로 되돌릴까요?\n켜져있는 기능 자체는 그대로 유지되고, 사이드바에 보이는지 여부만 초기화돼요.'))return;
+  try{
+    Object.keys(moduleVisible).forEach(k=>delete moduleVisible[k]);
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleVisible:{}})});
+    renderAllNavVisibility();
+    showToast('사이드바 메뉴를 기본값으로 초기화했어요 ✓');
+  }catch(e){showToast('초기화 실패: '+e.message);}
 }
 
 /* ── 실드 관리 ── */
@@ -14175,6 +14229,9 @@ function mfCopyPublicUrl(){
 // 👤 내정보 웹페이지 설정 — 편집 가능한 값이 없어서, 공개 URL만 채워준다
 function loadMyInfoSettings(){
   document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
+}
+function loadTamagotchiSettings(){
+  document.getElementById('tgHubUrl').value=location.origin+'/tamagotchi/'+djId;
 }
 
 // 🔗 buly.kr 단축 URL — 공개 페이지 링크(웹뽑기판/마피아 등)를 서버를 통해 짧게 줄인다.
