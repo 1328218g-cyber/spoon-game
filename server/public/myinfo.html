@@ -68,6 +68,17 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 .tag{font-size:12px;color:var(--muted)}
 .switchBtn{font-size:11.5px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:20px;padding:5px 11px;cursor:pointer;white-space:nowrap}
 
+/* 🐣 내정보 헤더에 작게 보여주는 다마고치 — 상자 안에서 좌우로 걸어다니는 애니메이션 */
+.petMiniBox{width:72px;height:56px;overflow:hidden;position:relative}
+.petMiniBox img{position:absolute;top:0;width:52px;height:52px;object-fit:contain;animation:petWalk 4.5s ease-in-out infinite}
+@keyframes petWalk{
+  0%{left:0;transform:scaleX(1)}
+  48%{left:20px;transform:scaleX(1)}
+  50%{left:20px;transform:scaleX(-1)}
+  98%{left:0;transform:scaleX(-1)}
+  100%{left:0;transform:scaleX(1)}
+}
+
 .lvRow{display:flex;align-items:baseline;gap:8px;margin:12px 0 6px}
 .lvBadge{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:13px;padding:4px 10px;border-radius:20px}
 .rankTxt{font-size:12.5px;color:var(--muted)}
@@ -154,7 +165,10 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
           <div class="nick" id="pNick">-</div>
           <div class="tag" id="pTag">-</div>
         </div>
-        <button class="switchBtn" onclick="resetAuth()">다른 계정 인증</button>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <div class="petMiniBox hidden" id="petMiniBox"><img id="petMiniImg" src="" alt=""></div>
+          <button class="switchBtn" onclick="resetAuth()">다른 계정 인증</button>
+        </div>
       </div>
 
       <div id="loyaltyBlock">
@@ -272,7 +286,7 @@ async function loadGames(){
   try{
     const res = await fetch(location.origin + '/play/' + encodeURIComponent(DJ_ID) + '/list');
     const d = await res.json();
-    const items = (d.items || []).filter(it => it.enabled);
+    const items = (d.items || []).filter(it => it.enabled && !/^\/myinfo\//.test(it.url));
     if(!items.length){ box.innerHTML = '<div class="emptyList">지금 켜져있는 게임이 없어요</div>'; return; }
     box.innerHTML = items.map(it => `
       <a class="gameItem" href="${it.url}" target="_blank" rel="noopener">
@@ -350,7 +364,8 @@ function resetAuth(){
   clearInterval(pollTimer);
   localStorage.removeItem(LS_KEY);
   webUserId = '';
-  hide('profileWrap'); hide('refreshFab'); hide('pageMenu');
+  petMiniLoaded = false;
+  hide('profileWrap'); hide('refreshFab'); hide('pageMenu'); hide('petMiniBox');
   document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
   registerCode();
 }
@@ -395,6 +410,23 @@ async function onUseItemClick(ev){
   }
 }
 
+// 🐣 헤더에 작게 다마고치 보여주기 — 다마고치 모듈이 꺼져있거나 아직 펫이 없으면 조용히 숨긴다
+let petMiniLoaded = false;
+async function loadPetMini(tag){
+  if(petMiniLoaded) return; // 15초 폴링마다 매번 다시 안 부르고 처음 한 번만
+  petMiniLoaded = true;
+  try{
+    const res = await fetch(location.origin + '/tamagotchi/' + encodeURIComponent(DJ_ID) + '/peek?tag=' + encodeURIComponent(tag));
+    const d = await res.json();
+    if(!d.success || !d.exists || !d.growthStage) return;
+    const imgMap = {egg:'/icons/tamagotchi/egg.png',baby:'/icons/tamagotchi/baby.png',child:'/icons/tamagotchi/child.png',teen:'/icons/tamagotchi/teen.png',adult:'/icons/tamagotchi/adult.png'};
+    const img = document.getElementById('petMiniImg');
+    img.src = imgMap[d.growthStage.key] || imgMap.egg;
+    img.onerror = function(){ document.getElementById('petMiniBox').classList.add('hidden'); };
+    show('petMiniBox');
+  }catch(e){ /* 실패해도 조용히 무시 — 헤더 장식용이라 에러를 보여줄 필요 없음 */ }
+}
+
 async function fetchMe(manual){
   if(!webUserId) return;
   try{
@@ -425,6 +457,7 @@ async function fetchMe(manual){
     document.getElementById('pNick').textContent = d.nickname || d.tag;
     document.getElementById('pTag').textContent = '@' + d.tag;
     document.getElementById('djLabel').textContent = (d.nickname || d.tag) + ' · ' + DJ_ID + ' 방';
+    loadPetMini(d.tag);
 
     // 킵목록 탭 버튼 위 숫자: 킵목록 총 수량
     const keepTotal = (d.keepList || []).reduce((s, it) => s + (it.count || 0), 0);
