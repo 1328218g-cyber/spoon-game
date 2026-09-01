@@ -992,10 +992,14 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
 
   // ⚠️ 특수문자/장식문자(예: 《_ ᴇɴᴛʀʏ _》 같은 폰트 변형 유니코드)는 겉보기엔 똑같아도
   // 입력 경로(관리자 화면 vs 스푼 채팅)에 따라 내부적으로 다른 바이트 조합(정규화 형태)으로
-  // 인코딩될 수 있어서, 그냥 === 비교로는 서로 달라서 안 맞을 수 있다. NFC로 정규화해서
-  // 비교하면 이런 경우까지 같은 문자로 인식된다.
-  const msg = String(text || '').trim().normalize('NFC')
-  const cmd = commands.find(c => String(c.trigger || '').normalize('NFC') === msg)
+  // 인코딩될 수 있어서, 그냥 === 비교로는 서로 달라서 안 맞을 수 있다. NFC로 정규화하고,
+  // 눈에는 안 보이지만 값이 다를 수 있는 제로폭 문자·줄바꿈 종류·순서표시자까지 같이 걷어낸
+  // 뒤 비교하면 이런 경우까지 훨씬 안정적으로 같은 문자로 인식된다.
+  const stripInvisible = s => String(s || '')
+    .replace(/[\u200B-\u200F\uFEFF\u2028\u2029\u00A0]/g, m => (m === '\u00A0' ? ' ' : ''))
+    .trim()
+  const msg = stripInvisible(text).normalize('NFC')
+  const cmd = commands.find(c => stripInvisible(c.trigger).normalize('NFC') === msg)
   if (!cmd) {
     // ⚠️ 진단용: '!'로 시작하는데(=명령어처럼 보이는데) 등록된 트리거랑 하나도 안 맞으면
     // 실제로 도착한 원문을 문자 코드까지 남긴다. 특수문자가 스푼 쪽에서 다른 문자로
@@ -15577,6 +15581,20 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           }
 
           recordDashboardSpoon(djId, settings, author, donationTag, amount * Math.max(1, comboCount), comboCount)
+        }
+
+      } else if (eventName === 'LiveStudioMessage') {
+        // 🎬 스푼 스튜디오 리액션(입장 알림 오버레이 등)에서 오는 메시지 — data.message 첫 줄이
+        // "!《_ᴇɴᴛʀʏ_》" 같은 명령어 형태로 오고, 그 뒤에 USER/ID 같은 부가정보가 줄바꿈으로
+        // 이어붙어 있다. 첫 줄만 잘라서 일반 채팅 명령어(단축키 명령어)랑 똑같이 매칭한다.
+        const studioData = eventPayload.data || {}
+        const rawMessage = String(studioData.message || '')
+        const firstLine = rawMessage.split(/\r?\n/)[0].trim()
+        if (firstLine.startsWith('!') && !isLurker) {
+          const targetUser = studioData.targetUser || {}
+          const studioAuthor = targetUser.nickname || '스튜디오'
+          const studioTag = targetUser.tag || null
+          await handleShortcutCommand(djId, room, settings, studioAuthor, targetUser.userId || null, liveId, firstLine, studioTag)
         }
       }
     } catch (e) {
