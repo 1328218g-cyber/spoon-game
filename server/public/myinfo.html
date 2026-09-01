@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0ea5e9">
+<title>내정보 | 에디봇</title>
+<style>
+:root{
+  --bg:#eaf6fb; --panel:#ffffff; --surface2:#eef7fb; --border:#d7ecf5;
+  --accent:#0ea5e9; --accent2:#fb923c; --text:#0f2a3a; --muted:#6b8a9a;
+  --success:#16a34a; --danger:#e11d48; --radius:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic',sans-serif;padding-bottom:40px}
+
+/* 🔝 상단 고정 메뉴바 — "내정보" 헤더/카드와 완전히 분리된, 화면 맨 위 전체너비 메뉴 */
+.pageMenu{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;background:var(--panel);border-bottom:1px solid var(--border);box-shadow:0 2px 10px rgba(14,100,140,.07)}
+.menuBtn{flex:1;background:none;border:none;border-bottom:3px solid transparent;padding:13px 4px 10px;font-family:inherit;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.menuBtn .mIcon{font-size:16px}
+.menuBtn .mCount{background:var(--surface2);color:var(--muted);font-size:10px;font-weight:800;border-radius:20px;padding:1px 6px;min-width:16px}
+.menuBtn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.menuBtn.active .mCount{background:var(--accent);color:#fff}
+
+/* 🎮 게임 탭: 이 방에서 켜져있는 웹 기능 목록 */
+.gameItem{display:flex;align-items:center;gap:12px;padding:12px 8px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text)}
+.gameItem:last-child{border-bottom:none}
+.gameItem .gIcon{width:38px;height:38px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.gameItem .gInfo{flex:1;min-width:0}
+.gameItem .gTitle{font-size:13.5px;font-weight:700}
+.gameItem .gDesc{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.5}
+.gameItem .gArrow{color:var(--muted);font-size:16px;flex-shrink:0}
+
+/* 🎡 룰렛정보 탭: DJ가 등록한 룰렛별 항목 목록 */
+.rouletteGroup{margin-bottom:16px}
+.rouletteGroup:last-child{margin-bottom:0}
+.rouletteName{font-weight:800;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.itemChipRow{display:flex;flex-wrap:wrap;gap:6px}
+.itemChip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:11.5px;color:var(--text)}
+
+.wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+.top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
+.top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.top .title{font-weight:800;font-size:17px}
+.top .sub{font-size:12px;color:var(--muted);margin-top:1px}
+
+
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
+.card-title{font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
+
+/* 인증 전 화면 */
+.authBox{text-align:center;padding:26px 16px}
+.authBox h2{font-size:16px;margin:0 0 8px}
+.authBox p{font-size:13px;color:var(--muted);line-height:1.7;margin:0 0 18px}
+.codeBox{font-family:'SFMono-Regular',Consolas,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:var(--accent);background:var(--surface2);border:1.5px dashed var(--accent);border-radius:12px;padding:16px 10px;margin:0 0 14px}
+.cmdLine{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:'SFMono-Regular',Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px;word-break:break-all}
+.timerRow{font-size:12.5px;color:var(--muted);margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:8px}
+.spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 14px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* 프로필 화면 */
+.profHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+.nick{font-size:18px;font-weight:800}
+.tag{font-size:12px;color:var(--muted)}
+.switchBtn{font-size:11.5px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:20px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+
+.lvRow{display:flex;align-items:baseline;gap:8px;margin:12px 0 6px}
+.lvBadge{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:13px;padding:4px 10px;border-radius:20px}
+.rankTxt{font-size:12.5px;color:var(--muted)}
+.expBarOuter{height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;margin-bottom:4px}
+.expBarInner{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:6px}
+.expTxt{font-size:11.5px;color:var(--muted);text-align:right;margin-bottom:14px}
+
+.statGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px}
+.statCell{background:var(--surface2);border-radius:10px;padding:10px 4px;text-align:center}
+.statCell .n{font-size:16px;font-weight:800;color:var(--text)}
+.statCell .l{font-size:10.5px;color:var(--muted);margin-top:2px}
+
+.lpRow{margin-top:14px}
+.lpLabel{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px}
+
+.emptyLoyalty{text-align:center;padding:14px 8px;color:var(--muted);font-size:12.5px;line-height:1.7}
+
+.bigNum{font-size:30px;font-weight:800;color:var(--accent2)}
+.bigNumRow{display:flex;align-items:center;justify-content:space-between}
+.bigNumRow .l{font-size:12.5px;color:var(--muted)}
+
+.chipRow{display:flex;flex-direction:column;gap:8px}
+.chip{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chip span{flex:1;min-width:0}
+.chip b{color:var(--accent);font-size:14px;white-space:nowrap;flex-shrink:0}
+
+.listRow{display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid var(--border);font-size:13px}
+.listRow:last-child{border-bottom:none}
+.listRow .cnt{color:var(--accent2);font-weight:800}
+.emptyList{color:var(--muted);font-size:12.5px;text-align:center;padding:14px 4px}
+
+.subListTitle{font-weight:700;font-size:12.5px;color:var(--muted);margin:16px 0 6px}
+.subListTitle:first-child{margin-top:0}
+
+.footNote{text-align:center;font-size:11px;color:var(--muted);margin-top:18px}
+.refreshFab{position:fixed;right:16px;bottom:16px;width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:19px;box-shadow:0 6px 16px rgba(14,165,233,.35);cursor:pointer}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<!-- 🔝 상단 메뉴바 — "내정보" 헤더 카드와 별개로 화면 맨 위에 고정 -->
+<div class="pageMenu hidden" id="pageMenu">
+  <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
+    <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
+  </button>
+  <button class="menuBtn" id="btnTabGame" onclick="switchTab('game')">
+    <span class="mIcon">🎮</span><span>게임</span>
+  </button>
+  <button class="menuBtn" id="btnTabRoulette" onclick="switchTab('roulette')">
+    <span class="mIcon">🎡</span><span>룰렛정보</span>
+  </button>
+</div>
+
+<div class="wrap">
+  <div class="top">
+    <div class="logo">👤</div>
+    <div>
+      <div class="title">내정보</div>
+      <div class="sub" id="djLabel">에디봇</div>
+    </div>
+  </div>
+
+  <!-- 로딩 -->
+  <div class="card" id="loadingCard"><div class="spin"></div><p class="hint" style="text-align:center">불러오는 중...</p></div>
+
+  <!-- 인증 전: 코드 발급 화면 -->
+  <div class="card authBox hidden" id="authCard">
+    <h2>🔐 방송 채팅으로 딱 한 번만 인증하면 돼요</h2>
+    <p>아래 코드를 <b>방송 채팅창</b>에 그대로 입력해주세요.<br>인증 후엔 이 페이지가 자동으로 내정보 화면으로 바뀌어요.</p>
+    <div class="codeBox" id="authCode">------</div>
+    <div class="cmdLine" id="authCmdLine">!내정보인증 ------</div>
+    <div class="timerRow" id="authTimer">코드 유효시간 10:00</div>
+    <button class="btn btn-primary" onclick="registerCode()">🔄 새 코드 받기</button>
+  </div>
+
+  <!-- 인증 후: 정보 화면 -->
+  <div id="profileWrap" class="hidden">
+    <div class="card">
+      <div class="profHead">
+        <div>
+          <div class="nick" id="pNick">-</div>
+          <div class="tag" id="pTag">-</div>
+        </div>
+        <button class="switchBtn" onclick="resetAuth()">다른 계정 인증</button>
+      </div>
+
+      <div id="loyaltyBlock">
+        <div class="lvRow">
+          <span class="lvBadge">Lv.<span id="pLevel">1</span></span>
+          <span class="rankTxt" id="pRank">순위 -</span>
+        </div>
+        <div class="expBarOuter"><div class="expBarInner" id="pExpBar" style="width:0%"></div></div>
+        <div class="expTxt"><span id="pExp">0</span> / <span id="pNextExp">100</span> EXP</div>
+
+        <div class="statGrid">
+          <div class="statCell"><div class="n" id="pHeart">0</div><div class="l">하트</div></div>
+          <div class="statCell"><div class="n" id="pChat">0</div><div class="l">채팅</div></div>
+          <div class="statCell"><div class="n" id="pAttend">0</div><div class="l">출석</div></div>
+          <div class="statCell"><div class="n" id="pLotto">0</div><div class="l">복권</div></div>
+        </div>
+
+        <div class="lpRow">
+          <div class="lpLabel"><span>복권 포인트</span><span><span id="pLp">0</span>/<span id="pLpMax">22</span></span></div>
+          <div class="expBarOuter"><div class="expBarInner" id="pLpBar" style="width:0%;background:linear-gradient(90deg,#fb923c,#fbbf24)"></div></div>
+        </div>
+      </div>
+      <div id="loyaltyEmpty" class="emptyLoyalty hidden">
+        ⭐ 아직 애청지수 정보가 없어요.<br>방송 채팅에서 <b>!내정보 생성</b> 을 입력하면 등록돼요.
+      </div>
+    </div>
+
+    <!-- 🎁 킵목록 탭: 룰렛권·복권 보유 현황을 위쪽에, 그 아래 킵/이벤트/기타 목록 -->
+    <div class="card" id="tabKeepPanel">
+      <div class="subListTitle" style="margin-top:0">🎟️ 룰렛권 보유</div>
+      <div class="chipRow" id="couponChips"><div class="emptyList">보유한 룰렛권이 없어요</div></div>
+
+      <div class="subListTitle">🎰 복권</div>
+      <div class="bigNumRow" style="margin-bottom:6px">
+        <span class="l">보유 복권</span>
+        <span class="bigNum"><span id="pLottoBig">0</span>장</span>
+      </div>
+
+      <div class="subListTitle">🎁 킵목록</div>
+      <div id="keepListBox"><div class="emptyList">킵 기록이 없어요</div></div>
+      <div class="subListTitle">🎉 이벤트목록</div>
+      <div id="eventListBox"><div class="emptyList">이벤트 기록이 없어요</div></div>
+      <div class="subListTitle">🃏 기타목록</div>
+      <div id="miscListBox"><div class="emptyList">기타 기록이 없어요</div></div>
+    </div>
+
+    <!-- 🎮 게임 탭: 이 방에서 켜져있는 웹 기능(마피아·몬스터잡기 등) 목록 -->
+    <div class="card hidden" id="tabGamePanel">
+      <div class="card-title">🎮 방에서 즐길 수 있는 게임</div>
+      <div id="gameListBox"><div class="emptyList">불러오는 중...</div></div>
+    </div>
+
+    <!-- 🎡 룰렛정보 탭: DJ가 룰렛에 등록해둔 항목 목록 (당첨 항목 미리보기용) -->
+    <div class="card hidden" id="tabRoulettePanel">
+      <div class="card-title">🎡 룰렛 항목 미리보기</div>
+      <div id="rouletteListBox"><div class="emptyList">불러오는 중...</div></div>
+    </div>
+
+    <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
+  </div>
+</div>
+
+<button class="refreshFab hidden" id="refreshFab" onclick="fetchMe(true)">🔄</button>
+
+<script>
+const PATH_PARTS = location.pathname.split('/').filter(Boolean); // ['myinfo','djId']
+const DJ_ID = decodeURIComponent(PATH_PARTS[1] || '');
+const API = location.origin + '/myinfo/' + encodeURIComponent(DJ_ID);
+const LS_KEY = 'myinfo_webUserId_' + DJ_ID;
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let pollTimer = null;
+let countdownTimer = null;
+let codeExpiresAt = 0;
+
+document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
+
+function show(id){ document.getElementById(id).classList.remove('hidden'); }
+function hide(id){ document.getElementById(id).classList.add('hidden'); }
+
+// 킵목록 / 게임 / 룰렛정보 탭 전환 — 게임·룰렛정보는 처음 열 때 한 번만 불러온다
+let gamesLoaded = false, roulettesLoaded = false;
+function switchTab(name){
+  document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
+  document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
+  document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
+  document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
+  document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
+  document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
+  if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
+  if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
+}
+
+async function loadGames(){
+  const box = document.getElementById('gameListBox');
+  try{
+    const res = await fetch(location.origin + '/play/' + encodeURIComponent(DJ_ID) + '/list');
+    const d = await res.json();
+    const items = (d.items || []).filter(it => it.enabled);
+    if(!items.length){ box.innerHTML = '<div class="emptyList">지금 켜져있는 게임이 없어요</div>'; return; }
+    box.innerHTML = items.map(it => `
+      <a class="gameItem" href="${it.url}" target="_blank" rel="noopener">
+        <div class="gIcon">${it.icon || '🎮'}</div>
+        <div class="gInfo">
+          <div class="gTitle">${escapeHtml(it.title)}</div>
+          <div class="gDesc">${escapeHtml(it.desc || '')}</div>
+        </div>
+        <div class="gArrow">›</div>
+      </a>`).join('');
+  }catch(e){
+    box.innerHTML = '<div class="emptyList">불러오기에 실패했어요</div>';
+  }
+}
+
+async function loadRoulettes(){
+  const box = document.getElementById('rouletteListBox');
+  try{
+    const res = await fetch(API + '/roulettes');
+    const d = await res.json();
+    const roulettes = d.roulettes || [];
+    if(!roulettes.length){ box.innerHTML = '<div class="emptyList">등록된 룰렛 항목이 없어요</div>'; return; }
+    box.innerHTML = roulettes.map(rt => `
+      <div class="rouletteGroup">
+        <div class="rouletteName">🎡 ${escapeHtml(rt.name)}</div>
+        <div class="itemChipRow">${rt.items.map(name => `<span class="itemChip">${escapeHtml(name)}</span>`).join('')}</div>
+      </div>`).join('');
+  }catch(e){
+    box.innerHTML = '<div class="emptyList">불러오기에 실패했어요</div>';
+  }
+}
+
+async function registerCode(){
+  hide('authCard'); hide('profileWrap'); show('loadingCard');
+  try{
+    const res = await fetch(API + '/register', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    hide('loadingCard');
+    if(!d.success){ alert(d.error || '오류가 발생했어요'); return; }
+    webUserId = d.webUserId;
+    localStorage.setItem(LS_KEY, webUserId);
+    codeExpiresAt = Date.now() + (d.expiresInSec || 600) * 1000;
+    document.getElementById('authCode').textContent = d.code;
+    document.getElementById('authCmdLine').textContent = (d.cmd || '!내정보인증') + ' ' + d.code;
+    show('authCard');
+    startCountdown();
+    startPolling();
+  }catch(e){
+    hide('loadingCard');
+    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">연결에 실패했어요. 새로고침 해주세요.</p>';
+    show('loadingCard');
+  }
+}
+
+function startCountdown(){
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const remain = Math.max(0, Math.floor((codeExpiresAt - Date.now()) / 1000));
+    const m = String(Math.floor(remain / 60)).padStart(2, '0');
+    const s = String(remain % 60).padStart(2, '0');
+    document.getElementById('authTimer').textContent = remain > 0 ? `코드 유효시간 ${m}:${s}` : '코드가 만료됐어요. 새 코드를 받아주세요.';
+    if(remain <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+
+function startPolling(){
+  clearInterval(pollTimer);
+  fetchMe();
+  pollTimer = setInterval(fetchMe, 3000);
+}
+
+function resetAuth(){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS_KEY);
+  webUserId = '';
+  hide('profileWrap'); hide('refreshFab'); hide('pageMenu');
+  document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
+  registerCode();
+}
+
+function renderList(boxId, items){
+  const box = document.getElementById(boxId);
+  if(!items || !items.length){ box.innerHTML = '<div class="emptyList">기록이 없어요</div>'; return; }
+  box.innerHTML = items.map(it => `<div class="listRow"><span>${escapeHtml(it.name)}</span><span class="cnt">${it.count}개</span></div>`).join('');
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function fetchMe(manual){
+  if(!webUserId) return;
+  try{
+    const res = await fetch(API + '/me?webUserId=' + encodeURIComponent(webUserId));
+    const d = await res.json();
+    if(!d.success){ if(manual) alert('정보를 찾을 수 없어요'); return; }
+
+    if(!d.linked){
+      // 아직 채팅 인증 전
+      hide('loadingCard'); hide('profileWrap');
+      if(d.code && d.expiresAt && d.expiresAt > Date.now()){
+        // 기존에 발급받은 코드가 아직 살아있으면 그대로 이어서 보여준다 (재발급으로 코드가 바뀌지 않게)
+        document.getElementById('authCode').textContent = d.code;
+        document.getElementById('authCmdLine').textContent = '!내정보인증 ' + d.code;
+        codeExpiresAt = d.expiresAt;
+        show('authCard');
+        startCountdown();
+      } else {
+        clearInterval(pollTimer);
+        registerCode();
+      }
+      return;
+    }
+
+    // 인증 완료 — 프로필 화면 렌더
+    clearInterval(countdownTimer);
+    hide('authCard'); hide('loadingCard'); show('profileWrap'); show('refreshFab'); show('pageMenu');
+
+    document.getElementById('pNick').textContent = d.nickname || d.tag;
+    document.getElementById('pTag').textContent = '@' + d.tag;
+    document.getElementById('djLabel').textContent = (d.nickname || d.tag) + ' · ' + DJ_ID + ' 방';
+
+    // 킵목록 탭 버튼 위 숫자: 킵목록 총 수량
+    const keepTotal = (d.keepList || []).reduce((s, it) => s + (it.count || 0), 0);
+    document.getElementById('sumKeep').textContent = keepTotal;
+    document.getElementById('pLottoBig').textContent = (d.loyalty && d.loyalty.lotto) || 0;
+
+    if(d.loyalty && d.loyalty.registered){
+      hide('loyaltyEmpty'); show('loyaltyBlock');
+      document.getElementById('pLevel').textContent = d.loyalty.level;
+      document.getElementById('pRank').textContent = d.loyalty.rank ? `순위 ${d.loyalty.rank}위` : '순위 -';
+      document.getElementById('pExp').textContent = d.loyalty.exp;
+      document.getElementById('pNextExp').textContent = d.loyalty.nextExp;
+      const pct = d.loyalty.nextExp > 0 ? Math.min(100, Math.round(d.loyalty.exp / d.loyalty.nextExp * 100)) : 0;
+      document.getElementById('pExpBar').style.width = pct + '%';
+      document.getElementById('pHeart').textContent = d.loyalty.heart;
+      document.getElementById('pChat').textContent = d.loyalty.chat;
+      document.getElementById('pAttend').textContent = d.loyalty.attend;
+      document.getElementById('pLotto').textContent = d.loyalty.lotto;
+      document.getElementById('pLp').textContent = d.loyalty.lp;
+      document.getElementById('pLpMax').textContent = d.loyalty.lpMax;
+      const lpPct = d.loyalty.lpMax > 0 ? Math.min(100, Math.round(d.loyalty.lp / d.loyalty.lpMax * 100)) : 0;
+      document.getElementById('pLpBar').style.width = lpPct + '%';
+    } else {
+      hide('loyaltyBlock'); show('loyaltyEmpty');
+    }
+
+    const chipBox = document.getElementById('couponChips');
+    if(d.coupons && d.coupons.length){
+      chipBox.innerHTML = d.coupons.map(c => `<div class="chip"><span>${escapeHtml(c.name)}</span><b>${c.count}장</b></div>`).join('');
+    } else {
+      chipBox.innerHTML = '<div class="emptyList">보유한 룰렛권이 없어요</div>';
+    }
+
+    renderList('keepListBox', d.keepList);
+    renderList('eventListBox', d.eventList);
+    renderList('miscListBox', d.miscList);
+  }catch(e){
+    if(manual) alert('불러오기에 실패했어요');
+  }
+}
+
+// 시작
+(function init(){
+  if(!DJ_ID){
+    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
+    return;
+  }
+  if(webUserId){
+    hide('authCard'); show('loadingCard');
+    startPolling();
+  } else {
+    registerCode();
+  }
+})();
+</script>
+</body>
+</html>

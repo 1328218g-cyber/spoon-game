@@ -732,7 +732,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -2615,6 +2615,108 @@ async function handleMonsterDexCommand(djId, settings, author, actTag, text, pro
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 👤 내정보 웹페이지 — DJ 방(djId)별로, 시청자가 로그인 없이 웹페이지에서 인증코드를 발급받고
+// 채팅으로 그 코드를 치면(웹뽑기판/마피아/몬스터도감과 동일한 register→code→채팅인증 패턴)
+// 애청지수·복권·킵/이벤트/기타 목록·룰렛권 보유 현황을 채팅 명령어 없이 한 화면에서 볼 수 있다.
+// 애청지수(activity)·룰렛기록(rouletteHistory)은 djId별 settings 안에 이미 있는 데이터를 그대로
+// 읽어서 보여주기만 하고, 이 모듈이 새로 저장하는 건 인증코드↔웹세션 연결 정보뿐이다.
+function getMyInfoSettings(djId, settings) {
+  if (!settings.myinfo) {
+    settings.myinfo = { webUsers: {}, authKeys: {}, cmdAuth: '!내정보인증' }
+    store.saveSettings(djId, { myinfo: settings.myinfo })
+  }
+  const mi = settings.myinfo
+  if (!mi.webUsers || typeof mi.webUsers !== 'object') mi.webUsers = {}
+  if (!mi.authKeys || typeof mi.authKeys !== 'object') mi.authKeys = {}
+  if (!mi.cmdAuth) mi.cmdAuth = '!내정보인증'
+  return mi
+}
+function saveMyInfo(djId, mi) { store.saveSettings(djId, { myinfo: mi }) }
+
+const MI_AUTH_KEY_TTL_MS = 10 * 60 * 1000
+function miRand(max) { return Math.floor(Math.random() * max) }
+function miGenAuthKey(mi) {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let key
+  do { key = Array.from({ length: 6 }, () => chars[miRand(chars.length)]).join('') } while (mi.authKeys[key])
+  return key
+}
+function miCleanExpiredKeys(mi) {
+  const now = Date.now()
+  for (const k of Object.keys(mi.authKeys)) { if (!mi.authKeys[k] || mi.authKeys[k].expiresAt < now) delete mi.authKeys[k] }
+}
+function miHandleAuth(djId, mi, tag, author, code) {
+  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+  miCleanExpiredKeys(mi)
+  const entry = mi.authKeys[code]
+  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 웹페이지에서 다시 발급받아주세요.', 150, 300)
+  mi.webUsers[entry.webUserId] = tag
+  delete mi.authKeys[code]
+  saveMyInfo(djId, mi)
+  return sendChatSplit(djId, `✅ ${author}님 내정보 웹페이지 인증 완료! 이제 웹에서 본인 정보를 바로 확인할 수 있어요.`, 150, 300)
+}
+
+// 채팅 명령어 처리: "!내정보인증 코드6자리" 또는 코드만 딱 (다른 웹인증 모듈들과 동일한 방식)
+function handleMyInfoCommand(djId, settings, author, actTag, text) {
+  if (!isModuleOn(settings, 'myinfo', djId)) return
+  const mi = getMyInfoSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+
+  // ⚠️ 웹뽑기판/마피아/몬스터도감 등 여러 모듈이 같은 "코드만 딱 치면 인식" 방식을 같이 쓰기
+  // 때문에, 여기서 못 찾았다고 바로 "잘못된 코드"라고 단정하면 안 된다 — 다른 모듈용 코드일
+  // 수도 있어서, 조용히 넘겨서 뒤에 있는 다른 모듈 핸들러가 확인하게 둔다.
+  if (!msg.startsWith('!')) {
+    const rawCode = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(rawCode)) {
+      miCleanExpiredKeys(mi)
+      if (mi.authKeys[rawCode]) return miHandleAuth(djId, mi, tag, author, rawCode)
+    }
+    return
+  }
+  const parts = msg.split(/\s+/)
+  if (parts[0] === (mi.cmdAuth || '!내정보인증')) {
+    if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+    const code = String(parts[1] || '').trim().toUpperCase()
+    if (!code) return sendChatSplit(djId, `사용법: ${mi.cmdAuth} 코드6자리`, 150, 300)
+    return miHandleAuth(djId, mi, tag, author, code)
+  }
+}
+
+// 한 시청자(tag 기준)의 애청지수·복권·킵/이벤트/기타 목록·룰렛권 보유 현황을 웹페이지용으로
+// 한 번에 모아준다. 애청지수는 "!내정보 생성"으로 등록된 사람만 데이터가 있고, 미등록이어도
+// 룰렛/킵 기록은 태그만 있으면 조회되므로 각각 따로 registered 여부를 표시한다.
+function miBuildProfile(djId, settings, tag) {
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag) // 닉네임은 수시로 바뀌므로 태그로만 조회
+  const ad = actKey ? act.users[actKey] : null
+  const lvInfo = actGetLevel(ad ? (ad.exp || 0) : 0, act.lvBase)
+
+  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
+  const rouletteList = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
+  const coupons = Object.entries(rec.coupons || {})
+    .map(([idx, count]) => ({ idx: Number(idx), name: (rouletteList[Number(idx) - 1] && rouletteList[Number(idx) - 1].name) || `룰렛${idx}`, count: Number(count) || 0 }))
+    .filter(c => c.count > 0)
+    .sort((a, b) => a.idx - b.idx)
+  const toList = (obj) => Object.entries(obj || {}).map(([name, count]) => ({ name, count: Number(count) || 0 })).sort((a, b) => b.count - a.count)
+
+  return {
+    nickname: (ad && ad.nickname) || rec.nickname || tag,
+    loyalty: ad ? {
+      registered: true,
+      level: lvInfo.level, exp: lvInfo.curExp, nextExp: lvInfo.nextExp,
+      rank: actRank(act.users, actKey),
+      heart: ad.heart || 0, chat: ad.chat || 0, attend: ad.attend || 0,
+      lp: ad.lp || 0, lpMax: Number(act.lottoExchange) || 22,
+      lotto: ad.lotto || 0,
+    } : { registered: false, lotto: 0 },
+    coupons,
+    keepList: toList(rec.keepList),
+    eventList: toList(rec.eventList),
+    miscList: toList(rec.miscList),
+  }
+}
 
 // 봇이 방송에 새로 연결될 때(ws open)마다 호출 — 이번 방송에서 몬스터 등장 타이머를 새로 시작.
 // 📢 전체방 반복 공지 — 지금 방송 연결되어있는(isConnected) 모든 디제이 방에 정해진 간격마다
@@ -15111,6 +15213,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMonsterDexCommand(djId, settings, author, actTag, text, gen.profileUrl || eventPayload.profileUrl || '')
+          handleMyInfoCommand(djId, settings, author, actTag, text)
           handleStockChatHook(djId, settings, actTag, author)
         }
 
@@ -19263,6 +19366,64 @@ app.get('/mafia/:djId', (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════
+// 👤 내정보 웹페이지 — 공개(로그인 없음) API. 웹뽑기판/마피아/몬스터도감과 같은
+// register→code→채팅인증 패턴을 그대로 재사용한다.
+app.post('/myinfo/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  miCleanExpiredKeys(mi)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !mi.webUsers[webUserId]) {
+    for (const code of Object.keys(mi.authKeys)) { if (mi.authKeys[code].webUserId === webUserId) delete mi.authKeys[code] }
+  } else if (!webUserId || mi.webUsers[webUserId]) {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = miGenAuthKey(mi)
+  mi.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MI_AUTH_KEY_TTL_MS }
+  saveMyInfo(djId, mi)
+  res.json({ success: true, webUserId, code, cmd: mi.cmdAuth, expiresInSec: MI_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/myinfo/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = mi.webUsers[webUserId]
+  if (!tag) {
+    miCleanExpiredKeys(mi)
+    for (const [code, entry] of Object.entries(mi.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ success: true, linked: false, expired: true })
+  }
+  const profile = miBuildProfile(djId, settings, tag)
+  res.json({ success: true, linked: true, tag, ...profile })
+})
+// 🎡 이 방에 등록된 룰렛들의 이름과 항목 목록 — 채팅 명령어 "!룰렛메뉴N"과 같은 정보를 웹에서도
+// 로그인 없이 볼 수 있게 공개한다 (확률/가중치는 빼고 항목 이름만 노출).
+app.get('/myinfo/:djId/roulettes', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
+  const roulettes = list
+    .map((rt, i) => ({ idx: i + 1, name: rt.name || `룰렛${i + 1}`, items: (rt.items || []).map(it => it.name).filter(Boolean) }))
+    .filter(rt => rt.items.length)
+  res.json({ success: true, roulettes })
+})
+// 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
+// 파라미터가 하위 경로를 가로채지 않는다.
+app.get('/myinfo/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/myinfo.html')
+})
+
+// ══════════════════════════════════════════════════════
 // 🎑 추석 팀배틀 이벤트 — 공개(로그인 없음) 웹 페이지. 포스터 이미지 + 실시간 팀 스코어를
 // 보여주고, 시청자는 마피아/몬스터도감과 같은 방식으로 채팅 인증코드를 쳐서 본인 참여 현황을
 // 확인할 수 있다. 반드시 :djId 정적 페이지 라우트보다 앞에 register/me를 둬야 하위 경로가
@@ -20115,6 +20276,7 @@ const WEB_HUB_FEATURES = [
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
+  { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
   const djId = req.params.djId
