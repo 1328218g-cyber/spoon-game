@@ -379,6 +379,20 @@ function renderList(boxId, items, section){
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// 🧹 닉네임에 어떤 폰트로도 표시가 안 되는 특수문자(사설 영역 유니코드, 폰트 없는 장식용
+// 아이콘 코드 등)가 섞여있으면 네모(□)로 깨져 보인다. 폰트를 계속 추가해서 쫓아가기보다,
+// 애초에 표준 글자가 아닌 구간(사설 사용 영역 등)은 화면에 내놓기 전에 걸러낸다.
+function sanitizeDisplayName(s){
+  return String(s || '')
+    .replace(/[\uE000-\uF8FF]/g, '')            // 사설 사용 영역(BMP)
+    .replace(/[\uD800-\uDFFF]{2}/g, m => {       // 서로게이트 쌍으로 표현되는 사설 영역(플레인 15/16 등)
+      const cp = m.codePointAt(0);
+      return (cp >= 0xF0000 && cp <= 0x10FFFD) ? '' : m;
+    })
+    .replace(/\uFFFD/g, '')                       // 이미 깨져서 들어온 대체문자
+    .trim();
+}
+
 // 킵/이벤트/기타목록에서 "사용" 버튼을 누르면 방송 채팅창에 사용 알림이 올라가고, 목록에서는
 // 수량이 여러 개여도 딱 1개만 차감된다 (0개가 되면 항목 자체가 사라짐).
 async function onUseItemClick(ev){
@@ -450,7 +464,7 @@ async function fetchMe(manual){
     clearInterval(countdownTimer);
     hide('authCard'); hide('loadingCard'); show('profileWrap'); show('refreshFab'); show('pageMenu');
 
-    document.getElementById('pNick').textContent = d.nickname || d.tag;
+    document.getElementById('pNick').textContent = sanitizeDisplayName(d.nickname || d.tag);
     document.getElementById('pTag').textContent = '@' + d.tag;
     if(d.imgUrl){
       const av = document.getElementById('pAvatar');
