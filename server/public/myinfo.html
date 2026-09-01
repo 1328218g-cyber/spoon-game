@@ -136,14 +136,6 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 </div>
 
 <div class="wrap">
-  <div class="top">
-    <div class="logo">👤</div>
-    <div>
-      <div class="title">내정보</div>
-      <div class="sub" id="djLabel">에디봇</div>
-    </div>
-  </div>
-
   <!-- 로딩 -->
   <div class="card" id="loadingCard"><div class="spin"></div><p class="hint" style="text-align:center">불러오는 중...</p></div>
 
@@ -161,9 +153,13 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
   <div id="profileWrap" class="hidden">
     <div class="card">
       <div class="profHead">
-        <div>
-          <div class="nick" id="pNick">-</div>
-          <div class="tag" id="pTag">-</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <img id="pAvatar" src="" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);display:none">
+          <div id="pAvatarFallback" style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">👤</div>
+          <div>
+            <div class="nick" id="pNick">-</div>
+            <div class="tag" id="pTag">-</div>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
           <div class="petMiniBox hidden" id="petMiniBox"><img id="petMiniImg" src="" alt=""></div>
@@ -243,8 +239,6 @@ let webUserId = localStorage.getItem(LS_KEY) || '';
 let pollTimer = null;
 let countdownTimer = null;
 let codeExpiresAt = 0;
-
-document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
 
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
@@ -366,7 +360,6 @@ function resetAuth(){
   webUserId = '';
   petMiniLoaded = false;
   hide('profileWrap'); hide('refreshFab'); hide('pageMenu'); hide('petMiniBox');
-  document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
   registerCode();
 }
 
@@ -456,7 +449,16 @@ async function fetchMe(manual){
 
     document.getElementById('pNick').textContent = d.nickname || d.tag;
     document.getElementById('pTag').textContent = '@' + d.tag;
-    document.getElementById('djLabel').textContent = (d.nickname || d.tag) + ' · ' + DJ_ID + ' 방';
+    if(d.imgUrl){
+      const av = document.getElementById('pAvatar');
+      av.src = d.imgUrl;
+      av.style.display = 'block';
+      av.onerror = function(){ av.style.display='none'; document.getElementById('pAvatarFallback').style.display='flex'; };
+      document.getElementById('pAvatarFallback').style.display = 'none';
+    } else {
+      document.getElementById('pAvatar').style.display = 'none';
+      document.getElementById('pAvatarFallback').style.display = 'flex';
+    }
     loadPetMini(d.tag);
 
     // 킵목록 탭 버튼 위 숫자: 킵목록 총 수량
