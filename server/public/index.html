@@ -3623,7 +3623,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔗 공개 페이지</span></div>
-          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 접속해서 켜져있는 기능(웹뽑기판·마피아·내정보 등)을 골라 들어갈 수 있어요.</p>
+          <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 내정보 페이지로 접속할 수 있어요. (다른 웹 기능들을 한곳에 모은 시청자 허브가 아니라, 이 방의 내정보 페이지로 바로 이동해요)</p>
           <div style="display:flex;gap:8px">
             <input type="text" id="miHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miHubUrl')">복사</button>
@@ -14120,7 +14120,7 @@ async function loadMyInfoSettings(){
       const mi=d.settings.myinfo||{};
       document.getElementById('miCmdAuth').value=mi.cmdAuth||'!내정보인증';
     }
-    document.getElementById('miHubUrl').value=location.origin+'/play/'+djId;
+    document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
   }catch(e){showToast('오류: '+e.message);}
 }
 async function saveMyInfoSettings(){

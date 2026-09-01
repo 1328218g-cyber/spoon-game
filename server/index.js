@@ -19407,6 +19407,41 @@ app.get('/myinfo/:djId/me', (req, res) => {
 })
 // 🎡 이 방에 등록된 룰렛들의 이름과 항목 목록 — 채팅 명령어 "!룰렛메뉴N"과 같은 정보를 웹에서도
 // 로그인 없이 볼 수 있게 공개한다 (확률/가중치는 빼고 항목 이름만 노출).
+// 🎁 킵/이벤트/기타목록 항목 사용 — 채팅 명령어 "!킵사용 [번호] [수량]"과 같은 로직을, 웹에서
+// 버튼 한 번으로 처리한다. 항상 1개만 사용(요청 수량이 여러 개여도 목록에서 딱 하나만 차감)하고,
+// 방송 채팅창에는 그대로 사용 완료 알림을 보낸다.
+app.post('/myinfo/:djId/use-item', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const section = String((req.body || {}).section || '').trim() // 'keep' | 'event' | 'misc'
+  const name = String((req.body || {}).name || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!name) return res.json({ success: false, error: '잘못된 요청이에요.' })
+  const fieldMap = { keep: 'keepList', event: 'eventList', misc: 'miscList' }
+  const field = fieldMap[section]
+  if (!field) return res.json({ success: false, error: '잘못된 목록이에요.' })
+
+  const rec = settings.rouletteHistory && settings.rouletteHistory[tag]
+  const data = rec && rec[field]
+  if (!data || !data[name]) return res.json({ success: false, error: '이미 사용했거나 없는 항목이에요.' })
+
+  data[name] -= 1 // 수량이 여러 개여도 한 번에 딱 1개만 차감
+  const remaining = data[name]
+  if (data[name] <= 0) delete data[name]
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const displayName = rec.nickname || tag
+  setTimeout(() => sendChatToRoom(djId, `✅ ${displayName}님의 [${name}] 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 300)
+
+  const profile = miBuildProfile(djId, settings, tag)
+  res.json({ success: true, ...profile })
+})
+
 app.get('/myinfo/:djId/roulettes', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}

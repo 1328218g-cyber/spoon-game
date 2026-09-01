@@ -94,9 +94,12 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 .chip span{flex:1;min-width:0}
 .chip b{color:var(--accent);font-size:14px;white-space:nowrap;flex-shrink:0}
 
-.listRow{display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid var(--border);font-size:13px}
+.listRow{display:flex;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px solid var(--border);font-size:13px}
 .listRow:last-child{border-bottom:none}
-.listRow .cnt{color:var(--accent2);font-weight:800}
+.listRow .itemName{flex:1;min-width:0;overflow-wrap:break-word}
+.listRow .cnt{color:var(--accent2);font-weight:800;flex-shrink:0}
+.useBtn{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:700;cursor:pointer}
+.useBtn:disabled{opacity:.5;cursor:default}
 .emptyList{color:var(--muted);font-size:12.5px;text-align:center;padding:14px 4px}
 
 .subListTitle{font-weight:700;font-size:12.5px;color:var(--muted);margin:16px 0 6px}
@@ -136,9 +139,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
   <!-- 인증 전: 코드 발급 화면 -->
   <div class="card authBox hidden" id="authCard">
     <h2>🔐 방송 채팅으로 딱 한 번만 인증하면 돼요</h2>
-    <p>아래 코드를 <b>방송 채팅창</b>에 그대로 입력해주세요.<br>인증 후엔 이 페이지가 자동으로 내정보 화면으로 바뀌어요.</p>
+    <p>아래 코드를 복사해서 <b>방송 채팅창</b>에 그대로 붙여넣어 주세요.<br>인증 후엔 이 페이지가 자동으로 내정보 화면으로 바뀌어요.</p>
     <div class="codeBox" id="authCode">------</div>
-    <div class="cmdLine" id="authCmdLine">!내정보인증 ------</div>
+    <button class="btn btn-ghost" style="margin:0 0 14px" onclick="copyCode(event)">📋 코드 복사</button>
     <div class="timerRow" id="authTimer">코드 유효시간 10:00</div>
     <button class="btn btn-primary" onclick="registerCode()">🔄 새 코드 받기</button>
   </div>
@@ -232,6 +235,25 @@ document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
 
+function copyCode(ev){
+  const code = document.getElementById('authCode').textContent.trim();
+  if(!code || code === '------') return;
+  const btn = ev && ev.target ? ev.target.closest('button') : null;
+  const done = () => { if(btn){ const old = btn.textContent; btn.textContent = '✅ 복사됨'; setTimeout(() => btn.textContent = old, 1500); } };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(done).catch(() => fallbackCopy(code, done));
+  } else {
+    fallbackCopy(code, done);
+  }
+}
+function fallbackCopy(text, cb){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); cb && cb(); }catch(e){}
+  document.body.removeChild(ta);
+}
+
 // 킵목록 / 게임 / 룰렛정보 탭 전환 — 게임·룰렛정보는 처음 열 때 한 번만 불러온다
 let gamesLoaded = false, roulettesLoaded = false;
 function switchTab(name){
@@ -297,7 +319,6 @@ async function registerCode(){
     localStorage.setItem(LS_KEY, webUserId);
     codeExpiresAt = Date.now() + (d.expiresInSec || 600) * 1000;
     document.getElementById('authCode').textContent = d.code;
-    document.getElementById('authCmdLine').textContent = (d.cmd || '!내정보인증') + ' ' + d.code;
     show('authCard');
     startCountdown();
     startPolling();
@@ -334,12 +355,45 @@ function resetAuth(){
   registerCode();
 }
 
-function renderList(boxId, items){
+function renderList(boxId, items, section){
   const box = document.getElementById(boxId);
   if(!items || !items.length){ box.innerHTML = '<div class="emptyList">기록이 없어요</div>'; return; }
-  box.innerHTML = items.map(it => `<div class="listRow"><span>${escapeHtml(it.name)}</span><span class="cnt">${it.count}개</span></div>`).join('');
+  box.innerHTML = items.map(it => `
+    <div class="listRow">
+      <span class="itemName">${escapeHtml(it.name)}</span>
+      <span class="cnt">${it.count}개</span>
+      <button class="useBtn" data-section="${section}" data-name="${escapeHtml(it.name)}">사용</button>
+    </div>`).join('');
+  box.querySelectorAll('.useBtn').forEach(btn => btn.addEventListener('click', onUseItemClick));
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// 킵/이벤트/기타목록에서 "사용" 버튼을 누르면 방송 채팅창에 사용 알림이 올라가고, 목록에서는
+// 수량이 여러 개여도 딱 1개만 차감된다 (0개가 되면 항목 자체가 사라짐).
+async function onUseItemClick(ev){
+  const btn = ev.currentTarget;
+  const section = btn.dataset.section;
+  const name = btn.dataset.name;
+  if(!confirm(`[${name}] 을(를) 사용할까요?\n방송 채팅창에 사용 알림이 올라가요.`)) return;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '처리중';
+  try{
+    const res = await fetch(API + '/use-item', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, section, name })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '사용에 실패했어요'); btn.disabled = false; btn.textContent = old; return; }
+
+    renderList('keepListBox', d.keepList, 'keep');
+    renderList('eventListBox', d.eventList, 'event');
+    renderList('miscListBox', d.miscList, 'misc');
+    const keepTotal = (d.keepList || []).reduce((s, it) => s + (it.count || 0), 0);
+    document.getElementById('sumKeep').textContent = keepTotal;
+  }catch(e){
+    alert('사용에 실패했어요');
+    btn.disabled = false; btn.textContent = old;
+  }
+}
 
 async function fetchMe(manual){
   if(!webUserId) return;
@@ -354,7 +408,6 @@ async function fetchMe(manual){
       if(d.code && d.expiresAt && d.expiresAt > Date.now()){
         // 기존에 발급받은 코드가 아직 살아있으면 그대로 이어서 보여준다 (재발급으로 코드가 바뀌지 않게)
         document.getElementById('authCode').textContent = d.code;
-        document.getElementById('authCmdLine').textContent = '!내정보인증 ' + d.code;
         codeExpiresAt = d.expiresAt;
         show('authCard');
         startCountdown();
@@ -405,9 +458,9 @@ async function fetchMe(manual){
       chipBox.innerHTML = '<div class="emptyList">보유한 룰렛권이 없어요</div>';
     }
 
-    renderList('keepListBox', d.keepList);
-    renderList('eventListBox', d.eventList);
-    renderList('miscListBox', d.miscList);
+    renderList('keepListBox', d.keepList, 'keep');
+    renderList('eventListBox', d.eventList, 'event');
+    renderList('miscListBox', d.miscList, 'misc');
   }catch(e){
     if(manual) alert('불러오기에 실패했어요');
   }
