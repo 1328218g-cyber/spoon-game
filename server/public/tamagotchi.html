@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0ea5e9">
+<title>다마고치 | 에디봇</title>
+<style>
+:root{
+  --bg:#eaf6fb; --panel:#ffffff; --surface2:#eef7fb; --border:#d7ecf5;
+  --accent:#0ea5e9; --accent2:#fb923c; --text:#0f2a3a; --muted:#6b8a9a;
+  --success:#16a34a; --danger:#e11d48; --radius:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic',sans-serif;padding-bottom:40px}
+.wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+.top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
+.top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.top .title{font-weight:800;font-size:17px}
+.top .sub{font-size:12px;color:var(--muted);margin-top:1px}
+
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
+
+.authBox{text-align:center;padding:26px 16px}
+.authBox h2{font-size:16px;margin:0 0 8px}
+.authBox p{font-size:13px;color:var(--muted);line-height:1.7;margin:0 0 18px}
+.codeBox{font-family:'SFMono-Regular',Consolas,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:var(--accent);background:var(--surface2);border:1.5px dashed var(--accent);border-radius:12px;padding:16px 10px;margin:0 0 14px}
+.timerRow{font-size:12.5px;color:var(--muted);margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:8px}
+.spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 14px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.petStage{text-align:center;margin:6px 0 10px}
+.petStage img{width:120px;height:120px;object-fit:contain}
+.petMood{text-align:center;font-size:15px;font-weight:700;margin-bottom:14px}
+.growthLabel{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px}
+.barOuter{height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;margin-bottom:14px}
+.barInner{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:6px}
+.neglectRow{display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:6px}
+.pointsRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.pointsRow .big{font-size:24px;font-weight:800;color:var(--accent2)}
+
+.shopGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.shopItem{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center}
+.shopItem .icon{font-size:26px}
+.shopItem .name{font-size:13px;font-weight:700;margin:6px 0 2px}
+.shopItem .price{font-size:12px;color:var(--accent2);font-weight:700;margin-bottom:8px}
+.shopBtn{width:100%;padding:8px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:700;cursor:pointer}
+.shopBtn:disabled{background:#cbd5df;cursor:default}
+
+.emptyPet{text-align:center;padding:20px 8px}
+.emptyPet .egg img{width:90px;height:90px;object-fit:contain}
+.runawayBox{text-align:center;padding:10px 8px 4px;color:var(--danger);font-size:13px;font-weight:700}
+
+.footNote{text-align:center;font-size:11px;color:var(--muted);margin-top:18px}
+.refreshFab{position:fixed;right:16px;bottom:16px;width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:19px;box-shadow:0 6px 16px rgba(14,165,233,.35);cursor:pointer}
+.hidden{display:none !important}
+.switchBtn{font-size:11.5px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:20px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+.profHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🐣</div>
+    <div>
+      <div class="title">다마고치</div>
+      <div class="sub" id="djLabel">에디봇</div>
+    </div>
+  </div>
+
+  <div class="card" id="loadingCard"><div class="spin"></div><p class="hint" style="text-align:center">불러오는 중...</p></div>
+
+  <div class="card authBox hidden" id="authCard">
+    <h2>🔐 방송 채팅으로 딱 한 번만 인증하면 돼요</h2>
+    <p>아래 코드를 복사해서 <b>방송 채팅창</b>에 그대로 붙여넣어 주세요.<br>인증 후엔 이 페이지가 자동으로 다마고치 화면으로 바뀌어요.</p>
+    <div class="codeBox" id="authCode">------</div>
+    <button class="btn btn-ghost" style="margin:0 0 14px" onclick="copyCode(event)">📋 코드 복사</button>
+    <div class="timerRow" id="authTimer">코드 유효시간 10:00</div>
+    <button class="btn btn-primary" onclick="registerCode()">🔄 새 코드 받기</button>
+  </div>
+
+  <div id="petWrap" class="hidden">
+    <div class="card">
+      <div class="profHead">
+        <div style="font-weight:800;font-size:15px">내 다마고치</div>
+        <button class="switchBtn" onclick="resetAuth()">다른 계정 인증</button>
+      </div>
+
+      <div id="petExists">
+        <div class="petStage"><img id="petImg" src="/icons/tamagotchi/egg.png" alt="🥚" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></div>
+        <div class="petMood" id="petMood">-</div>
+        <div class="growthLabel"><span id="growthLabelText">성장 단계</span><span id="growthNext"></span></div>
+        <div class="barOuter"><div class="barInner" id="growthBar" style="width:0%"></div></div>
+        <div class="neglectRow"><span id="neglectText">-</span><span id="hoursText"></span></div>
+      </div>
+      <div class="emptyPet hidden" id="petEmpty">
+        <div class="egg"><img src="/icons/tamagotchi/egg.png" alt="🥚" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></div>
+        <p class="hint">아직 다마고치가 없어요. 아래 상점에서 아이템을 하나 사면 알이 부화해요!</p>
+      </div>
+      <div class="runawayBox hidden" id="runawayNotice">😭 다마고치가 방치돼서 가출했어요... 아이템을 사면 새로 알부터 다시 시작해요.</div>
+    </div>
+
+    <div class="card">
+      <div class="pointsRow">
+        <span class="hint" style="font-size:13px">보유 포인트</span>
+        <span class="big"><span id="ptsBig">0</span>P</span>
+      </div>
+      <p class="hint">채팅·좋아요·하트·출석·후원(스푼)으로 애청지수랑 같은 배율로 자동 적립돼요.</p>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800;font-size:14px;margin-bottom:10px">🛒 상점</div>
+      <div class="shopGrid" id="shopGrid"></div>
+    </div>
+
+    <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
+  </div>
+</div>
+
+<button class="refreshFab hidden" id="refreshFab" onclick="fetchMe(true)">🔄</button>
+
+<script>
+const PATH_PARTS = location.pathname.split('/').filter(Boolean);
+const DJ_ID = decodeURIComponent(PATH_PARTS[1] || '');
+const API = location.origin + '/tamagotchi/' + encodeURIComponent(DJ_ID);
+const LS_KEY = 'tamagotchi_webUserId_' + DJ_ID;
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let pollTimer = null;
+let countdownTimer = null;
+let codeExpiresAt = 0;
+let lastShop = [];
+
+document.getElementById('djLabel').textContent = DJ_ID ? (DJ_ID + ' 방') : '에디봇';
+
+function show(id){ document.getElementById(id).classList.remove('hidden'); }
+function hide(id){ document.getElementById(id).classList.add('hidden'); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function copyCode(ev){
+  const code = document.getElementById('authCode').textContent.trim();
+  if(!code || code === '------') return;
+  const btn = ev && ev.target ? ev.target.closest('button') : null;
+  const done = () => { if(btn){ const old = btn.textContent; btn.textContent = '✅ 복사됨'; setTimeout(() => btn.textContent = old, 1500); } };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(done).catch(() => fallbackCopy(code, done));
+  } else fallbackCopy(code, done);
+}
+function fallbackCopy(text, cb){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); cb && cb(); }catch(e){}
+  document.body.removeChild(ta);
+}
+
+async function registerCode(){
+  hide('authCard'); hide('petWrap'); show('loadingCard');
+  try{
+    const res = await fetch(API + '/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId }) });
+    const d = await res.json();
+    hide('loadingCard');
+    if(!d.success){ alert(d.error || '오류가 발생했어요'); return; }
+    webUserId = d.webUserId;
+    localStorage.setItem(LS_KEY, webUserId);
+    codeExpiresAt = Date.now() + (d.expiresInSec || 600) * 1000;
+    document.getElementById('authCode').textContent = d.code;
+    show('authCard');
+    startCountdown();
+    startPolling();
+  }catch(e){
+    hide('loadingCard');
+    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">연결에 실패했어요. 새로고침 해주세요.</p>';
+    show('loadingCard');
+  }
+}
+function startCountdown(){
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const remain = Math.max(0, Math.floor((codeExpiresAt - Date.now()) / 1000));
+    const m = String(Math.floor(remain / 60)).padStart(2, '0');
+    const s = String(remain % 60).padStart(2, '0');
+    document.getElementById('authTimer').textContent = remain > 0 ? `코드 유효시간 ${m}:${s}` : '코드가 만료됐어요. 새 코드를 받아주세요.';
+    if(remain <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+function startPolling(){
+  clearInterval(pollTimer);
+  fetchMe();
+  pollTimer = setInterval(fetchMe, 15000);
+}
+function resetAuth(){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS_KEY);
+  webUserId = '';
+  hide('petWrap'); hide('refreshFab');
+  registerCode();
+}
+
+function renderShop(shop, points){
+  lastShop = shop || [];
+  const box = document.getElementById('shopGrid');
+  box.innerHTML = lastShop.map(it => `
+    <div class="shopItem">
+      <div class="icon">${it.icon}</div>
+      <div class="name">${escapeHtml(it.name)}</div>
+      <div class="price">${it.price}P</div>
+      <button class="shopBtn" ${points < it.price ? 'disabled' : ''} onclick="buyItem('${it.id}')">주기</button>
+    </div>`).join('');
+}
+
+async function buyItem(itemId){
+  try{
+    const res = await fetch(API + '/buy', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, itemId }) });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '실패했어요'); return; }
+    renderPetState(d);
+  }catch(e){ alert('요청에 실패했어요'); }
+}
+
+function renderPetState(d){
+  document.getElementById('ptsBig').textContent = d.points || 0;
+  renderShop(d.shop, d.points || 0);
+
+  if(d.runaway){
+    show('runawayNotice');
+  } else {
+    hide('runawayNotice');
+  }
+
+  if(!d.exists){
+    hide('petExists'); show('petEmpty');
+    return;
+  }
+  hide('petEmpty'); show('petExists');
+  hide('runawayNotice');
+
+  const imgMap = {egg:'/icons/tamagotchi/egg.png',baby:'/icons/tamagotchi/baby.png',child:'/icons/tamagotchi/child.png',teen:'/icons/tamagotchi/teen.png',adult:'/icons/tamagotchi/adult.png'};
+  document.getElementById('petImg').src = imgMap[d.growthStage.key] || imgMap.egg;
+  document.getElementById('petMood').textContent = (d.neglectStage && d.neglectStage.label) || '';
+  document.getElementById('growthLabelText').textContent = d.growthStage.label + ' 단계';
+  document.getElementById('growthNext').textContent = d.growthStage.next ? `다음: ${d.growthStage.next.label} (${d.growth}/${d.growthStage.next.need})` : '최고 단계';
+  const pct = d.growthStage.next ? Math.min(100, Math.round((d.growth / d.growthStage.next.need) * 100)) : 100;
+  document.getElementById('growthBar').style.width = pct + '%';
+  document.getElementById('neglectText').textContent = '방치 상태: ' + (d.neglectStage ? d.neglectStage.label : '-');
+  document.getElementById('hoursText').textContent = (d.hoursSinceCare != null ? d.hoursSinceCare + '시간째 안 돌봄' : '');
+}
+
+async function fetchMe(manual){
+  if(!webUserId) return;
+  try{
+    const res = await fetch(API + '/me?webUserId=' + encodeURIComponent(webUserId));
+    const d = await res.json();
+    if(!d.success){ if(manual) alert('정보를 찾을 수 없어요'); return; }
+
+    if(!d.linked){
+      hide('loadingCard'); hide('petWrap');
+      if(d.code && d.expiresAt && d.expiresAt > Date.now()){
+        document.getElementById('authCode').textContent = d.code;
+        codeExpiresAt = d.expiresAt;
+        show('authCard');
+        startCountdown();
+      } else {
+        clearInterval(pollTimer);
+        registerCode();
+      }
+      return;
+    }
+
+    clearInterval(countdownTimer);
+    hide('authCard'); hide('loadingCard'); show('petWrap'); show('refreshFab');
+    renderPetState(d);
+  }catch(e){
+    if(manual) alert('불러오기에 실패했어요');
+  }
+}
+
+(function init(){
+  if(!DJ_ID){
+    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
+    return;
+  }
+  if(webUserId){
+    hide('authCard'); show('loadingCard');
+    startPolling();
+  } else {
+    registerCode();
+  }
+})();
+</script>
+</body>
+</html>
