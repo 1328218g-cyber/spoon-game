@@ -165,6 +165,7 @@ function scheduleFlush() {
 function defaultSettings() {
   return {
     autoJoinTag: '',
+    preferredTokenDjId: '', // 🎯 본인 세션이 없을 때 쓸 공용 계정(sum/sum2/sum3...)을 직접 고른 값. 비어있으면 자동 배정.
     autoJoinTags: [], // 다중 감시용 (여러 고유닉)
     autoJoinWatch: false,
     botEnabled: true, // 꺼두면 이 계정은 어떤 봇 명령어/자동멘트에도 반응하지 않는 순수 시청 모드가 된다
@@ -181,7 +182,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true, lottoauto: false, reactiontimer: false, dday: false, raffle: false, dice: false, soundfx: false, tts: false, dashboard: false, wheelroulette: false, couponcheck: false, usernotes: false, discordnotify: false, fishing: false, // ※ 새로 추가되는 모듈은 기본 OFF — 유저가 모듈 마켓에서 직접 찾아 켜야 함
+      migrate: true, lottoauto: false, reactiontimer: false, dday: false, raffle: false, dice: false, soundfx: false, tts: false, dashboard: false, wheelroulette: false, couponcheck: false, usernotes: false, discordnotify: false, fishing: false, blinddate: false, // ※ 새로 추가되는 모듈은 기본 OFF — 유저가 모듈 마켓에서 직접 찾아 켜야 함
     },
     // 사이드바 각 메뉴를 "화면에 표시할지"만 따로 관리한다. moduleEnabled(기능 자체 켜짐/꺼짐)와는 별개라서,
     // 기능은 계속 켜둔 채로(자동 명령어 등은 그대로 동작) 사이드바만 정리해서 안 보이게 할 수 있다.
@@ -190,7 +191,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true, lottoauto: true, reactiontimer: true, dday: true, raffle: true, dice: true, soundfx: true, tts: true, dashboard: true, wheelroulette: true, couponcheck: true, usernotes: true, discordnotify: true, fishing: true,
+      migrate: true, lottoauto: true, reactiontimer: true, dday: true, raffle: true, dice: true, soundfx: true, tts: true, dashboard: true, wheelroulette: true, couponcheck: true, usernotes: true, discordnotify: true, fishing: true, blinddate: true,
     },
     // 이용 만료 관리 — 관리자가 유저 관리 화면에서 계정별로 지정한다.
     // expiresAt(만료 예정 시각, ISO 문자열)이 지나면 입장설정/룰렛기록을 뺀 모든 메뉴가 자동으로 잠긴다.
@@ -243,15 +244,30 @@ function defaultSettings() {
       listItemTemplate: '{index}. {artist} - {title}',
       maxCharsPerMsg: 100,
       msgIntervalMs: 600,
-      items: [], // { id, artist, title, requester }
+      items: [], // { id, artist, title, requester, matchedTitle?, ytCandidates? }
+      verifyOriginalOnRequest: false, // 🎬 켜두면 접수 즉시 유튜브에서 검색해 "원곡"이 있는지 확인하고,
+      // MR/반주/노래방 버전만 나오거나 아예 없으면 그 신청을 거절한다 (기본값은 꺼짐 — 기존처럼 그냥 접수).
     },
     roulette: {
       list: [], // { id, name, triggerMode: 'exact'|'combo'|'distribute', triggerAmount, items: [{id, name, percent, skipHistory}] }
       resultHeaderTemplate: '[🎡{룰렛명}] {닉네임}님 당첨! 🎉',
       couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
+      menuPageSize: 10, // !룰렛메뉴N 명령어로 항목 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
     },
     rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
+    // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
+    blindDate: {
+      cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
+      cmdStrong: '!강전',       // 목록/삭제/초기화 + "!강전 @태그 [증감]" 스택 조절
+      cmdWalletView: '!지갑',   // 조회 · "!지갑 초기화"
+      cmdWalletAdd: '!비토',    // 스푼 추가
+      cmdWalletSub: '!비마',    // 스푼 차감
+      pageSize: 10,
+      couples: [], // { id, tagA, nickA, tagB, nickB, forced, createdAt }
+      strongCandidates: [], // { id, tag, nickname, stack, updatedAt }
+      wallet: { balance: 0, updatedAt: null },
+    },
   };
 }
 
@@ -276,6 +292,26 @@ function setDefaultTrialDays(days) {
   if (!Number.isFinite(n) || n < 0) return { ok: false, error: '0 이상의 숫자를 입력해주세요' };
   if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
   djs['sum'].settings.defaultTrialDays = n;
+  saveDjs(djs);
+  return { ok: true };
+}
+
+// 마지막 접속(로그인)이 이 일수 이상 지난 계정은 다중감시(자동입장) 등록 태그를 자동으로 비운다.
+// 관리자(sum) 계정의 settings.autoJoinCleanupDays에 저장해서 관리한다.
+// 값이 없으면(처음 세팅 전) 기존 하드코딩값과 동일한 기본 4일을 쓴다. 0으로 설정하면 자동정리 자체를 끈다.
+function getAutoJoinCleanupDays() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.autoJoinCleanupDays;
+  return (typeof v === 'number' && v >= 0) ? v : 4;
+}
+
+function setAutoJoinCleanupDays(days) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: '0 이상의 숫자를 입력해주세요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.autoJoinCleanupDays = n;
   saveDjs(djs);
   return { ok: true };
 }
@@ -442,6 +478,35 @@ function setSessionModuleGlobalOff(off) {
   djs['sum'].settings.sessionModuleGlobalOff = !!off;
   saveDjs(djs);
   return { ok: true, off: djs['sum'].settings.sessionModuleGlobalOff };
+}
+
+// 🎬 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록할 수 있다.
+// 하나가 일일 쿼터를 다 쓰면(quotaExceeded) 자동으로 다음 등록 키로 넘어가서 검색을 계속한다.
+// 관리자가 따로 등록해두지 않았으면 기존처럼 Railway 환경변수(YOUTUBE_API_KEY(S))를 그대로 쓴다.
+const YOUTUBE_API_KEY_MAX = 3
+function getYoutubeApiKeys() {
+  const djs = loadDjs();
+  const arr = djs['sum'] && djs['sum'].settings && djs['sum'].settings.youtubeApiKeys;
+  if (Array.isArray(arr) && arr.length) {
+    return arr.map(k => String(k || '').trim()).filter(Boolean);
+  }
+  // 예전 버전(키 1개만 저장하던 시절)과의 호환 — 있으면 배열 하나로 취급해서 그대로 써준다.
+  const legacy = djs['sum'] && djs['sum'].settings && djs['sum'].settings.youtubeApiKey;
+  if (typeof legacy === 'string' && legacy.trim()) return [legacy.trim()];
+  return [];
+}
+function setYoutubeApiKeys(keys) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cleaned = (Array.isArray(keys) ? keys : [])
+    .map(k => String(k || '').trim())
+    .filter(Boolean)
+    .slice(0, YOUTUBE_API_KEY_MAX);
+  djs['sum'].settings.youtubeApiKeys = cleaned;
+  delete djs['sum'].settings.youtubeApiKey; // 새 배열 필드로 완전히 이전
+  saveDjs(djs);
+  return { ok: true, count: cleaned.length };
 }
 
 // 📊 관리자 대시보드용 요약 통계
@@ -863,6 +928,7 @@ function listDjSummaries() {
 // 그래서 lastLoginAt이 아예 없는 계정은 건드리지 않고, 로그인 기록이 실제로 쌓인 뒤 7일 이상
 // 지난 경우에만 정리한다 — 배포 직후 멀쩡한 계정이 잘못 정리되는 걸 막기 위함.
 function cleanupInactiveAutoJoinTags(inactiveDays = 7) {
+  if (!inactiveDays || inactiveDays <= 0) return []; // 0 이하로 설정되면 자동정리 자체를 끈다
   const djs = loadDjs();
   const cutoff = Date.now() - inactiveDays * 24 * 60 * 60 * 1000;
   const affected = [];
@@ -933,6 +999,8 @@ module.exports = {
   renameDjId,
   getDefaultTrialDays,
   setDefaultTrialDays,
+  getAutoJoinCleanupDays,
+  setAutoJoinCleanupDays,
   getRequestModules,
   saveRequestModules,
   findDuplicateSignup,
@@ -952,6 +1020,8 @@ module.exports = {
   setStatusBanner,
   getSessionModuleGlobalOff,
   setSessionModuleGlobalOff,
+  getYoutubeApiKeys,
+  setYoutubeApiKeys,
   getAdminStats,
   validEmail,
   DATA_DIR,
