@@ -1327,6 +1327,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 입장 설정 -->
       <div class="panel" data-panel="entrysettings">
         <div class="card">
+          <div class="card-title"><span>🔀 방송 입장에 쓸 공용 계정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePreferredTokenDjId()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">본인 스푼 세션을 따로 연결하지 않은 경우, 봇이 어떤 관리자 공용 계정(sum/sum2/sum3...)으로 방에 들어갈지 직접 고를 수 있어요. <b>자동 배정(기본값)</b>으로 두면 그때그때 여유 있는 계정으로 알아서 배정돼요.<br>
+          ※ 본인 계정 세션을 직접 연결했다면(세션 연결 메뉴) 이 설정과 무관하게 항상 본인 계정으로 들어가요.<br>
+          ※ 목록에 나온 계정 중 "세션 미연결"은 아직 그 계정에 스푼 세션이 안 올라가 있어서 지금은 고르셔도 실제로 못 써요.</p>
+          <select id="preferredTokenDjIdSelect" style="max-width:260px">
+            <option value="">자동 배정 (기본값)</option>
+          </select>
+        </div>
+        <div class="card">
           <div class="card-title"><span>💬 기본 멘트 자동 사용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveUseDefaultEntryMessages()">💾 저장</button></div>
           <p class="hint">아래 입장/좋아요/퇴장 멘트를 하나도 등록 안 해두면, 기본으로 마련된 멘트를 대신 보낼지 정해요. <b>꺼두면(기본값)</b> 직접 등록한 멘트가 없을 땐 아무것도 안 보내요.</p>
           <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="useDefaultEntryMessages"> 멘트 등록 안 했을 때 기본 멘트 자동 사용</label>
@@ -5260,6 +5269,7 @@ function selectPanel(name){
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
+  if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
@@ -16254,6 +16264,30 @@ async function saveUseDefaultEntryMessages(){
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({useDefaultEntryMessages:document.getElementById('useDefaultEntryMessages').checked})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
+}
+
+/* ── 🔀 방송 입장에 쓸 공용 계정 선택 ── */
+async function loadPreferredTokenDjId(){
+  const sel=document.getElementById('preferredTokenDjIdSelect');
+  if(!sel)return;
+  try{
+    const res=await fetch(SERVER+'/session/pool-options',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    sel.innerHTML='<option value="">자동 배정 (기본값)</option>'
+      + d.pool.map(p=>`<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${p.hasSession?'':' (세션 미연결)'}</option>`).join('');
+    sel.value=d.preferredTokenDjId||'';
+  }catch(e){}
+}
+async function savePreferredTokenDjId(){
+  const sel=document.getElementById('preferredTokenDjIdSelect');
+  if(!sel)return;
+  try{
+    const res=await fetch(SERVER+'/session/preferred-token',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({preferredTokenDjId:sel.value})});
+    const d=await res.json();
+    if(d.success)showToast(sel.value?`다음 방송부터 "${sel.value}" 계정으로 들어가요`:'자동 배정으로 저장됐어요');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 /* ── 🌡️ 온도 설정 ── */

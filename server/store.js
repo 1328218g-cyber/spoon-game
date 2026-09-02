@@ -165,6 +165,7 @@ function scheduleFlush() {
 function defaultSettings() {
   return {
     autoJoinTag: '',
+    preferredTokenDjId: '', // 🎯 본인 세션이 없을 때 쓸 공용 계정(sum/sum2/sum3...)을 직접 고른 값. 비어있으면 자동 배정.
     autoJoinTags: [], // 다중 감시용 (여러 고유닉)
     autoJoinWatch: false,
     botEnabled: true, // 꺼두면 이 계정은 어떤 봇 명령어/자동멘트에도 반응하지 않는 순수 시청 모드가 된다

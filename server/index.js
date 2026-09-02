@@ -270,6 +270,17 @@ function pickSharedTokenDjId() {
 function tokenDjIdFor(djId) {
   if (tokenManager.hasCookies(djId)) return djId
   const existingRoom = rooms[djId]
+
+  // 🎯 DJ가 입장설정에서 특정 공용 계정을 직접 골라뒀으면, 그 계정에 세션이 연결돼있는 한 항상 그 계정을 쓴다.
+  // (loadDjs가 메모리 캐시라서 여기서 매번 읽어도 부담 없음 — 이 함수는 매우 자주 호출됨)
+  try {
+    const preferred = store.getSettings(djId)?.preferredTokenDjId
+    if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)) {
+      if (existingRoom) existingRoom.tokenDjId = preferred
+      return preferred
+    }
+  } catch (e) {}
+
   if (existingRoom && existingRoom.tokenDjId && SHARED_TOKEN_POOL.includes(existingRoom.tokenDjId)) {
     return existingRoom.tokenDjId
   }
@@ -21308,6 +21319,29 @@ app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
     capacity: SHARED_TOKEN_CAPACITY,
   }))
   res.json({ success: true, pool })
+})
+
+// 🎯 일반 DJ 전용 — 입장설정 화면에서 "어떤 공용 계정(sum/sum2/sum3...)으로 들어갈지" 직접 고를 수 있게
+// 풀 목록(계정 id + 세션 연결 여부만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
+app.get('/session/pool-options', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+  }))
+  res.json({ success: true, pool, preferredTokenDjId: settings.preferredTokenDjId || '' })
+})
+
+app.post('/session/preferred-token', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'entrysettings', djId)) return res.json({ success: false, error: '입장 설정 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const val = String((req.body || {}).preferredTokenDjId || '').trim()
+  if (val && !SHARED_TOKEN_POOL.includes(val)) return res.json({ success: false, error: '등록되지 않은 계정이에요' })
+  store.saveSettings(djId, { preferredTokenDjId: val })
+  // 이미 만들어진 room이 있으면, 다음 tokenDjIdFor 호출 때 새 선택값이 바로 반영되도록 캐시를 지워둔다.
+  if (rooms[djId]) delete rooms[djId].tokenDjId
+  res.json({ success: true })
 })
 
 app.get('/events', (req, res) => {
