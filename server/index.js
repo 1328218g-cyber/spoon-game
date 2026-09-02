@@ -6906,13 +6906,14 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
 const GIFT_GALLERY_MAX_ITEMS = 300
 function getGiftGallerySettings(djId, settings) {
   if (!settings.giftGallery) {
-    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', items: [] }
+    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', spoonColor: '#f97316', items: [] }
     store.saveSettings(djId, { giftGallery: settings.giftGallery })
   }
   if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
   if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
   if (!['rect', 'pill', 'none'].includes(settings.giftGallery.cardShape)) settings.giftGallery.cardShape = 'pill'
   if (settings.giftGallery.avatarMode !== 'senderOnly' && settings.giftGallery.avatarMode !== 'both') settings.giftGallery.avatarMode = 'both'
+  if (!/^#[0-9a-fA-F]{6}$/.test(settings.giftGallery.spoonColor || '')) settings.giftGallery.spoonColor = '#f97316'
   return settings.giftGallery
 }
 let giftGallerySaveDebounce = {}
@@ -16036,10 +16037,11 @@ app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gallery = getGiftGallerySettings(req.djId, settings)
-  const { avatarShape, cardShape, avatarMode } = req.body || {}
+  const { avatarShape, cardShape, avatarMode, spoonColor } = req.body || {}
   if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
   if (['rect', 'pill', 'none'].includes(cardShape)) gallery.cardShape = cardShape
   if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
+  if (/^#[0-9a-fA-F]{6}$/.test(spoonColor || '')) gallery.spoonColor = spoonColor
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })
@@ -16071,6 +16073,23 @@ app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
   gallery.items = []
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
+})
+// 🔄 이미 저장된 카드들의 스티커 이미지를 최신 우선순위(image_url_web 우선)로 다시 찾아서 갱신한다.
+// 코드만 고쳐서는 이미 저장된 항목의 stickerImage URL이 자동으로 안 바뀌기 때문에 필요한 일회성 작업.
+app.post('/giftgallery/refresh-sticker-images', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  let changed = 0
+  for (const it of gallery.items) {
+    if (!it.sticker) continue
+    try {
+      const fresh = await findStickerImage(it.sticker)
+      if (fresh && fresh !== it.stickerImage) { it.stickerImage = fresh; changed++ }
+    } catch (e) {}
+  }
+  if (changed) store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, changed, settings: gallery })
 })
 
 // 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게

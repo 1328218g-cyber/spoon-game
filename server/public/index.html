@@ -3991,6 +3991,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="both" checked onchange="saveGgSettings()"> 디제이 + 후원자 둘 다</label>
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="senderOnly" onchange="saveGgSettings()"> 후원자만</label>
           </div>
+          <label style="margin-top:14px">스푼 숫자 글자 색상</label>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+            <input type="color" id="ggSpoonColor" value="#f97316" onchange="saveGgSettings()" style="width:44px;height:32px;padding:2px;border-radius:8px;cursor:pointer">
+            <span class="hint" style="margin:0">카드에 표시되는 "N스푼" 글자 색이에요</span>
+          </div>
         </div>
         <div class="card">
           <div class="card-title"><span>📅 날짜별로 보기</span><span class="hint" id="ggCalMonthLabel" style="margin:0"></span></div>
@@ -4002,7 +4007,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="ggCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center"></div>
         </div>
         <div class="card">
-          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="refreshGgStickerImages()">🔄 스티커 이미지 새로고침</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <p class="hint" style="margin-top:6px">기존에 저장해둔 카드의 선물 아이콘이 실제 채팅과 다르게 보이면, 위 "스티커 이미지 새로고침" 버튼으로 한 번에 다시 불러올 수 있어요.</p>
           <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:12px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
@@ -9836,7 +9842,7 @@ let tbEditingSlotIndex=null;
 let tbIdSeq=1;
 
 /* ── 🎁 선물카드 갤러리 ── */
-let ggData={avatarShape:'circle',cardShape:'pill',avatarMode:'both',items:[]};
+let ggData={avatarShape:'circle',cardShape:'pill',avatarMode:'both',spoonColor:'#f97316',items:[]};
 async function loadGgSettings(){
   try{
     const res=await fetch(SERVER+'/giftgallery/settings',{headers:authHeaders()});
@@ -9849,6 +9855,8 @@ async function loadGgSettings(){
     if(cardRadio)cardRadio.checked=true;
     const modeRadio=document.querySelector(`input[name="ggAvatarMode"][value="${ggData.avatarMode==='senderOnly'?'senderOnly':'both'}"]`);
     if(modeRadio)modeRadio.checked=true;
+    const colorInput=document.getElementById('ggSpoonColor');
+    if(colorInput)colorInput.value=ggData.spoonColor||'#f97316';
     renderGgGrid();
     renderGgCalendar();
   }catch(e){}
@@ -9860,8 +9868,10 @@ async function saveGgSettings(){
   const cardShape=cardEl?cardEl.value:'pill';
   const modeEl=document.querySelector('input[name="ggAvatarMode"]:checked');
   const avatarMode=modeEl?modeEl.value:'both';
+  const colorEl=document.getElementById('ggSpoonColor');
+  const spoonColor=colorEl?colorEl.value:'#f97316';
   try{
-    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode})});
+    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode,spoonColor})});
     const d=await res.json();
     if(d.success){ggData=d.settings;renderGgGrid();renderGgCalendar();showToast('설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
@@ -9991,7 +10001,7 @@ function renderGgGrid(){
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
         ${it.stickerImage?`<div style="width:28px;height:28px;background-image:url('${escapeHtml(ggProxyImg(it.stickerImage))}');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0" title="${escapeHtml(it.sticker||'')}"></div>`:''}
-        <span style="color:#f97316;font-weight:700;font-size:13px">${spoons}스푼</span>
+        <span style="color:${ggData.spoonColor||'#f97316'};font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
       <button id="${editId}" onclick="editGgNickname('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:42px;width:20px;height:20px;border-radius:50%;background:#22c55e;color:#fff;border:none;cursor:pointer;font-size:11px" title="닉네임 수정">✏️</button>
@@ -10165,7 +10175,7 @@ async function drawGgCardCanvas(it, opts){
     x+=stickerSize+gap
   }
 
-  ctx.fillStyle='#f97316'
+  ctx.fillStyle=opts.spoonColor||'#f97316'
   ctx.font=fontSpoon
   ctx.fillText(spoonsText,x,cy)
 
@@ -10179,7 +10189,7 @@ async function downloadGgItem(id){
   const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   const preWin=isMobile?window.open('','_blank'):null
   try{
-    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode})
+    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode,spoonColor:ggData.spoonColor})
     const dataUrl=canvas.toDataURL('image/png')
     const link=document.createElement('a')
     link.download='선물카드_'+id+'.png'
@@ -10257,6 +10267,20 @@ async function clearGgGallery(){
     const d=await res.json();
     if(d.success){ggData=d.settings;ggSelectedDate=null;renderGgGrid();renderGgCalendar();showToast('전체 삭제 완료');}
   }catch(e){showToast('삭제 실패');}
+}
+async function refreshGgStickerImages(){
+  if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
+  showToast('스티커 이미지 새로고침 중...');
+  try{
+    const res=await fetch(SERVER+'/giftgallery/refresh-sticker-images',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
+    const d=await res.json();
+    if(d.success){
+      ggData=d.settings;
+      renderGgGrid();
+      renderGgCalendar();
+      showToast(d.changed?`${d.changed}개 카드의 스티커 이미지를 갱신했어요`:'변경된 카드가 없어요 (이미 최신 이미지예요)');
+    }else showToast(d.error||'새로고침 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function loadTrophyBoard(){
