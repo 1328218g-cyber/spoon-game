@@ -3,27 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0ea5e9">
+<meta name="theme-color" content="#ff8fab">
 <title>내정보 | 에디봇</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols&family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&family=Noto+Sans:wght@400;700;800&family=Noto+Sans+Symbols&family=Noto+Sans+Symbols+2&family=Noto+Emoji&family=Noto+Sans+JP&family=Noto+Sans+SC&family=Jua&family=Gaegu:wght@400;700&display=swap" rel="stylesheet">
+<!-- 🈵 GNU Unifont — 유니코드 BMP(기본 다국어 평면) 전체를 커버하는 폰트. Noto 계열조차 웹에서는
+     제공 안 하는 희귀 구간(작은대문자 발음기호, 단독 결합기호 등)까지 실제 글자로 보여주는
+     최후의 안전망 역할. 모양은 다른 폰트보다 각지지만(비트맵 느낌), 네모(□)로 깨지는 것보다 낫다. -->
+<link href="https://cdn.jsdelivr.net/npm/@fontsource/unifont/400.css" rel="stylesheet">
 <style>
 :root{
-  --bg:#eaf6fb; --panel:#ffffff; --surface2:#eef7fb; --border:#d7ecf5;
-  --accent:#0ea5e9; --accent2:#fb923c; --text:#0f2a3a; --muted:#6b8a9a;
-  --success:#16a34a; --danger:#e11d48; --radius:14px;
+  --bg:#fff3f5; --panel:#fffdfb; --surface2:#fff0f4; --border:#ffd9e3;
+  --accent:#ff8fab; --accent2:#ffc971; --text:#5c4438; --muted:#b58e8e;
+  --success:#8ec9a4; --danger:#f27979; --radius:20px;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Sans Symbols','Noto Sans Symbols 2',sans-serif;padding-bottom:40px}
+/* 🈵 닉네임에 폰트 확장 영역 특수문자(예: ᴴᴿ 같은 작은대문자, 장식 기호)가 섞여있으면
+   기본 시스템 폰트만으로는 네모(□)로 깨져 보였다. 여러 언어/기호 전용 구글 폰트를 폭넓게
+   추가하고, 그래도 커버 안 되는 구간은 마지막에 Unifont(전 유니코드 커버)로 받쳐준다. */
+body{margin:0;background:linear-gradient(180deg,#fff3f5,#fff8ee 320px,#fff3f5);color:var(--text);font-family:'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Unifont',sans-serif;padding-bottom:40px}
+h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sans KR',sans-serif}
 
 /* 🔝 상단 고정 메뉴바 — "내정보" 헤더/카드와 완전히 분리된, 화면 맨 위 전체너비 메뉴 */
-.pageMenu{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;background:var(--panel);border-bottom:1px solid var(--border);box-shadow:0 2px 10px rgba(14,100,140,.07)}
-.menuBtn{flex:1;background:none;border:none;border-bottom:3px solid transparent;padding:13px 4px 10px;font-family:inherit;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.pageMenu{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;background:var(--panel);border-bottom:2px dashed var(--border);box-shadow:0 2px 10px rgba(255,143,171,.1);gap:4px;padding:6px 6px 0}
+.menuBtn{flex:1;background:none;border:none;border-radius:14px 14px 0 0;padding:11px 4px 9px;font-family:inherit;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s}
+.menuBtn.active{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
 .menuBtn .mIcon{font-size:16px}
 .menuBtn .mCount{background:var(--surface2);color:var(--muted);font-size:10px;font-weight:800;border-radius:20px;padding:1px 6px;min-width:16px}
-.menuBtn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.menuBtn.active .mCount{background:var(--accent);color:#fff}
+.menuBtn.active .mCount{background:#fff;color:var(--accent)}
 
 /* 🎮 게임 탭: 이 방에서 켜져있는 웹 기능 목록 */
 .gameItem{display:flex;align-items:center;gap:12px;padding:12px 8px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text)}
@@ -41,15 +49,78 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 .itemChipRow{display:flex;flex-wrap:wrap;gap:6px}
 .itemChip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:11.5px;color:var(--text)}
 
+/* 📋 포스트 탭: 스푼 앱 게시물과 비슷한 카드 형태 */
+.postCard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
+.postCard:last-child{margin-bottom:0}
+.postHead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.postAvatar{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--surface2);flex-shrink:0}
+.postAuthorName{font-weight:800;font-size:12.5px}
+.postTime{font-size:10.5px;color:var(--muted)}
+.postTitle{font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word;margin-bottom:10px}
+.postImage{width:100%;border-radius:12px;display:block;margin-bottom:10px;background:var(--surface2)}
+.postActions{display:flex;gap:16px;padding-top:6px;border-top:1px solid var(--border)}
+.postActionBtn{display:flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;padding:6px 0;font-family:inherit}
+.postActionBtn.liked{color:var(--danger)}
+.postComments{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.postComments.hidden{display:none}
+.postCommentRow{font-size:12px;line-height:1.6;padding:5px 0;border-bottom:1px solid var(--border)}
+.postCommentRow:last-child{border-bottom:none}
+.postCommentRow b{margin-right:5px}
+.postCommentInputRow{display:flex;gap:6px;margin-top:8px}
+.postCommentInputRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:20px;padding:8px 12px;font-size:12px;font-family:inherit}
+.postCommentInputRow button{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:20px;padding:0 14px;font-size:12px;font-weight:700;cursor:pointer}
+
+/* 📅 캘린더 탭: 월 달력 그리드 + 선택한 날짜의 일정 목록 */
+.calHeader{display:flex;align-items:center;justify-content:space-between;margin:-18px -18px 16px;padding:16px 18px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:var(--radius) var(--radius) 0 0}
+.calNavBtn{background:rgba(255,255,255,.22);border:none;border-radius:50%;width:30px;height:30px;font-size:15px;font-weight:700;cursor:pointer;color:#fff;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.calNavBtn:hover{background:rgba(255,255,255,.35)}
+.calMonthLabel{font-weight:800;font-size:15.5px;color:#fff;letter-spacing:.2px}
+.calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.calDowRow{font-size:10.5px;color:var(--muted);font-weight:800;padding:2px 0 8px}
+.calDowRow.calSun{color:#ef4444}
+.calDowRow.calSat{color:#3b82f6}
+.calCell{position:relative;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--text);transition:background .15s,transform .1s}
+.calCell:not(.otherMonth):hover{background:var(--surface2)}
+.calCell.otherMonth{color:#c9dce6;cursor:default;font-weight:400}
+.calCell.calSun:not(.otherMonth){color:#ef4444}
+.calCell.calSat:not(.otherMonth){color:#3b82f6}
+.calCell.today{background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.calCell.selected{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff !important;font-weight:800;transform:scale(1.06);box-shadow:0 4px 10px rgba(14,165,233,.35)}
+.calCell .calDot{width:4.5px;height:4.5px;border-radius:50%;background:var(--accent2);margin-top:3px}
+.calCell.selected .calDot{background:#fff}
+.calEventRow{padding:11px 4px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start}
+.calEventRow:last-child{border-bottom:none}
+.calEventRow::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-top:6px;flex-shrink:0}
+.calEventBody{flex:1;min-width:0}
+.calEventTime{display:inline-block;font-size:10.5px;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:5px}
+.calEventTitle{font-size:13.5px;font-weight:800}
+.calEventDesc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6;white-space:pre-wrap}
+
+/* 📅+🖼️ 이미지와 실제 달력을 나란히 배치 — 화면이 넓을 때만(태블릿/PC), 좁은 폰에서는 위/아래로 쌓임 */
+.calWithImage{display:flex;gap:16px;align-items:flex-start}
+.calImageCol{flex:0 0 260px}
+.calImageCol img{width:100%;border-radius:var(--radius);display:block;box-shadow:0 2px 10px rgba(14,100,140,.08)}
+.calGridCol{flex:1;min-width:0}
+@media (max-width:699px){
+  .calWithImage{flex-direction:column}
+  .calImageCol{flex:none;width:100%}
+}
+.calOverlayCell{cursor:pointer;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4%;box-sizing:border-box}
+.calOverlayCell:hover{background:rgba(14,165,233,.12)}
+.calOverlayCell.today{box-shadow:inset 0 0 0 2px rgba(14,165,233,.7)}
+.calOverlayCell.selected{background:rgba(14,165,233,.22);box-shadow:inset 0 0 0 2px var(--accent)}
+.calOverlayCell .calDot{width:6px;height:6px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 1.5px #fff}
+
 .wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+@media (min-width:700px){ .wrap{max-width:760px} } /* 캘린더에 이미지+실제 달력을 나란히 놓을 여유 공간 확보 (넓은 화면에서만) */
 .top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
 .top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .top .title{font-weight:800;font-size:17px}
 .top .sub{font-size:12px;color:var(--muted);margin-top:1px}
 
 
-.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
-.card-title{font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.card{background:var(--panel);border:2px dashed var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 3px 12px rgba(255,143,171,.1)}
+.card-title{font-weight:400;font-size:15.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px;font-family:'Jua','Noto Sans KR',sans-serif}
 .hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
 
 /* 인증 전 화면 */
@@ -59,7 +130,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 .codeBox{font-family:'SFMono-Regular',Consolas,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:var(--accent);background:var(--surface2);border:1.5px dashed var(--accent);border-radius:12px;padding:16px 10px;margin:0 0 14px}
 .cmdLine{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:'SFMono-Regular',Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px;word-break:break-all}
 .timerRow{font-size:12.5px;color:var(--muted);margin-bottom:16px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:18px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
 .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
 .btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:8px}
 .spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 14px}
@@ -116,7 +187,10 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 <body>
 <!-- 🔝 상단 메뉴바 — "내정보" 헤더 카드와 별개로 화면 맨 위에 고정 -->
 <div class="pageMenu hidden" id="pageMenu">
-  <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
+  <button class="menuBtn active" id="btnTabPost" onclick="switchTab('post')">
+    <span class="mIcon">📋</span><span>포스트</span>
+  </button>
+  <button class="menuBtn" id="btnTabKeep" onclick="switchTab('keep')">
     <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
   </button>
   <button class="menuBtn" id="btnTabGame" onclick="switchTab('game')">
@@ -124,6 +198,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
   </button>
   <button class="menuBtn" id="btnTabRoulette" onclick="switchTab('roulette')">
     <span class="mIcon">🎡</span><span>룰렛정보</span>
+  </button>
+  <button class="menuBtn" id="btnTabCal" onclick="switchTab('cal')">
+    <span class="mIcon">📅</span><span>캘린더</span>
   </button>
 </div>
 
@@ -143,7 +220,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 
   <!-- 인증 후: 정보 화면 -->
   <div id="profileWrap" class="hidden">
-    <div class="card">
+    <div class="card hidden" id="profileCard">
       <div class="profHead">
         <div style="display:flex;align-items:center;gap:10px">
           <img id="pAvatar" src="" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);display:none">
@@ -184,7 +261,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
     </div>
 
     <!-- 🎁 킵목록 탭: 룰렛권·복권 보유 현황을 위쪽에, 그 아래 킵/이벤트/기타 목록 -->
-    <div class="card" id="tabKeepPanel">
+    <div class="card hidden" id="tabKeepPanel">
       <div class="subListTitle" style="margin-top:0">🎟️ 룰렛권 보유</div>
       <div class="chipRow" id="couponChips"><div class="emptyList">보유한 룰렛권이 없어요</div></div>
 
@@ -202,6 +279,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
       <div id="miscListBox"><div class="emptyList">기타 기록이 없어요</div></div>
     </div>
 
+    <!-- 📋 포스트 탭: DJ가 등록한 이벤트/공지 게시물 (스푼 앱 게시물과 비슷한 카드 형태) -->
+    <div id="tabPostPanel">
+      <div id="postListBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
+    </div>
+
     <!-- 🎮 게임 탭: 이 방에서 켜져있는 웹 기능(마피아·몬스터잡기 등) 목록 -->
     <div class="card hidden" id="tabGamePanel">
       <div class="card-title">🎮 방에서 즐길 수 있는 게임</div>
@@ -212,6 +294,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
     <div class="card hidden" id="tabRoulettePanel">
       <div class="card-title">🎡 룰렛 항목 미리보기</div>
       <div id="rouletteListBox"><div class="emptyList">불러오는 중...</div></div>
+    </div>
+
+    <!-- 📅 캘린더 탭: DJ가 등록한 행사/방송 일정을 달력 형태로 보여준다 -->
+    <div id="tabCalPanel" class="hidden">
+      <div id="calBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
     </div>
 
     <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
@@ -230,6 +317,58 @@ let webUserId = localStorage.getItem(LS_KEY) || '';
 let pollTimer = null;
 let countdownTimer = null;
 let codeExpiresAt = 0;
+
+/* 🎨 테마 색상 — 디제이가 관리자 설정에서 고른 색상 코드(HEX) 하나를 기준으로, 페이지 전체
+   팔레트(배경/카드/보더/보조색 등)를 흰색과 섞어서 자동으로 만들어낸다. 어떤 색을 골라도
+   항상 은은한 파스텔 배경이 나오도록 하기 위함이지, 사용자가 고른 색 그대로를 배경 전체에
+   칠하는 게 아니다(그러면 글자가 안 보이거나 너무 쨍해 보일 수 있음). */
+function miHexToRgb(hex){
+  hex = hex.replace('#', '');
+  if(hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const num = parseInt(hex, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+function miRgbToHex(r, g, b){
+  return '#' + [r, g, b].map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('');
+}
+function miMix(hex, withHex, ratio){ // ratio: 0(원래색)~1(withHex색) 사이로 섞는다
+  const a = miHexToRgb(hex), b = miHexToRgb(withHex);
+  return miRgbToHex(a.r + (b.r - a.r) * ratio, a.g + (b.g - a.g) * ratio, a.b + (b.b - a.b) * ratio);
+}
+function applyTheme(color, bgRatioInput){
+  if(!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+  const root = document.documentElement.style;
+  // 🎨 각 영역 색상 = 선택한 색상에 흰색을 몇 % 섞을지로 결정.
+  //    숫자가 작을수록 원래 색이 진하게 남고(연하게 안 됨), 클수록 흰색에 가까워짐(더 연해짐).
+  //    배경 연하기 비율은 더 이상 30%로 고정하지 않고, 디제이가 설정한 값(bgRatioInput)을 사용한다.
+  //    값이 없거나 범위를 벗어나면 기존 기본값 30%로 대체(하위 호환 + 안전장치).
+  let bgRatio = parseFloat(bgRatioInput);
+  if(isNaN(bgRatio) || bgRatio < 0 || bgRatio > 1) bgRatio = 0.30;
+  const bg = miMix(color, '#ffffff', bgRatio);    // 페이지 배경 — 디제이가 설정한 비율만큼 연하게
+  const bgSoft = miMix(color, '#ffffff', Math.min(1, bgRatio + 0.10));   // 배경 그라데이션 하단부(배경보다 한 단계 더 연하게)
+  const panel = miMix(color, '#ffffff', Math.min(1, bgRatio + 0.25));   // 카드/상단메뉴 배경 — 배경보다 더 연하게(카드가 배경 위에서 도드라지도록)
+  const surface2 = miMix(color, '#ffffff', Math.max(0, bgRatio - 0.10)); // 배지/칩 등 배경 — bg보다 살짝 진하게
+  const border = miMix(color, '#ffffff', Math.max(0, bgRatio - 0.20));  // 테두리 — 가장 진하게(선이 잘 보이도록)
+  const accent2 = miMix(color, '#ffffff', Math.max(0, bgRatio - 0.05)); // 그라디언트 끝쪽에 쓸 조금 더 밝은 색
+  root.setProperty('--bg', bg);
+  root.setProperty('--panel', panel);
+  root.setProperty('--surface2', surface2);
+  root.setProperty('--border', border);
+  root.setProperty('--accent', color);
+  root.setProperty('--accent2', accent2);
+  document.body.style.background = 'linear-gradient(180deg,' + bg + ',' + bgSoft + ' 320px,' + bg + ')';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', color);
+}
+async function loadTheme(){
+  try{
+    const res = await fetch(API + '/theme');
+    const d = await res.json();
+    // d.bgRatio: 디제이가 관리자 설정에서 직접 정한 배경 연하기 비율(0~1, 예: 0.3 = 30%).
+    // 서버가 아직 이 값을 안 내려줘도(구버전) applyTheme 안에서 0.30 기본값으로 처리되므로 안전함.
+    if(d.success && d.color) applyTheme(d.color, d.bgRatio);
+  }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
+}
 
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
@@ -253,17 +392,147 @@ function fallbackCopy(text, cb){
   document.body.removeChild(ta);
 }
 
-// 킵목록 / 게임 / 룰렛정보 탭 전환 — 게임·룰렛정보는 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false;
+// 킵목록 / 포스트 / 게임 / 룰렛정보 / 캘린더 탭 전환 — 포스트·게임·룰렛정보·캘린더는 처음 열 때 한 번만 불러온다
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, initialTabSet = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
+  document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
   document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
+  document.getElementById('btnTabCal').classList.toggle('active', name === 'cal');
+  document.getElementById('profileCard').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
+  document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
+  document.getElementById('tabCalPanel').classList.toggle('hidden', name !== 'cal');
+  if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
+  if(name === 'cal' && !calLoaded){ calLoaded = true; loadCalendar(); }
+}
+
+function relativeTimeKo(ts){
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if(diffSec < 60) return '방금전';
+  const diffMin = Math.floor(diffSec / 60);
+  if(diffMin < 60) return diffMin + '분전';
+  const diffHour = Math.floor(diffMin / 60);
+  if(diffHour < 24) return diffHour + '시간전';
+  const diffDay = Math.floor(diffHour / 24);
+  if(diffDay < 30) return diffDay + '일전';
+  return new Date(ts).toLocaleDateString('ko-KR');
+}
+
+async function loadPosts(){
+  const box = document.getElementById('postListBox');
+  try{
+    const res = await fetch(API + '/posts' + (webUserId ? '?webUserId=' + encodeURIComponent(webUserId) : ''));
+    const d = await res.json();
+    if(!d.success || !d.posts || !d.posts.length){
+      box.innerHTML = '<div class="card"><div class="emptyList">아직 등록된 포스트가 없어요</div></div>';
+      return;
+    }
+    const author = d.author || {};
+    box.innerHTML = d.posts.map(p => `
+      <div class="postCard" data-post-id="${p.id}">
+        <div class="postHead">
+          ${author.imgUrl ? `<img class="postAvatar" src="${escapeHtml(author.imgUrl)}" onerror="this.style.display='none'">` : '<div class="postAvatar"></div>'}
+          <div>
+            <div class="postAuthorName">${escapeHtml(sanitizeDisplayName(author.nickname || ''))}</div>
+            <div class="postTime">${relativeTimeKo(p.createdAt)}${p.dateStart ? ` · ${escapeHtml(p.dateStart)}~${escapeHtml(p.dateEnd || '')}` : ''}</div>
+          </div>
+        </div>
+        <div class="postTitle">${escapeHtml(p.title)}</div>
+        ${p.imageUrl ? `<img class="postImage" src="${escapeHtml(p.imageUrl)}" alt="">` : ''}
+        <div class="postActions">
+          <button class="postActionBtn postLikeBtn ${p.liked ? 'liked' : ''}" data-id="${p.id}">❤️ <span>${p.likeCount}</span></button>
+          <button class="postActionBtn postCommentToggleBtn" data-id="${p.id}">💬 <span>${p.commentCount}</span></button>
+        </div>
+        <div class="postComments hidden" id="postComments-${p.id}">
+          <div class="postCommentList">${(p.comments || []).map(c => `<div class="postCommentRow"><b>${escapeHtml(sanitizeDisplayName(c.nickname))}</b>${escapeHtml(c.text)}</div>`).join('') || '<div class="emptyList">첫 댓글을 남겨보세요</div>'}</div>
+          <div class="postCommentInputRow">
+            <input type="text" placeholder="댓글을 입력하세요" maxlength="300" data-id="${p.id}">
+            <button data-id="${p.id}">등록</button>
+          </div>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('.postLikeBtn').forEach(btn => btn.addEventListener('click', onPostLikeClick));
+    box.querySelectorAll('.postCommentToggleBtn').forEach(btn => btn.addEventListener('click', onPostCommentToggle));
+    box.querySelectorAll('.postCommentInputRow button').forEach(btn => btn.addEventListener('click', onPostCommentSubmit));
+    box.querySelectorAll('.postCommentInputRow input').forEach(inp => inp.addEventListener('keydown', ev => { if(ev.key === 'Enter') onPostCommentSubmit(ev); }));
+  }catch(e){
+    box.innerHTML = '<div class="card"><div class="emptyList">불러오기에 실패했어요</div></div>';
+  }
+}
+
+async function onPostLikeClick(ev){
+  if(!webUserId){ alert('먼저 채팅 인증을 완료해주세요.'); return; }
+  const btn = ev.currentTarget;
+  const id = btn.dataset.id;
+  btn.disabled = true;
+  try{
+    const res = await fetch(API + '/posts/' + encodeURIComponent(id) + '/like', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '처리에 실패했어요'); btn.disabled = false; return; }
+    btn.classList.toggle('liked', d.liked);
+    btn.querySelector('span').textContent = d.likeCount;
+    if(d.bonusLotto) showPostBonusToast(d.bonusLotto);
+  }catch(e){ alert('처리에 실패했어요'); }
+  btn.disabled = false;
+}
+
+function onPostCommentToggle(ev){
+  const id = ev.currentTarget.dataset.id;
+  const box = document.getElementById('postComments-' + id);
+  if(box) box.classList.toggle('hidden');
+}
+
+// 🎰 포스트 좋아요/댓글 첫 참여 보상(복권 10장) 지급 안내 — 화면 하단에 잠깐 떴다 사라진다.
+// 프로필 카드에 복권 숫자가 이미 그려져있으면(킵목록 탭을 본 적 있으면) 그 숫자도 같이 올려준다.
+function showPostBonusToast(amount){
+  const el = document.createElement('div');
+  el.textContent = `🎉 첫 참여 보너스! 복권 ${amount}장을 받았어요`;
+  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:12px 20px;border-radius:20px;box-shadow:0 6px 20px rgba(14,165,233,.35);z-index:50;white-space:nowrap';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+  const lottoBigEl = document.getElementById('pLottoBig');
+  if(lottoBigEl) lottoBigEl.textContent = (Number(lottoBigEl.textContent) || 0) + amount;
+}
+
+async function onPostCommentSubmit(ev){
+  if(!webUserId){ alert('먼저 채팅 인증을 완료해주세요.'); return; }
+  const btn = ev.currentTarget.tagName === 'BUTTON' ? ev.currentTarget : null;
+  const id = ev.currentTarget.dataset.id;
+  const input = document.querySelector(`.postCommentInputRow input[data-id="${id}"]`);
+  const text = input ? input.value.trim() : '';
+  if(!text) return;
+  if(btn) btn.disabled = true;
+  try{
+    const res = await fetch(API + '/posts/' + encodeURIComponent(id) + '/comment', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, text })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '댓글 등록에 실패했어요'); if(btn) btn.disabled = false; return; }
+    input.value = '';
+    const listBox = document.querySelector(`#postComments-${id} .postCommentList`);
+    if(listBox){
+      const emptyEl = listBox.querySelector('.emptyList');
+      if(emptyEl) emptyEl.remove();
+      const row = document.createElement('div');
+      row.className = 'postCommentRow';
+      row.innerHTML = `<b>${escapeHtml(sanitizeDisplayName(d.comment.nickname))}</b>${escapeHtml(d.comment.text)}`;
+      listBox.appendChild(row);
+    }
+    const countEl = document.querySelector(`.postCommentToggleBtn[data-id="${id}"] span`);
+    if(countEl) countEl.textContent = d.commentCount;
+    if(d.bonusLotto) showPostBonusToast(d.bonusLotto);
+  }catch(e){ alert('댓글 등록에 실패했어요'); }
+  if(btn) btn.disabled = false;
 }
 
 async function loadGames(){
@@ -302,6 +571,173 @@ async function loadRoulettes(){
   }catch(e){
     box.innerHTML = '<div class="emptyList">불러오기에 실패했어요</div>';
   }
+}
+
+/* ── 📅 캘린더 ── */
+let calEvents = [];       // API에서 받은 전체 일정
+let calEventsByDate = {}; // 'YYYY-MM-DD' -> [일정, ...]
+let calViewYear, calViewMonth; // month는 0-index
+let calSelectedDate = null;
+let calImageUrl = '';     // DJ가 직접 올린 캘린더 이미지 (없으면 빈 문자열)
+let calHideGrid = false;  // true면 자동 달력 그리드는 숨기고 이미지만 보여준다
+let calOverlay = null;    // 이미지 위에 직접 날짜 칸을 얹는 모드 정보 ({enabled,year,month,top,left,width,height})
+
+function calYmd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+async function loadCalendar(){
+  const box = document.getElementById('calBox');
+  try{
+    const res = await fetch(API + '/calendar');
+    const d = await res.json();
+    calEvents = (d.success && d.events) ? d.events : [];
+    calImageUrl = (d.success && d.imageUrl) ? d.imageUrl : '';
+    calHideGrid = !!(d.success && d.hideGrid);
+    calOverlay = (d.success && d.overlay) ? d.overlay : null;
+    calEventsByDate = {};
+    calEvents.forEach(e => { if(!e.date) return; (calEventsByDate[e.date] = calEventsByDate[e.date] || []).push(e); });
+    const now = new Date();
+    calViewYear = now.getFullYear(); calViewMonth = now.getMonth();
+    calSelectedDate = calYmd(now);
+    renderCalMonth();
+  }catch(e){
+    box.innerHTML = '<div class="card"><div class="emptyList">불러오기에 실패했어요</div></div>';
+  }
+}
+
+function calChangeMonth(delta){
+  calViewMonth += delta;
+  if(calViewMonth < 0){ calViewMonth = 11; calViewYear--; }
+  if(calViewMonth > 11){ calViewMonth = 0; calViewYear++; }
+  renderCalMonth();
+}
+
+// 🖼️ DJ가 이미지 위에 직접 날짜 칸 위치를 맞춰둔 경우 — 그 이미지를 보여주면서, 이미지에 그려진
+// 요일/날짜 배치와 똑같은 자리에 투명한 클릭 영역을 겹쳐 얹는다. 이 모드는 이미지 하나가 특정
+// 한 달(overlay.year/month)만 나타내므로 이전달/다음달 이동은 없다.
+function renderCalOverlayMode(){
+  const box = document.getElementById('calBox');
+  const year = calOverlay.year, month = calOverlay.month; // month: 1-12
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const rows = Math.ceil((firstWeekday + daysInMonth) / 7);
+  const todayStr = calYmd(new Date());
+  if(!calSelectedDate || !calSelectedDate.startsWith(`${year}-${String(month).padStart(2,'0')}`)){
+    calSelectedDate = todayStr.startsWith(`${year}-${String(month).padStart(2,'0')}`) ? todayStr : `${year}-${String(month).padStart(2,'0')}-01`;
+  }
+
+  let cellsHtml = '';
+  for(let i = 0; i < rows * 7; i++){
+    const dateNum = i - firstWeekday + 1;
+    if(dateNum < 1 || dateNum > daysInMonth){ continue; } // 이미지 안에서 빈 칸(달력 앞뒤 여백)은 클릭 영역을 안 만든다
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(dateNum).padStart(2,'0')}`;
+    const col = i % 7, row = Math.floor(i / 7);
+    const cellW = 100 / 7, cellH = 100 / rows;
+    const hasEvent = !!calEventsByDate[dateStr];
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === calSelectedDate;
+    cellsHtml += `<div class="calOverlayCell${isSelected ? ' selected' : ''}${isToday ? ' today' : ''}" data-date="${dateStr}"
+      style="position:absolute;left:${col*cellW}%;top:${row*cellH}%;width:${cellW}%;height:${cellH}%">
+      ${hasEvent ? '<span class="calDot"></span>' : ''}
+    </div>`;
+  }
+
+  box.innerHTML = `
+    <div class="card">
+      <div style="position:relative;display:inline-block;width:100%">
+        <img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block">
+        <div style="position:absolute;top:${calOverlay.top}%;left:${calOverlay.left}%;width:${calOverlay.width}%;height:${calOverlay.height}%">
+          ${cellsHtml}
+        </div>
+      </div>
+    </div>
+    <div class="card" id="calEventListBox"></div>`;
+  box.querySelectorAll('.calOverlayCell[data-date]').forEach(cell => {
+    cell.addEventListener('click', () => { calSelectedDate = cell.dataset.date; renderCalOverlayMode(); });
+  });
+  renderCalSelectedEvents();
+}
+
+function renderCalMonth(){
+  if(calOverlay && calOverlay.enabled && calImageUrl){ renderCalOverlayMode(); return; }
+  const box = document.getElementById('calBox');
+  if(calHideGrid){
+    // DJ가 "이미지만 보여주기"를 켜둔 경우 — 자동 달력 그리드/일정 목록은 아예 안 그린다
+    box.innerHTML = calImageUrl ? `<div class="card"><img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block"></div>` : '<div class="card"><div class="emptyList">등록된 캘린더 이미지가 없어요</div></div>';
+    return;
+  }
+  const first = new Date(calViewYear, calViewMonth, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
+  const daysInPrevMonth = new Date(calViewYear, calViewMonth, 0).getDate();
+  const todayStr = calYmd(new Date());
+
+  let cells = '';
+  for(let i = startDow - 1; i >= 0; i--){
+    cells += `<div class="calCell otherMonth">${daysInPrevMonth - i}</div>`;
+  }
+  for(let d = 1; d <= daysInMonth; d++){
+    const dateStr = calViewYear + '-' + String(calViewMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const dow = (startDow + d - 1) % 7;
+    const hasEvent = !!calEventsByDate[dateStr];
+    const cls = ['calCell'];
+    if(dow === 0) cls.push('calSun');
+    if(dow === 6) cls.push('calSat');
+    if(dateStr === todayStr) cls.push('today');
+    if(dateStr === calSelectedDate) cls.push('selected');
+    cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}${hasEvent ? '<span class="calDot"></span>' : ''}</div>`;
+  }
+  const totalCells = startDow + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for(let i = 1; i <= trailing; i++){
+    cells += `<div class="calCell otherMonth">${i}</div>`;
+  }
+
+  // 실제 작동하는 달력(그리드+선택한 날짜의 일정 목록)
+  const gridHtml = `
+    <div class="card">
+      <div class="calHeader">
+        <button class="calNavBtn" onclick="calChangeMonth(-1)">‹</button>
+        <span class="calMonthLabel">${calViewYear}년 ${calViewMonth+1}월</span>
+        <button class="calNavBtn" onclick="calChangeMonth(1)">›</button>
+      </div>
+      <div class="calGrid">
+        <div class="calDowRow calSun">일</div><div class="calDowRow">월</div><div class="calDowRow">화</div><div class="calDowRow">수</div><div class="calDowRow">목</div><div class="calDowRow">금</div><div class="calDowRow calSat">토</div>
+        ${cells}
+      </div>
+    </div>
+    <div class="card" id="calEventListBox"></div>`;
+
+  // DJ가 이미지를 올려뒀으면 왼쪽엔 그 이미지, 오른쪽엔 실제 작동하는 달력을 나란히 배치한다
+  // (화면 폭이 좁으면 CSS가 자동으로 위/아래로 바꿔준다)
+  box.innerHTML = calImageUrl
+    ? `<div class="calWithImage">
+         <div class="calImageCol"><img src="${escapeHtml(calImageUrl)}" alt=""></div>
+         <div class="calGridCol">${gridHtml}</div>
+       </div>`
+    : gridHtml;
+
+  box.querySelectorAll('.calCell[data-date]').forEach(cell => {
+    cell.addEventListener('click', () => { calSelectedDate = cell.dataset.date; renderCalMonth(); });
+  });
+  renderCalSelectedEvents();
+}
+
+function renderCalSelectedEvents(){
+  const listBox = document.getElementById('calEventListBox');
+  if(!listBox) return;
+  const events = (calEventsByDate[calSelectedDate] || []).slice().sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  if(!events.length){
+    listBox.innerHTML = `<div class="card-title">📅 ${escapeHtml(calSelectedDate)}</div><div class="emptyList">이 날은 등록된 일정이 없어요</div>`;
+    return;
+  }
+  listBox.innerHTML = `<div class="card-title">📅 ${escapeHtml(calSelectedDate)}</div>` + events.map(e => `
+    <div class="calEventRow">
+      <div class="calEventBody">
+        ${e.time ? `<div class="calEventTime">${escapeHtml(e.time)}</div>` : ''}
+        <div class="calEventTitle">${escapeHtml(e.title)}</div>
+        ${e.description ? `<div class="calEventDesc">${escapeHtml(e.description)}</div>` : ''}
+      </div>
+    </div>`).join('');
 }
 
 async function registerCode(){
@@ -366,9 +802,9 @@ function renderList(boxId, items, section){
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// 🧹 닉네임에 어떤 폰트로도 표시가 안 되는 특수문자(사설 영역 유니코드, 폰트 없는 장식용
-// 아이콘 코드 등)가 섞여있으면 네모(□)로 깨져 보인다. 폰트를 계속 추가해서 쫓아가기보다,
-// 애초에 표준 글자가 아닌 구간(사설 사용 영역 등)은 화면에 내놓기 전에 걸러낸다.
+// 🧹 닉네임에 사설 사용 영역(어떤 폰트도 정의된 모양이 없는 구간) 문자가 섞여있으면 무조건 네모(□)로
+// 깨진다. 이런 진짜 "정의 자체가 없는" 구간만 걸러내고, 작은대문자 발음기호·결합기호처럼 모양은
+// 있지만 흔한 폰트에 빠져있던 문자는 Unifont(전 유니코드 커버 폰트)로 실제 표시되게 한다.
 function sanitizeDisplayName(s){
   return String(s || '')
     .replace(/[\uE000-\uF8FF]/g, '')            // 사설 사용 영역(BMP)
@@ -433,6 +869,9 @@ async function fetchMe(manual){
     // 인증 완료 — 프로필 화면 렌더
     clearInterval(countdownTimer);
     hide('authCard'); hide('loadingCard'); show('profileWrap'); show('refreshFab'); show('pageMenu');
+    // 페이지에 들어오면 무조건 "포스트" 탭이 메인으로 보이게 강제한다 (3초마다 도는 폴링 때마다
+    // 다시 부르면 안 되므로 최초 1회만 실행되게 막는다 — 이후엔 사용자가 고른 탭을 그대로 유지)
+    if(!initialTabSet){ initialTabSet = true; switchTab('post'); }
 
     document.getElementById('pNick').textContent = sanitizeDisplayName(d.nickname || d.tag);
     document.getElementById('pTag').textContent = '@' + d.tag;
@@ -489,6 +928,7 @@ async function fetchMe(manual){
 
 // 시작
 (function init(){
+  loadTheme();
   if(!DJ_ID){
     document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
     return;
