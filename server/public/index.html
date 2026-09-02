@@ -2478,10 +2478,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title"><span>⚙️ 소개팅 매니저 명령어 커스텀</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="saveBlindDateSettings()">💾 저장</button></div>
           <label>커플 명령어 기준 단어 (기본: !커플)</label>
           <input type="text" id="bdCmdCouple" value="!커플" style="max-width:220px">
-          <div class="hint">채팅에서 "명령어 목록/추가/삭제/초기화/전체초기화" 형태로 사용해요. 예: !커플 목록, !커플 추가 @a @b 강제</div>
+          <div class="hint">채팅에서 "명령어 목록/추가/삭제/초기화/전체초기화" 형태로 사용해요. 예: !커플 목록, !커플 추가 alpha beta 강제 (@ 없이 고유닉만 입력해도 돼요)</div>
           <label>강전 명령어 기준 단어 (기본: !강전)</label>
           <input type="text" id="bdCmdStrong" value="!강전" style="max-width:220px">
-          <div class="hint">예: !강전 목록, !강전 @태그 3, !강전 삭제 @태그, !강전 초기화</div>
+          <div class="hint">예: !강전 목록, !강전 alpha 3, !강전 삭제 alpha, !강전 초기화</div>
           <label>지갑 조회 명령어 (기본: !지갑)</label>
           <input type="text" id="bdCmdWalletView" value="!지갑" style="max-width:220px">
           <div class="hint">예: !지갑 (조회), !지갑 초기화</div>
@@ -2495,11 +2495,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">💘 소개팅 매니저 명령어 안내</div>
           <p class="hint">
           · !커플 목록 [페이지] : 커플 목록 보기 (누구나)<br>
-          · !커플 추가 @a @b [강제] : 두 사람을 커플로 등록 (DJ/매니저)<br>
+          · !커플 추가 태그1 태그2 [강제] : 두 사람을 커플로 등록 (DJ/매니저)<br>
           · !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화 (DJ/매니저)<br>
           · !강전 목록 [페이지] : 강전 후보 보기 (누구나)<br>
-          · !강전 @태그 [±숫자] : 스택 조절, 생략시 +1 (DJ/매니저)<br>
-          · !강전 삭제 @태그 / !강전 초기화 (DJ/매니저)<br>
+          · !강전 태그 [±숫자] : 스택 조절, 생략시 +1 (DJ/매니저)<br>
+          · !강전 삭제 태그 / !강전 초기화 (DJ/매니저)<br>
           · !지갑 / !비토 [숫자] / !비마 [숫자] / !지갑 초기화 (전부 DJ/매니저 전용)
           </p>
         </div>

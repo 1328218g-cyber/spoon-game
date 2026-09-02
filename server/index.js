@@ -1020,7 +1020,7 @@ function bdPaginate(items, page, pageSize, formatLine, emptyMsg, header, cmdHint
   return msg.trim()
 }
 
-// !커플 목록 [페이지] / !커플 추가 @태그1 @태그2 [강제] / !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화
+// !커플 목록 [페이지] / !커플 추가 태그1 태그2 [강제] / !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화
 function handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager) {
   const base = bd.cmdCouple
   if (!base) return
@@ -1045,9 +1045,9 @@ function handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager) {
   if (sub === '추가') {
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 추가 권한이 없어요'), 400); return }
     const args = parts.slice(1)
-    const tagArgs = args.filter(p => p.startsWith('@'))
     const forced = args.some(p => p === '강제')
-    if (tagArgs.length < 2) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 추가 @태그1 @태그2 [강제]`), 400); return }
+    const tagArgs = args.filter(p => p !== '강제') // @ 없이 고유닉만 입력해도 됨 (혹시 @가 붙어있어도 알아서 제거)
+    if (tagArgs.length < 2) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 추가 태그1 태그2 [강제]`), 400); return }
     const tagA = tagArgs[0].replace('@', '').toLowerCase()
     const tagB = tagArgs[1].replace('@', '').toLowerCase()
     if (!tagA || !tagB || tagA === tagB) { setTimeout(() => sendChatToRoom(djId, '❌ 같은 사람은 커플로 등록할 수 없어요'), 400); return }
@@ -1093,7 +1093,7 @@ function handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager) {
   }
 }
 
-// !강전 목록 [페이지] / !강전 @태그 [±숫자] / !강전 삭제 @태그 / !강전 초기화
+// !강전 목록 [페이지] / !강전 태그 [±숫자] / !강전 삭제 태그 / !강전 초기화
 function handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager) {
   const base = bd.cmdStrong
   if (!base) return
@@ -1118,7 +1118,7 @@ function handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager) {
   if (sub === '삭제') {
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 삭제 권한이 없어요'), 400); return }
     const tagArg = parts[1]
-    if (!tagArg || !tagArg.startsWith('@')) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 @태그`), 400); return }
+    if (!tagArg) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 태그`), 400); return }
     const tag = tagArg.replace('@', '').toLowerCase()
     const before = bd.strongCandidates.length
     bd.strongCandidates = bd.strongCandidates.filter(c => c.tag !== tag)
@@ -1138,7 +1138,8 @@ function handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager) {
     return
   }
 
-  if (sub.startsWith('@')) {
+  // 목록/삭제/초기화가 아니면 나머지는 전부 "태그 [증감]" 형태로 취급 (@ 붙여도, 안 붙여도 동작)
+  {
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 조절 권한이 없어요'), 400); return }
     const tag = sub.replace('@', '').toLowerCase()
     if (!tag) return
