@@ -181,7 +181,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true, lottoauto: false, reactiontimer: false, dday: false, raffle: false, dice: false, soundfx: false, tts: false, dashboard: false, wheelroulette: false, couponcheck: false, usernotes: false, discordnotify: false, fishing: false, // ※ 새로 추가되는 모듈은 기본 OFF — 유저가 모듈 마켓에서 직접 찾아 켜야 함
+      migrate: true, lottoauto: false, reactiontimer: false, dday: false, raffle: false, dice: false, soundfx: false, tts: false, dashboard: false, wheelroulette: false, couponcheck: false, usernotes: false, discordnotify: false, fishing: false, blinddate: false, // ※ 새로 추가되는 모듈은 기본 OFF — 유저가 모듈 마켓에서 직접 찾아 켜야 함
     },
     // 사이드바 각 메뉴를 "화면에 표시할지"만 따로 관리한다. moduleEnabled(기능 자체 켜짐/꺼짐)와는 별개라서,
     // 기능은 계속 켜둔 채로(자동 명령어 등은 그대로 동작) 사이드바만 정리해서 안 보이게 할 수 있다.
@@ -190,7 +190,7 @@ function defaultSettings() {
       entrysettings: true, funding: true, shortcuts: true, greet: true,
       flag: true, shield: true, request: true, roulette: true,
       roulettelog: true, autogrant: true, loyalty: true, quiz: true, botreboot: true,
-      migrate: true, lottoauto: true, reactiontimer: true, dday: true, raffle: true, dice: true, soundfx: true, tts: true, dashboard: true, wheelroulette: true, couponcheck: true, usernotes: true, discordnotify: true, fishing: true,
+      migrate: true, lottoauto: true, reactiontimer: true, dday: true, raffle: true, dice: true, soundfx: true, tts: true, dashboard: true, wheelroulette: true, couponcheck: true, usernotes: true, discordnotify: true, fishing: true, blinddate: true,
     },
     // 이용 만료 관리 — 관리자가 유저 관리 화면에서 계정별로 지정한다.
     // expiresAt(만료 예정 시각, ISO 문자열)이 지나면 입장설정/룰렛기록을 뺀 모든 메뉴가 자동으로 잠긴다.
@@ -252,6 +252,18 @@ function defaultSettings() {
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
     },
     rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
+    // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
+    blindDate: {
+      cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
+      cmdStrong: '!강전',       // 목록/삭제/초기화 + "!강전 @태그 [증감]" 스택 조절
+      cmdWalletView: '!지갑',   // 조회 · "!지갑 초기화"
+      cmdWalletAdd: '!비토',    // 스푼 추가
+      cmdWalletSub: '!비마',    // 스푼 차감
+      pageSize: 10,
+      couples: [], // { id, tagA, nickA, tagB, nickB, forced, createdAt }
+      strongCandidates: [], // { id, tag, nickname, stack, updatedAt }
+      wallet: { balance: 0, updatedAt: null },
+    },
   };
 }
 

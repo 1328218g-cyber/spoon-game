@@ -732,7 +732,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -978,6 +978,248 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
   store.saveSettings(djId, { funding })
   broadcast({ type: 'funding', djId, items: funding.items })
   setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
+}
+
+// ============================================================
+// 💘 소개팅 매니저 — 커플 목록 / 강전 후보 스택 / 비토·비마 스푼 지갑
+// (참고: 별도 소개팅 매니저 확장앱의 커플·강전·지갑 기능을 에디봇 채팅 명령어 방식으로 이식)
+// ============================================================
+
+// 구버전 계정은 settings에 blindDate 필드가 없을 수 있으므로, 처음 쓰는 시점에 기본값을 채워 저장해둔다.
+function getBlindDateSettings(djId, settings) {
+  if (!settings.blindDate) {
+    settings.blindDate = {
+      cmdCouple: '!커플', cmdStrong: '!강전', cmdWalletView: '!지갑', cmdWalletAdd: '!비토', cmdWalletSub: '!비마',
+      pageSize: 10, couples: [], strongCandidates: [], wallet: { balance: 0, updatedAt: null },
+    }
+    store.saveSettings(djId, { blindDate: settings.blindDate })
+  }
+  if (!settings.blindDate.wallet) settings.blindDate.wallet = { balance: 0, updatedAt: null }
+  if (!settings.blindDate.couples) settings.blindDate.couples = []
+  if (!settings.blindDate.strongCandidates) settings.blindDate.strongCandidates = []
+  return settings.blindDate
+}
+
+function bdNextId(list) {
+  return (list.reduce((max, it) => Math.max(max, Number(it.id) || 0), 0)) + 1
+}
+
+// 등록된 커플/강전 목록을 다른 페이지네이션 명령어(!킵 등)와 동일한 형식으로 출력한다.
+function bdPaginate(items, page, pageSize, formatLine, emptyMsg, header, cmdHint) {
+  if (!items.length) return emptyMsg
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const cur = Math.max(1, Math.min(page || 1, totalPages))
+  const start = (cur - 1) * pageSize
+  const pageItems = items.slice(start, start + pageSize)
+  let msg = `${header} (${cur}/${totalPages}페이지, 총 ${items.length}개)\n`
+  pageItems.forEach((it, i) => { msg += formatLine(it, start + i + 1) + '\n' })
+  if (totalPages > 1) {
+    const next = cur < totalPages ? cur + 1 : 1
+    msg += `\n💡 ${cmdHint} ${next} 로 다른 페이지 확인`
+  }
+  return msg.trim()
+}
+
+// !커플 목록 [페이지] / !커플 추가 @태그1 @태그2 [강제] / !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화
+function handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager) {
+  const base = bd.cmdCouple
+  if (!base) return
+  const raw = String(text || '').trim()
+  if (!raw.startsWith(base)) return
+  const rest = raw.slice(base.length).trim()
+  const parts = rest.split(/\s+/).filter(Boolean)
+  const sub = parts[0] || ''
+  const canManage = isDj || isManager
+
+  if (sub === '목록' || sub === '') {
+    const page = parseInt(parts[1], 10) || 1
+    const msg = bdPaginate(
+      bd.couples, page, bd.pageSize || 10,
+      (c, idx) => `${idx}. ${c.nickA}${c.forced ? '💍' : '💕'}${c.nickB}`,
+      '💕 등록된 커플이 없습니다.', '💕 커플 목록', `${base} 목록`
+    )
+    setTimeout(() => sendChatToRoom(djId, msg), 400)
+    return
+  }
+
+  if (sub === '추가') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 추가 권한이 없어요'), 400); return }
+    const args = parts.slice(1)
+    const tagArgs = args.filter(p => p.startsWith('@'))
+    const forced = args.some(p => p === '강제')
+    if (tagArgs.length < 2) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 추가 @태그1 @태그2 [강제]`), 400); return }
+    const tagA = tagArgs[0].replace('@', '').toLowerCase()
+    const tagB = tagArgs[1].replace('@', '').toLowerCase()
+    if (!tagA || !tagB || tagA === tagB) { setTimeout(() => sendChatToRoom(djId, '❌ 같은 사람은 커플로 등록할 수 없어요'), 400); return }
+    const nickA = resolveNicknameFromInput(room, tagArgs[0])
+    const nickB = resolveNicknameFromInput(room, tagArgs[1])
+    const dup = bd.couples.find(c => (c.tagA === tagA && c.tagB === tagB) || (c.tagA === tagB && c.tagB === tagA))
+    if (dup) { setTimeout(() => sendChatToRoom(djId, '❌ 이미 등록된 커플이에요'), 400); return }
+    bd.couples.push({ id: bdNextId(bd.couples), tagA, nickA, tagB, nickB, forced, createdAt: new Date().toISOString() })
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, `✅ 커플 등록 완료! ${nickA}${forced ? '💍' : '💕'}${nickB}`), 400)
+    return
+  }
+
+  if (sub === '삭제') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 삭제 권한이 없어요'), 400); return }
+    const idx1 = parseInt(parts[1], 10)
+    const target = idx1 ? bd.couples[idx1 - 1] : null
+    if (!target) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 [번호]`), 400); return }
+    bd.couples.splice(idx1 - 1, 1)
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, `✅ ${idx1}번 커플 삭제 완료`), 400)
+    return
+  }
+
+  if (sub === '초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 초기화 권한이 없어요'), 400); return }
+    bd.couples = bd.couples.filter(c => c.forced) // 강제 커플은 일반 초기화로 지워지지 않음
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, '✅ 일반 커플 전체 삭제 완료 (강제 커플은 유지)'), 400)
+    return
+  }
+
+  if (sub === '전체초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 초기화 권한이 없어요'), 400); return }
+    bd.couples = []
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, '✅ 커플 전체 삭제 완료 (강제 커플 포함)'), 400)
+    return
+  }
+}
+
+// !강전 목록 [페이지] / !강전 @태그 [±숫자] / !강전 삭제 @태그 / !강전 초기화
+function handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager) {
+  const base = bd.cmdStrong
+  if (!base) return
+  const raw = String(text || '').trim()
+  if (!raw.startsWith(base)) return
+  const rest = raw.slice(base.length).trim()
+  const parts = rest.split(/\s+/).filter(Boolean)
+  const sub = parts[0] || ''
+  const canManage = isDj || isManager
+
+  if (sub === '목록' || sub === '') {
+    const page = parseInt(parts[1], 10) || 1
+    const msg = bdPaginate(
+      bd.strongCandidates, page, bd.pageSize || 10,
+      (c, idx) => `${idx}. ${c.nickname} - ${c.stack}`,
+      '🔥 등록된 강전 후보가 없습니다.', '🔥 강전 목록', `${base} 목록`
+    )
+    setTimeout(() => sendChatToRoom(djId, msg), 400)
+    return
+  }
+
+  if (sub === '삭제') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 삭제 권한이 없어요'), 400); return }
+    const tagArg = parts[1]
+    if (!tagArg || !tagArg.startsWith('@')) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 @태그`), 400); return }
+    const tag = tagArg.replace('@', '').toLowerCase()
+    const before = bd.strongCandidates.length
+    bd.strongCandidates = bd.strongCandidates.filter(c => c.tag !== tag)
+    if (bd.strongCandidates.length === before) { setTimeout(() => sendChatToRoom(djId, '❌ 등록되지 않은 대상이에요'), 400); return }
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, '✅ 강전 후보 삭제 완료'), 400)
+    return
+  }
+
+  if (sub === '초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 초기화 권한이 없어요'), 400); return }
+    bd.strongCandidates = []
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, '✅ 강전 후보 전체 삭제 완료'), 400)
+    return
+  }
+
+  if (sub.startsWith('@')) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 조절 권한이 없어요'), 400); return }
+    const tag = sub.replace('@', '').toLowerCase()
+    if (!tag) return
+    const nickname = resolveNicknameFromInput(room, sub)
+    const delta = (parts[1] != null && /^[+-]?\d+$/.test(parts[1])) ? parseInt(parts[1], 10) : 1
+    let cand = bd.strongCandidates.find(c => c.tag === tag)
+    if (!cand) {
+      if (delta <= 0) { setTimeout(() => sendChatToRoom(djId, '❌ 등록되지 않은 대상이에요'), 400); return }
+      cand = { id: bdNextId(bd.strongCandidates), tag, nickname, stack: 0, updatedAt: new Date().toISOString() }
+      bd.strongCandidates.push(cand)
+    }
+    cand.nickname = nickname
+    cand.stack = (cand.stack || 0) + delta
+    cand.updatedAt = new Date().toISOString()
+    if (cand.stack <= 0) {
+      bd.strongCandidates = bd.strongCandidates.filter(c => c.tag !== tag) // 스택 0 되면 자동 삭제
+      store.saveSettings(djId, { blindDate: bd })
+      broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+      setTimeout(() => sendChatToRoom(djId, `✅ ${nickname}님 강전 스택 소진 - 목록에서 삭제`), 400)
+      return
+    }
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, `✅ ${nickname}님 강전 스택: ${cand.stack}`), 400)
+    return
+  }
+}
+
+// !지갑 / !지갑 초기화 / !비토 [숫자] / !비마 [숫자] — 전부 DJ·매니저 전용 (README 기준: 조회도 DJ/매니저만)
+function handleBlindDateWalletCommand(djId, bd, text, isDj, isManager) {
+  const canManage = isDj || isManager
+  const raw = String(text || '').trim()
+
+  if (bd.cmdWalletView && raw === bd.cmdWalletView) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조회 권한이 없어요'), 400); return }
+    setTimeout(() => sendChatToRoom(djId, `💰 현재 지갑: ${(bd.wallet.balance || 0).toLocaleString()}개`), 400)
+    return
+  }
+  if (bd.cmdWalletView && raw === `${bd.cmdWalletView} 초기화`) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 초기화 권한이 없어요'), 400); return }
+    bd.wallet.balance = 0
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, '✅ 지갑 초기화 완료 (0개)'), 400)
+    return
+  }
+  if (bd.cmdWalletAdd && raw.startsWith(bd.cmdWalletAdd)) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조절 권한이 없어요'), 400); return }
+    const rest = raw.slice(bd.cmdWalletAdd.length).trim()
+    const amount = parseInt(rest, 10)
+    if (!rest || !Number.isFinite(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${bd.cmdWalletAdd} [숫자]`), 400); return }
+    bd.wallet.balance = (bd.wallet.balance || 0) + amount
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, `✅ 비토 ${amount.toLocaleString()}개 추가! 현재: ${bd.wallet.balance.toLocaleString()}개`), 400)
+    return
+  }
+  if (bd.cmdWalletSub && raw.startsWith(bd.cmdWalletSub)) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조절 권한이 없어요'), 400); return }
+    const rest = raw.slice(bd.cmdWalletSub.length).trim()
+    const amount = parseInt(rest, 10)
+    if (!rest || !Number.isFinite(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${bd.cmdWalletSub} [숫자]`), 400); return }
+    bd.wallet.balance = (bd.wallet.balance || 0) - amount
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, `▼ 비마 ${amount.toLocaleString()}개 차감! 현재: ${bd.wallet.balance.toLocaleString()}개`), 400)
+    return
+  }
+}
+
+// 소개팅 매니저 통합 진입점 — 메인 채팅 디스패치 체인에서 호출된다
+function handleBlindDateCommand(djId, room, settings, text, isDj, isManager) {
+  if (!isModuleOn(settings, 'blinddate', djId)) return
+  if (!String(text || '').trim().startsWith('!')) return
+  const bd = getBlindDateSettings(djId, settings)
+  handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager)
+  handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager)
+  handleBlindDateWalletCommand(djId, bd, text, isDj, isManager)
 }
 
 // 단축키 명령어 쿨타임 추적용 (메모리에만 유지, 재시작하면 초기화됨 — 큰 문제 없음)
@@ -15216,6 +15458,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleBlindDateCommand(djId, room, settings, text, isDj, isManager)
           handleSongRequestCommand(djId, room, settings, author, authorId, text, liveId)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
@@ -20646,7 +20889,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -20662,6 +20905,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (songRequest) patch.songRequest = songRequest
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
+  if (blindDate) patch.blindDate = blindDate
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
