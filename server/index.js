@@ -271,11 +271,13 @@ function tokenDjIdFor(djId) {
   if (tokenManager.hasCookies(djId)) return djId
   const existingRoom = rooms[djId]
 
-  // 🎯 DJ가 입장설정에서 특정 공용 계정을 직접 골라뒀으면, 그 계정에 세션이 연결돼있는 한 항상 그 계정을 쓴다.
+  // 🎯 DJ가 입장설정에서 특정 공용 계정을 직접 골라뒀으면 1순위로 그 계정을 쓰되,
+  // 세션이 없거나 이미 정원(SHARED_TOKEN_CAPACITY)이 꽉 찼으면 자동 배정 로직으로 자연스럽게 넘어간다.
   // (loadDjs가 메모리 캐시라서 여기서 매번 읽어도 부담 없음 — 이 함수는 매우 자주 호출됨)
   try {
     const preferred = store.getSettings(djId)?.preferredTokenDjId
-    if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)) {
+    if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)
+      && countConnectedOnToken(preferred) < SHARED_TOKEN_CAPACITY) {
       if (existingRoom) existingRoom.tokenDjId = preferred
       return preferred
     }
