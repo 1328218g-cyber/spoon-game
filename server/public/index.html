@@ -1132,6 +1132,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🎬 유튜브 Data API 키 (최대 3개)</span></div>
+          <p class="hint" id="ytApiKeyHint" style="margin-bottom:10px">신청곡 모듈의 유튜브 검색(재생 후보 찾기, 원곡 자동검증)에 쓰이는 API 키예요. 여기에 등록해두면 Railway 환경변수(YOUTUBE_API_KEY)보다 이 값이 우선 적용되고, <b>여러 개 등록해두면 하나가 하루 검색 한도를 다 쓰는 순간 자동으로 다음 키로 넘어가요.</b><br>
+          ※ 한 줄에 하나씩, 최대 3개까지 입력하세요. 비워두고 저장하면 전부 삭제되고 다시 환경변수(또는 기본 내장 키)를 써요.<br>
+          ※ 여기 저장하면 보안을 위해 값을 그대로 다시 보여주진 않고, 등록된 개수와 앞 6자만 표시돼요. 바꾸려면 전체를 다시 입력해서 저장해야 해요.</p>
+          <div id="ytApiKeyStatus" class="hint" style="margin-bottom:10px"></div>
+          <textarea id="ytApiKeyInput" placeholder="AIza... (한 줄에 하나씩, 최대 3개)" style="height:80px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveYoutubeApiKey()">저장</button>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">🔑 API 키 발급 방법 보기</summary>
+            <div class="hint" style="margin-top:8px;line-height:1.7">
+            1. <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>에 구글 계정으로 로그인<br>
+            2. 상단에서 새 프로젝트 만들기 (또는 기존 프로젝트 선택)<br>
+            3. 좌측 메뉴 "API 및 서비스 → 라이브러리"에서 <b>YouTube Data API v3</b> 검색 후 "사용 설정"<br>
+            4. "API 및 서비스 → 사용자 인증 정보"에서 "+ 사용자 인증 정보 만들기 → API 키" 클릭<br>
+            5. 생성된 키를 복사해서 위 입력창에 붙여넣고 저장<br>
+            6. (권장) 방금 만든 키를 눌러 "API 제한사항"을 YouTube Data API v3로 제한해두면 더 안전해요<br>
+            ※ 무료 한도는 하루 10,000 유닛이고, 검색 1회당 100유닛이 들어서 대략 하루 50번 정도 검색 가능해요 (곡 하나당 검색 2회 소모).<br>
+            ※ <b>구글 계정 하나로 새 프로젝트를 여러 개 만들면 그만큼 키도 여러 개 만들 수 있어요</b> — 그렇게 만든 키를 최대 3개까지 여기 등록해두면 됩니다.
+            </div>
+          </details>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
@@ -1646,6 +1668,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
           </div>
           <p class="hint">시청자들이 !신청곡 [가수] [제목]으로 신청한 목록을 관리합니다.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎬 유튜브 원곡 자동검증</span></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="srVerifyOriginal" onchange="toggleSrOption()"> 신청 즉시 유튜브에서 원곡 확인 (MR·반주만 있으면 거절)</label>
+          <p class="hint" style="margin-top:8px">켜두면 !신청곡으로 접수되는 순간 유튜브에서 바로 검색해서, 원곡(공식 음원/뮤직비디오)이 있는 경우에만 큐에 들어가요. MR·반주·노래방 버전만 검색되거나 아예 찾을 수 없는 곡은 접수 자체가 안 되고 안내 메시지만 나가요.<br>
+          ※ 이렇게 확인된 신청곡은 재생 버튼을 눌렀을 때 다시 검색하지 않고 그 결과를 그대로 재생해서 더 빨라요.<br>
+          ※ 유튜브 검색 API는 하루 사용량 한도가 있어요 — 신청이 아주 많은 방송이면 간헐적으로 확인이 안 될 수 있어요.</p>
         </div>
 
         <div class="card">
@@ -6724,6 +6754,39 @@ async function loadAutoJoinCleanupDays(){
   }catch(e){}
 }
 
+async function loadYoutubeApiKey(){
+  const input=document.getElementById('ytApiKeyInput');
+  const statusEl=document.getElementById('ytApiKeyStatus');
+  if(!input)return;
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      input.value='';
+      if(statusEl){
+        if(d.count>0){
+          statusEl.innerHTML=`✅ 현재 <b>${d.count}개</b> 등록됨: ${d.maskedKeys.join(', ')}`;
+        } else if(d.usingEnvFallback){
+          statusEl.textContent='등록된 키가 없어서 지금은 Railway 환경변수(YOUTUBE_API_KEY)를 쓰고 있어요.';
+        } else {
+          statusEl.textContent='등록된 키가 없어서 지금은 기본 내장 키를 쓰고 있어요.';
+        }
+      }
+    }
+  }catch(e){}
+}
+async function saveYoutubeApiKey(){
+  const raw=document.getElementById('ytApiKeyInput').value;
+  const keys=raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(keys.length>3)return showToast('최대 3개까지만 등록할 수 있어요');
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({keys})});
+    const d=await res.json();
+    if(d.success){showToast(keys.length?`유튜브 API 키 ${d.count}개 저장됐어요`:'키를 전부 비웠어요 (환경변수를 다시 사용해요)');loadYoutubeApiKey();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function createAccountManually(){
   const djIdVal=document.getElementById('createAccDjId').value.trim();
   const password=document.getElementById('createAccPassword').value;
@@ -7206,6 +7269,7 @@ let adminUserListData=[];
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
+  loadYoutubeApiKey();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
@@ -8157,6 +8221,8 @@ function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srVerifyEl.checked = !!srData.verifyOriginalOnRequest;
   const sites=srData.searchSites||{spotify:false,appleMusic:false};
   document.getElementById('srSiteSpotify').checked = !!sites.spotify;
   document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
@@ -8184,7 +8250,7 @@ function renderSrList(){
         ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
       </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
-      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}')">▶ 재생</button></td>
+      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}','${escapeAttr(it.id)}')">▶ 재생</button></td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `}).join('');
@@ -8304,20 +8370,21 @@ function renderSrCurrentSongSites(){
   wrap.innerHTML=btns;
   wrap.style.display=btns?'flex':'none';
 }
-function playSrYoutube(artist, title){
+function playSrYoutube(artist, title, itemId){
   if(srYtCurrentInfo){} // no-op guard, kept for readability
   srYtCurrentInfo={artist,title};
   const bar=document.getElementById('srPlayingStatusBar'); if(bar) bar.style.display='block';
   const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${artist} - ${title} (검색 중...)`;
   renderSrCurrentSongSites();
   srYtPlayQueue=[];
-  playYoutubeSearchAndPlay(artist,title);
+  playYoutubeSearchAndPlay(artist,title,itemId);
 }
 // 로컬봇의 playSongOnYoutube()와 동일 — 재생 버튼을 누른 순간 서버에 검색을 요청하고, 받은 후보를
-// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다.
-async function playYoutubeSearchAndPlay(artist,title){
+// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다. (단, 접수 시점에 이미 캐싱된 후보가
+// 있으면 서버가 그걸 그대로 재사용해서 중복 검색을 안 한다 — itemId로 매칭)
+async function playYoutubeSearchAndPlay(artist,title,itemId){
   try{
-    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title,itemId})});
     const d=await res.json();
     if(!d.success || !d.candidates || !d.candidates.length){
       const statusEl=document.getElementById('srPlayerStatus');
@@ -8444,6 +8511,8 @@ function toggleSrAccepting(){
 function toggleSrOption(){
   srData.priorityMode=document.getElementById('srPriority').checked;
   srData.showRequester=document.getElementById('srShowRequester').checked;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srData.verifyOriginalOnRequest=srVerifyEl.checked;
   renderSrList();
   saveSrGlobal();
 }
