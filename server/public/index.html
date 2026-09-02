@@ -673,6 +673,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="viptier"><span class="ic ic-img"><img src="/icons/viptier.png" alt=""></span><span class="lbl">귀빈 등급 시스템</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="managertoken"><span class="ic ic-img"><img src="/icons/managertoken.png" alt=""></span><span class="lbl">매니저 토큰</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="raffle"><span class="ic ic-img"><img src="/icons/raffle.png" alt=""></span><span class="lbl">추첨</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="blinddate"><span class="ic ic-img"><img src="/icons/blinddate.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">소개팅 매니저</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="dice"><span class="ic ic-img"><img src="/icons/dice.png" alt=""></span><span class="lbl">주사위</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="soundfx"><span class="ic ic-img"><img src="/icons/soundfx.png" alt=""></span><span class="lbl">효과음</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="tts"><span class="ic ic-img"><img src="/icons/tts.png" alt=""></span><span class="lbl">TTS</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1121,8 +1122,40 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendBroadcastChat()">📢 전체 접속중인 방송에 공지 보내기</button>
         </div>
         <div class="card">
+          <div class="card-title"><span>🕐 다중감시(자동입장) 자동정리 기준일수</span></div>
+          <p class="hint" style="margin-bottom:12px">마지막 접속(로그인)이 아래 일수 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.<br>
+          ※ <b>0</b>으로 저장하면 자동정리 자체가 꺼져요.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="number" id="autoJoinCleanupDaysInput" min="0" style="max-width:120px" placeholder="일수">
+            <span class="hint" style="margin:0">일</span>
+            <button class="btn-connect" style="padding:11px 20px" onclick="saveAutoJoinCleanupDays()">저장</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🎬 유튜브 Data API 키 (최대 3개)</span></div>
+          <p class="hint" id="ytApiKeyHint" style="margin-bottom:10px">신청곡 모듈의 유튜브 검색(재생 후보 찾기, 원곡 자동검증)에 쓰이는 API 키예요. 여기에 등록해두면 Railway 환경변수(YOUTUBE_API_KEY)보다 이 값이 우선 적용되고, <b>여러 개 등록해두면 하나가 하루 검색 한도를 다 쓰는 순간 자동으로 다음 키로 넘어가요.</b><br>
+          ※ 한 줄에 하나씩, 최대 3개까지 입력하세요. 비워두고 저장하면 전부 삭제되고 다시 환경변수(또는 기본 내장 키)를 써요.<br>
+          ※ 여기 저장하면 보안을 위해 값을 그대로 다시 보여주진 않고, 등록된 개수와 앞 6자만 표시돼요. 바꾸려면 전체를 다시 입력해서 저장해야 해요.</p>
+          <div id="ytApiKeyStatus" class="hint" style="margin-bottom:10px"></div>
+          <textarea id="ytApiKeyInput" placeholder="AIza... (한 줄에 하나씩, 최대 3개)" style="height:80px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveYoutubeApiKey()">저장</button>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">🔑 API 키 발급 방법 보기</summary>
+            <div class="hint" style="margin-top:8px;line-height:1.7">
+            1. <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>에 구글 계정으로 로그인<br>
+            2. 상단에서 새 프로젝트 만들기 (또는 기존 프로젝트 선택)<br>
+            3. 좌측 메뉴 "API 및 서비스 → 라이브러리"에서 <b>YouTube Data API v3</b> 검색 후 "사용 설정"<br>
+            4. "API 및 서비스 → 사용자 인증 정보"에서 "+ 사용자 인증 정보 만들기 → API 키" 클릭<br>
+            5. 생성된 키를 복사해서 위 입력창에 붙여넣고 저장<br>
+            6. (권장) 방금 만든 키를 눌러 "API 제한사항"을 YouTube Data API v3로 제한해두면 더 안전해요<br>
+            ※ 무료 한도는 하루 10,000 유닛이고, 검색 1회당 100유닛이 들어서 대략 하루 50번 정도 검색 가능해요 (곡 하나당 검색 2회 소모).<br>
+            ※ <b>구글 계정 하나로 새 프로젝트를 여러 개 만들면 그만큼 키도 여러 개 만들 수 있어요</b> — 그렇게 만든 키를 최대 3개까지 여기 등록해두면 됩니다.
+            </div>
+          </details>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
-          <p class="hint" style="margin-top:0">마지막 접속(로그인)이 4일 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.</p>
+          <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
@@ -1316,6 +1349,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 입장 설정 -->
       <div class="panel" data-panel="entrysettings">
         <div class="card">
+          <div class="card-title"><span>🔀 방송 입장에 쓸 공용 계정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePreferredTokenDjId()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">본인 스푼 세션을 따로 연결하지 않은 경우, 봇이 어떤 관리자 공용 계정(sum/sum2/sum3...)으로 방에 들어갈지 직접 고를 수 있어요. <b>자동 배정(기본값)</b>으로 두면 그때그때 여유 있는 계정으로 알아서 배정돼요.<br>
+          ※ 특정 계정을 지정해도 그 계정 정원이 꽉 차있으면 자동으로 다른 여유 있는 계정으로 배정돼요 — 지정한 계정은 "1순위 희망"일 뿐, 못 들어가는 일은 없어요.<br>
+          ※ 본인 계정 세션을 직접 연결했다면(세션 연결 메뉴) 이 설정과 무관하게 항상 본인 계정으로 들어가요.<br>
+          ※ 목록에 나온 계정 중 "세션 미연결"은 아직 그 계정에 스푼 세션이 안 올라가 있어서 지금은 고르셔도 실제로 못 써요.</p>
+          <select id="preferredTokenDjIdSelect" style="max-width:260px">
+            <option value="">자동 배정 (기본값)</option>
+          </select>
+        </div>
+        <div class="card">
           <div class="card-title"><span>💬 기본 멘트 자동 사용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveUseDefaultEntryMessages()">💾 저장</button></div>
           <p class="hint">아래 입장/좋아요/퇴장 멘트를 하나도 등록 안 해두면, 기본으로 마련된 멘트를 대신 보낼지 정해요. <b>꺼두면(기본값)</b> 직접 등록한 멘트가 없을 땐 아무것도 안 보내요.</p>
           <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="useDefaultEntryMessages"> 멘트 등록 안 했을 때 기본 멘트 자동 사용</label>
@@ -1496,6 +1539,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="range" min="0" max="100" id="greetSoundVolume" value="100" style="flex:1;max-width:200px" oninput="greetFormSoundVolume=Number(this.value);document.getElementById('greetSoundVolumeLabel').textContent=this.value+'%'">
             <span class="hint" id="greetSoundVolumeLabel" style="margin:0;width:36px">100%</span>
           </div>
+          <label style="margin-top:12px">인사말 지연 시간 (초)</label>
+          <input type="number" id="greetDelaySec" min="0" step="0.1" value="0" style="max-width:140px">
+          <div class="hint">입장 감지 후 이 시간(초)만큼 기다렸다가 인사말·음원을 내보내요. 0이면 즉시(기본값) 나가요.</div>
           <input type="file" id="greetSoundFileInput" accept="audio/*" style="display:none" onchange="handleGreetSoundFile(this)">
           <div class="btn-row">
             <button class="btn-gray" onclick="hideGreetForm()">취소</button>
@@ -1622,6 +1668,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
           </div>
           <p class="hint">시청자들이 !신청곡 [가수] [제목]으로 신청한 목록을 관리합니다.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎬 유튜브 원곡 자동검증</span></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="srVerifyOriginal" onchange="toggleSrOption()"> 신청 즉시 유튜브에서 원곡 확인 (MR·반주만 있으면 거절)</label>
+          <p class="hint" style="margin-top:8px">켜두면 !신청곡으로 접수되는 순간 유튜브에서 바로 검색해서, 원곡(공식 음원/뮤직비디오)이 있는 경우에만 큐에 들어가요. MR·반주·노래방 버전만 검색되거나 아예 찾을 수 없는 곡은 접수 자체가 안 되고 안내 메시지만 나가요.<br>
+          ※ 이렇게 확인된 신청곡은 재생 버튼을 눌렀을 때 다시 검색하지 않고 그 결과를 그대로 재생해서 더 빨라요.<br>
+          ※ 유튜브 검색 API는 하루 사용량 한도가 있어요 — 신청이 아주 많은 방송이면 간헐적으로 확인이 안 될 수 있어요.</p>
         </div>
 
         <div class="card">
@@ -1873,6 +1927,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>이벤트목록 명령어</label><input type="text" id="rlCmdEvent" placeholder="이벤트"></div>
           </div>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveRlCommands()">💾 명령어 저장</button>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📄 룰렛메뉴 목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!룰렛메뉴1</b>처럼 항목 목록을 조회할 때, 한 번에 몇 개씩 끊어서 보여줄지 정해요. 예를 들어 30으로 설정하면 30개씩 자동으로 끊어서 여러 페이지로 나눠 보여줘요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlMenuPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlMenuPageSize()">💾 저장</button>
+          </div>
         </div>
         <div class="card split-card">
           <div class="split-side">
@@ -2431,6 +2493,76 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <input type="text" id="raffleWinMsg" value="🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊">
           <div class="hint" style="margin-top:10px">변수: {nickname} = 당첨자 닉네임 · "매니저"는 애청지수 메뉴의 "복권/상점 지급 권한자" 목록과 같아요.</div>
           <button class="btn-green" style="width:100%;margin-top:14px" onclick="runRaffleNow()">🎁 지금 바로 추첨하기</button>
+        </div>
+      </div>
+
+      <!-- 💘 소개팅 매니저 -->
+      <div class="panel" data-panel="blinddate">
+        <div class="card">
+          <div class="card-title"><span>💕 커플 관리</span></div>
+          <p class="hint" style="margin-bottom:12px">목록 조회는 누구나, 추가·삭제·초기화는 DJ·매니저만 채팅으로 가능해요.</p>
+          <div class="chip-input-row">
+            <input type="text" id="bdCoupleTagA" placeholder="고유닉 1 (예: alpha)">
+            <input type="text" id="bdCoupleTagB" placeholder="고유닉 2 (예: beta)">
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="bdCoupleForced"> 강제 엮기</label>
+            <button class="btn-connect" onclick="addBlindDateCouple()">커플 추가</button>
+          </div>
+          <div class="chip-list" id="bdCoupleList"></div>
+          <div class="hint" style="margin-top:8px">강제 엮기로 등록한 커플은 "일반 초기화"로 지워지지 않고 "전체 초기화"로만 지워져요.</div>
+          <div class="shield-input-row" style="margin-top:10px">
+            <button class="btn-gray" onclick="resetBlindDateCouples(false)">일반 초기화</button>
+            <button class="btn-shield-reset" onclick="resetBlindDateCouples(true)">전체 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔥 강전 관리</span></div>
+          <p class="hint" style="margin-bottom:12px">숫자가 0이 되면 목록에서 자동으로 사라져요. (증감은 채팅 명령어로 진행)</p>
+          <div class="chip-list" id="bdStrongList"></div>
+          <div class="shield-input-row" style="margin-top:10px">
+            <button class="btn-shield-reset" onclick="resetBlindDateStrong()">강전 전체 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="shield-count-box">
+            <div class="shield-label">비토·비마 지갑</div>
+            <div class="shield-number" id="bdWalletBalance">0</div>
+          </div>
+          <p class="hint">지갑 조회·적립·차감은 DJ·매니저만 채팅 명령어로 가능해요. (비토=적립, 비마=차감)</p>
+          <div class="shield-input-row">
+            <button class="btn-shield-reset" onclick="resetBlindDateWallet()">지갑 초기화</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>⚙️ 소개팅 매니저 명령어 커스텀</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="saveBlindDateSettings()">💾 저장</button></div>
+          <label>커플 명령어 기준 단어 (기본: !커플)</label>
+          <input type="text" id="bdCmdCouple" value="!커플" style="max-width:220px">
+          <div class="hint">채팅에서 "명령어 목록/추가/삭제/초기화/전체초기화" 형태로 사용해요. 예: !커플 목록, !커플 추가 alpha beta 강제 (@ 없이 고유닉만 입력해도 돼요)</div>
+          <label>강전 명령어 기준 단어 (기본: !강전)</label>
+          <input type="text" id="bdCmdStrong" value="!강전" style="max-width:220px">
+          <div class="hint">예: !강전 목록, !강전 alpha 3, !강전 삭제 alpha, !강전 초기화</div>
+          <label>지갑 조회 명령어 (기본: !지갑)</label>
+          <input type="text" id="bdCmdWalletView" value="!지갑" style="max-width:220px">
+          <div class="hint">예: !지갑 (조회), !지갑 초기화</div>
+          <label>비토(적립) 명령어 (기본: !비토)</label>
+          <input type="text" id="bdCmdWalletAdd" value="!비토" style="max-width:220px">
+          <label>비마(차감) 명령어 (기본: !비마)</label>
+          <input type="text" id="bdCmdWalletSub" value="!비마" style="max-width:220px">
+        </div>
+
+        <div class="card">
+          <div class="card-title">💘 소개팅 매니저 명령어 안내</div>
+          <p class="hint">
+          · !커플 목록 [페이지] : 커플 목록 보기 (누구나)<br>
+          · !커플 추가 태그1 태그2 [강제] : 두 사람을 커플로 등록 (DJ/매니저)<br>
+          · !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화 (DJ/매니저)<br>
+          · !강전 목록 [페이지] : 강전 후보 보기 (누구나)<br>
+          · !강전 태그 [±숫자] : 스택 조절, 생략시 +1 (DJ/매니저)<br>
+          · !강전 삭제 태그 / !강전 초기화 (DJ/매니저)<br>
+          · !지갑 / !비토 [숫자] / !비마 [숫자] / !지갑 초기화 (전부 DJ/매니저 전용)
+          </p>
         </div>
       </div>
 
@@ -3910,6 +4042,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="both" checked onchange="saveGgSettings()"> 디제이 + 후원자 둘 다</label>
             <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="ggAvatarMode" value="senderOnly" onchange="saveGgSettings()"> 후원자만</label>
           </div>
+          <label style="margin-top:14px">스푼 숫자 글자 색상</label>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+            <input type="color" id="ggSpoonColor" value="#f97316" onchange="saveGgSettings()" style="width:44px;height:32px;padding:2px;border-radius:8px;cursor:pointer">
+            <span class="hint" style="margin:0">카드에 표시되는 "N스푼" 글자 색이에요</span>
+          </div>
         </div>
         <div class="card">
           <div class="card-title"><span>📅 날짜별로 보기</span><span class="hint" id="ggCalMonthLabel" style="margin:0"></span></div>
@@ -3921,7 +4058,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="ggCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center"></div>
         </div>
         <div class="card">
-          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <div class="card-title"><span>🖼️ 받은 선물 카드 (<span id="ggCount">0</span>개)</span><div style="display:flex;gap:6px"><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="refreshGgStickerImages()">🔄 스티커 이미지 새로고침</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgNicknameChars()">🈵 글자 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="checkGgImageResolution()">🔍 해상도 확인</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="downloadAllGgItems()">⬇ 전체 저장</button><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="clearGgGallery()">🗑️ 전체 비우기</button></div></div>
+          <p class="hint" style="margin-top:6px">기존에 저장해둔 카드의 선물 아이콘이 실제 채팅과 다르게 보이면, 위 "스티커 이미지 새로고침" 버튼으로 한 번에 다시 불러올 수 있어요.</p>
           <div id="ggGrid" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:12px"></div>
           <p class="hint" id="ggEmptyHint" style="margin-top:8px">아직 저장된 선물카드가 없어요. 켜두시면 선물이 들어올 때마다 자동으로 여기 쌓여요.</p>
         </div>
@@ -5126,6 +5264,7 @@ const PANEL_META={
   wheelroulette:['🎡 돌림판 룰렛','5개 페이지의 회전판을 직접 돌려서 경품을 추첨합니다'],
   couponcheck:['🎟️ 쿠폰 확인','채팅 명령어로 복권·룰렛권 보유 현황을 한 번에 확인합니다'],
   usernotes:['📝 메모장','실시간 접속자 목록에서 유저별로 자유롭게 메모를 남깁니다 (애청지수와 별개)'],
+  blinddate:['💘 소개팅 매니저','커플·강전 목록과 비토·비마 스푼 지갑을 채팅 명령어로 관리합니다'],
   mynotes:['🗒️ 나만의 메모장','필요할 때마다 새 메모를 만들어서 자유롭게 내용을 적어두는 개인 메모장입니다'],
   discordnotify:['🔔 디스코드 방송 알림','봇이 방송에 접속할 때마다 디스코드 채널에 자동으로 알림을 보냅니다'],
   fishing:['🎣 낚시 게임','물고기 잡기·상점·아이템·대출·도박까지 즐기는 미니 경제 게임입니다'],
@@ -5172,6 +5311,7 @@ function selectPanel(name){
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
+  if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
@@ -5258,7 +5398,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -5274,7 +5414,7 @@ const MODULE_ICON_FILES={
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
-  'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',
+  'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
@@ -5288,7 +5428,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -5773,6 +5913,97 @@ async function saveShieldSettings(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 💘 소개팅 매니저 ── */
+let blindDateData={cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}};
+
+function renderBlindDate(){
+  document.getElementById('bdCmdCouple').value=blindDateData.cmdCouple;
+  document.getElementById('bdCmdStrong').value=blindDateData.cmdStrong;
+  document.getElementById('bdCmdWalletView').value=blindDateData.cmdWalletView;
+  document.getElementById('bdCmdWalletAdd').value=blindDateData.cmdWalletAdd;
+  document.getElementById('bdCmdWalletSub').value=blindDateData.cmdWalletSub;
+  document.getElementById('bdWalletBalance').textContent=(blindDateData.wallet.balance||0).toLocaleString();
+  renderBlindDateCouples();
+  renderBlindDateStrong();
+}
+
+function renderBlindDateCouples(){
+  const wrap=document.getElementById('bdCoupleList');
+  if(!blindDateData.couples.length){wrap.innerHTML='<span class="hint">등록된 커플이 없습니다</span>';return;}
+  wrap.innerHTML=blindDateData.couples.map((c,i)=>`
+    <span class="perm-chip">${i+1}. ${escapeHtml(c.nickA)}${c.forced?'💍':'💕'}${escapeHtml(c.nickB)}<button onclick="removeBlindDateCouple(${i})">✕</button></span>
+  `).join('');
+}
+
+function addBlindDateCouple(){
+  const aInput=document.getElementById('bdCoupleTagA'), bInput=document.getElementById('bdCoupleTagB');
+  const a=aInput.value.trim().replace('@',''), b=bInput.value.trim().replace('@','');
+  const forced=document.getElementById('bdCoupleForced').checked;
+  if(!a||!b)return showToast('두 사람의 고유닉을 모두 입력해주세요');
+  if(a.toLowerCase()===b.toLowerCase())return showToast('같은 사람은 커플로 등록할 수 없어요');
+  const tagA=a.toLowerCase(), tagB=b.toLowerCase();
+  const dup=blindDateData.couples.find(c=>(c.tagA===tagA&&c.tagB===tagB)||(c.tagA===tagB&&c.tagB===tagA));
+  if(dup)return showToast('이미 등록된 커플이에요');
+  blindDateData.couples.push({id:Date.now(),tagA,nickA:a,tagB,nickB:b,forced,createdAt:new Date().toISOString()});
+  aInput.value='';bInput.value='';document.getElementById('bdCoupleForced').checked=false;
+  renderBlindDateCouples();
+  saveBlindDateSettings();
+}
+
+function removeBlindDateCouple(idx){
+  blindDateData.couples.splice(idx,1);
+  renderBlindDateCouples();
+  saveBlindDateSettings();
+}
+
+function resetBlindDateCouples(all){
+  blindDateData.couples = all ? [] : blindDateData.couples.filter(c=>c.forced);
+  renderBlindDateCouples();
+  saveBlindDateSettings();
+  showToast(all?'커플 전체 삭제 완료 (강제 포함)':'일반 커플 삭제 완료 (강제 커플 유지)');
+}
+
+function renderBlindDateStrong(){
+  const wrap=document.getElementById('bdStrongList');
+  if(!blindDateData.strongCandidates.length){wrap.innerHTML='<span class="hint">등록된 강전 후보가 없습니다</span>';return;}
+  wrap.innerHTML=blindDateData.strongCandidates.map((c,i)=>`
+    <span class="perm-chip">${i+1}. ${escapeHtml(c.nickname)} - ${c.stack}<button onclick="removeBlindDateStrong(${i})">✕</button></span>
+  `).join('');
+}
+
+function removeBlindDateStrong(idx){
+  blindDateData.strongCandidates.splice(idx,1);
+  renderBlindDateStrong();
+  saveBlindDateSettings();
+}
+
+function resetBlindDateStrong(){
+  blindDateData.strongCandidates=[];
+  renderBlindDateStrong();
+  saveBlindDateSettings();
+  showToast('강전 후보 전체 삭제 완료');
+}
+
+function resetBlindDateWallet(){
+  blindDateData.wallet.balance=0;
+  blindDateData.wallet.updatedAt=new Date().toISOString();
+  document.getElementById('bdWalletBalance').textContent='0';
+  saveBlindDateSettings();
+  showToast('지갑 초기화 완료');
+}
+
+async function saveBlindDateSettings(){
+  blindDateData.cmdCouple=document.getElementById('bdCmdCouple').value.trim()||'!커플';
+  blindDateData.cmdStrong=document.getElementById('bdCmdStrong').value.trim()||'!강전';
+  blindDateData.cmdWalletView=document.getElementById('bdCmdWalletView').value.trim()||'!지갑';
+  blindDateData.cmdWalletAdd=document.getElementById('bdCmdWalletAdd').value.trim()||'!비토';
+  blindDateData.cmdWalletSub=document.getElementById('bdCmdWalletSub').value.trim()||'!비마';
+  try{
+    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({blindDate:blindDateData})});
+    showToast('소개팅 매니저 설정 저장 완료 ✓');
+  }catch(e){showToast('저장 실패');}
+}
+
 /* ── 단비 깃발 ── */
 let flagsData={cmd:'!깃발',items:[]};
 let flagIdSeq=1;
@@ -6073,12 +6304,19 @@ const entryData={
   gift:[],
   follow:[],
   repeat:[],
+  repeatMode:'interval', // 'interval'(기본, 메시지마다 개별 반복) | 'sequence'(순서대로 한 번에 하나씩)
 };
 // 💖 좋아요 메시지가 반응할 하트 종류 — 기본은 무료만 켜짐(기존 동작 그대로)
 const likeHeartTypes={free:true,ad:false,plan:false,paid:false};
 
 function toggleLikeHeartType(type,checked){
   likeHeartTypes[type]=checked;
+}
+
+function setRepeatMode(mode){
+  entryData.repeatMode=mode==='sequence'?'sequence':'interval';
+  renderEntryList();
+  saveSettings();
 }
 
 function switchEntryTab(tab){
@@ -6113,7 +6351,14 @@ function renderEntryList(){
     return;
   }
   if(entryTab==='repeat'){
-    wrap.innerHTML=list.map(m=>`
+    const isSeq=entryData.repeatMode==='sequence';
+    const repeatModeHtml=`
+      <div class="hint" style="margin-bottom:8px">여러 문구가 등록됐을 때 어떤 방식으로 반복할지 골라주세요</div>
+      <div style="display:flex;gap:16px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="interval" ${isSeq?'':'checked'} onchange="setRepeatMode('interval')"> 지정 시간마다 (기본값 · 문구마다 각자 반복)</label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="sequence" ${isSeq?'checked':''} onchange="setRepeatMode('sequence')"> 순서대로 (한 번에 하나씩, 다음 문구까지 그 문구의 시간만큼 대기)</label>
+      </div>`;
+    wrap.innerHTML=repeatModeHtml+list.map(m=>`
       <div class="msg-entry" data-id="${m.id}">
         <div class="msg-entry-top">
           <label class="switch">
@@ -6130,13 +6375,13 @@ function renderEntryList(){
           <span class="chip" onclick="insertEntryVar(${m.id},'{choice_rank}')">{choice_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{like_rank}')">{like_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{time_rank}')">{time_rank}</span>
-          <span class="delay-inline">간격: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
+          <span class="delay-inline">${isSeq?'다음까지 대기':'간격'}: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
         </div>
         <div class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px">
         · {tag}/{nickname}: 자동입장에 등록된 DJ 고유닉(오토조인용)과, 대시보드에 등록한 DJ 닉네임<br>
         · {rank}: 이달의 DJ 랭킹 한 줄 요약 (예: "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위")<br>
         · {choice_rank}, {like_rank}, {time_rank}: 개별 랭킹<br>
-        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 설정한 간격마다 반복 전송돼요.
+        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 ${isSeq?'이 문구 차례가 되면 위에서 설정한 대기 시간 뒤에':'설정한 간격마다'} 반복 전송돼요.
         </div>
       </div>
     `).join('');
@@ -6320,9 +6565,10 @@ async function initApp(){
 
 async function loadDjSettings(){
   // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
-  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
+  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[]; entryData.repeatMode='interval';
   Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
+  Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -6395,6 +6641,7 @@ async function loadDjSettings(){
         if(nums.length) rlIdSeq=Math.max(...nums)+1;
       }
       if(s.activity) Object.assign(activityData, s.activity);
+      if(s.blindDate) Object.assign(blindDateData, s.blindDate);
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -6405,6 +6652,7 @@ async function loadDjSettings(){
       const curActive=document.querySelector('.nav-item.active')?.dataset.panel;
       if(curActive) applyPanelLockState(curActive);
       renderShield();
+      renderBlindDate();
       renderFlags();
       renderFunding();
       renderCmdList();
@@ -6493,6 +6741,50 @@ async function loadDefaultTrialDays(){
       if(input) input.value=d.days;
     }
   }catch(e){}
+}
+
+async function loadAutoJoinCleanupDays(){
+  try{
+    const res=await fetch(SERVER+'/admin/autojoin-cleanup-days',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      const input=document.getElementById('autoJoinCleanupDaysInput');
+      if(input) input.value=d.days;
+    }
+  }catch(e){}
+}
+
+async function loadYoutubeApiKey(){
+  const input=document.getElementById('ytApiKeyInput');
+  const statusEl=document.getElementById('ytApiKeyStatus');
+  if(!input)return;
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      input.value='';
+      if(statusEl){
+        if(d.count>0){
+          statusEl.innerHTML=`✅ 현재 <b>${d.count}개</b> 등록됨: ${d.maskedKeys.join(', ')}`;
+        } else if(d.usingEnvFallback){
+          statusEl.textContent='등록된 키가 없어서 지금은 Railway 환경변수(YOUTUBE_API_KEY)를 쓰고 있어요.';
+        } else {
+          statusEl.textContent='등록된 키가 없어서 지금은 기본 내장 키를 쓰고 있어요.';
+        }
+      }
+    }
+  }catch(e){}
+}
+async function saveYoutubeApiKey(){
+  const raw=document.getElementById('ytApiKeyInput').value;
+  const keys=raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(keys.length>3)return showToast('최대 3개까지만 등록할 수 있어요');
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({keys})});
+    const d=await res.json();
+    if(d.success){showToast(keys.length?`유튜브 API 키 ${d.count}개 저장됐어요`:'키를 전부 비웠어요 (환경변수를 다시 사용해요)');loadYoutubeApiKey();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function createAccountManually(){
@@ -6961,9 +7253,23 @@ async function saveDefaultTrialDays(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+async function saveAutoJoinCleanupDays(){
+  const val=document.getElementById('autoJoinCleanupDaysInput').value;
+  const days=Number(val);
+  if(val===''||isNaN(days)||days<0)return showToast('0 이상의 숫자를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/autojoin-cleanup-days',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({days})});
+    const d=await res.json();
+    if(d.success){showToast(days===0?'다중감시 자동정리가 꺼졌어요':'다중감시 자동정리 기준이 '+days+'일로 저장됐어요');}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 let adminUserListData=[];
 async function loadUserList(){
   loadDefaultTrialDays();
+  loadAutoJoinCleanupDays();
+  loadYoutubeApiKey();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
@@ -7392,6 +7698,7 @@ let greetEditingId=null;
 let greetFormSound='';
 let greetFormSoundUrl='';
 let greetFormSoundVolume=100;
+let greetFormDelaySec=0;
 
 function renderGreetList(){
   const wrap=document.getElementById('greetListWrap');
@@ -7403,7 +7710,7 @@ function renderGreetList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}</div>
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}${g.delaySec?' · ⏱ '+g.delaySec+'초 지연':''}</div>
         <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -7423,8 +7730,10 @@ function showGreetForm(id){
   greetFormSound=g?(g.sound||''):'';
   greetFormSoundUrl=g?(g.soundUrl||''):'';
   greetFormSoundVolume=g?(g.soundVolume??100):100;
+  greetFormDelaySec=g?(g.delaySec||0):0;
   document.getElementById('greetSoundVolume').value=greetFormSoundVolume;
   document.getElementById('greetSoundVolumeLabel').textContent=greetFormSoundVolume+'%';
+  document.getElementById('greetDelaySec').value=greetFormDelaySec;
   renderGreetSoundUI();
   document.getElementById('greetFormCard').style.display='block';
 }
@@ -7509,14 +7818,15 @@ function insertGreetVar(token){
 function saveGreetForm(){
   const tag=document.getElementById('greetTag').value.trim().replace('@','');
   const message=document.getElementById('greetMessage').value;
+  const delaySec=Math.max(0,Number(document.getElementById('greetDelaySec').value)||0);
   if(!tag)return showToast('유저 고유닉을 입력해주세요');
   if(!message.trim())return showToast('인사말을 입력해주세요');
 
   if(greetEditingId){
     const g=greetData.find(x=>x.id===greetEditingId);
-    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   } else {
-    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   }
   hideGreetForm();
   renderGreetList();
@@ -7911,6 +8221,8 @@ function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srVerifyEl.checked = !!srData.verifyOriginalOnRequest;
   const sites=srData.searchSites||{spotify:false,appleMusic:false};
   document.getElementById('srSiteSpotify').checked = !!sites.spotify;
   document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
@@ -7938,7 +8250,7 @@ function renderSrList(){
         ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
       </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
-      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}')">▶ 재생</button></td>
+      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}','${escapeAttr(it.id)}')">▶ 재생</button></td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `}).join('');
@@ -8058,20 +8370,21 @@ function renderSrCurrentSongSites(){
   wrap.innerHTML=btns;
   wrap.style.display=btns?'flex':'none';
 }
-function playSrYoutube(artist, title){
+function playSrYoutube(artist, title, itemId){
   if(srYtCurrentInfo){} // no-op guard, kept for readability
   srYtCurrentInfo={artist,title};
   const bar=document.getElementById('srPlayingStatusBar'); if(bar) bar.style.display='block';
   const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${artist} - ${title} (검색 중...)`;
   renderSrCurrentSongSites();
   srYtPlayQueue=[];
-  playYoutubeSearchAndPlay(artist,title);
+  playYoutubeSearchAndPlay(artist,title,itemId);
 }
 // 로컬봇의 playSongOnYoutube()와 동일 — 재생 버튼을 누른 순간 서버에 검색을 요청하고, 받은 후보를
-// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다.
-async function playYoutubeSearchAndPlay(artist,title){
+// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다. (단, 접수 시점에 이미 캐싱된 후보가
+// 있으면 서버가 그걸 그대로 재사용해서 중복 검색을 안 한다 — itemId로 매칭)
+async function playYoutubeSearchAndPlay(artist,title,itemId){
   try{
-    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title,itemId})});
     const d=await res.json();
     if(!d.success || !d.candidates || !d.candidates.length){
       const statusEl=document.getElementById('srPlayerStatus');
@@ -8198,6 +8511,8 @@ function toggleSrAccepting(){
 function toggleSrOption(){
   srData.priorityMode=document.getElementById('srPriority').checked;
   srData.showRequester=document.getElementById('srShowRequester').checked;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srData.verifyOriginalOnRequest=srVerifyEl.checked;
   renderSrList();
   saveSrGlobal();
 }
@@ -8572,6 +8887,8 @@ function renderRlCommandInputs(){
   keepEl.value=(rouletteData.cmdKeep||'!킵').replace(/^!/,'');
   document.getElementById('rlCmdMisc').value=(rouletteData.cmdMisc||'!내카드').replace(/^!/,'');
   document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
+  const pageSizeEl=document.getElementById('rlMenuPageSize');
+  if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -8581,6 +8898,14 @@ function saveRlCommands(){
   renderRlCommandInputs();
   saveRouletteGlobal();
   showToast('명령어 저장 완료 ✓');
+}
+function saveRlMenuPageSize(){
+  const val=Number(document.getElementById('rlMenuPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.menuPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlMenuPageSize').value=rouletteData.menuPageSize;
+  saveRouletteGlobal();
+  showToast(`룰렛메뉴 목록이 ${rouletteData.menuPageSize}개씩 끊어서 나가도록 저장됐어요`);
 }
 
 async function saveRouletteGlobal(){
@@ -9636,7 +9961,7 @@ let tbEditingSlotIndex=null;
 let tbIdSeq=1;
 
 /* ── 🎁 선물카드 갤러리 ── */
-let ggData={avatarShape:'circle',cardShape:'pill',avatarMode:'both',items:[]};
+let ggData={avatarShape:'circle',cardShape:'pill',avatarMode:'both',spoonColor:'#f97316',items:[]};
 async function loadGgSettings(){
   try{
     const res=await fetch(SERVER+'/giftgallery/settings',{headers:authHeaders()});
@@ -9649,6 +9974,8 @@ async function loadGgSettings(){
     if(cardRadio)cardRadio.checked=true;
     const modeRadio=document.querySelector(`input[name="ggAvatarMode"][value="${ggData.avatarMode==='senderOnly'?'senderOnly':'both'}"]`);
     if(modeRadio)modeRadio.checked=true;
+    const colorInput=document.getElementById('ggSpoonColor');
+    if(colorInput)colorInput.value=ggData.spoonColor||'#f97316';
     renderGgGrid();
     renderGgCalendar();
   }catch(e){}
@@ -9660,8 +9987,10 @@ async function saveGgSettings(){
   const cardShape=cardEl?cardEl.value:'pill';
   const modeEl=document.querySelector('input[name="ggAvatarMode"]:checked');
   const avatarMode=modeEl?modeEl.value:'both';
+  const colorEl=document.getElementById('ggSpoonColor');
+  const spoonColor=colorEl?colorEl.value:'#f97316';
   try{
-    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode})});
+    const res=await fetch(SERVER+'/giftgallery/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({avatarShape,cardShape,avatarMode,spoonColor})});
     const d=await res.json();
     if(d.success){ggData=d.settings;renderGgGrid();renderGgCalendar();showToast('설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
@@ -9779,20 +10108,22 @@ function renderGgGrid(){
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
+    const editId='ggEdit_'+it.id;
     const cardId='ggCard_'+it.id;
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
     const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
-        onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
+        onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
         ${it.stickerImage?`<div style="width:28px;height:28px;background-image:url('${escapeHtml(ggProxyImg(it.stickerImage))}');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0" title="${escapeHtml(it.sticker||'')}"></div>`:''}
-        <span style="color:#f97316;font-weight:700;font-size:13px">${spoons}스푼</span>
+        <span style="color:${ggData.spoonColor||'#f97316'};font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
+      <button id="${editId}" onclick="editGgNickname('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:42px;width:20px;height:20px;border-radius:50%;background:#22c55e;color:#fff;border:none;cursor:pointer;font-size:11px" title="닉네임 수정">✏️</button>
       <button id="${btnId}" onclick="deleteGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#333;color:#fff;border:none;cursor:pointer;font-size:11px">✕</button>
     </div>`;
   });
@@ -9963,7 +10294,7 @@ async function drawGgCardCanvas(it, opts){
     x+=stickerSize+gap
   }
 
-  ctx.fillStyle='#f97316'
+  ctx.fillStyle=opts.spoonColor||'#f97316'
   ctx.font=fontSpoon
   ctx.fillText(spoonsText,x,cy)
 
@@ -9977,7 +10308,7 @@ async function downloadGgItem(id){
   const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   const preWin=isMobile?window.open('','_blank'):null
   try{
-    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode})
+    const canvas=await drawGgCardCanvas(it,{avatarShape:ggData.avatarShape,cardShape:ggData.cardShape,avatarMode:ggData.avatarMode,spoonColor:ggData.spoonColor})
     const dataUrl=canvas.toDataURL('image/png')
     const link=document.createElement('a')
     link.download='선물카드_'+id+'.png'
@@ -10033,6 +10364,21 @@ async function deleteGgItem(id){
   renderGgCalendar();
   try{ await fetch(SERVER+'/giftgallery/delete-item',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})}); }catch(e){}
 }
+async function editGgNickname(id){
+  const item=ggData.items.find(it=>it.id===id);
+  if(!item)return;
+  const next=prompt('카드에 표시할 닉네임을 입력하세요',item.author);
+  if(next===null)return; // 취소
+  const nickname=next.trim();
+  if(!nickname)return showToast('닉네임을 입력해주세요');
+  item.author=nickname;
+  renderGgGrid();
+  try{
+    const res=await fetch(SERVER+'/giftgallery/update-item',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,author:nickname})});
+    const d=await res.json();
+    if(!d.success)showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
 async function clearGgGallery(){
   if(!confirm('저장된 선물카드를 전부 지울까요? 되돌릴 수 없어요.'))return;
   try{
@@ -10040,6 +10386,20 @@ async function clearGgGallery(){
     const d=await res.json();
     if(d.success){ggData=d.settings;ggSelectedDate=null;renderGgGrid();renderGgCalendar();showToast('전체 삭제 완료');}
   }catch(e){showToast('삭제 실패');}
+}
+async function refreshGgStickerImages(){
+  if(!ggData.items.length){showToast('저장된 선물카드가 없어요');return;}
+  showToast('스티커 이미지 새로고침 중...');
+  try{
+    const res=await fetch(SERVER+'/giftgallery/refresh-sticker-images',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
+    const d=await res.json();
+    if(d.success){
+      ggData=d.settings;
+      renderGgGrid();
+      renderGgCalendar();
+      showToast(d.changed?`${d.changed}개 카드의 스티커 이미지를 갱신했어요`:'변경된 카드가 없어요 (이미 최신 이미지예요)');
+    }else showToast(d.error||'새로고침 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function loadTrophyBoard(){
@@ -16013,6 +16373,30 @@ async function saveUseDefaultEntryMessages(){
     await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({useDefaultEntryMessages:document.getElementById('useDefaultEntryMessages').checked})});
     showToast('저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
+}
+
+/* ── 🔀 방송 입장에 쓸 공용 계정 선택 ── */
+async function loadPreferredTokenDjId(){
+  const sel=document.getElementById('preferredTokenDjIdSelect');
+  if(!sel)return;
+  try{
+    const res=await fetch(SERVER+'/session/pool-options',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    sel.innerHTML='<option value="">자동 배정 (기본값)</option>'
+      + d.pool.map(p=>`<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${p.hasSession?'':' (세션 미연결)'}</option>`).join('');
+    sel.value=d.preferredTokenDjId||'';
+  }catch(e){}
+}
+async function savePreferredTokenDjId(){
+  const sel=document.getElementById('preferredTokenDjIdSelect');
+  if(!sel)return;
+  try{
+    const res=await fetch(SERVER+'/session/preferred-token',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({preferredTokenDjId:sel.value})});
+    const d=await res.json();
+    if(d.success)showToast(sel.value?`다음 방송부터 "${sel.value}" 계정으로 들어가요`:'자동 배정으로 저장됐어요');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 /* ── 🌡️ 온도 설정 ── */
