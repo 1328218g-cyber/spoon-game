@@ -1353,7 +1353,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">본인 스푼 세션을 따로 연결하지 않은 경우, 봇이 어떤 관리자 공용 계정(sum/sum2/sum3...)으로 방에 들어갈지 직접 고를 수 있어요. <b>자동 배정(기본값)</b>으로 두면 그때그때 여유 있는 계정으로 알아서 배정돼요.<br>
           ※ 특정 계정을 지정해도 그 계정 정원이 꽉 차있으면 자동으로 다른 여유 있는 계정으로 배정돼요 — 지정한 계정은 "1순위 희망"일 뿐, 못 들어가는 일은 없어요.<br>
           ※ 본인 계정 세션을 직접 연결했다면(세션 연결 메뉴) 이 설정과 무관하게 항상 본인 계정으로 들어가요.<br>
-          ※ 목록에 나온 계정 중 "세션 미연결"은 아직 그 계정에 스푼 세션이 안 올라가 있어서 지금은 고르셔도 실제로 못 써요.</p>
+          ※ 목록에 나온 계정 중 "세션 미연결"·"토큰 만료/미발급"은 지금 그 계정으로 실제 접속이 안 되는 상태라, 골라도 자동으로 다른 여유 있는 계정으로 넘어가요.</p>
           <select id="preferredTokenDjIdSelect" style="max-width:260px">
             <option value="">자동 배정 (기본값)</option>
           </select>
@@ -1934,6 +1934,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div style="display:flex;gap:10px;align-items:center">
             <input type="number" id="rlMenuPageSize" min="1" max="100" value="10" style="max-width:120px">
             <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlMenuPageSize()">💾 저장</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📄 킵/이벤트/기타목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!킵</b>, <b>!이벤트</b>, <b>!내카드</b>(기타목록) 등으로 조회할 때 한 번에 몇 개씩 끊어서 보여줄지 정해요. 세 목록 모두 이 값 하나로 같이 적용돼요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlKeepPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlKeepPageSize()">💾 저장</button>
           </div>
         </div>
         <div class="card split-card">
@@ -8096,6 +8104,8 @@ function renderActUserDetail(key){
     </div>
 
     <div class="card-title" style="margin-top:10px">✏️ 수동 점수 편집</div>
+    <label>👤 닉네임 (표시 이름)</label>
+    <input type="text" id="actEditNickname" value="${escapeAttr(u.nickname||'')}" placeholder="예: 초밥">
     <label>🆔 태그 (고유닉, 참고용 · 명령어에서 닉네임 대신 써도 됨)</label>
     <input type="text" id="actEditTag" value="${escapeAttr(u.tag||'')}" placeholder="예: sum1004">
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
@@ -8115,7 +8125,7 @@ function renderActUserDetail(key){
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
-    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
+    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>닉네임이 태그(랜덤 문자열)로 잘못 표시되는 경우, 위 닉네임 칸에 직접 입력해서 저장하면 돼요. 태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
 
     <div class="btn-row" style="grid-template-columns:1fr 1fr">
       <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 고유닉 변경</button>
@@ -8146,6 +8156,7 @@ async function saveActUserEdit(key){
     lotto:Number(document.getElementById('actEditLotto').value)||0,
     expAdd:expMagnitude*expSign,
     tag:document.getElementById('actEditTag').value.trim(),
+    nickname:document.getElementById('actEditNickname').value.trim(),
   };
   const lvlRaw=document.getElementById('actEditLevel').value;
   if(lvlRaw) body.setLevel=Number(lvlRaw);
@@ -8889,6 +8900,8 @@ function renderRlCommandInputs(){
   document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
   const pageSizeEl=document.getElementById('rlMenuPageSize');
   if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
+  const keepPageSizeEl=document.getElementById('rlKeepPageSize');
+  if(keepPageSizeEl)keepPageSizeEl.value=rouletteData.keepPageSize||10;
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -8906,6 +8919,14 @@ function saveRlMenuPageSize(){
   document.getElementById('rlMenuPageSize').value=rouletteData.menuPageSize;
   saveRouletteGlobal();
   showToast(`룰렛메뉴 목록이 ${rouletteData.menuPageSize}개씩 끊어서 나가도록 저장됐어요`);
+}
+function saveRlKeepPageSize(){
+  const val=Number(document.getElementById('rlKeepPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.keepPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlKeepPageSize').value=rouletteData.keepPageSize;
+  saveRouletteGlobal();
+  showToast(`킵/이벤트/기타목록이 ${rouletteData.keepPageSize}개씩 끊어서 나가도록 저장됐어요`);
 }
 
 async function saveRouletteGlobal(){
@@ -16384,7 +16405,12 @@ async function loadPreferredTokenDjId(){
     const d=await res.json();
     if(!d.success)return;
     sel.innerHTML='<option value="">자동 배정 (기본값)</option>'
-      + d.pool.map(p=>`<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${p.hasSession?'':' (세션 미연결)'}</option>`).join('');
+      + d.pool.map(p=>{
+          let statusLabel='';
+          if(!p.hasSession) statusLabel=' (세션 미연결)';
+          else if(!p.hasToken) statusLabel=' (토큰 만료/미발급 — 지금은 접속 안 됨)';
+          return `<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${statusLabel}</option>`;
+        }).join('');
     sel.value=d.preferredTokenDjId||'';
   }catch(e){}
 }
@@ -16597,7 +16623,7 @@ setInterval(()=>{
 
 function updateSessionPill(d){
   const pill=document.getElementById('sessionPill');
-  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
+  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료. ✅');}
   else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
 }
 
