@@ -16623,7 +16623,7 @@ setInterval(()=>{
 
 function updateSessionPill(d){
   const pill=document.getElementById('sessionPill');
-  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
+  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료. ✅');}
   else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
 }
 
