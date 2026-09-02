@@ -3,34 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0ea5e9">
+<meta name="theme-color" content="#ff8fab">
 <title>내정보 | 에디봇</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&family=Noto+Sans:wght@400;700;800&family=Noto+Sans+Symbols&family=Noto+Sans+Symbols+2&family=Noto+Emoji&family=Noto+Sans+JP&family=Noto+Sans+SC&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&family=Noto+Sans:wght@400;700;800&family=Noto+Sans+Symbols&family=Noto+Sans+Symbols+2&family=Noto+Emoji&family=Noto+Sans+JP&family=Noto+Sans+SC&family=Jua&family=Gaegu:wght@400;700&display=swap" rel="stylesheet">
 <!-- 🈵 GNU Unifont — 유니코드 BMP(기본 다국어 평면) 전체를 커버하는 폰트. Noto 계열조차 웹에서는
      제공 안 하는 희귀 구간(작은대문자 발음기호, 단독 결합기호 등)까지 실제 글자로 보여주는
      최후의 안전망 역할. 모양은 다른 폰트보다 각지지만(비트맵 느낌), 네모(□)로 깨지는 것보다 낫다. -->
 <link href="https://cdn.jsdelivr.net/npm/@fontsource/unifont/400.css" rel="stylesheet">
 <style>
 :root{
-  --bg:#eaf6fb; --panel:#ffffff; --surface2:#eef7fb; --border:#d7ecf5;
-  --accent:#0ea5e9; --accent2:#fb923c; --text:#0f2a3a; --muted:#6b8a9a;
-  --success:#16a34a; --danger:#e11d48; --radius:14px;
+  --bg:#fff3f5; --panel:#fffdfb; --surface2:#fff0f4; --border:#ffd9e3;
+  --accent:#ff8fab; --accent2:#ffc971; --text:#5c4438; --muted:#b58e8e;
+  --success:#8ec9a4; --danger:#f27979; --radius:20px;
 }
 *{box-sizing:border-box}
 /* 🈵 닉네임에 폰트 확장 영역 특수문자(예: ᴴᴿ 같은 작은대문자, 장식 기호)가 섞여있으면
    기본 시스템 폰트만으로는 네모(□)로 깨져 보였다. 여러 언어/기호 전용 구글 폰트를 폭넓게
    추가하고, 그래도 커버 안 되는 구간은 마지막에 Unifont(전 유니코드 커버)로 받쳐준다. */
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Unifont',sans-serif;padding-bottom:40px}
+body{margin:0;background:linear-gradient(180deg,#fff3f5,#fff8ee 320px,#fff3f5);color:var(--text);font-family:'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Unifont',sans-serif;padding-bottom:40px}
+h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sans KR',sans-serif}
 
 /* 🔝 상단 고정 메뉴바 — "내정보" 헤더/카드와 완전히 분리된, 화면 맨 위 전체너비 메뉴 */
-.pageMenu{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;background:var(--panel);border-bottom:1px solid var(--border);box-shadow:0 2px 10px rgba(14,100,140,.07)}
-.menuBtn{flex:1;background:none;border:none;border-bottom:3px solid transparent;padding:13px 4px 10px;font-family:inherit;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.pageMenu{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;background:var(--panel);border-bottom:2px dashed var(--border);box-shadow:0 2px 10px rgba(255,143,171,.1);gap:4px;padding:6px 6px 0}
+.menuBtn{flex:1;background:none;border:none;border-radius:14px 14px 0 0;padding:11px 4px 9px;font-family:inherit;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s}
+.menuBtn.active{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
 .menuBtn .mIcon{font-size:16px}
 .menuBtn .mCount{background:var(--surface2);color:var(--muted);font-size:10px;font-weight:800;border-radius:20px;padding:1px 6px;min-width:16px}
-.menuBtn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.menuBtn.active .mCount{background:var(--accent);color:#fff}
+.menuBtn.active .mCount{background:#fff;color:var(--accent)}
 
 /* 🎮 게임 탭: 이 방에서 켜져있는 웹 기능 목록 */
 .gameItem{display:flex;align-items:center;gap:12px;padding:12px 8px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text)}
@@ -118,8 +119,8 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 .top .sub{font-size:12px;color:var(--muted);margin-top:1px}
 
 
-.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
-.card-title{font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.card{background:var(--panel);border:2px dashed var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 3px 12px rgba(255,143,171,.1)}
+.card-title{font-weight:400;font-size:15.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px;font-family:'Jua','Noto Sans KR',sans-serif}
 .hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
 
 /* 인증 전 화면 */
@@ -129,7 +130,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 .codeBox{font-family:'SFMono-Regular',Consolas,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:var(--accent);background:var(--surface2);border:1.5px dashed var(--accent);border-radius:12px;padding:16px 10px;margin:0 0 14px}
 .cmdLine{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:'SFMono-Regular',Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px;word-break:break-all}
 .timerRow{font-size:12.5px;color:var(--muted);margin-bottom:16px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:18px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%}
 .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
 .btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:8px}
 .spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 14px}
