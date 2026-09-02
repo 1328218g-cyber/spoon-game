@@ -318,6 +318,50 @@ let pollTimer = null;
 let countdownTimer = null;
 let codeExpiresAt = 0;
 
+/* 🎨 테마 색상 — 디제이가 관리자 설정에서 고른 색상 코드(HEX) 하나를 기준으로, 페이지 전체
+   팔레트(배경/카드/보더/보조색 등)를 흰색과 섞어서 자동으로 만들어낸다. 어떤 색을 골라도
+   항상 은은한 파스텔 배경이 나오도록 하기 위함이지, 사용자가 고른 색 그대로를 배경 전체에
+   칠하는 게 아니다(그러면 글자가 안 보이거나 너무 쨍해 보일 수 있음). */
+function miHexToRgb(hex){
+  hex = hex.replace('#', '');
+  if(hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const num = parseInt(hex, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+function miRgbToHex(r, g, b){
+  return '#' + [r, g, b].map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('');
+}
+function miMix(hex, withHex, ratio){ // ratio: 0(원래색)~1(withHex색) 사이로 섞는다
+  const a = miHexToRgb(hex), b = miHexToRgb(withHex);
+  return miRgbToHex(a.r + (b.r - a.r) * ratio, a.g + (b.g - a.g) * ratio, a.b + (b.b - a.b) * ratio);
+}
+function applyTheme(color){
+  if(!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+  const root = document.documentElement.style;
+  const bg = miMix(color, '#ffffff', 0.94);
+  const bgSoft = miMix(color, '#ffffff', 0.97);
+  const panel = miMix(color, '#ffffff', 0.985);
+  const surface2 = miMix(color, '#ffffff', 0.94);
+  const border = miMix(color, '#ffffff', 0.83);
+  const accent2 = miMix(color, '#ffffff', 0.25); // 그라디언트 끝쪽에 쓸 조금 더 밝은 색
+  root.setProperty('--bg', bg);
+  root.setProperty('--panel', panel);
+  root.setProperty('--surface2', surface2);
+  root.setProperty('--border', border);
+  root.setProperty('--accent', color);
+  root.setProperty('--accent2', accent2);
+  document.body.style.background = 'linear-gradient(180deg,' + bg + ',' + bgSoft + ' 320px,' + bg + ')';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', color);
+}
+async function loadTheme(){
+  try{
+    const res = await fetch(API + '/theme');
+    const d = await res.json();
+    if(d.success && d.color) applyTheme(d.color);
+  }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
+}
+
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
 
@@ -876,6 +920,7 @@ async function fetchMe(manual){
 
 // 시작
 (function init(){
+  loadTheme();
   if(!DJ_ID){
     document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
     return;

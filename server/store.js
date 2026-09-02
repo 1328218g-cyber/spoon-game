@@ -271,6 +271,10 @@ function defaultSettings() {
     // 이미지에 그려진 날짜를 클릭하면 그 날짜의 일정이 뜨게 만들 수 있다 (year/month는 이 이미지가
     // 어느 달을 나타내는지, top/left/width/height는 이미지 안에서 달력 표가 차지하는 영역 %).
     calendarImage: { url: '', hideGrid: false, overlay: { enabled: false, year: null, month: null, top: 0, left: 0, width: 100, height: 100 } },
+    // 🎨 내정보 웹페이지 테마 색상 — DJ가 직접 색상 코드(HEX)를 골라서 기본 핑크 테마를
+    // 원하는 색으로 바꿀 수 있게 한다. 저장된 accent 색을 기준으로 배경/보더 등 나머지
+    // 팔레트는 myinfo.html에서 흰색과 섞어 자동으로 계산한다(파스텔 배경이 항상 자연스럽게 나오도록).
+    myinfoTheme: { color: '#ff8fab' },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어

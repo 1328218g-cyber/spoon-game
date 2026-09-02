@@ -20114,6 +20114,16 @@ app.get('/myinfo/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/myinfo.html')
 })
 
+// 🎨 내정보 웹페이지 테마 색상 — DJ가 관리자 페이지에서 고른 accent 색상을 로그인/인증 여부와
+// 상관없이 누구나 조회할 수 있어야 페이지가 열리자마자(인증 전에도) 바로 적용할 수 있다.
+// 저장 안 해뒀으면 기존 기본 핑크색을 그대로 돌려준다.
+app.get('/myinfo/:djId/theme', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const color = (settings.myinfoTheme && settings.myinfoTheme.color) || '#ff8fab'
+  res.json({ success: true, color })
+})
+
 // ══════════════════════════════════════════════════════
 // 🎑 추석 팀배틀 이벤트 — 공개(로그인 없음) 웹 페이지. 포스터 이미지 + 실시간 팀 스코어를
 // 보여주고, 시청자는 마피아/몬스터도감과 같은 방식으로 채팅 인증코드를 쳐서 본인 참여 현황을
@@ -21230,7 +21240,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21250,6 +21260,10 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (posts) patch.posts = posts
   if (calendarEvents) patch.calendarEvents = calendarEvents
   if (calendarImage) patch.calendarImage = calendarImage
+  // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
+  if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase() }
+  }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible

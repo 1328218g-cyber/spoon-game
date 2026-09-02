@@ -3768,6 +3768,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>🎨 테마 색상</span></div>
+          <p class="hint">내정보 웹페이지의 기본 핑크 배경/포인트 색상을 원하는 색으로 바꿀 수 있어요. 컬러피커로 고르거나 색상 코드(HEX)를 직접 입력하세요.</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+            <input type="color" id="miThemeColorPicker" value="#ff8fab" style="width:44px;height:38px;padding:2px;border:1px solid var(--border);border-radius:8px;cursor:pointer" oninput="miThemeColorFromPicker(this.value)">
+            <input type="text" id="miThemeColorHex" value="#ff8fab" maxlength="7" placeholder="#ff8fab" style="flex:1" oninput="miThemeColorFromHex(this.value)">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="miThemeColorReset()">기본값</button>
+          </div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>📋 포스트 (<span id="postCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showPostForm()">+ 새 포스트</button></div>
           <p class="hint">이미지+제목(해시태그)+기간으로 이벤트/공지 게시물을 만들면, 시청자가 내정보 웹페이지의 "포스트" 탭에서 스푼 앱 게시물처럼 확인하고 좋아요·댓글을 남길 수 있어요. (실제 스푼 앱 피드에 올라가는 건 아니고, 우리 사이트 안에서만 보여요)<br>
           🎰 시청자가 포스트에 좋아요 또는 댓글을 <b>생애 최초 1회</b> 남기면 자동으로 복권 10장을 받아요 (애청지수 메뉴가 켜져있어야 지급돼요).</p>
@@ -6740,6 +6751,7 @@ async function loadDjSettings(){
       if(s.posts) { postData=s.posts; renderPostList(); }
       if(s.calendarEvents) { calEventData=s.calendarEvents; renderCalEventList(); }
       if(s.calendarImage) { calImageData=s.calendarImage; updateCalImgPreview(); }
+      if(s.myinfoTheme && s.myinfoTheme.color) { myinfoThemeData.color=s.myinfoTheme.color; }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -14657,9 +14669,47 @@ function mfCopyPublicUrl(){
   catch(e){ document.execCommand('copy'); showToast('링크를 복사했어요'); }
 }
 
-// 👤 내정보 웹페이지 설정 — 편집 가능한 값이 없어서, 공개 URL만 채워준다
+// 👤 내정보 웹페이지 설정 — 공개 URL과 현재 저장된 테마 색상을 채워준다
 function loadMyInfoSettings(){
   document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
+  const color=myinfoThemeData.color||MI_THEME_DEFAULT;
+  document.getElementById('miThemeColorPicker').value=color;
+  document.getElementById('miThemeColorHex').value=color;
+}
+
+/* 🎨 내정보 웹페이지 테마 색상 */
+const MI_THEME_DEFAULT='#ff8fab';
+let myinfoThemeData={color:MI_THEME_DEFAULT};
+function miThemeColorFromPicker(val){
+  myinfoThemeData.color=val;
+  const hexEl=document.getElementById('miThemeColorHex');
+  if(hexEl)hexEl.value=val;
+}
+function miThemeColorFromHex(val){
+  let v=val.trim();
+  if(v && !v.startsWith('#'))v='#'+v;
+  if(/^#[0-9a-fA-F]{6}$/.test(v)){
+    myinfoThemeData.color=v;
+    const pickerEl=document.getElementById('miThemeColorPicker');
+    if(pickerEl)pickerEl.value=v;
+  }
+}
+function miThemeColorReset(){
+  myinfoThemeData.color=MI_THEME_DEFAULT;
+  document.getElementById('miThemeColorPicker').value=MI_THEME_DEFAULT;
+  document.getElementById('miThemeColorHex').value=MI_THEME_DEFAULT;
+  saveMyInfoTheme();
+}
+async function saveMyInfoTheme(){
+  const hex=document.getElementById('miThemeColorHex').value.trim();
+  if(!/^#[0-9a-fA-F]{6}$/.test(hex)){ showToast('색상 코드 형식이 올바르지 않아요 (예: #ff8fab)'); return; }
+  myinfoThemeData.color=hex;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTheme:myinfoThemeData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('테마 색상을 저장했어요 🎨');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 // 🔗 buly.kr 단축 URL — 공개 페이지 링크(웹뽑기판/마피아 등)를 서버를 통해 짧게 줄인다.
