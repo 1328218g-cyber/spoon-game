@@ -15171,9 +15171,12 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
 
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
-    setTimeout(() => sendChatToRoom(djId, text), 200)
+    const delayMs = Math.max(0, Number(greeting.delaySec) || 0) * 1000 + 200 // 기본 200ms(전송 텀)에 지정한 지연시간을 더해서 내보낸다
+    setTimeout(() => sendChatToRoom(djId, text), delayMs)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
-      broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      setTimeout(() => {
+        broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      }, delayMs)
       if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
     }
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -15303,6 +15306,7 @@ function rebootDjConnection(djId) {
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
+  delete repeatSeqState[djId]  // 순서대로 모드 진행 상태도 초기화
 
   for (const key of [...commandCooldowns.keys()]) {
     if (key.startsWith(djId + ':')) commandCooldowns.delete(key)
@@ -15396,6 +15400,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
+    delete repeatSeqState[djId]
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
@@ -15777,11 +15782,36 @@ setInterval(() => {
 }, 5 * 60 * 1000)
 
 // ══════════════════════════════════════════════════════
-// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 각자 설정한 간격(분/초)마다
-// 방송에 봇이 들어가 있는 동안 자동으로 채팅에 전송한다. 메시지마다 간격이 다를 수 있어서
-// 짧은 주기(10초)로 깨어나 각 메시지의 마지막 전송 시각과 비교하는 방식으로 처리한다.
-const repeatLastSent = {} // djId -> { [messageId]: timestampMs }
+// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 방송에 봇이 들어가 있는 동안
+// 자동으로 채팅에 전송한다. 두 가지 모드를 지원한다 (settings.entryData.repeatMode):
+//  - 'interval'(기본값): 메시지마다 각자 설정한 간격(분/초)마다 독립적으로 반복 — 여러 메시지가
+//    서로 겹쳐서(동시에) 나올 수 있다.
+//  - 'sequence': 순서대로 한 번에 하나씩만 — 앞 메시지가 나온 뒤, 다음에 나올 메시지에 설정된
+//    시간만큼 기다렸다가 그 메시지가 나오고, 마지막 메시지 다음엔 다시 첫 메시지로 돌아간다.
+//    (예: 1분/3분/4분 순서로 등록해두면 1분 뒤 1번째, 그 뒤 3분 지나 2번째, 그 뒤 4분 지나
+//    3번째가 나오고, 다시 1번째의 1분 대기부터 반복)
+// 짧은 주기(10초)로 깨어나 비교하는 방식으로 처리한다.
+const repeatLastSent = {} // djId -> { [messageId]: timestampMs } ('interval' 모드용)
+const repeatSeqState = {} // djId -> { index, nextAt } ('sequence' 모드용)
 const REPEAT_TICK_MS = 10 * 1000
+
+function repeatMsgIntervalMs(m) {
+  return ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+}
+
+function sendRepeatMessage(djId, settings, m) {
+  const text = String(m.text || '').trim()
+  if (!text) return
+  const rv = buildDashboardRankVars(settings)
+  const out = text
+    .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+    .replace(/{nickname}/g, rv.nickname)
+    .replace(/{rank}/g, rv.rank)
+    .replace(/{choice_rank}/g, rv.choice_rank)
+    .replace(/{like_rank}/g, rv.like_rank)
+    .replace(/{time_rank}/g, rv.time_rank)
+  sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+}
 
 setInterval(() => {
   const now = Date.now()
@@ -15793,7 +15823,30 @@ setInterval(() => {
     if (!isModuleOn(settings, 'entrysettings', djId)) continue
     const list = settings.entryData?.repeat || []
     if (!list.length) continue
+    const mode = settings.entryData?.repeatMode === 'sequence' ? 'sequence' : 'interval'
 
+    if (mode === 'sequence') {
+      const activeList = list.filter(m => m && m.enabled !== false && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0)
+      if (!activeList.length) { delete repeatSeqState[djId]; continue }
+
+      if (!repeatSeqState[djId]) repeatSeqState[djId] = { index: 0, nextAt: null }
+      const state = repeatSeqState[djId]
+      if (state.index >= activeList.length) state.index = 0
+
+      if (state.nextAt == null) {
+        // 처음 감지 — 바로 쏘지 않고, 지금 순번 메시지에 설정된 시간만큼 기다렸다가 시작한다.
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+        continue
+      }
+      if (now >= state.nextAt) {
+        sendRepeatMessage(djId, settings, activeList[state.index])
+        state.index = (state.index + 1) % activeList.length
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+      }
+      continue
+    }
+
+    // ── 'interval' 모드 (기존 방식) — 메시지마다 독립적으로 각자 간격 반복 ──
     if (!repeatLastSent[djId]) repeatLastSent[djId] = {}
     const lastMap = repeatLastSent[djId]
 
@@ -15801,7 +15854,7 @@ setInterval(() => {
       if (!m || m.enabled === false) return
       const text = String(m.text || '').trim()
       if (!text) return
-      const intervalMs = ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+      const intervalMs = repeatMsgIntervalMs(m)
       if (intervalMs <= 0) return
 
       const last = lastMap[m.id]
@@ -15811,15 +15864,7 @@ setInterval(() => {
         return
       }
       if (now - last >= intervalMs) {
-        const rv = buildDashboardRankVars(settings)
-        const out = text
-          .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
-          .replace(/{nickname}/g, rv.nickname)
-          .replace(/{rank}/g, rv.rank)
-          .replace(/{choice_rank}/g, rv.choice_rank)
-          .replace(/{like_rank}/g, rv.like_rank)
-          .replace(/{time_rank}/g, rv.time_rank)
-        sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+        sendRepeatMessage(djId, settings, m)
         lastMap[m.id] = now
       }
     })

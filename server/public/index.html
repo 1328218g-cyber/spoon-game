@@ -1517,6 +1517,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="range" min="0" max="100" id="greetSoundVolume" value="100" style="flex:1;max-width:200px" oninput="greetFormSoundVolume=Number(this.value);document.getElementById('greetSoundVolumeLabel').textContent=this.value+'%'">
             <span class="hint" id="greetSoundVolumeLabel" style="margin:0;width:36px">100%</span>
           </div>
+          <label style="margin-top:12px">인사말 지연 시간 (초)</label>
+          <input type="number" id="greetDelaySec" min="0" step="0.1" value="0" style="max-width:140px">
+          <div class="hint">입장 감지 후 이 시간(초)만큼 기다렸다가 인사말·음원을 내보내요. 0이면 즉시(기본값) 나가요.</div>
           <input type="file" id="greetSoundFileInput" accept="audio/*" style="display:none" onchange="handleGreetSoundFile(this)">
           <div class="btn-row">
             <button class="btn-gray" onclick="hideGreetForm()">취소</button>
@@ -6263,12 +6266,19 @@ const entryData={
   gift:[],
   follow:[],
   repeat:[],
+  repeatMode:'interval', // 'interval'(기본, 메시지마다 개별 반복) | 'sequence'(순서대로 한 번에 하나씩)
 };
 // 💖 좋아요 메시지가 반응할 하트 종류 — 기본은 무료만 켜짐(기존 동작 그대로)
 const likeHeartTypes={free:true,ad:false,plan:false,paid:false};
 
 function toggleLikeHeartType(type,checked){
   likeHeartTypes[type]=checked;
+}
+
+function setRepeatMode(mode){
+  entryData.repeatMode=mode==='sequence'?'sequence':'interval';
+  renderEntryList();
+  saveSettings();
 }
 
 function switchEntryTab(tab){
@@ -6303,7 +6313,14 @@ function renderEntryList(){
     return;
   }
   if(entryTab==='repeat'){
-    wrap.innerHTML=list.map(m=>`
+    const isSeq=entryData.repeatMode==='sequence';
+    const repeatModeHtml=`
+      <div class="hint" style="margin-bottom:8px">여러 문구가 등록됐을 때 어떤 방식으로 반복할지 골라주세요</div>
+      <div style="display:flex;gap:16px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="interval" ${isSeq?'':'checked'} onchange="setRepeatMode('interval')"> 지정 시간마다 (기본값 · 문구마다 각자 반복)</label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="sequence" ${isSeq?'checked':''} onchange="setRepeatMode('sequence')"> 순서대로 (한 번에 하나씩, 다음 문구까지 그 문구의 시간만큼 대기)</label>
+      </div>`;
+    wrap.innerHTML=repeatModeHtml+list.map(m=>`
       <div class="msg-entry" data-id="${m.id}">
         <div class="msg-entry-top">
           <label class="switch">
@@ -6320,13 +6337,13 @@ function renderEntryList(){
           <span class="chip" onclick="insertEntryVar(${m.id},'{choice_rank}')">{choice_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{like_rank}')">{like_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{time_rank}')">{time_rank}</span>
-          <span class="delay-inline">간격: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
+          <span class="delay-inline">${isSeq?'다음까지 대기':'간격'}: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
         </div>
         <div class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px">
         · {tag}/{nickname}: 자동입장에 등록된 DJ 고유닉(오토조인용)과, 대시보드에 등록한 DJ 닉네임<br>
         · {rank}: 이달의 DJ 랭킹 한 줄 요약 (예: "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위")<br>
         · {choice_rank}, {like_rank}, {time_rank}: 개별 랭킹<br>
-        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 설정한 간격마다 반복 전송돼요.
+        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 ${isSeq?'이 문구 차례가 되면 위에서 설정한 대기 시간 뒤에':'설정한 간격마다'} 반복 전송돼요.
         </div>
       </div>
     `).join('');
@@ -6510,7 +6527,7 @@ async function initApp(){
 
 async function loadDjSettings(){
   // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
-  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
+  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[]; entryData.repeatMode='interval';
   Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
@@ -7609,6 +7626,7 @@ let greetEditingId=null;
 let greetFormSound='';
 let greetFormSoundUrl='';
 let greetFormSoundVolume=100;
+let greetFormDelaySec=0;
 
 function renderGreetList(){
   const wrap=document.getElementById('greetListWrap');
@@ -7620,7 +7638,7 @@ function renderGreetList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}</div>
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}${g.delaySec?' · ⏱ '+g.delaySec+'초 지연':''}</div>
         <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -7640,8 +7658,10 @@ function showGreetForm(id){
   greetFormSound=g?(g.sound||''):'';
   greetFormSoundUrl=g?(g.soundUrl||''):'';
   greetFormSoundVolume=g?(g.soundVolume??100):100;
+  greetFormDelaySec=g?(g.delaySec||0):0;
   document.getElementById('greetSoundVolume').value=greetFormSoundVolume;
   document.getElementById('greetSoundVolumeLabel').textContent=greetFormSoundVolume+'%';
+  document.getElementById('greetDelaySec').value=greetFormDelaySec;
   renderGreetSoundUI();
   document.getElementById('greetFormCard').style.display='block';
 }
@@ -7726,14 +7746,15 @@ function insertGreetVar(token){
 function saveGreetForm(){
   const tag=document.getElementById('greetTag').value.trim().replace('@','');
   const message=document.getElementById('greetMessage').value;
+  const delaySec=Math.max(0,Number(document.getElementById('greetDelaySec').value)||0);
   if(!tag)return showToast('유저 고유닉을 입력해주세요');
   if(!message.trim())return showToast('인사말을 입력해주세요');
 
   if(greetEditingId){
     const g=greetData.find(x=>x.id===greetEditingId);
-    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   } else {
-    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   }
   hideGreetForm();
   renderGreetList();
