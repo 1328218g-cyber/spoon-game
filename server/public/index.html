@@ -9979,13 +9979,14 @@ function renderGgGrid(){
     const spoons=(it.totalSpoons||it.amount||0).toLocaleString();
     const btnId='ggDel_'+it.id;
     const dlId='ggDl_'+it.id;
+    const editId='ggEdit_'+it.id;
     const cardId='ggCard_'+it.id;
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
     const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
-        onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none'">
+        onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
       <div style="min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap">
         <span style="color:#111;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.author)}</span>
@@ -9993,6 +9994,7 @@ function renderGgGrid(){
         <span style="color:#f97316;font-weight:700;font-size:13px">${spoons}스푼</span>
       </div>
       <button id="${dlId}" onclick="downloadGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:18px;width:20px;height:20px;border-radius:50%;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:11px" title="이미지로 저장">⬇</button>
+      <button id="${editId}" onclick="editGgNickname('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:42px;width:20px;height:20px;border-radius:50%;background:#22c55e;color:#fff;border:none;cursor:pointer;font-size:11px" title="닉네임 수정">✏️</button>
       <button id="${btnId}" onclick="deleteGgItem('${it.id}')" style="display:none;align-items:center;justify-content:center;position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#333;color:#fff;border:none;cursor:pointer;font-size:11px">✕</button>
     </div>`;
   });
@@ -10232,6 +10234,21 @@ async function deleteGgItem(id){
   renderGgGrid();
   renderGgCalendar();
   try{ await fetch(SERVER+'/giftgallery/delete-item',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})}); }catch(e){}
+}
+async function editGgNickname(id){
+  const item=ggData.items.find(it=>it.id===id);
+  if(!item)return;
+  const next=prompt('카드에 표시할 닉네임을 입력하세요',item.author);
+  if(next===null)return; // 취소
+  const nickname=next.trim();
+  if(!nickname)return showToast('닉네임을 입력해주세요');
+  item.author=nickname;
+  renderGgGrid();
+  try{
+    const res=await fetch(SERVER+'/giftgallery/update-item',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,author:nickname})});
+    const d=await res.json();
+    if(!d.success)showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 async function clearGgGallery(){
   if(!confirm('저장된 선물카드를 전부 지울까요? 되돌릴 수 없어요.'))return;

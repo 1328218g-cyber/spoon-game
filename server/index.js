@@ -15852,7 +15852,11 @@ async function getStickerList() {
         list.push({
           name: s.name,
           title: s.title || s.name,
-          image: s.image_thumbnail_web || s.image_thumbnail || s.image_url_web || '',
+          // 🖼️ [수정] 썸네일(image_thumbnail_web 등)을 우선으로 쓰면, 스티커에 따라 실제 채팅에 뜨는
+          // 컬러 이미지가 아니라 단순 흑백 윤곽선(placeholder) 아이콘이 내려오는 경우가 있었다
+          // (예: 우유 선물). 실제 스푼 채팅/박제판과 똑같이 보이도록 원본 화질(image_url_web)을
+          // 최우선으로 쓰고, 그게 없을 때만 썸네일로 대체한다.
+          image: s.image_url_web || s.image_thumbnail_web || s.image_thumbnail || '',
           price: s.price || 0,
           category: cat.title || cat.name || ''
         })
@@ -16044,6 +16048,20 @@ app.post('/giftgallery/delete-item', auth.requireAuth, (req, res) => {
   const gallery = getGiftGallerySettings(req.djId, settings)
   const { id } = req.body || {}
   gallery.items = gallery.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+// 🖊️ 카드에 표시되는 닉네임을 DJ가 직접 수정 — 원본 닉네임은 origAuthor에 남겨두고 표시용 author만 바꾼다.
+app.post('/giftgallery/update-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id, author } = req.body || {}
+  const nickname = String(author || '').trim()
+  if (!nickname) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const item = gallery.items.find(it => it.id === id)
+  if (!item) return res.json({ success: false, error: '카드를 찾을 수 없어요' })
+  if (item.origAuthor == null) item.origAuthor = item.author // 최초 수정 시점에만 원본 보존
+  item.author = nickname
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })
