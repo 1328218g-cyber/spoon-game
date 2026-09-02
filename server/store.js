@@ -251,6 +251,7 @@ function defaultSettings() {
       resultHeaderTemplate: '[🎡{룰렛명}] {닉네임}님 당첨! 🎉',
       couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
+      menuPageSize: 10, // !룰렛메뉴N 명령어로 항목 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
     },
     rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리

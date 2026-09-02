@@ -14902,7 +14902,7 @@ function handleRouletteMenuCommand(djId, settings, text) {
   if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
   if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
 
-  const pageSize = 10
+  const pageSize = Math.max(1, Number(settings.roulette.menuPageSize) || 10)
   const totalPages = Math.ceil(rt.items.length / pageSize)
   const cur = Math.max(1, Math.min(page, totalPages))
   const startIdx = (cur - 1) * pageSize

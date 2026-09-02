@@ -1898,6 +1898,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveRlCommands()">💾 명령어 저장</button>
         </div>
+        <div class="card">
+          <div class="card-title"><span>📄 룰렛메뉴 목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!룰렛메뉴1</b>처럼 항목 목록을 조회할 때, 한 번에 몇 개씩 끊어서 보여줄지 정해요. 예를 들어 30으로 설정하면 30개씩 자동으로 끊어서 여러 페이지로 나눠 보여줘요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlMenuPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlMenuPageSize()">💾 저장</button>
+          </div>
+        </div>
         <div class="card split-card">
           <div class="split-side">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -8810,6 +8818,8 @@ function renderRlCommandInputs(){
   keepEl.value=(rouletteData.cmdKeep||'!킵').replace(/^!/,'');
   document.getElementById('rlCmdMisc').value=(rouletteData.cmdMisc||'!내카드').replace(/^!/,'');
   document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
+  const pageSizeEl=document.getElementById('rlMenuPageSize');
+  if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -8819,6 +8829,14 @@ function saveRlCommands(){
   renderRlCommandInputs();
   saveRouletteGlobal();
   showToast('명령어 저장 완료 ✓');
+}
+function saveRlMenuPageSize(){
+  const val=Number(document.getElementById('rlMenuPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.menuPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlMenuPageSize').value=rouletteData.menuPageSize;
+  saveRouletteGlobal();
+  showToast(`룰렛메뉴 목록이 ${rouletteData.menuPageSize}개씩 끊어서 나가도록 저장됐어요`);
 }
 
 async function saveRouletteGlobal(){
