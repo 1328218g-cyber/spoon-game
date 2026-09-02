@@ -167,7 +167,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 
   <!-- 인증 후: 정보 화면 -->
   <div id="profileWrap" class="hidden">
-    <div class="card">
+    <div class="card" id="profileCard">
       <div class="profHead">
         <div style="display:flex;align-items:center;gap:10px">
           <img id="pAvatar" src="" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);display:none">
@@ -289,6 +289,7 @@ function switchTab(name){
   document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
   document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
+  document.getElementById('profileCard').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
