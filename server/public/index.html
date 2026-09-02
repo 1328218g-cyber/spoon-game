@@ -1353,7 +1353,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">본인 스푼 세션을 따로 연결하지 않은 경우, 봇이 어떤 관리자 공용 계정(sum/sum2/sum3...)으로 방에 들어갈지 직접 고를 수 있어요. <b>자동 배정(기본값)</b>으로 두면 그때그때 여유 있는 계정으로 알아서 배정돼요.<br>
           ※ 특정 계정을 지정해도 그 계정 정원이 꽉 차있으면 자동으로 다른 여유 있는 계정으로 배정돼요 — 지정한 계정은 "1순위 희망"일 뿐, 못 들어가는 일은 없어요.<br>
           ※ 본인 계정 세션을 직접 연결했다면(세션 연결 메뉴) 이 설정과 무관하게 항상 본인 계정으로 들어가요.<br>
-          ※ 목록에 나온 계정 중 "세션 미연결"은 아직 그 계정에 스푼 세션이 안 올라가 있어서 지금은 고르셔도 실제로 못 써요.</p>
+          ※ 목록에 나온 계정 중 "세션 미연결"·"토큰 만료/미발급"은 지금 그 계정으로 실제 접속이 안 되는 상태라, 골라도 자동으로 다른 여유 있는 계정으로 넘어가요.</p>
           <select id="preferredTokenDjIdSelect" style="max-width:260px">
             <option value="">자동 배정 (기본값)</option>
           </select>
@@ -1507,6 +1507,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <label>쿨타임 (초, 0은 없음)</label>
           <input type="number" id="cmdCooldown" value="0" min="0" style="max-width:140px">
+          <label class="check-opt" style="margin-top:12px"><input type="checkbox" id="cmdPrefixMatch"> 메시지 앞부분만 일치해도 실행</label>
+          <div class="hint">기본은 채팅 내용이 명령어와 완전히 똑같을 때만 실행돼요. 체크하면 등록한 명령어로 <b>시작</b>하기만 하면 뒤에 다른 내용(예: 외부 확장 프로그램이 자동으로 붙이는 유저 정보 등)이 붙어있어도 실행돼요.</div>
           <div class="btn-row">
             <button class="btn-gray" onclick="hideCmdForm()">취소</button>
             <button class="btn-connect" onclick="saveCmdForm()">💾 저장</button>
@@ -1934,6 +1936,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div style="display:flex;gap:10px;align-items:center">
             <input type="number" id="rlMenuPageSize" min="1" max="100" value="10" style="max-width:120px">
             <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlMenuPageSize()">💾 저장</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📄 킵/이벤트/기타목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!킵</b>, <b>!이벤트</b>, <b>!내카드</b>(기타목록) 등으로 조회할 때 한 번에 몇 개씩 끊어서 보여줄지 정해요. 세 목록 모두 이 값 하나로 같이 적용돼요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlKeepPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlKeepPageSize()">💾 저장</button>
           </div>
         </div>
         <div class="card split-card">
@@ -3754,6 +3764,108 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div style="display:flex;gap:8px">
             <input type="text" id="miHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miHubUrl')">복사</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎨 테마 색상</span></div>
+          <p class="hint">내정보 웹페이지의 기본 핑크 배경/포인트 색상을 원하는 색으로 바꿀 수 있어요. 컬러피커로 고르거나 색상 코드(HEX)를 직접 입력하세요.</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+            <input type="color" id="miThemeColorPicker" value="#ff8fab" style="width:44px;height:38px;padding:2px;border:1px solid var(--border);border-radius:8px;cursor:pointer" oninput="miThemeColorFromPicker(this.value)">
+            <input type="text" id="miThemeColorHex" value="#ff8fab" maxlength="7" placeholder="#ff8fab" style="flex:1" oninput="miThemeColorFromHex(this.value)">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="miThemeColorReset()">기본값</button>
+          </div>
+          <!-- 🎨 배경 연하기 비율 — 예전엔 "선택 색상보다 30% 연하게"로 고정돼있었는데, 이제 디제이가 직접 조절 가능 -->
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--text-muted,#888)">
+              <span>배경 연하기</span>
+              <span id="miThemeBgRatioVal">30%</span>
+            </div>
+            <input type="range" id="miThemeBgRatio" min="0" max="70" step="1" value="30" style="width:100%" oninput="miThemeBgRatioChange(this.value)">
+            <p class="hint" style="margin-top:4px">숫자가 클수록 배경이 더 하얗고 연해져요. 0%면 선택한 색이 배경에 그대로(진하게) 나와요.</p>
+          </div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📋 포스트 (<span id="postCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showPostForm()">+ 새 포스트</button></div>
+          <p class="hint">이미지+제목(해시태그)+기간으로 이벤트/공지 게시물을 만들면, 시청자가 내정보 웹페이지의 "포스트" 탭에서 스푼 앱 게시물처럼 확인하고 좋아요·댓글을 남길 수 있어요. (실제 스푼 앱 피드에 올라가는 건 아니고, 우리 사이트 안에서만 보여요)<br>
+          🎰 시청자가 포스트에 좋아요 또는 댓글을 <b>생애 최초 1회</b> 남기면 자동으로 복권 10장을 받아요 (애청지수 메뉴가 켜져있어야 지급돼요).</p>
+          <div id="postListWrap"></div>
+        </div>
+
+        <div class="card" id="postFormCard" style="display:none">
+          <div class="card-title" id="postFormTitle">새 포스트</div>
+          <label>제목 (해시태그도 그냥 텍스트로 같이 입력하면 돼요)</label>
+          <textarea id="postTitleInput" placeholder="# 아이스크림 먹으러 갈래?&#10;# 08월27일~09월30일" style="min-height:70px"></textarea>
+          <label>이미지</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <img id="postImgPreview" src="" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:none">
+            <div>
+              <input type="file" id="postImgFile" accept="image/*" onchange="uploadPostImage(this.files[0])" style="display:none">
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('postImgFile').click()">🖼️ 이미지 선택</button>
+              <button class="btn-shield-reset" id="postImgRemoveBtn" style="padding:8px 14px;font-size:12.5px;display:none" onclick="removePostImage()">제거</button>
+            </div>
+          </div>
+          <label style="margin-top:12px">기간 (선택, 비워두면 상시 노출)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="date" id="postDateStart" style="flex:1">
+            <span class="hint" style="margin:0">~</span>
+            <input type="date" id="postDateEnd" style="flex:1">
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn-gray" onclick="hidePostForm()">취소</button>
+            <button class="btn-connect" onclick="savePostForm()">💾 저장</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🖼️ 직접 만든 캘린더 이미지</span></div>
+          <p class="hint">달력을 직접 디자인해서 이미지로 올릴 수 있어요. 등록하면 시청자용 캘린더 탭 위쪽에 이 이미지가 같이 보이고, "이미지만 보여주기"를 켜면 아래 자동 달력 그리드는 숨기고 이 이미지만 보여줘요.</p>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px">
+            <img id="calImgPreview" src="" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:none">
+            <div>
+              <input type="file" id="calImgFile" accept="image/*" onchange="uploadCalImage(this.files[0])" style="display:none">
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('calImgFile').click()">🖼️ 이미지 선택</button>
+              <button class="btn-shield-reset" id="calImgRemoveBtn" style="padding:8px 14px;font-size:12.5px;display:none" onclick="removeCalImage()">제거</button>
+            </div>
+          </div>
+          <label class="check-opt" style="margin-top:12px"><input type="checkbox" id="calImgHideGrid" onchange="saveCalImageSettings()"> 이미지만 보여주기 (자동 달력 그리드 숨김)</label>
+          <label class="check-opt" style="margin-top:6px"><input type="checkbox" id="calOverlayEnable" onchange="toggleCalOverlay()"> 이미지 위에 직접 날짜 칸 위치 맞추기 (이미지에 그려진 날짜를 그대로 클릭 가능하게)</label>
+          <div id="calOverlayFields" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <p class="hint">이 이미지가 <b>몇 년 몇 월</b> 달력인지 선택한 다음, 아래 이미지에서 <b>요일 줄부터 마지막 날짜 줄까지(달력 표 전체)의 왼쪽 위 모서리 → 오른쪽 아래 모서리</b> 순서로 두 번 클릭해서 영역을 맞춰주세요.</p>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <input type="number" id="calOverlayYear" placeholder="년도" style="max-width:110px" onchange="saveCalImageSettings()">
+              <select id="calOverlayMonth" style="max-width:100px" onchange="saveCalImageSettings()">
+                <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option><option value="4">4월</option>
+                <option value="5">5월</option><option value="6">6월</option><option value="7">7월</option><option value="8">8월</option>
+                <option value="9">9월</option><option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+              </select>
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="calResetCalibration()">영역 다시 설정</button>
+            </div>
+            <div id="calCalibWrap"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📅 캘린더 (<span id="calEventCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showCalEventForm()">+ 새 일정</button></div>
+          <p class="hint">방송 일정이나 행사를 등록하면, 시청자가 내정보 웹페이지의 "캘린더" 탭에서 달력 형태로 확인할 수 있어요.</p>
+          <div id="calEventListWrap"></div>
+        </div>
+
+        <div class="card" id="calEventFormCard" style="display:none">
+          <div class="card-title" id="calEventFormTitle">새 일정</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="flex:1"><label>날짜</label><input type="date" id="calEventDate"></div>
+            <div style="flex:1"><label>시간 (선택)</label><input type="time" id="calEventTime"></div>
+          </div>
+          <label style="margin-top:10px">제목</label>
+          <input type="text" id="calEventTitle" placeholder="예: 정기방송, 팬미팅, 콜라보 방송 등">
+          <label>설명 (선택)</label>
+          <textarea id="calEventDesc" placeholder="상세 내용을 입력하세요" style="min-height:60px"></textarea>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn-gray" onclick="hideCalEventForm()">취소</button>
+            <button class="btn-connect" onclick="saveCalEventForm()">💾 저장</button>
           </div>
         </div>
 
@@ -6569,6 +6681,9 @@ async function loadDjSettings(){
   Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
+  postData=[]; renderPostList();
+  calEventData=[]; renderCalEventList();
+  calImageData={url:'',hideGrid:false,overlay:{enabled:false,year:null,month:null,top:0,left:0,width:100,height:100}}; updateCalImgPreview();
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -6642,6 +6757,13 @@ async function loadDjSettings(){
       }
       if(s.activity) Object.assign(activityData, s.activity);
       if(s.blindDate) Object.assign(blindDateData, s.blindDate);
+      if(s.posts) { postData=s.posts; renderPostList(); }
+      if(s.calendarEvents) { calEventData=s.calendarEvents; renderCalEventList(); }
+      if(s.calendarImage) { calImageData=s.calendarImage; updateCalImgPreview(); }
+      if(s.myinfoTheme && s.myinfoTheme.color) {
+        myinfoThemeData.color=s.myinfoTheme.color;
+        myinfoThemeData.bgRatio=(typeof s.myinfoTheme.bgRatio==='number')?s.myinfoTheme.bgRatio:MI_THEME_BGRATIO_DEFAULT;
+      }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -7622,7 +7744,7 @@ function renderCmdList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">${escapeHtml(c.trigger)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span></div>
+        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span>${c.prefixMatch?' <span class="scope-badge">앞부분 일치</span>':''}</div>
         <div class="cmd-card-preview">출력 내용: ${escapeHtml(c.response)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -7640,6 +7762,7 @@ function showCmdForm(id){
   document.getElementById('cmdTrigger').value=c?c.trigger:'';
   document.getElementById('cmdResponse').value=c?c.response:'';
   document.getElementById('cmdCooldown').value=c?(c.cooldown||0):0;
+  document.getElementById('cmdPrefixMatch').checked=c?!!c.prefixMatch:false;
   document.querySelectorAll('input[name="cmdScope"]').forEach(r=>r.checked=(r.value===(c?c.scope:'all')));
   document.getElementById('cmdFormCard').style.display='block';
 }
@@ -7663,15 +7786,16 @@ function saveCmdForm(){
   const response=document.getElementById('cmdResponse').value;
   const cooldown=Number(document.getElementById('cmdCooldown').value)||0;
   const scope=document.querySelector('input[name="cmdScope"]:checked').value;
+  const prefixMatch=document.getElementById('cmdPrefixMatch').checked;
   if(!trigger)return showToast('명령어를 입력해주세요');
   if(!trigger.startsWith('!'))trigger='!'+trigger;
   if(!response.trim())return showToast('출력할 메시지를 입력해주세요');
 
   if(cmdEditingId){
     const c=cmdData.find(x=>x.id===cmdEditingId);
-    Object.assign(c,{trigger,response,cooldown,scope});
+    Object.assign(c,{trigger,response,cooldown,scope,prefixMatch});
   } else {
-    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,useCount:0});
+    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,prefixMatch,useCount:0});
   }
   hideCmdForm();
   renderCmdList();
@@ -8096,6 +8220,8 @@ function renderActUserDetail(key){
     </div>
 
     <div class="card-title" style="margin-top:10px">✏️ 수동 점수 편집</div>
+    <label>👤 닉네임 (표시 이름)</label>
+    <input type="text" id="actEditNickname" value="${escapeAttr(u.nickname||'')}" placeholder="예: 초밥">
     <label>🆔 태그 (고유닉, 참고용 · 명령어에서 닉네임 대신 써도 됨)</label>
     <input type="text" id="actEditTag" value="${escapeAttr(u.tag||'')}" placeholder="예: sum1004">
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
@@ -8115,7 +8241,7 @@ function renderActUserDetail(key){
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
-    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
+    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>닉네임이 태그(랜덤 문자열)로 잘못 표시되는 경우, 위 닉네임 칸에 직접 입력해서 저장하면 돼요. 태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
 
     <div class="btn-row" style="grid-template-columns:1fr 1fr">
       <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 고유닉 변경</button>
@@ -8146,6 +8272,7 @@ async function saveActUserEdit(key){
     lotto:Number(document.getElementById('actEditLotto').value)||0,
     expAdd:expMagnitude*expSign,
     tag:document.getElementById('actEditTag').value.trim(),
+    nickname:document.getElementById('actEditNickname').value.trim(),
   };
   const lvlRaw=document.getElementById('actEditLevel').value;
   if(lvlRaw) body.setLevel=Number(lvlRaw);
@@ -8889,6 +9016,8 @@ function renderRlCommandInputs(){
   document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
   const pageSizeEl=document.getElementById('rlMenuPageSize');
   if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
+  const keepPageSizeEl=document.getElementById('rlKeepPageSize');
+  if(keepPageSizeEl)keepPageSizeEl.value=rouletteData.keepPageSize||10;
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -8906,6 +9035,14 @@ function saveRlMenuPageSize(){
   document.getElementById('rlMenuPageSize').value=rouletteData.menuPageSize;
   saveRouletteGlobal();
   showToast(`룰렛메뉴 목록이 ${rouletteData.menuPageSize}개씩 끊어서 나가도록 저장됐어요`);
+}
+function saveRlKeepPageSize(){
+  const val=Number(document.getElementById('rlKeepPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.keepPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlKeepPageSize').value=rouletteData.keepPageSize;
+  saveRouletteGlobal();
+  showToast(`킵/이벤트/기타목록이 ${rouletteData.keepPageSize}개씩 끊어서 나가도록 저장됐어요`);
 }
 
 async function saveRouletteGlobal(){
@@ -14544,9 +14681,61 @@ function mfCopyPublicUrl(){
   catch(e){ document.execCommand('copy'); showToast('링크를 복사했어요'); }
 }
 
-// 👤 내정보 웹페이지 설정 — 편집 가능한 값이 없어서, 공개 URL만 채워준다
+// 👤 내정보 웹페이지 설정 — 공개 URL과 현재 저장된 테마 색상을 채워준다
 function loadMyInfoSettings(){
   document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
+  const color=myinfoThemeData.color||MI_THEME_DEFAULT;
+  document.getElementById('miThemeColorPicker').value=color;
+  document.getElementById('miThemeColorHex').value=color;
+  const ratioPct=Math.round((typeof myinfoThemeData.bgRatio==='number'?myinfoThemeData.bgRatio:MI_THEME_BGRATIO_DEFAULT)*100);
+  document.getElementById('miThemeBgRatio').value=ratioPct;
+  document.getElementById('miThemeBgRatioVal').textContent=ratioPct+'%';
+}
+
+/* 🎨 내정보 웹페이지 테마 색상 */
+const MI_THEME_DEFAULT='#ff8fab';
+const MI_THEME_BGRATIO_DEFAULT=0.30; // 예전 고정값(30%) — 슬라이더 기본값 및 서버 미저장 시 대체값으로 유지
+let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT};
+function miThemeColorFromPicker(val){
+  myinfoThemeData.color=val;
+  const hexEl=document.getElementById('miThemeColorHex');
+  if(hexEl)hexEl.value=val;
+}
+function miThemeColorFromHex(val){
+  let v=val.trim();
+  if(v && !v.startsWith('#'))v='#'+v;
+  if(/^#[0-9a-fA-F]{6}$/.test(v)){
+    myinfoThemeData.color=v;
+    const pickerEl=document.getElementById('miThemeColorPicker');
+    if(pickerEl)pickerEl.value=v;
+  }
+}
+function miThemeBgRatioChange(val){
+  const pct=Math.max(0,Math.min(70,Number(val)||0));
+  myinfoThemeData.bgRatio=pct/100;
+  document.getElementById('miThemeBgRatioVal').textContent=pct+'%';
+}
+function miThemeColorReset(){
+  myinfoThemeData.color=MI_THEME_DEFAULT;
+  myinfoThemeData.bgRatio=MI_THEME_BGRATIO_DEFAULT;
+  document.getElementById('miThemeColorPicker').value=MI_THEME_DEFAULT;
+  document.getElementById('miThemeColorHex').value=MI_THEME_DEFAULT;
+  document.getElementById('miThemeBgRatio').value=Math.round(MI_THEME_BGRATIO_DEFAULT*100);
+  document.getElementById('miThemeBgRatioVal').textContent=Math.round(MI_THEME_BGRATIO_DEFAULT*100)+'%';
+  saveMyInfoTheme();
+}
+async function saveMyInfoTheme(){
+  const hex=document.getElementById('miThemeColorHex').value.trim();
+  if(!/^#[0-9a-fA-F]{6}$/.test(hex)){ showToast('색상 코드 형식이 올바르지 않아요 (예: #ff8fab)'); return; }
+  myinfoThemeData.color=hex;
+  const ratioPct=Number(document.getElementById('miThemeBgRatio').value);
+  myinfoThemeData.bgRatio=Math.max(0,Math.min(70,isNaN(ratioPct)?30:ratioPct))/100;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTheme:myinfoThemeData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('테마 색상을 저장했어요 🎨');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 // 🔗 buly.kr 단축 URL — 공개 페이지 링크(웹뽑기판/마피아 등)를 서버를 통해 짧게 줄인다.
@@ -14574,6 +14763,269 @@ function copyHubUrl(inputId){
   el.select(); el.setSelectionRange(0,99999);
   try{ navigator.clipboard.writeText(el.value); showToast('허브 링크를 복사했어요'); }
   catch(e){ document.execCommand('copy'); showToast('허브 링크를 복사했어요'); }
+}
+
+/* ── 📋 포스트 (내정보 웹페이지 "포스트" 탭) ── */
+let postData=[];
+let postIdSeq=1;
+let postEditingId=null;
+let postFormImageUrl='';
+
+function renderPostList(){
+  const wrap=document.getElementById('postListWrap');
+  document.getElementById('postCount').textContent=postData.length;
+  if(!wrap)return;
+  if(!postData.length){ wrap.innerHTML='<div class="flag-empty">등록된 포스트가 없습니다.</div>'; return; }
+  wrap.innerHTML=postData.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(p=>`
+    <div class="cmd-card">
+      ${p.imageUrl?`<img src="${escapeAttr(p.imageUrl)}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0">`:'<div class="cmd-trigger-badge">📋</div>'}
+      <div class="cmd-card-body">
+        <div class="cmd-card-preview" style="white-space:pre-wrap">${escapeHtml((p.title||'').slice(0,60))}${(p.title||'').length>60?'...':''}</div>
+        <div class="cmd-card-meta">${p.dateStart||p.dateEnd?`📅 ${escapeHtml(p.dateStart||'')}~${escapeHtml(p.dateEnd||'')}`:'상시 노출'} · ❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showPostForm('${p.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deletePost('${p.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showPostForm(id){
+  postEditingId=id||null;
+  const p=id?postData.find(x=>x.id===id):null;
+  document.getElementById('postFormTitle').textContent=id?'포스트 수정':'새 포스트';
+  document.getElementById('postTitleInput').value=p?p.title:'';
+  document.getElementById('postDateStart').value=p?(p.dateStart||''):'';
+  document.getElementById('postDateEnd').value=p?(p.dateEnd||''):'';
+  postFormImageUrl=p?(p.imageUrl||''):'';
+  updatePostImgPreview();
+  document.getElementById('postFormCard').style.display='block';
+}
+function hidePostForm(){
+  document.getElementById('postFormCard').style.display='none';
+  postEditingId=null;
+}
+function updatePostImgPreview(){
+  const img=document.getElementById('postImgPreview');
+  const removeBtn=document.getElementById('postImgRemoveBtn');
+  if(postFormImageUrl){ img.src=postFormImageUrl; img.style.display='block'; removeBtn.style.display='inline-flex'; }
+  else{ img.style.display='none'; removeBtn.style.display='none'; }
+}
+async function uploadPostImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      postFormImageUrl=d.url;
+      updatePostImgPreview();
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removePostImage(){
+  postFormImageUrl='';
+  updatePostImgPreview();
+}
+function savePostForm(){
+  const title=document.getElementById('postTitleInput').value.trim();
+  const dateStart=document.getElementById('postDateStart').value;
+  const dateEnd=document.getElementById('postDateEnd').value;
+  if(!title)return showToast('제목을 입력해주세요');
+  if(postEditingId){
+    const p=postData.find(x=>x.id===postEditingId);
+    Object.assign(p,{title,imageUrl:postFormImageUrl,dateStart,dateEnd});
+  } else {
+    postData.push({id:'post'+Date.now()+Math.floor(Math.random()*1000),title,imageUrl:postFormImageUrl,dateStart,dateEnd,createdAt:Date.now(),likes:[],comments:[]});
+  }
+  hidePostForm();
+  renderPostList();
+  savePostGlobal();
+}
+function deletePost(id){
+  if(!confirm('이 포스트를 삭제할까요? 좋아요/댓글 기록도 함께 사라져요.'))return;
+  postData=postData.filter(p=>p.id!==id);
+  renderPostList();
+  savePostGlobal();
+}
+async function savePostGlobal(){
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({posts:postData})});
+    const d=await res.json();
+    if(d.success)showToast('저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📅 캘린더 (내정보 웹페이지 "캘린더" 탭) ── */
+let calEventData=[];
+let calEventEditingId=null;
+
+function renderCalEventList(){
+  const wrap=document.getElementById('calEventListWrap');
+  document.getElementById('calEventCount').textContent=calEventData.length;
+  if(!wrap)return;
+  if(!calEventData.length){ wrap.innerHTML='<div class="flag-empty">등록된 일정이 없습니다.</div>'; return; }
+  wrap.innerHTML=calEventData.slice().sort((a,b)=>`${a.date}${a.time||''}`.localeCompare(`${b.date}${b.time||''}`)).map(e=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">${escapeHtml((e.date||'').slice(5).replace('-','/'))||'📅'}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-preview">${escapeHtml(e.title||'')}</div>
+        <div class="cmd-card-meta">📅 ${escapeHtml(e.date||'')}${e.time?' '+escapeHtml(e.time):''}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showCalEventForm('${e.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteCalEvent('${e.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showCalEventForm(id){
+  calEventEditingId=id||null;
+  const e=id?calEventData.find(x=>x.id===id):null;
+  document.getElementById('calEventFormTitle').textContent=id?'일정 수정':'새 일정';
+  document.getElementById('calEventDate').value=e?(e.date||''):'';
+  document.getElementById('calEventTime').value=e?(e.time||''):'';
+  document.getElementById('calEventTitle').value=e?(e.title||''):'';
+  document.getElementById('calEventDesc').value=e?(e.description||''):'';
+  document.getElementById('calEventFormCard').style.display='block';
+}
+function hideCalEventForm(){
+  document.getElementById('calEventFormCard').style.display='none';
+  calEventEditingId=null;
+}
+function saveCalEventForm(){
+  const date=document.getElementById('calEventDate').value;
+  const time=document.getElementById('calEventTime').value;
+  const title=document.getElementById('calEventTitle').value.trim();
+  const description=document.getElementById('calEventDesc').value.trim();
+  if(!date)return showToast('날짜를 선택해주세요');
+  if(!title)return showToast('제목을 입력해주세요');
+  if(calEventEditingId){
+    const e=calEventData.find(x=>x.id===calEventEditingId);
+    Object.assign(e,{date,time,title,description});
+  } else {
+    calEventData.push({id:'cal'+Date.now()+Math.floor(Math.random()*1000),date,time,title,description,createdAt:Date.now()});
+  }
+  hideCalEventForm();
+  renderCalEventList();
+  saveCalEventGlobal();
+}
+function deleteCalEvent(id){
+  if(!confirm('이 일정을 삭제할까요?'))return;
+  calEventData=calEventData.filter(e=>e.id!==id);
+  renderCalEventList();
+  saveCalEventGlobal();
+}
+async function saveCalEventGlobal(){
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({calendarEvents:calEventData})});
+    const d=await res.json();
+    if(d.success)showToast('저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* 🖼️ 직접 만든 캘린더 이미지 (+ 이미지 위 날짜 칸 직접 위치 맞추기) */
+let calImageData={url:'',hideGrid:false,overlay:{enabled:false,year:null,month:null,top:0,left:0,width:100,height:100}};
+let calCalibClicks=[]; // 캘리브레이션 중 클릭한 좌표(모서리 2개) 임시 저장
+function updateCalImgPreview(){
+  const img=document.getElementById('calImgPreview');
+  const removeBtn=document.getElementById('calImgRemoveBtn');
+  if(calImageData.url){ img.src=calImageData.url; img.style.display='block'; removeBtn.style.display='inline-flex'; }
+  else{ img.style.display='none'; removeBtn.style.display='none'; }
+  document.getElementById('calImgHideGrid').checked=!!calImageData.hideGrid;
+  if(!calImageData.overlay) calImageData.overlay={enabled:false,year:null,month:null,top:0,left:0,width:100,height:100};
+  document.getElementById('calOverlayEnable').checked=!!calImageData.overlay.enabled;
+  document.getElementById('calOverlayFields').style.display=calImageData.overlay.enabled?'block':'none';
+  document.getElementById('calOverlayYear').value=calImageData.overlay.year||new Date().getFullYear();
+  document.getElementById('calOverlayMonth').value=calImageData.overlay.month||(new Date().getMonth()+1);
+  calCalibClicks=[];
+  renderCalCalibPreview();
+}
+async function uploadCalImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      calImageData.url=d.url;
+      updateCalImgPreview();
+      await saveCalImageSettings();
+      showToast('캘린더 이미지 저장 완료 ✓');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+async function removeCalImage(){
+  calImageData.url='';
+  updateCalImgPreview();
+  await saveCalImageSettings();
+}
+function toggleCalOverlay(){
+  calImageData.overlay.enabled=document.getElementById('calOverlayEnable').checked;
+  document.getElementById('calOverlayFields').style.display=calImageData.overlay.enabled?'block':'none';
+  renderCalCalibPreview();
+  saveCalImageSettings();
+}
+function calResetCalibration(){
+  calCalibClicks=[];
+  calImageData.overlay.top=0; calImageData.overlay.left=0; calImageData.overlay.width=100; calImageData.overlay.height=100;
+  renderCalCalibPreview();
+  showToast('영역을 다시 클릭해서 설정해주세요');
+}
+function renderCalCalibPreview(){
+  const wrap=document.getElementById('calCalibWrap');
+  if(!wrap)return;
+  if(!calImageData.overlay || !calImageData.overlay.enabled)return;
+  if(!calImageData.url){ wrap.innerHTML='<p class="hint">먼저 이미지를 업로드해주세요.</p>'; return; }
+  const o=calImageData.overlay;
+  wrap.innerHTML=`<div style="position:relative;display:inline-block;max-width:100%">
+    <img src="${escapeAttr(calImageData.url)}" style="max-width:100%;display:block;border-radius:8px;cursor:crosshair" id="calCalibImg">
+    <div style="position:absolute;pointer-events:none;top:${o.top}%;left:${o.left}%;width:${o.width}%;height:${o.height}%;border:2px dashed #0ea5e9;background:rgba(14,165,233,.08)"></div>
+  </div>
+  <div class="hint" style="margin-top:6px" id="calCalibStatus">이미지 위 달력 표의 <b>왼쪽 위 모서리</b>를 클릭하세요</div>`;
+  document.getElementById('calCalibImg').addEventListener('click', onCalCalibClick);
+}
+function onCalCalibClick(ev){
+  const img=ev.currentTarget;
+  const r=img.getBoundingClientRect();
+  const xPct=Math.max(0,Math.min(100,((ev.clientX-r.left)/r.width)*100));
+  const yPct=Math.max(0,Math.min(100,((ev.clientY-r.top)/r.height)*100));
+  calCalibClicks.push({x:xPct,y:yPct});
+  if(calCalibClicks.length===1){
+    const statusEl=document.getElementById('calCalibStatus');
+    if(statusEl) statusEl.innerHTML='이제 <b>오른쪽 아래 모서리</b>를 클릭하세요';
+    return;
+  }
+  const [p1,p2]=calCalibClicks;
+  calImageData.overlay.left=Math.min(p1.x,p2.x);
+  calImageData.overlay.top=Math.min(p1.y,p2.y);
+  calImageData.overlay.width=Math.max(1,Math.abs(p2.x-p1.x));
+  calImageData.overlay.height=Math.max(1,Math.abs(p2.y-p1.y));
+  calCalibClicks=[];
+  renderCalCalibPreview();
+  saveCalImageSettings();
+  showToast('영역 설정 완료 ✓');
+}
+async function saveCalImageSettings(){
+  calImageData.hideGrid=document.getElementById('calImgHideGrid').checked;
+  calImageData.overlay.enabled=document.getElementById('calOverlayEnable').checked;
+  calImageData.overlay.year=Number(document.getElementById('calOverlayYear').value)||null;
+  calImageData.overlay.month=Number(document.getElementById('calOverlayMonth').value)||null;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({calendarImage:calImageData})});
+    const d=await res.json();
+    if(!d.success)showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 /* 🔴 실시간 랭킹 */
@@ -16384,7 +16836,12 @@ async function loadPreferredTokenDjId(){
     const d=await res.json();
     if(!d.success)return;
     sel.innerHTML='<option value="">자동 배정 (기본값)</option>'
-      + d.pool.map(p=>`<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${p.hasSession?'':' (세션 미연결)'}</option>`).join('');
+      + d.pool.map(p=>{
+          let statusLabel='';
+          if(!p.hasSession) statusLabel=' (세션 미연결)';
+          else if(!p.hasToken) statusLabel=' (토큰 만료/미발급 — 지금은 접속 안 됨)';
+          return `<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${statusLabel}</option>`;
+        }).join('');
     sel.value=d.preferredTokenDjId||'';
   }catch(e){}
 }
