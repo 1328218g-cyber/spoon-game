@@ -2988,9 +2988,26 @@ function getMyInfoSettings(djId, settings) {
   if (!mi.webUsers || typeof mi.webUsers !== 'object') mi.webUsers = {}
   if (!mi.authKeys || typeof mi.authKeys !== 'object') mi.authKeys = {}
   if (!mi.cmdAuth) mi.cmdAuth = '!내정보인증'
+  if (!mi.postRewardGiven || typeof mi.postRewardGiven !== 'object') mi.postRewardGiven = {} // 포스트 좋아요/댓글 첫 참여 보상을 이미 받은 tag 기록
   return mi
 }
 function saveMyInfo(djId, mi) { store.saveSettings(djId, { myinfo: mi }) }
+
+// 🎰 포스트에 좋아요 또는 댓글을 처음 남긴 시청자에게 딱 한 번(좋아요든 댓글이든, 둘 중 먼저 한 쪽
+// 기준으로) 복권 10장을 지급한다. 애청지수(loyalty) 모듈이 켜져있을 때만 지급하고, 이미 받았으면
+// 조용히 건너뛴다. 지급했으면 지급한 개수를, 아니면 0을 반환한다.
+function grantFirstPostRewardIfEligible(djId, settings, mi, tag) {
+  if (!tag || !isModuleOn(settings, 'loyalty', djId)) return 0
+  if (mi.postRewardGiven[tag]) return 0
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag) || tag
+  const d = actEnsureUser(act, actKey, null, tag)
+  const bonus = 10
+  d.lotto = (d.lotto || 0) + bonus
+  mi.postRewardGiven[tag] = Date.now()
+  store.saveSettings(djId, { activity: act, myinfo: mi })
+  return bonus
+}
 
 const MI_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function miRand(max) { return Math.floor(Math.random() * max) }
@@ -20041,7 +20058,9 @@ app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
   let liked
   if (idx >= 0) { post.likes.splice(idx, 1); liked = false } else { post.likes.push(tag); liked = true }
   store.saveSettings(djId, { posts: settings.posts })
-  res.json({ success: true, liked, likeCount: post.likes.length })
+  // 🎰 좋아요를 "누른" 순간(취소가 아니라)만 첫 참여 보상 대상 — 좋아요 취소는 보상 지급 안 함
+  const bonusLotto = liked ? grantFirstPostRewardIfEligible(djId, settings, mi, tag) : 0
+  res.json({ success: true, liked, likeCount: post.likes.length, bonusLotto })
 })
 
 app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
@@ -20063,7 +20082,9 @@ app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
   const comment = { id: 'c' + Date.now() + Math.floor(Math.random() * 1000), tag, nickname, text, createdAt: Date.now() }
   post.comments.push(comment)
   store.saveSettings(djId, { posts: settings.posts })
-  res.json({ success: true, comment, commentCount: post.comments.length })
+  // 🎰 댓글을 남기면 첫 참여 보상 대상 (좋아요와 마찬가지로 딱 한 번만)
+  const bonusLotto = grantFirstPostRewardIfEligible(djId, settings, mi, tag)
+  res.json({ success: true, comment, commentCount: post.comments.length, bonusLotto })
 })
 
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId

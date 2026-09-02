@@ -374,6 +374,7 @@ async function onPostLikeClick(ev){
     if(!d.success){ alert(d.error || '처리에 실패했어요'); btn.disabled = false; return; }
     btn.classList.toggle('liked', d.liked);
     btn.querySelector('span').textContent = d.likeCount;
+    if(d.bonusLotto) showPostBonusToast(d.bonusLotto);
   }catch(e){ alert('처리에 실패했어요'); }
   btn.disabled = false;
 }
@@ -382,6 +383,18 @@ function onPostCommentToggle(ev){
   const id = ev.currentTarget.dataset.id;
   const box = document.getElementById('postComments-' + id);
   if(box) box.classList.toggle('hidden');
+}
+
+// 🎰 포스트 좋아요/댓글 첫 참여 보상(복권 10장) 지급 안내 — 화면 하단에 잠깐 떴다 사라진다.
+// 프로필 카드에 복권 숫자가 이미 그려져있으면(킵목록 탭을 본 적 있으면) 그 숫자도 같이 올려준다.
+function showPostBonusToast(amount){
+  const el = document.createElement('div');
+  el.textContent = `🎉 첫 참여 보너스! 복권 ${amount}장을 받았어요`;
+  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:12px 20px;border-radius:20px;box-shadow:0 6px 20px rgba(14,165,233,.35);z-index:50;white-space:nowrap';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+  const lottoBigEl = document.getElementById('pLottoBig');
+  if(lottoBigEl) lottoBigEl.textContent = (Number(lottoBigEl.textContent) || 0) + amount;
 }
 
 async function onPostCommentSubmit(ev){
@@ -411,6 +424,7 @@ async function onPostCommentSubmit(ev){
     }
     const countEl = document.querySelector(`.postCommentToggleBtn[data-id="${id}"] span`);
     if(countEl) countEl.textContent = d.commentCount;
+    if(d.bonusLotto) showPostBonusToast(d.bonusLotto);
   }catch(e){ alert('댓글 등록에 실패했어요'); }
   if(btn) btn.disabled = false;
 }
