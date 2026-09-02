@@ -144,11 +144,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 <body>
 <!-- 🔝 상단 메뉴바 — "내정보" 헤더 카드와 별개로 화면 맨 위에 고정 -->
 <div class="pageMenu hidden" id="pageMenu">
-  <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
-    <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
-  </button>
   <button class="menuBtn" id="btnTabPost" onclick="switchTab('post')">
     <span class="mIcon">📋</span><span>포스트</span>
+  </button>
+  <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
+    <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
   </button>
   <button class="menuBtn" id="btnTabGame" onclick="switchTab('game')">
     <span class="mIcon">🎮</span><span>게임</span>
