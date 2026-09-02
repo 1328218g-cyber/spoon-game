@@ -41,6 +41,27 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 .itemChipRow{display:flex;flex-wrap:wrap;gap:6px}
 .itemChip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:11.5px;color:var(--text)}
 
+/* 📋 포스트 탭: 스푼 앱 게시물과 비슷한 카드 형태 */
+.postCard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
+.postCard:last-child{margin-bottom:0}
+.postHead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.postAvatar{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--surface2);flex-shrink:0}
+.postAuthorName{font-weight:800;font-size:12.5px}
+.postTime{font-size:10.5px;color:var(--muted)}
+.postTitle{font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word;margin-bottom:10px}
+.postImage{width:100%;border-radius:12px;display:block;margin-bottom:10px;background:var(--surface2)}
+.postActions{display:flex;gap:16px;padding-top:6px;border-top:1px solid var(--border)}
+.postActionBtn{display:flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;padding:6px 0;font-family:inherit}
+.postActionBtn.liked{color:var(--danger)}
+.postComments{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.postComments.hidden{display:none}
+.postCommentRow{font-size:12px;line-height:1.6;padding:5px 0;border-bottom:1px solid var(--border)}
+.postCommentRow:last-child{border-bottom:none}
+.postCommentRow b{margin-right:5px}
+.postCommentInputRow{display:flex;gap:6px;margin-top:8px}
+.postCommentInputRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:20px;padding:8px 12px;font-size:12px;font-family:inherit}
+.postCommentInputRow button{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:20px;padding:0 14px;font-size:12px;font-weight:700;cursor:pointer}
+
 .wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
 .top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
 .top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
@@ -118,6 +139,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
 <div class="pageMenu hidden" id="pageMenu">
   <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
     <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
+  </button>
+  <button class="menuBtn" id="btnTabPost" onclick="switchTab('post')">
+    <span class="mIcon">📋</span><span>포스트</span>
   </button>
   <button class="menuBtn" id="btnTabGame" onclick="switchTab('game')">
     <span class="mIcon">🎮</span><span>게임</span>
@@ -202,6 +226,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
       <div id="miscListBox"><div class="emptyList">기타 기록이 없어요</div></div>
     </div>
 
+    <!-- 📋 포스트 탭: DJ가 등록한 이벤트/공지 게시물 (스푼 앱 게시물과 비슷한 카드 형태) -->
+    <div id="tabPostPanel" class="hidden">
+      <div id="postListBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
+    </div>
+
     <!-- 🎮 게임 탭: 이 방에서 켜져있는 웹 기능(마피아·몬스터잡기 등) 목록 -->
     <div class="card hidden" id="tabGamePanel">
       <div class="card-title">🎮 방에서 즐길 수 있는 게임</div>
@@ -253,17 +282,129 @@ function fallbackCopy(text, cb){
   document.body.removeChild(ta);
 }
 
-// 킵목록 / 게임 / 룰렛정보 탭 전환 — 게임·룰렛정보는 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false;
+// 킵목록 / 포스트 / 게임 / 룰렛정보 탭 전환 — 포스트·게임·룰렛정보는 처음 열 때 한 번만 불러온다
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
+  document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
   document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
+  document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
+  if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
+}
+
+function relativeTimeKo(ts){
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if(diffSec < 60) return '방금전';
+  const diffMin = Math.floor(diffSec / 60);
+  if(diffMin < 60) return diffMin + '분전';
+  const diffHour = Math.floor(diffMin / 60);
+  if(diffHour < 24) return diffHour + '시간전';
+  const diffDay = Math.floor(diffHour / 24);
+  if(diffDay < 30) return diffDay + '일전';
+  return new Date(ts).toLocaleDateString('ko-KR');
+}
+
+async function loadPosts(){
+  const box = document.getElementById('postListBox');
+  try{
+    const res = await fetch(API + '/posts' + (webUserId ? '?webUserId=' + encodeURIComponent(webUserId) : ''));
+    const d = await res.json();
+    if(!d.success || !d.posts || !d.posts.length){
+      box.innerHTML = '<div class="card"><div class="emptyList">아직 등록된 포스트가 없어요</div></div>';
+      return;
+    }
+    const author = d.author || {};
+    box.innerHTML = d.posts.map(p => `
+      <div class="postCard" data-post-id="${p.id}">
+        <div class="postHead">
+          ${author.imgUrl ? `<img class="postAvatar" src="${escapeHtml(author.imgUrl)}" onerror="this.style.display='none'">` : '<div class="postAvatar"></div>'}
+          <div>
+            <div class="postAuthorName">${escapeHtml(sanitizeDisplayName(author.nickname || ''))}</div>
+            <div class="postTime">${relativeTimeKo(p.createdAt)}${p.dateStart ? ` · ${escapeHtml(p.dateStart)}~${escapeHtml(p.dateEnd || '')}` : ''}</div>
+          </div>
+        </div>
+        <div class="postTitle">${escapeHtml(p.title)}</div>
+        ${p.imageUrl ? `<img class="postImage" src="${escapeHtml(p.imageUrl)}" alt="">` : ''}
+        <div class="postActions">
+          <button class="postActionBtn postLikeBtn ${p.liked ? 'liked' : ''}" data-id="${p.id}">❤️ <span>${p.likeCount}</span></button>
+          <button class="postActionBtn postCommentToggleBtn" data-id="${p.id}">💬 <span>${p.commentCount}</span></button>
+        </div>
+        <div class="postComments hidden" id="postComments-${p.id}">
+          <div class="postCommentList">${(p.comments || []).map(c => `<div class="postCommentRow"><b>${escapeHtml(sanitizeDisplayName(c.nickname))}</b>${escapeHtml(c.text)}</div>`).join('') || '<div class="emptyList">첫 댓글을 남겨보세요</div>'}</div>
+          <div class="postCommentInputRow">
+            <input type="text" placeholder="댓글을 입력하세요" maxlength="300" data-id="${p.id}">
+            <button data-id="${p.id}">등록</button>
+          </div>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('.postLikeBtn').forEach(btn => btn.addEventListener('click', onPostLikeClick));
+    box.querySelectorAll('.postCommentToggleBtn').forEach(btn => btn.addEventListener('click', onPostCommentToggle));
+    box.querySelectorAll('.postCommentInputRow button').forEach(btn => btn.addEventListener('click', onPostCommentSubmit));
+    box.querySelectorAll('.postCommentInputRow input').forEach(inp => inp.addEventListener('keydown', ev => { if(ev.key === 'Enter') onPostCommentSubmit(ev); }));
+  }catch(e){
+    box.innerHTML = '<div class="card"><div class="emptyList">불러오기에 실패했어요</div></div>';
+  }
+}
+
+async function onPostLikeClick(ev){
+  if(!webUserId){ alert('먼저 채팅 인증을 완료해주세요.'); return; }
+  const btn = ev.currentTarget;
+  const id = btn.dataset.id;
+  btn.disabled = true;
+  try{
+    const res = await fetch(API + '/posts/' + encodeURIComponent(id) + '/like', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '처리에 실패했어요'); btn.disabled = false; return; }
+    btn.classList.toggle('liked', d.liked);
+    btn.querySelector('span').textContent = d.likeCount;
+  }catch(e){ alert('처리에 실패했어요'); }
+  btn.disabled = false;
+}
+
+function onPostCommentToggle(ev){
+  const id = ev.currentTarget.dataset.id;
+  const box = document.getElementById('postComments-' + id);
+  if(box) box.classList.toggle('hidden');
+}
+
+async function onPostCommentSubmit(ev){
+  if(!webUserId){ alert('먼저 채팅 인증을 완료해주세요.'); return; }
+  const btn = ev.currentTarget.tagName === 'BUTTON' ? ev.currentTarget : null;
+  const id = ev.currentTarget.dataset.id;
+  const input = document.querySelector(`.postCommentInputRow input[data-id="${id}"]`);
+  const text = input ? input.value.trim() : '';
+  if(!text) return;
+  if(btn) btn.disabled = true;
+  try{
+    const res = await fetch(API + '/posts/' + encodeURIComponent(id) + '/comment', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, text })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '댓글 등록에 실패했어요'); if(btn) btn.disabled = false; return; }
+    input.value = '';
+    const listBox = document.querySelector(`#postComments-${id} .postCommentList`);
+    if(listBox){
+      const emptyEl = listBox.querySelector('.emptyList');
+      if(emptyEl) emptyEl.remove();
+      const row = document.createElement('div');
+      row.className = 'postCommentRow';
+      row.innerHTML = `<b>${escapeHtml(sanitizeDisplayName(d.comment.nickname))}</b>${escapeHtml(d.comment.text)}`;
+      listBox.appendChild(row);
+    }
+    const countEl = document.querySelector(`.postCommentToggleBtn[data-id="${id}"] span`);
+    if(countEl) countEl.textContent = d.commentCount;
+  }catch(e){ alert('댓글 등록에 실패했어요'); }
+  if(btn) btn.disabled = false;
 }
 
 async function loadGames(){

@@ -3768,6 +3768,37 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>📋 포스트 (<span id="postCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showPostForm()">+ 새 포스트</button></div>
+          <p class="hint">이미지+제목(해시태그)+기간으로 이벤트/공지 게시물을 만들면, 시청자가 내정보 웹페이지의 "포스트" 탭에서 스푼 앱 게시물처럼 확인하고 좋아요·댓글을 남길 수 있어요. (실제 스푼 앱 피드에 올라가는 건 아니고, 우리 사이트 안에서만 보여요)</p>
+          <div id="postListWrap"></div>
+        </div>
+
+        <div class="card" id="postFormCard" style="display:none">
+          <div class="card-title" id="postFormTitle">새 포스트</div>
+          <label>제목 (해시태그도 그냥 텍스트로 같이 입력하면 돼요)</label>
+          <textarea id="postTitleInput" placeholder="# 아이스크림 먹으러 갈래?&#10;# 08월27일~09월30일" style="min-height:70px"></textarea>
+          <label>이미지</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <img id="postImgPreview" src="" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:none">
+            <div>
+              <input type="file" id="postImgFile" accept="image/*" onchange="uploadPostImage(this.files[0])" style="display:none">
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('postImgFile').click()">🖼️ 이미지 선택</button>
+              <button class="btn-shield-reset" id="postImgRemoveBtn" style="padding:8px 14px;font-size:12.5px;display:none" onclick="removePostImage()">제거</button>
+            </div>
+          </div>
+          <label style="margin-top:12px">기간 (선택, 비워두면 상시 노출)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="date" id="postDateStart" style="flex:1">
+            <span class="hint" style="margin:0">~</span>
+            <input type="date" id="postDateEnd" style="flex:1">
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn-gray" onclick="hidePostForm()">취소</button>
+            <button class="btn-connect" onclick="savePostForm()">💾 저장</button>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>📱 시청자에게 이렇게 보여요 (미리보기)</span></div>
           <p class="hint" style="margin-bottom:14px">실제 값이 아니라 예시 데이터로 화면 구성만 보여드려요. 실제 페이지는 위 공개 페이지 링크로 접속해서 확인하세요.</p>
           <div style="max-width:340px;margin:0 auto;background:#eaf6fb;border:1px solid #d7ecf5;border-radius:16px;overflow:hidden;font-family:inherit">
@@ -6579,6 +6610,7 @@ async function loadDjSettings(){
   Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
+  postData=[]; renderPostList();
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -6652,6 +6684,7 @@ async function loadDjSettings(){
       }
       if(s.activity) Object.assign(activityData, s.activity);
       if(s.blindDate) Object.assign(blindDateData, s.blindDate);
+      if(s.posts) { postData=s.posts; renderPostList(); }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -14599,6 +14632,102 @@ function copyHubUrl(inputId){
   el.select(); el.setSelectionRange(0,99999);
   try{ navigator.clipboard.writeText(el.value); showToast('허브 링크를 복사했어요'); }
   catch(e){ document.execCommand('copy'); showToast('허브 링크를 복사했어요'); }
+}
+
+/* ── 📋 포스트 (내정보 웹페이지 "포스트" 탭) ── */
+let postData=[];
+let postIdSeq=1;
+let postEditingId=null;
+let postFormImageUrl='';
+
+function renderPostList(){
+  const wrap=document.getElementById('postListWrap');
+  document.getElementById('postCount').textContent=postData.length;
+  if(!wrap)return;
+  if(!postData.length){ wrap.innerHTML='<div class="flag-empty">등록된 포스트가 없습니다.</div>'; return; }
+  wrap.innerHTML=postData.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(p=>`
+    <div class="cmd-card">
+      ${p.imageUrl?`<img src="${escapeAttr(p.imageUrl)}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0">`:'<div class="cmd-trigger-badge">📋</div>'}
+      <div class="cmd-card-body">
+        <div class="cmd-card-preview" style="white-space:pre-wrap">${escapeHtml((p.title||'').slice(0,60))}${(p.title||'').length>60?'...':''}</div>
+        <div class="cmd-card-meta">${p.dateStart||p.dateEnd?`📅 ${escapeHtml(p.dateStart||'')}~${escapeHtml(p.dateEnd||'')}`:'상시 노출'} · ❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showPostForm('${p.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deletePost('${p.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showPostForm(id){
+  postEditingId=id||null;
+  const p=id?postData.find(x=>x.id===id):null;
+  document.getElementById('postFormTitle').textContent=id?'포스트 수정':'새 포스트';
+  document.getElementById('postTitleInput').value=p?p.title:'';
+  document.getElementById('postDateStart').value=p?(p.dateStart||''):'';
+  document.getElementById('postDateEnd').value=p?(p.dateEnd||''):'';
+  postFormImageUrl=p?(p.imageUrl||''):'';
+  updatePostImgPreview();
+  document.getElementById('postFormCard').style.display='block';
+}
+function hidePostForm(){
+  document.getElementById('postFormCard').style.display='none';
+  postEditingId=null;
+}
+function updatePostImgPreview(){
+  const img=document.getElementById('postImgPreview');
+  const removeBtn=document.getElementById('postImgRemoveBtn');
+  if(postFormImageUrl){ img.src=postFormImageUrl; img.style.display='block'; removeBtn.style.display='inline-flex'; }
+  else{ img.style.display='none'; removeBtn.style.display='none'; }
+}
+async function uploadPostImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      postFormImageUrl=d.url;
+      updatePostImgPreview();
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removePostImage(){
+  postFormImageUrl='';
+  updatePostImgPreview();
+}
+function savePostForm(){
+  const title=document.getElementById('postTitleInput').value.trim();
+  const dateStart=document.getElementById('postDateStart').value;
+  const dateEnd=document.getElementById('postDateEnd').value;
+  if(!title)return showToast('제목을 입력해주세요');
+  if(postEditingId){
+    const p=postData.find(x=>x.id===postEditingId);
+    Object.assign(p,{title,imageUrl:postFormImageUrl,dateStart,dateEnd});
+  } else {
+    postData.push({id:'post'+Date.now()+Math.floor(Math.random()*1000),title,imageUrl:postFormImageUrl,dateStart,dateEnd,createdAt:Date.now(),likes:[],comments:[]});
+  }
+  hidePostForm();
+  renderPostList();
+  savePostGlobal();
+}
+function deletePost(id){
+  if(!confirm('이 포스트를 삭제할까요? 좋아요/댓글 기록도 함께 사라져요.'))return;
+  postData=postData.filter(p=>p.id!==id);
+  renderPostList();
+  savePostGlobal();
+}
+async function savePostGlobal(){
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({posts:postData})});
+    const d=await res.json();
+    if(d.success)showToast('저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 /* 🔴 실시간 랭킹 */

@@ -19997,6 +19997,75 @@ app.get('/myinfo/:djId/roulettes', (req, res) => {
     .filter(rt => rt.items.length)
   res.json({ success: true, roulettes })
 })
+
+// 📋 포스트 — DJ가 관리자 페이지에서 만들어둔 이벤트/공지 게시물을 내정보 웹페이지의 "포스트" 탭에서
+// 스푼 앱 게시물과 비슷한 카드 형태로 보여준다. 로그인 없이 목록은 누구나 볼 수 있고, 좋아요/댓글은
+// 킵목록과 동일한 웹인증(webUserId↔tag) 방식으로 본인 확인을 한다.
+app.get('/myinfo/:djId/posts', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const myTag = webUserId ? mi.webUsers[webUserId] : ''
+  const dash = settings.dashboard || {}
+  const room = getRoom(djId)
+  const author = { nickname: (dash.rankData && dash.rankData.nickname) || djId, imgUrl: room.djProfileUrl || '' }
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(p => ({
+    id: p.id,
+    title: p.title || '',
+    imageUrl: p.imageUrl || '',
+    dateStart: p.dateStart || '',
+    dateEnd: p.dateEnd || '',
+    createdAt: p.createdAt || 0,
+    likeCount: (p.likes || []).length,
+    liked: !!(myTag && (p.likes || []).includes(myTag)),
+    comments: (p.comments || []).slice(-50),
+    commentCount: (p.comments || []).length,
+  }))
+  res.json({ success: true, posts, author })
+})
+
+app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  if (!post.likes) post.likes = []
+  const idx = post.likes.indexOf(tag)
+  let liked
+  if (idx >= 0) { post.likes.splice(idx, 1); liked = false } else { post.likes.push(tag); liked = true }
+  store.saveSettings(djId, { posts: settings.posts })
+  res.json({ success: true, liked, likeCount: post.likes.length })
+})
+
+app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const text = String((req.body || {}).text || '').trim().slice(0, 300)
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!text) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag)
+  const nickname = (actKey && act.users[actKey] && act.users[actKey].nickname) || (settings.rouletteHistory && settings.rouletteHistory[tag] && settings.rouletteHistory[tag].nickname) || tag
+  if (!post.comments) post.comments = []
+  const comment = { id: 'c' + Date.now() + Math.floor(Math.random() * 1000), tag, nickname, text, createdAt: Date.now() }
+  post.comments.push(comment)
+  store.saveSettings(djId, { posts: settings.posts })
+  res.json({ success: true, comment, commentCount: post.comments.length })
+})
+
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
 // 파라미터가 하위 경로를 가로채지 않는다.
 app.get('/myinfo/:djId', (req, res) => {
@@ -21119,7 +21188,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21136,6 +21205,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   if (blindDate) patch.blindDate = blindDate
+  if (posts) patch.posts = posts
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
