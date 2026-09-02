@@ -1258,7 +1258,17 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
     .replace(/[\u200B-\u200F\uFEFF\u2028\u2029\u00A0]/g, m => (m === '\u00A0' ? ' ' : ''))
     .trim()
   const msg = stripInvisible(text).normalize('NFC')
-  const cmd = commands.find(c => stripInvisible(c.trigger).normalize('NFC') === msg)
+
+  // 기본은 "정확히 일치"할 때만 실행되지만, 명령어별로 "메시지 앞부분만 일치해도 실행"(prefixMatch)을
+  // 켜두면 그 트리거로 시작하기만 해도 실행된다 — 외부 확장 프로그램이 "!《_ᴇɴᴛʀʏ_》 [유저정보 등]"
+  // 처럼 트리거 뒤에 추가 내용을 자동으로 붙여서 보내는 경우까지 인식하기 위함.
+  // 여러 트리거가 동시에 앞부분과 겹치면 가장 긴(더 구체적인) 트리거를 우선한다.
+  const normalized = commands.map(c => ({ cmd: c, norm: stripInvisible(c.trigger).normalize('NFC') })).filter(x => x.norm)
+  let cmd = (normalized.find(x => x.norm === msg) || {}).cmd
+  if (!cmd) {
+    const prefixHits = normalized.filter(x => x.cmd.prefixMatch && msg.startsWith(x.norm))
+    if (prefixHits.length) cmd = prefixHits.reduce((a, b) => (b.norm.length > a.norm.length ? b : a)).cmd
+  }
   if (!cmd) {
     // ⚠️ 진단용: '!'로 시작하는데(=명령어처럼 보이는데) 등록된 트리거랑 하나도 안 맞으면
     // 실제로 도착한 원문을 문자 코드까지 남긴다. 특수문자가 스푼 쪽에서 다른 문자로

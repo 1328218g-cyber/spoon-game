@@ -1507,6 +1507,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <label>쿨타임 (초, 0은 없음)</label>
           <input type="number" id="cmdCooldown" value="0" min="0" style="max-width:140px">
+          <label class="check-opt" style="margin-top:12px"><input type="checkbox" id="cmdPrefixMatch"> 메시지 앞부분만 일치해도 실행</label>
+          <div class="hint">기본은 채팅 내용이 명령어와 완전히 똑같을 때만 실행돼요. 체크하면 등록한 명령어로 <b>시작</b>하기만 하면 뒤에 다른 내용(예: 외부 확장 프로그램이 자동으로 붙이는 유저 정보 등)이 붙어있어도 실행돼요.</div>
           <div class="btn-row">
             <button class="btn-gray" onclick="hideCmdForm()">취소</button>
             <button class="btn-connect" onclick="saveCmdForm()">💾 저장</button>
@@ -7630,7 +7632,7 @@ function renderCmdList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">${escapeHtml(c.trigger)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span></div>
+        <div class="cmd-card-meta">명령어: ${escapeHtml(c.trigger.replace(/^!/,''))} <span class="scope-badge">${CMD_SCOPE_LABEL[c.scope]||'전체'}</span>${c.prefixMatch?' <span class="scope-badge">앞부분 일치</span>':''}</div>
         <div class="cmd-card-preview">출력 내용: ${escapeHtml(c.response)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -7648,6 +7650,7 @@ function showCmdForm(id){
   document.getElementById('cmdTrigger').value=c?c.trigger:'';
   document.getElementById('cmdResponse').value=c?c.response:'';
   document.getElementById('cmdCooldown').value=c?(c.cooldown||0):0;
+  document.getElementById('cmdPrefixMatch').checked=c?!!c.prefixMatch:false;
   document.querySelectorAll('input[name="cmdScope"]').forEach(r=>r.checked=(r.value===(c?c.scope:'all')));
   document.getElementById('cmdFormCard').style.display='block';
 }
@@ -7671,15 +7674,16 @@ function saveCmdForm(){
   const response=document.getElementById('cmdResponse').value;
   const cooldown=Number(document.getElementById('cmdCooldown').value)||0;
   const scope=document.querySelector('input[name="cmdScope"]:checked').value;
+  const prefixMatch=document.getElementById('cmdPrefixMatch').checked;
   if(!trigger)return showToast('명령어를 입력해주세요');
   if(!trigger.startsWith('!'))trigger='!'+trigger;
   if(!response.trim())return showToast('출력할 메시지를 입력해주세요');
 
   if(cmdEditingId){
     const c=cmdData.find(x=>x.id===cmdEditingId);
-    Object.assign(c,{trigger,response,cooldown,scope});
+    Object.assign(c,{trigger,response,cooldown,scope,prefixMatch});
   } else {
-    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,useCount:0});
+    cmdData.push({id:'cmd'+(cmdIdSeq++),trigger,response,cooldown,scope,prefixMatch,useCount:0});
   }
   hideCmdForm();
   renderCmdList();
@@ -16623,7 +16627,7 @@ setInterval(()=>{
 
 function updateSessionPill(d){
   const pill=document.getElementById('sessionPill');
-  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료. ✅');}
+  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
   else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
 }
 
