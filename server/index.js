@@ -20121,7 +20121,10 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
   const color = (settings.myinfoTheme && settings.myinfoTheme.color) || '#ff8fab'
-  res.json({ success: true, color })
+  // 배경 연하기 비율 — 디제이가 저장한 값이 있으면 그대로, 없으면(구버전 데이터 포함) 기존 고정값 0.30
+  const bgRatioRaw = settings.myinfoTheme && settings.myinfoTheme.bgRatio
+  const bgRatio = (typeof bgRatioRaw === 'number' && bgRatioRaw >= 0 && bgRatioRaw <= 0.7) ? bgRatioRaw : 0.30
+  res.json({ success: true, color, bgRatio })
 })
 
 // ══════════════════════════════════════════════════════
@@ -21261,8 +21264,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (calendarEvents) patch.calendarEvents = calendarEvents
   if (calendarImage) patch.calendarImage = calendarImage
   // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
+  //    bgRatio(배경 연하기 비율, 0~0.7)도 함께 저장 — 디제이가 직접 조절 가능. 값이 없거나
+  //    범위를 벗어나면 기존 고정값이었던 0.30으로 대체.
   if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
-    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase() }
+    let bgRatio = Number(myinfoTheme.bgRatio)
+    if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

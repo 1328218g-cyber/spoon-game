@@ -3775,6 +3775,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="text" id="miThemeColorHex" value="#ff8fab" maxlength="7" placeholder="#ff8fab" style="flex:1" oninput="miThemeColorFromHex(this.value)">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="miThemeColorReset()">기본값</button>
           </div>
+          <!-- 🎨 배경 연하기 비율 — 예전엔 "선택 색상보다 30% 연하게"로 고정돼있었는데, 이제 디제이가 직접 조절 가능 -->
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--text-muted,#888)">
+              <span>배경 연하기</span>
+              <span id="miThemeBgRatioVal">30%</span>
+            </div>
+            <input type="range" id="miThemeBgRatio" min="0" max="70" step="1" value="30" style="width:100%" oninput="miThemeBgRatioChange(this.value)">
+            <p class="hint" style="margin-top:4px">숫자가 클수록 배경이 더 하얗고 연해져요. 0%면 선택한 색이 배경에 그대로(진하게) 나와요.</p>
+          </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
         </div>
 
@@ -6751,7 +6760,10 @@ async function loadDjSettings(){
       if(s.posts) { postData=s.posts; renderPostList(); }
       if(s.calendarEvents) { calEventData=s.calendarEvents; renderCalEventList(); }
       if(s.calendarImage) { calImageData=s.calendarImage; updateCalImgPreview(); }
-      if(s.myinfoTheme && s.myinfoTheme.color) { myinfoThemeData.color=s.myinfoTheme.color; }
+      if(s.myinfoTheme && s.myinfoTheme.color) {
+        myinfoThemeData.color=s.myinfoTheme.color;
+        myinfoThemeData.bgRatio=(typeof s.myinfoTheme.bgRatio==='number')?s.myinfoTheme.bgRatio:MI_THEME_BGRATIO_DEFAULT;
+      }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -14675,11 +14687,15 @@ function loadMyInfoSettings(){
   const color=myinfoThemeData.color||MI_THEME_DEFAULT;
   document.getElementById('miThemeColorPicker').value=color;
   document.getElementById('miThemeColorHex').value=color;
+  const ratioPct=Math.round((typeof myinfoThemeData.bgRatio==='number'?myinfoThemeData.bgRatio:MI_THEME_BGRATIO_DEFAULT)*100);
+  document.getElementById('miThemeBgRatio').value=ratioPct;
+  document.getElementById('miThemeBgRatioVal').textContent=ratioPct+'%';
 }
 
 /* 🎨 내정보 웹페이지 테마 색상 */
 const MI_THEME_DEFAULT='#ff8fab';
-let myinfoThemeData={color:MI_THEME_DEFAULT};
+const MI_THEME_BGRATIO_DEFAULT=0.30; // 예전 고정값(30%) — 슬라이더 기본값 및 서버 미저장 시 대체값으로 유지
+let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT};
 function miThemeColorFromPicker(val){
   myinfoThemeData.color=val;
   const hexEl=document.getElementById('miThemeColorHex');
@@ -14694,16 +14710,26 @@ function miThemeColorFromHex(val){
     if(pickerEl)pickerEl.value=v;
   }
 }
+function miThemeBgRatioChange(val){
+  const pct=Math.max(0,Math.min(70,Number(val)||0));
+  myinfoThemeData.bgRatio=pct/100;
+  document.getElementById('miThemeBgRatioVal').textContent=pct+'%';
+}
 function miThemeColorReset(){
   myinfoThemeData.color=MI_THEME_DEFAULT;
+  myinfoThemeData.bgRatio=MI_THEME_BGRATIO_DEFAULT;
   document.getElementById('miThemeColorPicker').value=MI_THEME_DEFAULT;
   document.getElementById('miThemeColorHex').value=MI_THEME_DEFAULT;
+  document.getElementById('miThemeBgRatio').value=Math.round(MI_THEME_BGRATIO_DEFAULT*100);
+  document.getElementById('miThemeBgRatioVal').textContent=Math.round(MI_THEME_BGRATIO_DEFAULT*100)+'%';
   saveMyInfoTheme();
 }
 async function saveMyInfoTheme(){
   const hex=document.getElementById('miThemeColorHex').value.trim();
   if(!/^#[0-9a-fA-F]{6}$/.test(hex)){ showToast('색상 코드 형식이 올바르지 않아요 (예: #ff8fab)'); return; }
   myinfoThemeData.color=hex;
+  const ratioPct=Number(document.getElementById('miThemeBgRatio').value);
+  myinfoThemeData.bgRatio=Math.max(0,Math.min(70,isNaN(ratioPct)?30:ratioPct))/100;
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTheme:myinfoThemeData})});
     const d=await res.json();
