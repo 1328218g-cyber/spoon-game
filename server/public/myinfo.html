@@ -513,7 +513,8 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;',
 
 // 🧹 닉네임에 어떤 폰트로도 표시가 안 되는 특수문자(사설 영역 유니코드, 폰트 없는 장식용
 // 아이콘 코드 등)가 섞여있으면 네모(□)로 깨져 보인다. 폰트를 계속 추가해서 쫓아가기보다,
-// 애초에 표준 글자가 아닌 구간(사설 사용 영역 등)은 화면에 내놓기 전에 걸러낸다.
+// 애초에 표준 글자가 아닌 구간(사설 사용 영역·작은대문자 발음기호·단독 결합문자 등)은
+// 화면에 내놓기 전에 걸러낸다.
 function sanitizeDisplayName(s){
   return String(s || '')
     .replace(/[\uE000-\uF8FF]/g, '')            // 사설 사용 영역(BMP)
@@ -521,6 +522,9 @@ function sanitizeDisplayName(s){
       const cp = m.codePointAt(0);
       return (cp >= 0xF0000 && cp <= 0x10FFFD) ? '' : m;
     })
+    .replace(/[\u02B0-\u02FF]/g, '')             // 스페이싱 수식 문자(작은 위첨자 자모 등) — 폰트 지원이 일관되지 않음
+    .replace(/[\u1D00-\u1DBF]/g, '')             // 발음 확장/보충(ᴴᴿ 같은 작은대문자 장식체) — 대부분 폰트 미지원
+    .replace(/[\u0300-\u036F]/g, '')             // 결합 발음구별기호(글자 위/아래에 장식으로 얹는 점·물결 등) 단독 사용 시 깨짐
     .replace(/\uFFFD/g, '')                       // 이미 깨져서 들어온 대체문자
     .trim();
 }
