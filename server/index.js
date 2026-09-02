@@ -20096,7 +20096,8 @@ app.get('/myinfo/:djId/calendar', (req, res) => {
   const events = (settings.calendarEvents || []).slice().sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)).map(e => ({
     id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
   }))
-  res.json({ success: true, events })
+  const img = settings.calendarImage || {}
+  res.json({ success: true, events, imageUrl: img.url || '', hideGrid: !!img.hideGrid })
 })
 
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
@@ -21221,7 +21222,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21240,6 +21241,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (blindDate) patch.blindDate = blindDate
   if (posts) patch.posts = posts
   if (calendarEvents) patch.calendarEvents = calendarEvents
+  if (calendarImage) patch.calendarImage = calendarImage
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible

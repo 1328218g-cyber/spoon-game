@@ -3800,6 +3800,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>🖼️ 직접 만든 캘린더 이미지</span></div>
+          <p class="hint">달력을 직접 디자인해서 이미지로 올릴 수 있어요. 등록하면 시청자용 캘린더 탭 위쪽에 이 이미지가 같이 보이고, "이미지만 보여주기"를 켜면 아래 자동 달력 그리드는 숨기고 이 이미지만 보여줘요.</p>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px">
+            <img id="calImgPreview" src="" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:none">
+            <div>
+              <input type="file" id="calImgFile" accept="image/*" onchange="uploadCalImage(this.files[0])" style="display:none">
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('calImgFile').click()">🖼️ 이미지 선택</button>
+              <button class="btn-shield-reset" id="calImgRemoveBtn" style="padding:8px 14px;font-size:12.5px;display:none" onclick="removeCalImage()">제거</button>
+            </div>
+          </div>
+          <label class="check-opt" style="margin-top:12px"><input type="checkbox" id="calImgHideGrid" onchange="saveCalImageSettings()"> 이미지만 보여주기 (자동 달력 그리드 숨김)</label>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>📅 캘린더 (<span id="calEventCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showCalEventForm()">+ 새 일정</button></div>
           <p class="hint">방송 일정이나 행사를 등록하면, 시청자가 내정보 웹페이지의 "캘린더" 탭에서 달력 형태로 확인할 수 있어요.</p>
           <div id="calEventListWrap"></div>
@@ -6635,6 +6649,7 @@ async function loadDjSettings(){
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
   postData=[]; renderPostList();
   calEventData=[]; renderCalEventList();
+  calImageData={url:'',hideGrid:false}; updateCalImgPreview();
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -6710,6 +6725,7 @@ async function loadDjSettings(){
       if(s.blindDate) Object.assign(blindDateData, s.blindDate);
       if(s.posts) { postData=s.posts; renderPostList(); }
       if(s.calendarEvents) { calEventData=s.calendarEvents; renderCalEventList(); }
+      if(s.calendarImage) { calImageData=s.calendarImage; updateCalImgPreview(); }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -14822,6 +14838,46 @@ async function saveCalEventGlobal(){
     const d=await res.json();
     if(d.success)showToast('저장 완료 ✓');
     else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* 🖼️ 직접 만든 캘린더 이미지 */
+let calImageData={url:'',hideGrid:false};
+function updateCalImgPreview(){
+  const img=document.getElementById('calImgPreview');
+  const removeBtn=document.getElementById('calImgRemoveBtn');
+  if(calImageData.url){ img.src=calImageData.url; img.style.display='block'; removeBtn.style.display='inline-flex'; }
+  else{ img.style.display='none'; removeBtn.style.display='none'; }
+  document.getElementById('calImgHideGrid').checked=!!calImageData.hideGrid;
+}
+async function uploadCalImage(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      calImageData.url=d.url;
+      updateCalImgPreview();
+      await saveCalImageSettings();
+      showToast('캘린더 이미지 저장 완료 ✓');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+async function removeCalImage(){
+  calImageData.url='';
+  updateCalImgPreview();
+  await saveCalImageSettings();
+}
+async function saveCalImageSettings(){
+  calImageData.hideGrid=document.getElementById('calImgHideGrid').checked;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({calendarImage:calImageData})});
+    const d=await res.json();
+    if(!d.success)showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 

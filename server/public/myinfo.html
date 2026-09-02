@@ -70,22 +70,30 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 .postCommentInputRow button{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:20px;padding:0 14px;font-size:12px;font-weight:700;cursor:pointer}
 
 /* 📅 캘린더 탭: 월 달력 그리드 + 선택한 날짜의 일정 목록 */
-.calHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.calNavBtn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;font-size:15px;cursor:pointer;color:var(--text)}
-.calMonthLabel{font-weight:800;font-size:14px}
-.calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
-.calDowRow{font-size:10.5px;color:var(--muted);font-weight:700;padding:4px 0}
-.calCell{position:relative;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;font-size:12px;cursor:pointer;color:var(--text)}
-.calCell.otherMonth{color:var(--border);cursor:default}
-.calCell.today{border:1.5px solid var(--accent);font-weight:800}
-.calCell.selected{background:var(--accent);color:#fff}
-.calCell .calDot{width:5px;height:5px;border-radius:50%;background:var(--accent2);margin-top:2px}
+.calHeader{display:flex;align-items:center;justify-content:space-between;margin:-18px -18px 16px;padding:16px 18px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:var(--radius) var(--radius) 0 0}
+.calNavBtn{background:rgba(255,255,255,.22);border:none;border-radius:50%;width:30px;height:30px;font-size:15px;font-weight:700;cursor:pointer;color:#fff;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.calNavBtn:hover{background:rgba(255,255,255,.35)}
+.calMonthLabel{font-weight:800;font-size:15.5px;color:#fff;letter-spacing:.2px}
+.calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.calDowRow{font-size:10.5px;color:var(--muted);font-weight:800;padding:2px 0 8px}
+.calDowRow.calSun{color:#ef4444}
+.calDowRow.calSat{color:#3b82f6}
+.calCell{position:relative;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--text);transition:background .15s,transform .1s}
+.calCell:not(.otherMonth):hover{background:var(--surface2)}
+.calCell.otherMonth{color:#c9dce6;cursor:default;font-weight:400}
+.calCell.calSun:not(.otherMonth){color:#ef4444}
+.calCell.calSat:not(.otherMonth){color:#3b82f6}
+.calCell.today{background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.calCell.selected{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff !important;font-weight:800;transform:scale(1.06);box-shadow:0 4px 10px rgba(14,165,233,.35)}
+.calCell .calDot{width:4.5px;height:4.5px;border-radius:50%;background:var(--accent2);margin-top:3px}
 .calCell.selected .calDot{background:#fff}
-.calEventRow{padding:9px 0;border-bottom:1px solid var(--border)}
+.calEventRow{padding:11px 4px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start}
 .calEventRow:last-child{border-bottom:none}
-.calEventTime{font-size:11px;color:var(--accent2);font-weight:700;margin-bottom:2px}
-.calEventTitle{font-size:13px;font-weight:700}
-.calEventDesc{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.6;white-space:pre-wrap}
+.calEventRow::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-top:6px;flex-shrink:0}
+.calEventBody{flex:1;min-width:0}
+.calEventTime{display:inline-block;font-size:10.5px;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:5px}
+.calEventTitle{font-size:13.5px;font-weight:800}
+.calEventDesc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6;white-space:pre-wrap}
 
 .wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
 .top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
@@ -501,6 +509,8 @@ let calEvents = [];       // API에서 받은 전체 일정
 let calEventsByDate = {}; // 'YYYY-MM-DD' -> [일정, ...]
 let calViewYear, calViewMonth; // month는 0-index
 let calSelectedDate = null;
+let calImageUrl = '';     // DJ가 직접 올린 캘린더 이미지 (없으면 빈 문자열)
+let calHideGrid = false;  // true면 자동 달력 그리드는 숨기고 이미지만 보여준다
 
 function calYmd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
@@ -510,6 +520,8 @@ async function loadCalendar(){
     const res = await fetch(API + '/calendar');
     const d = await res.json();
     calEvents = (d.success && d.events) ? d.events : [];
+    calImageUrl = (d.success && d.imageUrl) ? d.imageUrl : '';
+    calHideGrid = !!(d.success && d.hideGrid);
     calEventsByDate = {};
     calEvents.forEach(e => { if(!e.date) return; (calEventsByDate[e.date] = calEventsByDate[e.date] || []).push(e); });
     const now = new Date();
@@ -530,6 +542,12 @@ function calChangeMonth(delta){
 
 function renderCalMonth(){
   const box = document.getElementById('calBox');
+  const imageBlock = calImageUrl ? `<div class="card"><img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block"></div>` : '';
+  if(calHideGrid){
+    // DJ가 "이미지만 보여주기"를 켜둔 경우 — 자동 달력 그리드/일정 목록은 아예 안 그린다
+    box.innerHTML = imageBlock || '<div class="card"><div class="emptyList">등록된 캘린더 이미지가 없어요</div></div>';
+    return;
+  }
   const first = new Date(calViewYear, calViewMonth, 1);
   const startDow = first.getDay();
   const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
@@ -542,8 +560,11 @@ function renderCalMonth(){
   }
   for(let d = 1; d <= daysInMonth; d++){
     const dateStr = calViewYear + '-' + String(calViewMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const dow = (startDow + d - 1) % 7;
     const hasEvent = !!calEventsByDate[dateStr];
     const cls = ['calCell'];
+    if(dow === 0) cls.push('calSun');
+    if(dow === 6) cls.push('calSat');
     if(dateStr === todayStr) cls.push('today');
     if(dateStr === calSelectedDate) cls.push('selected');
     cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}${hasEvent ? '<span class="calDot"></span>' : ''}</div>`;
@@ -554,7 +575,7 @@ function renderCalMonth(){
     cells += `<div class="calCell otherMonth">${i}</div>`;
   }
 
-  box.innerHTML = `
+  box.innerHTML = imageBlock + `
     <div class="card">
       <div class="calHeader">
         <button class="calNavBtn" onclick="calChangeMonth(-1)">‹</button>
@@ -562,7 +583,7 @@ function renderCalMonth(){
         <button class="calNavBtn" onclick="calChangeMonth(1)">›</button>
       </div>
       <div class="calGrid">
-        <div class="calDowRow">일</div><div class="calDowRow">월</div><div class="calDowRow">화</div><div class="calDowRow">수</div><div class="calDowRow">목</div><div class="calDowRow">금</div><div class="calDowRow">토</div>
+        <div class="calDowRow calSun">일</div><div class="calDowRow">월</div><div class="calDowRow">화</div><div class="calDowRow">수</div><div class="calDowRow">목</div><div class="calDowRow">금</div><div class="calDowRow calSat">토</div>
         ${cells}
       </div>
     </div>
@@ -583,9 +604,11 @@ function renderCalSelectedEvents(){
   }
   listBox.innerHTML = `<div class="card-title">📅 ${escapeHtml(calSelectedDate)}</div>` + events.map(e => `
     <div class="calEventRow">
-      ${e.time ? `<div class="calEventTime">${escapeHtml(e.time)}</div>` : ''}
-      <div class="calEventTitle">${escapeHtml(e.title)}</div>
-      ${e.description ? `<div class="calEventDesc">${escapeHtml(e.description)}</div>` : ''}
+      <div class="calEventBody">
+        ${e.time ? `<div class="calEventTime">${escapeHtml(e.time)}</div>` : ''}
+        <div class="calEventTitle">${escapeHtml(e.title)}</div>
+        ${e.description ? `<div class="calEventDesc">${escapeHtml(e.description)}</div>` : ''}
+      </div>
     </div>`).join('');
 }
 

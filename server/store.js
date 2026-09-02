@@ -263,6 +263,9 @@ function defaultSettings() {
     // 📅 캘린더 — DJ가 등록한 행사/방송 일정. 내정보 웹페이지 "캘린더" 탭에 달력 형태로 보여준다.
     // { id, date:'YYYY-MM-DD', time:'HH:MM'(선택), title, description, createdAt }
     calendarEvents: [],
+    // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
+    // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
+    calendarImage: { url: '', hideGrid: false },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
