@@ -246,6 +246,7 @@ function pickSharedTokenDjId() {
   const available = []
   for (const tokenDjId of SHARED_TOKEN_POOL) {
     if (!tokenManager.hasCookies(tokenDjId)) continue // 세션 연결 안 된 계정은 건너뜀
+    if (!tokenManager.getAccessToken(tokenDjId)) continue // 세션은 있지만 토큰 발급이 안 됐거나 만료된 계정도 건너뜀 (있으면 접속 시도할 때마다 계속 실패함)
     if (countConnectedOnToken(tokenDjId) < SHARED_TOKEN_CAPACITY) available.push(tokenDjId)
   }
   if (available.length) return available[Math.floor(Math.random() * available.length)]
@@ -254,6 +255,7 @@ function pickSharedTokenDjId() {
   let fallbackCount = Infinity
   for (const tokenDjId of SHARED_TOKEN_POOL) {
     if (!tokenManager.hasCookies(tokenDjId)) continue
+    if (!tokenManager.getAccessToken(tokenDjId)) continue
     const count = countConnectedOnToken(tokenDjId)
     if (count < fallbackCount) { fallbackCount = count; fallback = tokenDjId }
   }
@@ -277,6 +279,7 @@ function tokenDjIdFor(djId) {
   try {
     const preferred = store.getSettings(djId)?.preferredTokenDjId
     if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)
+      && tokenManager.getAccessToken(preferred) // 세션은 있어도 토큰이 없거나 만료됐으면 이 계정으로 계속 접속 시도해봐야 실패만 반복되니, 그럴 땐 자동배정으로 넘긴다
       && countConnectedOnToken(preferred) < SHARED_TOKEN_CAPACITY) {
       if (existingRoom) existingRoom.tokenDjId = preferred
       return preferred
@@ -1255,7 +1258,17 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
     .replace(/[\u200B-\u200F\uFEFF\u2028\u2029\u00A0]/g, m => (m === '\u00A0' ? ' ' : ''))
     .trim()
   const msg = stripInvisible(text).normalize('NFC')
-  const cmd = commands.find(c => stripInvisible(c.trigger).normalize('NFC') === msg)
+
+  // 기본은 "정확히 일치"할 때만 실행되지만, 명령어별로 "메시지 앞부분만 일치해도 실행"(prefixMatch)을
+  // 켜두면 그 트리거로 시작하기만 해도 실행된다 — 외부 확장 프로그램이 "!《_ᴇɴᴛʀʏ_》 [유저정보 등]"
+  // 처럼 트리거 뒤에 추가 내용을 자동으로 붙여서 보내는 경우까지 인식하기 위함.
+  // 여러 트리거가 동시에 앞부분과 겹치면 가장 긴(더 구체적인) 트리거를 우선한다.
+  const normalized = commands.map(c => ({ cmd: c, norm: stripInvisible(c.trigger).normalize('NFC') })).filter(x => x.norm)
+  let cmd = (normalized.find(x => x.norm === msg) || {}).cmd
+  if (!cmd) {
+    const prefixHits = normalized.filter(x => x.cmd.prefixMatch && msg.startsWith(x.norm))
+    if (prefixHits.length) cmd = prefixHits.reduce((a, b) => (b.norm.length > a.norm.length ? b : a)).cmd
+  }
   if (!cmd) {
     // ⚠️ 진단용: '!'로 시작하는데(=명령어처럼 보이는데) 등록된 트리거랑 하나도 안 맞으면
     // 실제로 도착한 원문을 문자 코드까지 남긴다. 특수문자가 스푼 쪽에서 다른 문자로
@@ -1791,6 +1804,19 @@ function actEnsureUser(act, key, nickname, tag) {
   return act.users[key]
 }
 
+// 채팅/좋아요 이벤트로 받은 닉네임을 그대로 덮어쓰면, 특정 이벤트에서 스푼 API가 닉네임 대신
+// 태그(랜덤 문자열)를 잘못 실어보낼 때 이미 알고 있던 진짜 닉네임이 태그로 덮어써지는 문제가
+// 있었다. 새 값이 태그와 완전히 같고, 이미 그와 다른(=진짜로 보이는) 닉네임이 저장돼있으면
+// 덮어쓰지 않는다.
+function actSafeSetNickname(d, nickname, tag) {
+  if (!nickname) return
+  if (tag && String(nickname).toLowerCase() === String(tag).toLowerCase()
+    && d.nickname && String(d.nickname).toLowerCase() !== String(tag).toLowerCase()) {
+    return
+  }
+  d.nickname = nickname
+}
+
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
 function handleActChatHook(djId, settings, author, tag, profileUrl) {
@@ -1800,7 +1826,7 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  d.nickname = author
+  actSafeSetNickname(d, author, tag)
   if (tag) d.tag = tag
   if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
@@ -1819,7 +1845,7 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  d.nickname = author
+  actSafeSetNickname(d, author, tag)
   if (tag) d.tag = tag
   if (profileUrl) d.imgUrl = profileUrl
   d.heart = (d.heart || 0) + 1
@@ -2962,9 +2988,26 @@ function getMyInfoSettings(djId, settings) {
   if (!mi.webUsers || typeof mi.webUsers !== 'object') mi.webUsers = {}
   if (!mi.authKeys || typeof mi.authKeys !== 'object') mi.authKeys = {}
   if (!mi.cmdAuth) mi.cmdAuth = '!내정보인증'
+  if (!mi.postRewardGiven || typeof mi.postRewardGiven !== 'object') mi.postRewardGiven = {} // 포스트 좋아요/댓글 첫 참여 보상을 이미 받은 tag 기록
   return mi
 }
 function saveMyInfo(djId, mi) { store.saveSettings(djId, { myinfo: mi }) }
+
+// 🎰 포스트에 좋아요 또는 댓글을 처음 남긴 시청자에게 딱 한 번(좋아요든 댓글이든, 둘 중 먼저 한 쪽
+// 기준으로) 복권 10장을 지급한다. 애청지수(loyalty) 모듈이 켜져있을 때만 지급하고, 이미 받았으면
+// 조용히 건너뛴다. 지급했으면 지급한 개수를, 아니면 0을 반환한다.
+function grantFirstPostRewardIfEligible(djId, settings, mi, tag) {
+  if (!tag || !isModuleOn(settings, 'loyalty', djId)) return 0
+  if (mi.postRewardGiven[tag]) return 0
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag) || tag
+  const d = actEnsureUser(act, actKey, null, tag)
+  const bonus = 10
+  d.lotto = (d.lotto || 0) + bonus
+  mi.postRewardGiven[tag] = Date.now()
+  store.saveSettings(djId, { activity: act, myinfo: mi })
+  return bonus
+}
 
 const MI_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function miRand(max) { return Math.floor(Math.random() * max) }
@@ -14719,10 +14762,10 @@ function getRouletteCmdConfig(settings) {
 }
 
 // !킵, !이벤트, !내카드 [페이지] / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] 응답 문구 생성
-function formatKeepMessage(displayName, section, entries, page, cmdBase) {
+function formatKeepMessage(displayName, section, entries, page, cmdBase, pageSize) {
   const label = SECTION_LABEL[section]
   if (!entries.length) return `📋 ${displayName}님의 ${label} 기록이 없습니다.`
-  const pageSize = 10
+  pageSize = Math.max(1, Number(pageSize) || 10)
   const totalPages = Math.ceil(entries.length / pageSize)
   const cur = Math.max(1, Math.min(page, totalPages))
   const startIdx = (cur - 1) * pageSize
@@ -14840,7 +14883,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first, settings.roulette && settings.roulette.keepPageSize), 150, 600)
     return
   }
 
@@ -14861,7 +14904,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel, settings.roulette && settings.roulette.keepPageSize), 150, 600)
     return
   }
 
@@ -17817,7 +17860,7 @@ app.post('/activity/users/delete-all', auth.requireAuth, (req, res) => {
 // heart/chat/attend/lp/lotto는 절대값으로 덮어쓰고, expAdd는 기존 EXP에 더하고,
 // setLevel이 있으면(>0) 그 레벨의 시작 EXP로 먼저 맞춘 뒤 expAdd를 추가로 더한다.
 app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
-  const { heart, chat, attend, lp, lotto, expAdd, setLevel, tag } = req.body || {}
+  const { heart, chat, attend, lp, lotto, expAdd, setLevel, tag, nickname } = req.body || {}
   const settings = store.getSettings(req.djId) || {}
   const act = getActivitySettings(req.djId, settings)
   const d = act.users[req.params.key]
@@ -17828,6 +17871,10 @@ app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
   if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
   if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
   if (tag != null) d.tag = String(tag).trim().replace(/^@/, '') || null
+  if (nickname != null) {
+    const n = String(nickname).trim()
+    if (n) d.nickname = n
+  }
   if (setLevel != null && Number(setLevel) > 0) {
     const base = Number(act.lvBase) || 100
     const lvl = Math.max(1, Math.floor(Number(setLevel)))
@@ -19967,10 +20014,117 @@ app.get('/myinfo/:djId/roulettes', (req, res) => {
     .filter(rt => rt.items.length)
   res.json({ success: true, roulettes })
 })
+
+// 📋 포스트 — DJ가 관리자 페이지에서 만들어둔 이벤트/공지 게시물을 내정보 웹페이지의 "포스트" 탭에서
+// 스푼 앱 게시물과 비슷한 카드 형태로 보여준다. 로그인 없이 목록은 누구나 볼 수 있고, 좋아요/댓글은
+// 킵목록과 동일한 웹인증(webUserId↔tag) 방식으로 본인 확인을 한다.
+app.get('/myinfo/:djId/posts', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const myTag = webUserId ? mi.webUsers[webUserId] : ''
+  const dash = settings.dashboard || {}
+  const room = getRoom(djId)
+  const author = { nickname: (dash.rankData && dash.rankData.nickname) || djId, imgUrl: room.djProfileUrl || '' }
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(p => ({
+    id: p.id,
+    title: p.title || '',
+    imageUrl: p.imageUrl || '',
+    dateStart: p.dateStart || '',
+    dateEnd: p.dateEnd || '',
+    createdAt: p.createdAt || 0,
+    likeCount: (p.likes || []).length,
+    liked: !!(myTag && (p.likes || []).includes(myTag)),
+    comments: (p.comments || []).slice(-50),
+    commentCount: (p.comments || []).length,
+  }))
+  res.json({ success: true, posts, author })
+})
+
+app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  if (!post.likes) post.likes = []
+  const idx = post.likes.indexOf(tag)
+  let liked
+  if (idx >= 0) { post.likes.splice(idx, 1); liked = false } else { post.likes.push(tag); liked = true }
+  store.saveSettings(djId, { posts: settings.posts })
+  // 🎰 좋아요를 "누른" 순간(취소가 아니라)만 첫 참여 보상 대상 — 좋아요 취소는 보상 지급 안 함
+  const bonusLotto = liked ? grantFirstPostRewardIfEligible(djId, settings, mi, tag) : 0
+  res.json({ success: true, liked, likeCount: post.likes.length, bonusLotto })
+})
+
+app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const text = String((req.body || {}).text || '').trim().slice(0, 300)
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!text) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag)
+  const nickname = (actKey && act.users[actKey] && act.users[actKey].nickname) || (settings.rouletteHistory && settings.rouletteHistory[tag] && settings.rouletteHistory[tag].nickname) || tag
+  if (!post.comments) post.comments = []
+  const comment = { id: 'c' + Date.now() + Math.floor(Math.random() * 1000), tag, nickname, text, createdAt: Date.now() }
+  post.comments.push(comment)
+  store.saveSettings(djId, { posts: settings.posts })
+  // 🎰 댓글을 남기면 첫 참여 보상 대상 (좋아요와 마찬가지로 딱 한 번만)
+  const bonusLotto = grantFirstPostRewardIfEligible(djId, settings, mi, tag)
+  res.json({ success: true, comment, commentCount: post.comments.length, bonusLotto })
+})
+
+// 📅 캘린더 — DJ가 등록한 행사/방송 일정을 로그인 없이 누구나 볼 수 있게 공개한다 (룰렛정보 탭과
+// 동일하게 조회 전용 · 웹인증 불필요).
+app.get('/myinfo/:djId/calendar', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const events = (settings.calendarEvents || []).slice().sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)).map(e => ({
+    id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
+  }))
+  const img = settings.calendarImage || {}
+  const overlay = img.overlay || {}
+  res.json({
+    success: true, events, imageUrl: img.url || '', hideGrid: !!img.hideGrid,
+    overlay: {
+      enabled: !!overlay.enabled, year: overlay.year || null, month: overlay.month || null,
+      top: Number(overlay.top) || 0, left: Number(overlay.left) || 0,
+      width: Number(overlay.width) || 100, height: Number(overlay.height) || 100,
+    },
+  })
+})
+
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
 // 파라미터가 하위 경로를 가로채지 않는다.
 app.get('/myinfo/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/myinfo.html')
+})
+
+// 🎨 내정보 웹페이지 테마 색상 — DJ가 관리자 페이지에서 고른 accent 색상을 로그인/인증 여부와
+// 상관없이 누구나 조회할 수 있어야 페이지가 열리자마자(인증 전에도) 바로 적용할 수 있다.
+// 저장 안 해뒀으면 기존 기본 핑크색을 그대로 돌려준다.
+app.get('/myinfo/:djId/theme', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const color = (settings.myinfoTheme && settings.myinfoTheme.color) || '#ff8fab'
+  // 배경 연하기 비율 — 디제이가 저장한 값이 있으면 그대로, 없으면(구버전 데이터 포함) 기존 고정값 0.30
+  const bgRatioRaw = settings.myinfoTheme && settings.myinfoTheme.bgRatio
+  const bgRatio = (typeof bgRatioRaw === 'number' && bgRatioRaw >= 0 && bgRatioRaw <= 0.7) ? bgRatioRaw : 0.30
+  res.json({ success: true, color, bgRatio })
 })
 
 // ══════════════════════════════════════════════════════
@@ -21089,7 +21243,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21106,6 +21260,17 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   if (blindDate) patch.blindDate = blindDate
+  if (posts) patch.posts = posts
+  if (calendarEvents) patch.calendarEvents = calendarEvents
+  if (calendarImage) patch.calendarImage = calendarImage
+  // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
+  //    bgRatio(배경 연하기 비율, 0~0.7)도 함께 저장 — 디제이가 직접 조절 가능. 값이 없거나
+  //    범위를 벗어나면 기존 고정값이었던 0.30으로 대체.
+  if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
+    let bgRatio = Number(myinfoTheme.bgRatio)
+    if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio }
+  }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
@@ -21469,12 +21634,13 @@ app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
 })
 
 // 🎯 일반 DJ 전용 — 입장설정 화면에서 "어떤 공용 계정(sum/sum2/sum3...)으로 들어갈지" 직접 고를 수 있게
-// 풀 목록(계정 id + 세션 연결 여부만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
+// 풀 목록(계정 id + 세션/토큰 상태만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
 app.get('/session/pool-options', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
     djId: tokenDjId,
     hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId), // 세션은 있어도 토큰이 만료/미발급 상태면 실제로는 못 씀
   }))
   res.json({ success: true, pool, preferredTokenDjId: settings.preferredTokenDjId || '' })
 })
