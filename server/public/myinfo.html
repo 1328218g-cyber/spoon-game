@@ -95,7 +95,23 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 .calEventTitle{font-size:13.5px;font-weight:800}
 .calEventDesc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6;white-space:pre-wrap}
 
+/* 📅+🖼️ 이미지와 실제 달력을 나란히 배치 — 화면이 넓을 때만(태블릿/PC), 좁은 폰에서는 위/아래로 쌓임 */
+.calWithImage{display:flex;gap:16px;align-items:flex-start}
+.calImageCol{flex:0 0 260px}
+.calImageCol img{width:100%;border-radius:var(--radius);display:block;box-shadow:0 2px 10px rgba(14,100,140,.08)}
+.calGridCol{flex:1;min-width:0}
+@media (max-width:699px){
+  .calWithImage{flex-direction:column}
+  .calImageCol{flex:none;width:100%}
+}
+.calOverlayCell{cursor:pointer;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4%;box-sizing:border-box}
+.calOverlayCell:hover{background:rgba(14,165,233,.12)}
+.calOverlayCell.today{box-shadow:inset 0 0 0 2px rgba(14,165,233,.7)}
+.calOverlayCell.selected{background:rgba(14,165,233,.22);box-shadow:inset 0 0 0 2px var(--accent)}
+.calOverlayCell .calDot{width:6px;height:6px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 1.5px #fff}
+
 .wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+@media (min-width:700px){ .wrap{max-width:760px} } /* 캘린더에 이미지+실제 달력을 나란히 놓을 여유 공간 확보 (넓은 화면에서만) */
 .top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
 .top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .top .title{font-weight:800;font-size:17px}
@@ -511,6 +527,7 @@ let calViewYear, calViewMonth; // month는 0-index
 let calSelectedDate = null;
 let calImageUrl = '';     // DJ가 직접 올린 캘린더 이미지 (없으면 빈 문자열)
 let calHideGrid = false;  // true면 자동 달력 그리드는 숨기고 이미지만 보여준다
+let calOverlay = null;    // 이미지 위에 직접 날짜 칸을 얹는 모드 정보 ({enabled,year,month,top,left,width,height})
 
 function calYmd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
@@ -522,6 +539,7 @@ async function loadCalendar(){
     calEvents = (d.success && d.events) ? d.events : [];
     calImageUrl = (d.success && d.imageUrl) ? d.imageUrl : '';
     calHideGrid = !!(d.success && d.hideGrid);
+    calOverlay = (d.success && d.overlay) ? d.overlay : null;
     calEventsByDate = {};
     calEvents.forEach(e => { if(!e.date) return; (calEventsByDate[e.date] = calEventsByDate[e.date] || []).push(e); });
     const now = new Date();
@@ -540,12 +558,58 @@ function calChangeMonth(delta){
   renderCalMonth();
 }
 
-function renderCalMonth(){
+// 🖼️ DJ가 이미지 위에 직접 날짜 칸 위치를 맞춰둔 경우 — 그 이미지를 보여주면서, 이미지에 그려진
+// 요일/날짜 배치와 똑같은 자리에 투명한 클릭 영역을 겹쳐 얹는다. 이 모드는 이미지 하나가 특정
+// 한 달(overlay.year/month)만 나타내므로 이전달/다음달 이동은 없다.
+function renderCalOverlayMode(){
   const box = document.getElementById('calBox');
-  const imageBlock = calImageUrl ? `<div class="card"><img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block"></div>` : '';
+  const year = calOverlay.year, month = calOverlay.month; // month: 1-12
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const rows = Math.ceil((firstWeekday + daysInMonth) / 7);
+  const todayStr = calYmd(new Date());
+  if(!calSelectedDate || !calSelectedDate.startsWith(`${year}-${String(month).padStart(2,'0')}`)){
+    calSelectedDate = todayStr.startsWith(`${year}-${String(month).padStart(2,'0')}`) ? todayStr : `${year}-${String(month).padStart(2,'0')}-01`;
+  }
+
+  let cellsHtml = '';
+  for(let i = 0; i < rows * 7; i++){
+    const dateNum = i - firstWeekday + 1;
+    if(dateNum < 1 || dateNum > daysInMonth){ continue; } // 이미지 안에서 빈 칸(달력 앞뒤 여백)은 클릭 영역을 안 만든다
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(dateNum).padStart(2,'0')}`;
+    const col = i % 7, row = Math.floor(i / 7);
+    const cellW = 100 / 7, cellH = 100 / rows;
+    const hasEvent = !!calEventsByDate[dateStr];
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === calSelectedDate;
+    cellsHtml += `<div class="calOverlayCell${isSelected ? ' selected' : ''}${isToday ? ' today' : ''}" data-date="${dateStr}"
+      style="position:absolute;left:${col*cellW}%;top:${row*cellH}%;width:${cellW}%;height:${cellH}%">
+      ${hasEvent ? '<span class="calDot"></span>' : ''}
+    </div>`;
+  }
+
+  box.innerHTML = `
+    <div class="card">
+      <div style="position:relative;display:inline-block;width:100%">
+        <img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block">
+        <div style="position:absolute;top:${calOverlay.top}%;left:${calOverlay.left}%;width:${calOverlay.width}%;height:${calOverlay.height}%">
+          ${cellsHtml}
+        </div>
+      </div>
+    </div>
+    <div class="card" id="calEventListBox"></div>`;
+  box.querySelectorAll('.calOverlayCell[data-date]').forEach(cell => {
+    cell.addEventListener('click', () => { calSelectedDate = cell.dataset.date; renderCalOverlayMode(); });
+  });
+  renderCalSelectedEvents();
+}
+
+function renderCalMonth(){
+  if(calOverlay && calOverlay.enabled && calImageUrl){ renderCalOverlayMode(); return; }
+  const box = document.getElementById('calBox');
   if(calHideGrid){
     // DJ가 "이미지만 보여주기"를 켜둔 경우 — 자동 달력 그리드/일정 목록은 아예 안 그린다
-    box.innerHTML = imageBlock || '<div class="card"><div class="emptyList">등록된 캘린더 이미지가 없어요</div></div>';
+    box.innerHTML = calImageUrl ? `<div class="card"><img src="${escapeHtml(calImageUrl)}" alt="" style="width:100%;border-radius:12px;display:block"></div>` : '<div class="card"><div class="emptyList">등록된 캘린더 이미지가 없어요</div></div>';
     return;
   }
   const first = new Date(calViewYear, calViewMonth, 1);
@@ -575,7 +639,8 @@ function renderCalMonth(){
     cells += `<div class="calCell otherMonth">${i}</div>`;
   }
 
-  box.innerHTML = imageBlock + `
+  // 실제 작동하는 달력(그리드+선택한 날짜의 일정 목록)
+  const gridHtml = `
     <div class="card">
       <div class="calHeader">
         <button class="calNavBtn" onclick="calChangeMonth(-1)">‹</button>
@@ -588,6 +653,16 @@ function renderCalMonth(){
       </div>
     </div>
     <div class="card" id="calEventListBox"></div>`;
+
+  // DJ가 이미지를 올려뒀으면 왼쪽엔 그 이미지, 오른쪽엔 실제 작동하는 달력을 나란히 배치한다
+  // (화면 폭이 좁으면 CSS가 자동으로 위/아래로 바꿔준다)
+  box.innerHTML = calImageUrl
+    ? `<div class="calWithImage">
+         <div class="calImageCol"><img src="${escapeHtml(calImageUrl)}" alt=""></div>
+         <div class="calGridCol">${gridHtml}</div>
+       </div>`
+    : gridHtml;
+
   box.querySelectorAll('.calCell[data-date]').forEach(cell => {
     cell.addEventListener('click', () => { calSelectedDate = cell.dataset.date; renderCalMonth(); });
   });

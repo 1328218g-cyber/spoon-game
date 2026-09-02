@@ -3811,6 +3811,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
           </div>
           <label class="check-opt" style="margin-top:12px"><input type="checkbox" id="calImgHideGrid" onchange="saveCalImageSettings()"> 이미지만 보여주기 (자동 달력 그리드 숨김)</label>
+          <label class="check-opt" style="margin-top:6px"><input type="checkbox" id="calOverlayEnable" onchange="toggleCalOverlay()"> 이미지 위에 직접 날짜 칸 위치 맞추기 (이미지에 그려진 날짜를 그대로 클릭 가능하게)</label>
+          <div id="calOverlayFields" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <p class="hint">이 이미지가 <b>몇 년 몇 월</b> 달력인지 선택한 다음, 아래 이미지에서 <b>요일 줄부터 마지막 날짜 줄까지(달력 표 전체)의 왼쪽 위 모서리 → 오른쪽 아래 모서리</b> 순서로 두 번 클릭해서 영역을 맞춰주세요.</p>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <input type="number" id="calOverlayYear" placeholder="년도" style="max-width:110px" onchange="saveCalImageSettings()">
+              <select id="calOverlayMonth" style="max-width:100px" onchange="saveCalImageSettings()">
+                <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option><option value="4">4월</option>
+                <option value="5">5월</option><option value="6">6월</option><option value="7">7월</option><option value="8">8월</option>
+                <option value="9">9월</option><option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+              </select>
+              <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="calResetCalibration()">영역 다시 설정</button>
+            </div>
+            <div id="calCalibWrap"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -6649,7 +6663,7 @@ async function loadDjSettings(){
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
   postData=[]; renderPostList();
   calEventData=[]; renderCalEventList();
-  calImageData={url:'',hideGrid:false}; updateCalImgPreview();
+  calImageData={url:'',hideGrid:false,overlay:{enabled:false,year:null,month:null,top:0,left:0,width:100,height:100}}; updateCalImgPreview();
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -14841,14 +14855,22 @@ async function saveCalEventGlobal(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
-/* 🖼️ 직접 만든 캘린더 이미지 */
-let calImageData={url:'',hideGrid:false};
+/* 🖼️ 직접 만든 캘린더 이미지 (+ 이미지 위 날짜 칸 직접 위치 맞추기) */
+let calImageData={url:'',hideGrid:false,overlay:{enabled:false,year:null,month:null,top:0,left:0,width:100,height:100}};
+let calCalibClicks=[]; // 캘리브레이션 중 클릭한 좌표(모서리 2개) 임시 저장
 function updateCalImgPreview(){
   const img=document.getElementById('calImgPreview');
   const removeBtn=document.getElementById('calImgRemoveBtn');
   if(calImageData.url){ img.src=calImageData.url; img.style.display='block'; removeBtn.style.display='inline-flex'; }
   else{ img.style.display='none'; removeBtn.style.display='none'; }
   document.getElementById('calImgHideGrid').checked=!!calImageData.hideGrid;
+  if(!calImageData.overlay) calImageData.overlay={enabled:false,year:null,month:null,top:0,left:0,width:100,height:100};
+  document.getElementById('calOverlayEnable').checked=!!calImageData.overlay.enabled;
+  document.getElementById('calOverlayFields').style.display=calImageData.overlay.enabled?'block':'none';
+  document.getElementById('calOverlayYear').value=calImageData.overlay.year||new Date().getFullYear();
+  document.getElementById('calOverlayMonth').value=calImageData.overlay.month||(new Date().getMonth()+1);
+  calCalibClicks=[];
+  renderCalCalibPreview();
 }
 async function uploadCalImage(file){
   if(!file)return;
@@ -14872,8 +14894,57 @@ async function removeCalImage(){
   updateCalImgPreview();
   await saveCalImageSettings();
 }
+function toggleCalOverlay(){
+  calImageData.overlay.enabled=document.getElementById('calOverlayEnable').checked;
+  document.getElementById('calOverlayFields').style.display=calImageData.overlay.enabled?'block':'none';
+  renderCalCalibPreview();
+  saveCalImageSettings();
+}
+function calResetCalibration(){
+  calCalibClicks=[];
+  calImageData.overlay.top=0; calImageData.overlay.left=0; calImageData.overlay.width=100; calImageData.overlay.height=100;
+  renderCalCalibPreview();
+  showToast('영역을 다시 클릭해서 설정해주세요');
+}
+function renderCalCalibPreview(){
+  const wrap=document.getElementById('calCalibWrap');
+  if(!wrap)return;
+  if(!calImageData.overlay || !calImageData.overlay.enabled)return;
+  if(!calImageData.url){ wrap.innerHTML='<p class="hint">먼저 이미지를 업로드해주세요.</p>'; return; }
+  const o=calImageData.overlay;
+  wrap.innerHTML=`<div style="position:relative;display:inline-block;max-width:100%">
+    <img src="${escapeAttr(calImageData.url)}" style="max-width:100%;display:block;border-radius:8px;cursor:crosshair" id="calCalibImg">
+    <div style="position:absolute;pointer-events:none;top:${o.top}%;left:${o.left}%;width:${o.width}%;height:${o.height}%;border:2px dashed #0ea5e9;background:rgba(14,165,233,.08)"></div>
+  </div>
+  <div class="hint" style="margin-top:6px" id="calCalibStatus">이미지 위 달력 표의 <b>왼쪽 위 모서리</b>를 클릭하세요</div>`;
+  document.getElementById('calCalibImg').addEventListener('click', onCalCalibClick);
+}
+function onCalCalibClick(ev){
+  const img=ev.currentTarget;
+  const r=img.getBoundingClientRect();
+  const xPct=Math.max(0,Math.min(100,((ev.clientX-r.left)/r.width)*100));
+  const yPct=Math.max(0,Math.min(100,((ev.clientY-r.top)/r.height)*100));
+  calCalibClicks.push({x:xPct,y:yPct});
+  if(calCalibClicks.length===1){
+    const statusEl=document.getElementById('calCalibStatus');
+    if(statusEl) statusEl.innerHTML='이제 <b>오른쪽 아래 모서리</b>를 클릭하세요';
+    return;
+  }
+  const [p1,p2]=calCalibClicks;
+  calImageData.overlay.left=Math.min(p1.x,p2.x);
+  calImageData.overlay.top=Math.min(p1.y,p2.y);
+  calImageData.overlay.width=Math.max(1,Math.abs(p2.x-p1.x));
+  calImageData.overlay.height=Math.max(1,Math.abs(p2.y-p1.y));
+  calCalibClicks=[];
+  renderCalCalibPreview();
+  saveCalImageSettings();
+  showToast('영역 설정 완료 ✓');
+}
 async function saveCalImageSettings(){
   calImageData.hideGrid=document.getElementById('calImgHideGrid').checked;
+  calImageData.overlay.enabled=document.getElementById('calOverlayEnable').checked;
+  calImageData.overlay.year=Number(document.getElementById('calOverlayYear').value)||null;
+  calImageData.overlay.month=Number(document.getElementById('calOverlayMonth').value)||null;
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({calendarImage:calImageData})});
     const d=await res.json();

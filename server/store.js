@@ -265,7 +265,12 @@ function defaultSettings() {
     calendarEvents: [],
     // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
     // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
-    calendarImage: { url: '', hideGrid: false },
+    // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
+    // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
+    // overlay를 켜면 이미지 안의 "달력 표" 영역(퍼센트 좌표)에 실제 클릭 가능한 투명 칸을 겹쳐서,
+    // 이미지에 그려진 날짜를 클릭하면 그 날짜의 일정이 뜨게 만들 수 있다 (year/month는 이 이미지가
+    // 어느 달을 나타내는지, top/left/width/height는 이미지 안에서 달력 표가 차지하는 영역 %).
+    calendarImage: { url: '', hideGrid: false, overlay: { enabled: false, year: null, month: null, top: 0, left: 0, width: 100, height: 100 } },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어

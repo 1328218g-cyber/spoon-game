@@ -20097,7 +20097,15 @@ app.get('/myinfo/:djId/calendar', (req, res) => {
     id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
   }))
   const img = settings.calendarImage || {}
-  res.json({ success: true, events, imageUrl: img.url || '', hideGrid: !!img.hideGrid })
+  const overlay = img.overlay || {}
+  res.json({
+    success: true, events, imageUrl: img.url || '', hideGrid: !!img.hideGrid,
+    overlay: {
+      enabled: !!overlay.enabled, year: overlay.year || null, month: overlay.month || null,
+      top: Number(overlay.top) || 0, left: Number(overlay.left) || 0,
+      width: Number(overlay.width) || 100, height: Number(overlay.height) || 100,
+    },
+  })
 })
 
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
