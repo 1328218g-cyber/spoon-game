@@ -1132,6 +1132,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🎬 유튜브 Data API 키 (최대 3개)</span></div>
+          <p class="hint" id="ytApiKeyHint" style="margin-bottom:10px">신청곡 모듈의 유튜브 검색(재생 후보 찾기, 원곡 자동검증)에 쓰이는 API 키예요. 여기에 등록해두면 Railway 환경변수(YOUTUBE_API_KEY)보다 이 값이 우선 적용되고, <b>여러 개 등록해두면 하나가 하루 검색 한도를 다 쓰는 순간 자동으로 다음 키로 넘어가요.</b><br>
+          ※ 한 줄에 하나씩, 최대 3개까지 입력하세요. 비워두고 저장하면 전부 삭제되고 다시 환경변수(또는 기본 내장 키)를 써요.<br>
+          ※ 여기 저장하면 보안을 위해 값을 그대로 다시 보여주진 않고, 등록된 개수와 앞 6자만 표시돼요. 바꾸려면 전체를 다시 입력해서 저장해야 해요.</p>
+          <div id="ytApiKeyStatus" class="hint" style="margin-bottom:10px"></div>
+          <textarea id="ytApiKeyInput" placeholder="AIza... (한 줄에 하나씩, 최대 3개)" style="height:80px"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveYoutubeApiKey()">저장</button>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">🔑 API 키 발급 방법 보기</summary>
+            <div class="hint" style="margin-top:8px;line-height:1.7">
+            1. <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>에 구글 계정으로 로그인<br>
+            2. 상단에서 새 프로젝트 만들기 (또는 기존 프로젝트 선택)<br>
+            3. 좌측 메뉴 "API 및 서비스 → 라이브러리"에서 <b>YouTube Data API v3</b> 검색 후 "사용 설정"<br>
+            4. "API 및 서비스 → 사용자 인증 정보"에서 "+ 사용자 인증 정보 만들기 → API 키" 클릭<br>
+            5. 생성된 키를 복사해서 위 입력창에 붙여넣고 저장<br>
+            6. (권장) 방금 만든 키를 눌러 "API 제한사항"을 YouTube Data API v3로 제한해두면 더 안전해요<br>
+            ※ 무료 한도는 하루 10,000 유닛이고, 검색 1회당 100유닛이 들어서 대략 하루 50번 정도 검색 가능해요 (곡 하나당 검색 2회 소모).<br>
+            ※ <b>구글 계정 하나로 새 프로젝트를 여러 개 만들면 그만큼 키도 여러 개 만들 수 있어요</b> — 그렇게 만든 키를 최대 3개까지 여기 등록해두면 됩니다.
+            </div>
+          </details>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
@@ -1331,7 +1353,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">본인 스푼 세션을 따로 연결하지 않은 경우, 봇이 어떤 관리자 공용 계정(sum/sum2/sum3...)으로 방에 들어갈지 직접 고를 수 있어요. <b>자동 배정(기본값)</b>으로 두면 그때그때 여유 있는 계정으로 알아서 배정돼요.<br>
           ※ 특정 계정을 지정해도 그 계정 정원이 꽉 차있으면 자동으로 다른 여유 있는 계정으로 배정돼요 — 지정한 계정은 "1순위 희망"일 뿐, 못 들어가는 일은 없어요.<br>
           ※ 본인 계정 세션을 직접 연결했다면(세션 연결 메뉴) 이 설정과 무관하게 항상 본인 계정으로 들어가요.<br>
-          ※ 목록에 나온 계정 중 "세션 미연결"은 아직 그 계정에 스푼 세션이 안 올라가 있어서 지금은 고르셔도 실제로 못 써요.</p>
+          ※ 목록에 나온 계정 중 "세션 미연결"·"토큰 만료/미발급"은 지금 그 계정으로 실제 접속이 안 되는 상태라, 골라도 자동으로 다른 여유 있는 계정으로 넘어가요.</p>
           <select id="preferredTokenDjIdSelect" style="max-width:260px">
             <option value="">자동 배정 (기본값)</option>
           </select>
@@ -1517,6 +1539,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="range" min="0" max="100" id="greetSoundVolume" value="100" style="flex:1;max-width:200px" oninput="greetFormSoundVolume=Number(this.value);document.getElementById('greetSoundVolumeLabel').textContent=this.value+'%'">
             <span class="hint" id="greetSoundVolumeLabel" style="margin:0;width:36px">100%</span>
           </div>
+          <label style="margin-top:12px">인사말 지연 시간 (초)</label>
+          <input type="number" id="greetDelaySec" min="0" step="0.1" value="0" style="max-width:140px">
+          <div class="hint">입장 감지 후 이 시간(초)만큼 기다렸다가 인사말·음원을 내보내요. 0이면 즉시(기본값) 나가요.</div>
           <input type="file" id="greetSoundFileInput" accept="audio/*" style="display:none" onchange="handleGreetSoundFile(this)">
           <div class="btn-row">
             <button class="btn-gray" onclick="hideGreetForm()">취소</button>
@@ -1643,6 +1668,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
           </div>
           <p class="hint">시청자들이 !신청곡 [가수] [제목]으로 신청한 목록을 관리합니다.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🎬 유튜브 원곡 자동검증</span></div>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="srVerifyOriginal" onchange="toggleSrOption()"> 신청 즉시 유튜브에서 원곡 확인 (MR·반주만 있으면 거절)</label>
+          <p class="hint" style="margin-top:8px">켜두면 !신청곡으로 접수되는 순간 유튜브에서 바로 검색해서, 원곡(공식 음원/뮤직비디오)이 있는 경우에만 큐에 들어가요. MR·반주·노래방 버전만 검색되거나 아예 찾을 수 없는 곡은 접수 자체가 안 되고 안내 메시지만 나가요.<br>
+          ※ 이렇게 확인된 신청곡은 재생 버튼을 눌렀을 때 다시 검색하지 않고 그 결과를 그대로 재생해서 더 빨라요.<br>
+          ※ 유튜브 검색 API는 하루 사용량 한도가 있어요 — 신청이 아주 많은 방송이면 간헐적으로 확인이 안 될 수 있어요.</p>
         </div>
 
         <div class="card">
@@ -1894,6 +1927,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <div><label>이벤트목록 명령어</label><input type="text" id="rlCmdEvent" placeholder="이벤트"></div>
           </div>
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveRlCommands()">💾 명령어 저장</button>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📄 룰렛메뉴 목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!룰렛메뉴1</b>처럼 항목 목록을 조회할 때, 한 번에 몇 개씩 끊어서 보여줄지 정해요. 예를 들어 30으로 설정하면 30개씩 자동으로 끊어서 여러 페이지로 나눠 보여줘요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlMenuPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlMenuPageSize()">💾 저장</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📄 킵/이벤트/기타목록 페이지당 개수</span></div>
+          <p class="hint" style="margin-bottom:12px">채팅에서 <b>!킵</b>, <b>!이벤트</b>, <b>!내카드</b>(기타목록) 등으로 조회할 때 한 번에 몇 개씩 끊어서 보여줄지 정해요. 세 목록 모두 이 값 하나로 같이 적용돼요. (기본값: 10개)</p>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="rlKeepPageSize" min="1" max="100" value="10" style="max-width:120px">
+            <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlKeepPageSize()">💾 저장</button>
+          </div>
         </div>
         <div class="card split-card">
           <div class="split-side">
@@ -6263,12 +6312,19 @@ const entryData={
   gift:[],
   follow:[],
   repeat:[],
+  repeatMode:'interval', // 'interval'(기본, 메시지마다 개별 반복) | 'sequence'(순서대로 한 번에 하나씩)
 };
 // 💖 좋아요 메시지가 반응할 하트 종류 — 기본은 무료만 켜짐(기존 동작 그대로)
 const likeHeartTypes={free:true,ad:false,plan:false,paid:false};
 
 function toggleLikeHeartType(type,checked){
   likeHeartTypes[type]=checked;
+}
+
+function setRepeatMode(mode){
+  entryData.repeatMode=mode==='sequence'?'sequence':'interval';
+  renderEntryList();
+  saveSettings();
 }
 
 function switchEntryTab(tab){
@@ -6303,7 +6359,14 @@ function renderEntryList(){
     return;
   }
   if(entryTab==='repeat'){
-    wrap.innerHTML=list.map(m=>`
+    const isSeq=entryData.repeatMode==='sequence';
+    const repeatModeHtml=`
+      <div class="hint" style="margin-bottom:8px">여러 문구가 등록됐을 때 어떤 방식으로 반복할지 골라주세요</div>
+      <div style="display:flex;gap:16px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="interval" ${isSeq?'':'checked'} onchange="setRepeatMode('interval')"> 지정 시간마다 (기본값 · 문구마다 각자 반복)</label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="radio" name="repeatMode" value="sequence" ${isSeq?'checked':''} onchange="setRepeatMode('sequence')"> 순서대로 (한 번에 하나씩, 다음 문구까지 그 문구의 시간만큼 대기)</label>
+      </div>`;
+    wrap.innerHTML=repeatModeHtml+list.map(m=>`
       <div class="msg-entry" data-id="${m.id}">
         <div class="msg-entry-top">
           <label class="switch">
@@ -6320,13 +6383,13 @@ function renderEntryList(){
           <span class="chip" onclick="insertEntryVar(${m.id},'{choice_rank}')">{choice_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{like_rank}')">{like_rank}</span>
           <span class="chip" onclick="insertEntryVar(${m.id},'{time_rank}')">{time_rank}</span>
-          <span class="delay-inline">간격: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
+          <span class="delay-inline">${isSeq?'다음까지 대기':'간격'}: <input type="number" min="0" value="${m.intervalMin??10}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalMin',this.value)"> 분 <input type="number" min="0" max="59" value="${m.intervalSec??0}" style="width:44px" oninput="updateEntryMsg(${m.id},'intervalSec',this.value)"> 초</span>
         </div>
         <div class="hint" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px">
         · {tag}/{nickname}: 자동입장에 등록된 DJ 고유닉(오토조인용)과, 대시보드에 등록한 DJ 닉네임<br>
         · {rank}: 이달의 DJ 랭킹 한 줄 요약 (예: "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위")<br>
         · {choice_rank}, {like_rank}, {time_rank}: 개별 랭킹<br>
-        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 설정한 간격마다 반복 전송돼요.
+        · <b>대시보드 → "이달의 DJ 랭킹 조회"에서 고유닉 등록을 먼저 해주세요.</b> 봇 가동 중 10분마다 자동 갱신되고, 방송에 봇이 입장해있는 동안 ${isSeq?'이 문구 차례가 되면 위에서 설정한 대기 시간 뒤에':'설정한 간격마다'} 반복 전송돼요.
         </div>
       </div>
     `).join('');
@@ -6510,7 +6573,7 @@ async function initApp(){
 
 async function loadDjSettings(){
   // 계정 전환 시 이전 계정 데이터가 화면에 남아있지 않도록 먼저 전부 초기화
-  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[];
+  entryData.entry=[]; entryData.leave=[]; entryData.like=[]; entryData.gift=[]; entryData.repeat=[]; entryData.repeatMode='interval';
   Object.assign(shieldData,{count:0,resetCount:0,cmd:'!실드',msgView:'🛡️ 현재 보유 중인 실드는 {실드}개 입니다!',msgAdd:'✅ 실드 {amount}개 적립 완료!\n현재 실드: {실드}개',msgSub:'▼ 실드 {amount}개 차감 완료!\n현재 실드: {실드}개',perms:[],strictPerms:false});
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
@@ -6697,6 +6760,39 @@ async function loadAutoJoinCleanupDays(){
       if(input) input.value=d.days;
     }
   }catch(e){}
+}
+
+async function loadYoutubeApiKey(){
+  const input=document.getElementById('ytApiKeyInput');
+  const statusEl=document.getElementById('ytApiKeyStatus');
+  if(!input)return;
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      input.value='';
+      if(statusEl){
+        if(d.count>0){
+          statusEl.innerHTML=`✅ 현재 <b>${d.count}개</b> 등록됨: ${d.maskedKeys.join(', ')}`;
+        } else if(d.usingEnvFallback){
+          statusEl.textContent='등록된 키가 없어서 지금은 Railway 환경변수(YOUTUBE_API_KEY)를 쓰고 있어요.';
+        } else {
+          statusEl.textContent='등록된 키가 없어서 지금은 기본 내장 키를 쓰고 있어요.';
+        }
+      }
+    }
+  }catch(e){}
+}
+async function saveYoutubeApiKey(){
+  const raw=document.getElementById('ytApiKeyInput').value;
+  const keys=raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(keys.length>3)return showToast('최대 3개까지만 등록할 수 있어요');
+  try{
+    const res=await fetch(SERVER+'/admin/youtube-api-key',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({keys})});
+    const d=await res.json();
+    if(d.success){showToast(keys.length?`유튜브 API 키 ${d.count}개 저장됐어요`:'키를 전부 비웠어요 (환경변수를 다시 사용해요)');loadYoutubeApiKey();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 async function createAccountManually(){
@@ -7181,6 +7277,7 @@ let adminUserListData=[];
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
+  loadYoutubeApiKey();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
@@ -7609,6 +7706,7 @@ let greetEditingId=null;
 let greetFormSound='';
 let greetFormSoundUrl='';
 let greetFormSoundVolume=100;
+let greetFormDelaySec=0;
 
 function renderGreetList(){
   const wrap=document.getElementById('greetListWrap');
@@ -7620,7 +7718,7 @@ function renderGreetList(){
     <div class="cmd-card">
       <div class="cmd-trigger-badge">@${escapeHtml(g.tag)}</div>
       <div class="cmd-card-body">
-        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}</div>
+        <div class="cmd-card-meta">태그: @${escapeHtml(g.tag)}${g.sound?' · 🎵 음원 첨부됨 ('+(g.soundVolume??100)+'%)':''}${g.delaySec?' · ⏱ '+g.delaySec+'초 지연':''}</div>
         <div class="cmd-card-preview">인사말: ${escapeHtml(g.message)}</div>
       </div>
       <div class="cmd-card-actions">
@@ -7640,8 +7738,10 @@ function showGreetForm(id){
   greetFormSound=g?(g.sound||''):'';
   greetFormSoundUrl=g?(g.soundUrl||''):'';
   greetFormSoundVolume=g?(g.soundVolume??100):100;
+  greetFormDelaySec=g?(g.delaySec||0):0;
   document.getElementById('greetSoundVolume').value=greetFormSoundVolume;
   document.getElementById('greetSoundVolumeLabel').textContent=greetFormSoundVolume+'%';
+  document.getElementById('greetDelaySec').value=greetFormDelaySec;
   renderGreetSoundUI();
   document.getElementById('greetFormCard').style.display='block';
 }
@@ -7726,14 +7826,15 @@ function insertGreetVar(token){
 function saveGreetForm(){
   const tag=document.getElementById('greetTag').value.trim().replace('@','');
   const message=document.getElementById('greetMessage').value;
+  const delaySec=Math.max(0,Number(document.getElementById('greetDelaySec').value)||0);
   if(!tag)return showToast('유저 고유닉을 입력해주세요');
   if(!message.trim())return showToast('인사말을 입력해주세요');
 
   if(greetEditingId){
     const g=greetData.find(x=>x.id===greetEditingId);
-    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    Object.assign(g,{tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   } else {
-    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume});
+    greetData.push({id:'gr'+(greetIdSeq++),tag,message,sound:greetFormSound,soundUrl:greetFormSoundUrl,soundData:'',soundVolume:greetFormSoundVolume,delaySec});
   }
   hideGreetForm();
   renderGreetList();
@@ -8003,6 +8104,8 @@ function renderActUserDetail(key){
     </div>
 
     <div class="card-title" style="margin-top:10px">✏️ 수동 점수 편집</div>
+    <label>👤 닉네임 (표시 이름)</label>
+    <input type="text" id="actEditNickname" value="${escapeAttr(u.nickname||'')}" placeholder="예: 초밥">
     <label>🆔 태그 (고유닉, 참고용 · 명령어에서 닉네임 대신 써도 됨)</label>
     <input type="text" id="actEditTag" value="${escapeAttr(u.tag||'')}" placeholder="예: sum1004">
     <div class="btn-row" style="grid-template-columns:repeat(3,1fr)">
@@ -8022,7 +8125,7 @@ function renderActUserDetail(key){
     </div>
     <label>🏆 레벨 직접 설정</label>
     <input type="number" id="actEditLevel" placeholder="비워두면 유지" min="1" style="max-width:160px">
-    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
+    <p class="hint">레벨 설정: 레벨을 입력하고 저장하면 해당 레벨의 시작 EXP로 설정됩니다. (직접 설정)<br>EXP 추가: EXP만 입력하면 기존 EXP에 합산됩니다. (합산 방식)<br>닉네임이 태그(랜덤 문자열)로 잘못 표시되는 경우, 위 닉네임 칸에 직접 입력해서 저장하면 돼요. 태그는 스푼 API가 조회에 성공했을 때만 자동으로 채워지며, 신뢰도가 낮으면 비어있을 수 있어요 — 필요하면 직접 입력해도 됩니다.</p>
 
     <div class="btn-row" style="grid-template-columns:1fr 1fr">
       <button class="btn-gray" onclick="renameActUser('${escapeAttr(u.key)}')">🆔 고유닉 변경</button>
@@ -8053,6 +8156,7 @@ async function saveActUserEdit(key){
     lotto:Number(document.getElementById('actEditLotto').value)||0,
     expAdd:expMagnitude*expSign,
     tag:document.getElementById('actEditTag').value.trim(),
+    nickname:document.getElementById('actEditNickname').value.trim(),
   };
   const lvlRaw=document.getElementById('actEditLevel').value;
   if(lvlRaw) body.setLevel=Number(lvlRaw);
@@ -8128,6 +8232,8 @@ function renderSrList(){
   document.getElementById('srAcceptBtn').textContent = srData.accepting ? '🟢 접수 중' : '🔴 마감';
   document.getElementById('srPriority').checked = !!srData.priorityMode;
   document.getElementById('srShowRequester').checked = srData.showRequester!==false;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srVerifyEl.checked = !!srData.verifyOriginalOnRequest;
   const sites=srData.searchSites||{spotify:false,appleMusic:false};
   document.getElementById('srSiteSpotify').checked = !!sites.spotify;
   document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
@@ -8155,7 +8261,7 @@ function renderSrList(){
         ${badges?`<div style="display:flex;gap:6px;margin-top:4px">${badges}</div>`:''}
       </td>
       <td>${srData.showRequester!==false?escapeHtml(it.requester||''):'<span class="hint" style="margin:0">비공개</span>'}</td>
-      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}')">▶ 재생</button></td>
+      <td style="white-space:nowrap"><button style="padding:4px 8px;background:#ff0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px" onclick="playSrYoutube('${escapeAttr(it.artist)}','${escapeAttr(it.title)}','${escapeAttr(it.id)}')">▶ 재생</button></td>
       <td><button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="removeSrItem(${i})">삭제</button></td>
     </tr>
   `}).join('');
@@ -8275,20 +8381,21 @@ function renderSrCurrentSongSites(){
   wrap.innerHTML=btns;
   wrap.style.display=btns?'flex':'none';
 }
-function playSrYoutube(artist, title){
+function playSrYoutube(artist, title, itemId){
   if(srYtCurrentInfo){} // no-op guard, kept for readability
   srYtCurrentInfo={artist,title};
   const bar=document.getElementById('srPlayingStatusBar'); if(bar) bar.style.display='block';
   const statusEl=document.getElementById('srPlayerStatus'); if(statusEl) statusEl.textContent=`${artist} - ${title} (검색 중...)`;
   renderSrCurrentSongSites();
   srYtPlayQueue=[];
-  playYoutubeSearchAndPlay(artist,title);
+  playYoutubeSearchAndPlay(artist,title,itemId);
 }
 // 로컬봇의 playSongOnYoutube()와 동일 — 재생 버튼을 누른 순간 서버에 검색을 요청하고, 받은 후보를
-// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다.
-async function playYoutubeSearchAndPlay(artist,title){
+// 점수순 큐에 담아 재생을 시작한다. 미리 검색해두지 않는다. (단, 접수 시점에 이미 캐싱된 후보가
+// 있으면 서버가 그걸 그대로 재사용해서 중복 검색을 안 한다 — itemId로 매칭)
+async function playYoutubeSearchAndPlay(artist,title,itemId){
   try{
-    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title})});
+    const res=await fetch(SERVER+'/songrequest/play-youtube',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({artist,title,itemId})});
     const d=await res.json();
     if(!d.success || !d.candidates || !d.candidates.length){
       const statusEl=document.getElementById('srPlayerStatus');
@@ -8415,6 +8522,8 @@ function toggleSrAccepting(){
 function toggleSrOption(){
   srData.priorityMode=document.getElementById('srPriority').checked;
   srData.showRequester=document.getElementById('srShowRequester').checked;
+  const srVerifyEl=document.getElementById('srVerifyOriginal');
+  if(srVerifyEl) srData.verifyOriginalOnRequest=srVerifyEl.checked;
   renderSrList();
   saveSrGlobal();
 }
@@ -8789,6 +8898,10 @@ function renderRlCommandInputs(){
   keepEl.value=(rouletteData.cmdKeep||'!킵').replace(/^!/,'');
   document.getElementById('rlCmdMisc').value=(rouletteData.cmdMisc||'!내카드').replace(/^!/,'');
   document.getElementById('rlCmdEvent').value=(rouletteData.cmdEvent||'!이벤트').replace(/^!/,'');
+  const pageSizeEl=document.getElementById('rlMenuPageSize');
+  if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
+  const keepPageSizeEl=document.getElementById('rlKeepPageSize');
+  if(keepPageSizeEl)keepPageSizeEl.value=rouletteData.keepPageSize||10;
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -8798,6 +8911,22 @@ function saveRlCommands(){
   renderRlCommandInputs();
   saveRouletteGlobal();
   showToast('명령어 저장 완료 ✓');
+}
+function saveRlMenuPageSize(){
+  const val=Number(document.getElementById('rlMenuPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.menuPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlMenuPageSize').value=rouletteData.menuPageSize;
+  saveRouletteGlobal();
+  showToast(`룰렛메뉴 목록이 ${rouletteData.menuPageSize}개씩 끊어서 나가도록 저장됐어요`);
+}
+function saveRlKeepPageSize(){
+  const val=Number(document.getElementById('rlKeepPageSize').value);
+  if(!val||val<1)return showToast('1 이상의 숫자를 입력해주세요');
+  rouletteData.keepPageSize=Math.min(100,Math.floor(val));
+  document.getElementById('rlKeepPageSize').value=rouletteData.keepPageSize;
+  saveRouletteGlobal();
+  showToast(`킵/이벤트/기타목록이 ${rouletteData.keepPageSize}개씩 끊어서 나가도록 저장됐어요`);
 }
 
 async function saveRouletteGlobal(){
@@ -16276,7 +16405,12 @@ async function loadPreferredTokenDjId(){
     const d=await res.json();
     if(!d.success)return;
     sel.innerHTML='<option value="">자동 배정 (기본값)</option>'
-      + d.pool.map(p=>`<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${p.hasSession?'':' (세션 미연결)'}</option>`).join('');
+      + d.pool.map(p=>{
+          let statusLabel='';
+          if(!p.hasSession) statusLabel=' (세션 미연결)';
+          else if(!p.hasToken) statusLabel=' (토큰 만료/미발급 — 지금은 접속 안 됨)';
+          return `<option value="${escapeAttr(p.djId)}">${escapeHtml(p.djId)}${statusLabel}</option>`;
+        }).join('');
     sel.value=d.preferredTokenDjId||'';
   }catch(e){}
 }

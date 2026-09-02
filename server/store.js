@@ -244,13 +244,17 @@ function defaultSettings() {
       listItemTemplate: '{index}. {artist} - {title}',
       maxCharsPerMsg: 100,
       msgIntervalMs: 600,
-      items: [], // { id, artist, title, requester }
+      items: [], // { id, artist, title, requester, matchedTitle?, ytCandidates? }
+      verifyOriginalOnRequest: false, // 🎬 켜두면 접수 즉시 유튜브에서 검색해 "원곡"이 있는지 확인하고,
+      // MR/반주/노래방 버전만 나오거나 아예 없으면 그 신청을 거절한다 (기본값은 꺼짐 — 기존처럼 그냥 접수).
     },
     roulette: {
       list: [], // { id, name, triggerMode: 'exact'|'combo'|'distribute', triggerAmount, items: [{id, name, percent, skipHistory}] }
       resultHeaderTemplate: '[🎡{룰렛명}] {닉네임}님 당첨! 🎉',
       couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
+      menuPageSize: 10, // !룰렛메뉴N 명령어로 항목 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
+      keepPageSize: 10, // !킵/!이벤트/!내카드(기타목록) 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
     },
     rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
@@ -475,6 +479,35 @@ function setSessionModuleGlobalOff(off) {
   djs['sum'].settings.sessionModuleGlobalOff = !!off;
   saveDjs(djs);
   return { ok: true, off: djs['sum'].settings.sessionModuleGlobalOff };
+}
+
+// 🎬 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록할 수 있다.
+// 하나가 일일 쿼터를 다 쓰면(quotaExceeded) 자동으로 다음 등록 키로 넘어가서 검색을 계속한다.
+// 관리자가 따로 등록해두지 않았으면 기존처럼 Railway 환경변수(YOUTUBE_API_KEY(S))를 그대로 쓴다.
+const YOUTUBE_API_KEY_MAX = 3
+function getYoutubeApiKeys() {
+  const djs = loadDjs();
+  const arr = djs['sum'] && djs['sum'].settings && djs['sum'].settings.youtubeApiKeys;
+  if (Array.isArray(arr) && arr.length) {
+    return arr.map(k => String(k || '').trim()).filter(Boolean);
+  }
+  // 예전 버전(키 1개만 저장하던 시절)과의 호환 — 있으면 배열 하나로 취급해서 그대로 써준다.
+  const legacy = djs['sum'] && djs['sum'].settings && djs['sum'].settings.youtubeApiKey;
+  if (typeof legacy === 'string' && legacy.trim()) return [legacy.trim()];
+  return [];
+}
+function setYoutubeApiKeys(keys) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cleaned = (Array.isArray(keys) ? keys : [])
+    .map(k => String(k || '').trim())
+    .filter(Boolean)
+    .slice(0, YOUTUBE_API_KEY_MAX);
+  djs['sum'].settings.youtubeApiKeys = cleaned;
+  delete djs['sum'].settings.youtubeApiKey; // 새 배열 필드로 완전히 이전
+  saveDjs(djs);
+  return { ok: true, count: cleaned.length };
 }
 
 // 📊 관리자 대시보드용 요약 통계
@@ -988,6 +1021,8 @@ module.exports = {
   setStatusBanner,
   getSessionModuleGlobalOff,
   setSessionModuleGlobalOff,
+  getYoutubeApiKeys,
+  setYoutubeApiKeys,
   getAdminStats,
   validEmail,
   DATA_DIR,

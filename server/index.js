@@ -246,6 +246,7 @@ function pickSharedTokenDjId() {
   const available = []
   for (const tokenDjId of SHARED_TOKEN_POOL) {
     if (!tokenManager.hasCookies(tokenDjId)) continue // 세션 연결 안 된 계정은 건너뜀
+    if (!tokenManager.getAccessToken(tokenDjId)) continue // 세션은 있지만 토큰 발급이 안 됐거나 만료된 계정도 건너뜀 (있으면 접속 시도할 때마다 계속 실패함)
     if (countConnectedOnToken(tokenDjId) < SHARED_TOKEN_CAPACITY) available.push(tokenDjId)
   }
   if (available.length) return available[Math.floor(Math.random() * available.length)]
@@ -254,6 +255,7 @@ function pickSharedTokenDjId() {
   let fallbackCount = Infinity
   for (const tokenDjId of SHARED_TOKEN_POOL) {
     if (!tokenManager.hasCookies(tokenDjId)) continue
+    if (!tokenManager.getAccessToken(tokenDjId)) continue
     const count = countConnectedOnToken(tokenDjId)
     if (count < fallbackCount) { fallbackCount = count; fallback = tokenDjId }
   }
@@ -277,6 +279,7 @@ function tokenDjIdFor(djId) {
   try {
     const preferred = store.getSettings(djId)?.preferredTokenDjId
     if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)
+      && tokenManager.getAccessToken(preferred) // 세션은 있어도 토큰이 없거나 만료됐으면 이 계정으로 계속 접속 시도해봐야 실패만 반복되니, 그럴 땐 자동배정으로 넘긴다
       && countConnectedOnToken(preferred) < SHARED_TOKEN_CAPACITY) {
       if (existingRoom) existingRoom.tokenDjId = preferred
       return preferred
@@ -1347,6 +1350,7 @@ function getSongRequestSettings(djId, settings) {
   }
   if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
   if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: false, appleMusic: false }
+  if (settings.songRequest.verifyOriginalOnRequest == null) settings.songRequest.verifyOriginalOnRequest = false
   return settings.songRequest
 }
 
@@ -1376,60 +1380,108 @@ function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
   return score
 }
 
-// 🔑 로컬봇(Electron)이 쓰던 것과 동일한 유튜브 Data API v3 키. 로컬봇 코드에 이미 박혀있던
-// 단비님 소유의 키를 그대로 재사용한다 (검색 결과가 100% 동일하게 나오도록). 환경변수로
-// 덮어쓸 수 있게 해뒀다 — 나중에 키를 새로 발급받으면 Railway 환경변수만 바꾸면 된다.
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY'
+// 🔑 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록해둘 수 있다.
+// 등록된 키가 있으면 그걸 최우선으로 쓰고, 없으면 기존처럼 Railway 환경변수
+// (YOUTUBE_API_KEYS, 콤마로 여러 개 가능 — 예전 방식인 YOUTUBE_API_KEY 단일값도 계속 지원)를,
+// 그것도 없으면 로컬봇 시절부터 쓰던 단비님 소유의 키를 마지막 폴백으로 쓴다.
+function getYoutubeApiKeys() {
+  const fromAdmin = store.getYoutubeApiKeys()
+  if (fromAdmin.length) return fromAdmin
+  const fromEnv = (process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY || '')
+    .split(',').map(s => s.trim()).filter(Boolean)
+  if (fromEnv.length) return fromEnv
+  return ['AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY']
+}
 
-// 로컬봇과 100% 동일한 검색 로직:
+// 🚦 키 하나가 일일 쿼터를 다 쓰면(quotaExceeded 등 403 에러) 그 키를 대략 24시간(구글 쿼터
+// 리셋 주기와 비슷하게) 동안 건너뛰고 다음 등록 키로 자동 전환한다. 메모리에만 기록하므로
+// 서버 재시작되면 초기화된다 — 그래도 다음 검색 때 다시 시도해보면 되니 문제 없다.
+const ytKeyExhaustedUntil = {} // key -> timestampMs
+const YT_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000
+
+function isYoutubeQuotaError(errObj) {
+  if (!errObj) return false
+  const reasons = (errObj.errors || []).map(e => e.reason)
+  return errObj.code === 403 && (reasons.includes('quotaExceeded') || reasons.includes('dailyLimitExceeded') || reasons.includes('rateLimitExceeded'))
+}
+
+async function fetchYoutubeSearchJson(query, key) {
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${key}`
+  try {
+    const r = await fetch(url)
+    return await r.json()
+  } catch (e) {
+    return { error: { message: e.message } }
+  }
+}
+
+// 로컬봇과 100% 동일한 검색 로직 + 다중 키 자동 전환:
 // 1) "가수 제목 audio" + "가수 제목" 두 쿼리를 병렬로 검색 (videoEmbeddable=true, videoCategoryId=10=음악)
-// 2) 결과 병합 + 중복 제거
-// 3) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
-// 4) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
+// 2) 등록된 키 중 하나가 쿼터 초과면 다음 키로 넘어가서 재시도
+// 3) 결과 병합 + 중복 제거
+// 4) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
+// 5) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
 async function searchYoutubeVideo(artist, title) {
   if (!artist && !title) return null
-  try {
-    const q1 = `${artist} ${title} audio`
-    const q2 = `${artist} ${title}`
-    const mkUrl = (q) => `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${YOUTUBE_API_KEY}`
-    const [r1, r2] = await Promise.all([
-      fetch(mkUrl(q1)).then(r => r.json()).catch(() => ({ items: [] })),
-      fetch(mkUrl(q2)).then(r => r.json()).catch(() => ({ items: [] })),
-    ])
-    if (r1.error && r2.error) {
-      console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
-      return null
+  const keys = getYoutubeApiKeys()
+  if (!keys.length) return null
+  const now = Date.now()
+  const available = keys.filter(k => !ytKeyExhaustedUntil[k] || ytKeyExhaustedUntil[k] <= now)
+  const tryOrder = available.length ? available : keys // 전부 소진 표시돼있어도 리셋 시점이 부정확할 수 있으니 일단 재시도는 해본다
+
+  for (const key of tryOrder) {
+    try {
+      const q1 = `${artist} ${title} audio`
+      const q2 = `${artist} ${title}`
+      const [r1, r2] = await Promise.all([
+        fetchYoutubeSearchJson(q1, key),
+        fetchYoutubeSearchJson(q2, key),
+      ])
+      const err = r1.error || r2.error
+      if (err && isYoutubeQuotaError(err)) {
+        ytKeyExhaustedUntil[key] = now + YT_QUOTA_COOLDOWN_MS
+        console.log(`[유튜브 API] 키(${key.slice(0, 6)}...) 쿼터 초과 → 다음 등록 키로 자동 전환`)
+        continue
+      }
+      if (r1.error && r2.error) {
+        console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
+        continue // 이 키에서만 나는 일시적 오류일 수 있으니 다음 키로 넘어가서 한 번 더 시도
+      }
+
+      const seen = new Set()
+      const merged = []
+      ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
+        const vid = item.id && item.id.videoId
+        if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
+      })
+      if (!merged.length) return null
+
+      const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
+      const userSearchQuery = `${artist} ${title}`.toLowerCase()
+      const filtered = merged.filter(item => {
+        const vTitle = (item.snippet.title || '').toLowerCase()
+        const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
+        const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
+        return !(isInstInTitle && !isInstInQuery)
+      })
+      const finalCandidates = filtered.length > 0 ? filtered : merged
+
+      const scored = finalCandidates.map(item => ({
+        videoId: item.id.videoId,
+        title: item.snippet.title,
+        channelTitle: item.snippet.channelTitle,
+        score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
+      })).sort((a, b) => b.score - a.score)
+
+      // hasOriginal: MR/반주/노래방 키워드가 아닌 "원곡"으로 보이는 후보가 실제로 있었는지.
+      // filtered가 비어서 merged(MR 포함 전체)로 폴백한 경우엔 false — 신청 접수 시 원곡 없음 판단에 쓴다.
+      return { candidates: scored, matchedTitle: scored[0].title, hasOriginal: filtered.length > 0 }
+    } catch (e) {
+      console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
+      continue
     }
-    const seen = new Set()
-    const merged = []
-    ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
-      const vid = item.id && item.id.videoId
-      if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
-    })
-    if (!merged.length) return null
-
-    const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
-    const userSearchQuery = `${artist} ${title}`.toLowerCase()
-    const filtered = merged.filter(item => {
-      const vTitle = (item.snippet.title || '').toLowerCase()
-      const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
-      const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
-      return !(isInstInTitle && !isInstInQuery)
-    })
-    const finalCandidates = filtered.length > 0 ? filtered : merged
-
-    const scored = finalCandidates.map(item => ({
-      videoId: item.id.videoId,
-      title: item.snippet.title,
-      channelTitle: item.snippet.channelTitle,
-      score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
-    })).sort((a, b) => b.score - a.score)
-
-    return { candidates: scored, matchedTitle: scored[0].title }
-  } catch (e) {
-    console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
-    return null
   }
+  return null // 등록된 키를 전부 시도했는데도 결과를 못 얻음
 }
 
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
@@ -1503,6 +1555,24 @@ async function handleSongRequestCommand(djId, room, settings, author, authorId, 
     const artist = parts.shift() || ''
     const title = parts.join(' ') || artist
     const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist, title, requester: author }
+
+    // 🎬 켜져있으면 접수 즉시 유튜브에서 원곡 존재 여부를 확인한다. MR/반주/노래방 버전만 나오거나
+    // 아예 검색 결과가 없으면 접수하지 않고 안내만 보낸다 (원곡위주로만 큐에 쌓이도록).
+    if (sr.verifyOriginalOnRequest) {
+      const yt = await searchYoutubeVideo(artist, title)
+      if (!yt || !yt.candidates.length) {
+        setTimeout(() => sendChatToRoom(djId, `❌ [${artist} - ${title}] 유튜브에서 찾을 수 없어요. 가수/제목을 다시 확인해주세요.`), 400)
+        return
+      }
+      if (!yt.hasOriginal) {
+        setTimeout(() => sendChatToRoom(djId, `❌ [${artist} - ${title}] 원곡을 찾지 못했어요 (MR·반주·노래방 버전만 검색돼요). 다른 곡을 신청해주세요.`), 400)
+        return
+      }
+      // 나중에 재생 버튼을 누를 때 다시 검색하지 않도록, 지금 찾은 후보를 그대로 캐싱해둔다.
+      item.matchedTitle = yt.matchedTitle
+      item.ytCandidates = yt.candidates.slice(0, 5).map(c => ({ id: c.videoId, title: c.title }))
+    }
+
     if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
@@ -1724,6 +1794,19 @@ function actEnsureUser(act, key, nickname, tag) {
   return act.users[key]
 }
 
+// 채팅/좋아요 이벤트로 받은 닉네임을 그대로 덮어쓰면, 특정 이벤트에서 스푼 API가 닉네임 대신
+// 태그(랜덤 문자열)를 잘못 실어보낼 때 이미 알고 있던 진짜 닉네임이 태그로 덮어써지는 문제가
+// 있었다. 새 값이 태그와 완전히 같고, 이미 그와 다른(=진짜로 보이는) 닉네임이 저장돼있으면
+// 덮어쓰지 않는다.
+function actSafeSetNickname(d, nickname, tag) {
+  if (!nickname) return
+  if (tag && String(nickname).toLowerCase() === String(tag).toLowerCase()
+    && d.nickname && String(d.nickname).toLowerCase() !== String(tag).toLowerCase()) {
+    return
+  }
+  d.nickname = nickname
+}
+
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
 function handleActChatHook(djId, settings, author, tag, profileUrl) {
@@ -1733,7 +1816,7 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  d.nickname = author
+  actSafeSetNickname(d, author, tag)
   if (tag) d.tag = tag
   if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
@@ -1752,7 +1835,7 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  d.nickname = author
+  actSafeSetNickname(d, author, tag)
   if (tag) d.tag = tag
   if (profileUrl) d.imgUrl = profileUrl
   d.heart = (d.heart || 0) + 1
@@ -14652,10 +14735,10 @@ function getRouletteCmdConfig(settings) {
 }
 
 // !킵, !이벤트, !내카드 [페이지] / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] 응답 문구 생성
-function formatKeepMessage(displayName, section, entries, page, cmdBase) {
+function formatKeepMessage(displayName, section, entries, page, cmdBase, pageSize) {
   const label = SECTION_LABEL[section]
   if (!entries.length) return `📋 ${displayName}님의 ${label} 기록이 없습니다.`
-  const pageSize = 10
+  pageSize = Math.max(1, Number(pageSize) || 10)
   const totalPages = Math.ceil(entries.length / pageSize)
   const cur = Math.max(1, Math.min(page, totalPages))
   const startIdx = (cur - 1) * pageSize
@@ -14773,7 +14856,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const rec = getHistoryRecByIdentity(settings, authorTag, author)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(author, section, entries, page, first, settings.roulette && settings.roulette.keepPageSize), 150, 600)
     return
   }
 
@@ -14794,7 +14877,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     const rec = getHistoryRecByIdentity(settings, targetTag, found ? displayName : null)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
     const entries = Object.entries(rec[SECTION_FIELD[section]] || {})
-    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel), 150, 600)
+    sendChatSplit(djId, formatKeepMessage(displayName, section, entries, page, cmdLabel, settings.roulette && settings.roulette.keepPageSize), 150, 600)
     return
   }
 
@@ -14902,7 +14985,7 @@ function handleRouletteMenuCommand(djId, settings, text) {
   if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
   if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
 
-  const pageSize = 10
+  const pageSize = Math.max(1, Number(settings.roulette.menuPageSize) || 10)
   const totalPages = Math.ceil(rt.items.length / pageSize)
   const cur = Math.max(1, Math.min(page, totalPages))
   const startIdx = (cur - 1) * pageSize
@@ -15171,9 +15254,12 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
 
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
-    setTimeout(() => sendChatToRoom(djId, text), 200)
+    const delayMs = Math.max(0, Number(greeting.delaySec) || 0) * 1000 + 200 // 기본 200ms(전송 텀)에 지정한 지연시간을 더해서 내보낸다
+    setTimeout(() => sendChatToRoom(djId, text), delayMs)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
-      broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      setTimeout(() => {
+        broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      }, delayMs)
       if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
     }
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -15303,6 +15389,7 @@ function rebootDjConnection(djId) {
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
+  delete repeatSeqState[djId]  // 순서대로 모드 진행 상태도 초기화
 
   for (const key of [...commandCooldowns.keys()]) {
     if (key.startsWith(djId + ':')) commandCooldowns.delete(key)
@@ -15396,6 +15483,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
+    delete repeatSeqState[djId]
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
@@ -15777,11 +15865,36 @@ setInterval(() => {
 }, 5 * 60 * 1000)
 
 // ══════════════════════════════════════════════════════
-// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 각자 설정한 간격(분/초)마다
-// 방송에 봇이 들어가 있는 동안 자동으로 채팅에 전송한다. 메시지마다 간격이 다를 수 있어서
-// 짧은 주기(10초)로 깨어나 각 메시지의 마지막 전송 시각과 비교하는 방식으로 처리한다.
-const repeatLastSent = {} // djId -> { [messageId]: timestampMs }
+// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 방송에 봇이 들어가 있는 동안
+// 자동으로 채팅에 전송한다. 두 가지 모드를 지원한다 (settings.entryData.repeatMode):
+//  - 'interval'(기본값): 메시지마다 각자 설정한 간격(분/초)마다 독립적으로 반복 — 여러 메시지가
+//    서로 겹쳐서(동시에) 나올 수 있다.
+//  - 'sequence': 순서대로 한 번에 하나씩만 — 앞 메시지가 나온 뒤, 다음에 나올 메시지에 설정된
+//    시간만큼 기다렸다가 그 메시지가 나오고, 마지막 메시지 다음엔 다시 첫 메시지로 돌아간다.
+//    (예: 1분/3분/4분 순서로 등록해두면 1분 뒤 1번째, 그 뒤 3분 지나 2번째, 그 뒤 4분 지나
+//    3번째가 나오고, 다시 1번째의 1분 대기부터 반복)
+// 짧은 주기(10초)로 깨어나 비교하는 방식으로 처리한다.
+const repeatLastSent = {} // djId -> { [messageId]: timestampMs } ('interval' 모드용)
+const repeatSeqState = {} // djId -> { index, nextAt } ('sequence' 모드용)
 const REPEAT_TICK_MS = 10 * 1000
+
+function repeatMsgIntervalMs(m) {
+  return ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+}
+
+function sendRepeatMessage(djId, settings, m) {
+  const text = String(m.text || '').trim()
+  if (!text) return
+  const rv = buildDashboardRankVars(settings)
+  const out = text
+    .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+    .replace(/{nickname}/g, rv.nickname)
+    .replace(/{rank}/g, rv.rank)
+    .replace(/{choice_rank}/g, rv.choice_rank)
+    .replace(/{like_rank}/g, rv.like_rank)
+    .replace(/{time_rank}/g, rv.time_rank)
+  sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+}
 
 setInterval(() => {
   const now = Date.now()
@@ -15793,7 +15906,30 @@ setInterval(() => {
     if (!isModuleOn(settings, 'entrysettings', djId)) continue
     const list = settings.entryData?.repeat || []
     if (!list.length) continue
+    const mode = settings.entryData?.repeatMode === 'sequence' ? 'sequence' : 'interval'
 
+    if (mode === 'sequence') {
+      const activeList = list.filter(m => m && m.enabled !== false && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0)
+      if (!activeList.length) { delete repeatSeqState[djId]; continue }
+
+      if (!repeatSeqState[djId]) repeatSeqState[djId] = { index: 0, nextAt: null }
+      const state = repeatSeqState[djId]
+      if (state.index >= activeList.length) state.index = 0
+
+      if (state.nextAt == null) {
+        // 처음 감지 — 바로 쏘지 않고, 지금 순번 메시지에 설정된 시간만큼 기다렸다가 시작한다.
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+        continue
+      }
+      if (now >= state.nextAt) {
+        sendRepeatMessage(djId, settings, activeList[state.index])
+        state.index = (state.index + 1) % activeList.length
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+      }
+      continue
+    }
+
+    // ── 'interval' 모드 (기존 방식) — 메시지마다 독립적으로 각자 간격 반복 ──
     if (!repeatLastSent[djId]) repeatLastSent[djId] = {}
     const lastMap = repeatLastSent[djId]
 
@@ -15801,7 +15937,7 @@ setInterval(() => {
       if (!m || m.enabled === false) return
       const text = String(m.text || '').trim()
       if (!text) return
-      const intervalMs = ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+      const intervalMs = repeatMsgIntervalMs(m)
       if (intervalMs <= 0) return
 
       const last = lastMap[m.id]
@@ -15811,15 +15947,7 @@ setInterval(() => {
         return
       }
       if (now - last >= intervalMs) {
-        const rv = buildDashboardRankVars(settings)
-        const out = text
-          .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
-          .replace(/{nickname}/g, rv.nickname)
-          .replace(/{rank}/g, rv.rank)
-          .replace(/{choice_rank}/g, rv.choice_rank)
-          .replace(/{like_rank}/g, rv.like_rank)
-          .replace(/{time_rank}/g, rv.time_rank)
-        sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+        sendRepeatMessage(djId, settings, m)
         lastMap[m.id] = now
       }
     })
@@ -17358,6 +17486,27 @@ app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 관리자(sum) 전용 — 유튜브 Data API v3 키 조회/등록 (최대 3개). 등록해두면 Railway 환경변수보다
+// 우선해서 쓰이고, 검색 도중 하나가 쿼터를 다 쓰면 자동으로 다음 등록 키로 넘어간다.
+// 조회 응답에는 키를 그대로 노출하지 않고 마스킹해서 내려준다 (앞 6자만 보여줌).
+app.get('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const keys = store.getYoutubeApiKeys()
+  res.json({
+    success: true,
+    count: keys.length,
+    maskedKeys: keys.map(k => k.slice(0, 6) + '••••••••'),
+    usingEnvFallback: keys.length === 0 && !!(process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY),
+  })
+})
+
+app.post('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setYoutubeApiKeys((req.body || {}).keys)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
+})
+
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
 app.get('/admin/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -17684,7 +17833,7 @@ app.post('/activity/users/delete-all', auth.requireAuth, (req, res) => {
 // heart/chat/attend/lp/lotto는 절대값으로 덮어쓰고, expAdd는 기존 EXP에 더하고,
 // setLevel이 있으면(>0) 그 레벨의 시작 EXP로 먼저 맞춘 뒤 expAdd를 추가로 더한다.
 app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
-  const { heart, chat, attend, lp, lotto, expAdd, setLevel, tag } = req.body || {}
+  const { heart, chat, attend, lp, lotto, expAdd, setLevel, tag, nickname } = req.body || {}
   const settings = store.getSettings(req.djId) || {}
   const act = getActivitySettings(req.djId, settings)
   const d = act.users[req.params.key]
@@ -17695,6 +17844,10 @@ app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
   if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
   if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
   if (tag != null) d.tag = String(tag).trim().replace(/^@/, '') || null
+  if (nickname != null) {
+    const n = String(nickname).trim()
+    if (n) d.nickname = n
+  }
   if (setLevel != null && Number(setLevel) > 0) {
     const base = Number(act.lvBase) || 100
     const lvl = Math.max(1, Math.floor(Number(setLevel)))
@@ -21008,11 +21161,23 @@ app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
 
 // 🎬 신청곡 유튜브 재생 후보 검색 — 로컬봇의 playSongOnYoutube()와 동일하게, DJ가 재생 버튼을
 // 누른 "그 순간"에 검색해서 점수순 후보 목록을 돌려준다. 재생 실패 시 프론트에서 다음 후보로
-// 자동 전환한다.
+// 자동 전환한다. itemId가 오고 그 항목에 접수 시점에 캐싱해둔 후보(ytCandidates)가 있으면,
+// 똑같은 검색을 또 하지 않고 그 캐시를 그대로 재사용한다 (유튜브 API 쿼터 절약).
 app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
   const artist = String((req.body && req.body.artist) || '').trim()
   const title = String((req.body && req.body.title) || '').trim()
+  const itemId = req.body && req.body.itemId
   if (!artist && !title) return res.json({ success: false, error: '가수/곡제목이 없어요.' })
+
+  if (itemId) {
+    const settings = store.getSettings(req.djId) || {}
+    const sr = getSongRequestSettings(req.djId, settings)
+    const cached = sr.items.find(it => it.id === itemId)
+    if (cached && Array.isArray(cached.ytCandidates) && cached.ytCandidates.length) {
+      return res.json({ success: true, candidates: cached.ytCandidates })
+    }
+  }
+
   const yt = await searchYoutubeVideo(artist, title)
   if (!yt) return res.json({ success: false, error: '곡을 찾을 수 없어요.' })
   res.json({ success: true, candidates: yt.candidates.map(c => ({ id: c.videoId, title: c.title })) })
@@ -21324,12 +21489,13 @@ app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
 })
 
 // 🎯 일반 DJ 전용 — 입장설정 화면에서 "어떤 공용 계정(sum/sum2/sum3...)으로 들어갈지" 직접 고를 수 있게
-// 풀 목록(계정 id + 세션 연결 여부만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
+// 풀 목록(계정 id + 세션/토큰 상태만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
 app.get('/session/pool-options', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
     djId: tokenDjId,
     hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId), // 세션은 있어도 토큰이 만료/미발급 상태면 실제로는 못 씀
   }))
   res.json({ success: true, pool, preferredTokenDjId: settings.preferredTokenDjId || '' })
 })
