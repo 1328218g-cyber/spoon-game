@@ -3800,6 +3800,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>📅 캘린더 (<span id="calEventCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showCalEventForm()">+ 새 일정</button></div>
+          <p class="hint">방송 일정이나 행사를 등록하면, 시청자가 내정보 웹페이지의 "캘린더" 탭에서 달력 형태로 확인할 수 있어요.</p>
+          <div id="calEventListWrap"></div>
+        </div>
+
+        <div class="card" id="calEventFormCard" style="display:none">
+          <div class="card-title" id="calEventFormTitle">새 일정</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="flex:1"><label>날짜</label><input type="date" id="calEventDate"></div>
+            <div style="flex:1"><label>시간 (선택)</label><input type="time" id="calEventTime"></div>
+          </div>
+          <label style="margin-top:10px">제목</label>
+          <input type="text" id="calEventTitle" placeholder="예: 정기방송, 팬미팅, 콜라보 방송 등">
+          <label>설명 (선택)</label>
+          <textarea id="calEventDesc" placeholder="상세 내용을 입력하세요" style="min-height:60px"></textarea>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn-gray" onclick="hideCalEventForm()">취소</button>
+            <button class="btn-connect" onclick="saveCalEventForm()">💾 저장</button>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>📱 시청자에게 이렇게 보여요 (미리보기)</span></div>
           <p class="hint" style="margin-bottom:14px">실제 값이 아니라 예시 데이터로 화면 구성만 보여드려요. 실제 페이지는 위 공개 페이지 링크로 접속해서 확인하세요.</p>
           <div style="max-width:340px;margin:0 auto;background:#eaf6fb;border:1px solid #d7ecf5;border-radius:16px;overflow:hidden;font-family:inherit">
@@ -6612,6 +6634,7 @@ async function loadDjSettings(){
   Object.assign(flagsData,{cmd:'!깃발',items:[]});
   Object.assign(blindDateData,{cmdCouple:'!커플',cmdStrong:'!강전',cmdWalletView:'!지갑',cmdWalletAdd:'!비토',cmdWalletSub:'!비마',pageSize:10,couples:[],strongCandidates:[],wallet:{balance:0,updatedAt:null}});
   postData=[]; renderPostList();
+  calEventData=[]; renderCalEventList();
   Object.assign(fundingData,{cmd:'!펀딩',showPercent:true,showDday:true,titleTemplate:'🎯 진행중인 {month}월 펀딩 🎯',itemTemplate:'{index}. {title}\n💰{current}/{goal} [{percent}] {dday}',items:[]});
   cmdData=[];
   greetData=[];
@@ -6686,6 +6709,7 @@ async function loadDjSettings(){
       if(s.activity) Object.assign(activityData, s.activity);
       if(s.blindDate) Object.assign(blindDateData, s.blindDate);
       if(s.posts) { postData=s.posts; renderPostList(); }
+      if(s.calendarEvents) { calEventData=s.calendarEvents; renderCalEventList(); }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -14725,6 +14749,76 @@ function deletePost(id){
 async function savePostGlobal(){
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({posts:postData})});
+    const d=await res.json();
+    if(d.success)showToast('저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 📅 캘린더 (내정보 웹페이지 "캘린더" 탭) ── */
+let calEventData=[];
+let calEventEditingId=null;
+
+function renderCalEventList(){
+  const wrap=document.getElementById('calEventListWrap');
+  document.getElementById('calEventCount').textContent=calEventData.length;
+  if(!wrap)return;
+  if(!calEventData.length){ wrap.innerHTML='<div class="flag-empty">등록된 일정이 없습니다.</div>'; return; }
+  wrap.innerHTML=calEventData.slice().sort((a,b)=>`${a.date}${a.time||''}`.localeCompare(`${b.date}${b.time||''}`)).map(e=>`
+    <div class="cmd-card">
+      <div class="cmd-trigger-badge">${escapeHtml((e.date||'').slice(5).replace('-','/'))||'📅'}</div>
+      <div class="cmd-card-body">
+        <div class="cmd-card-preview">${escapeHtml(e.title||'')}</div>
+        <div class="cmd-card-meta">📅 ${escapeHtml(e.date||'')}${e.time?' '+escapeHtml(e.time):''}</div>
+      </div>
+      <div class="cmd-card-actions">
+        <button class="btn-gray" onclick="showCalEventForm('${e.id}')">수정</button>
+        <button class="btn-shield-reset" onclick="deleteCalEvent('${e.id}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showCalEventForm(id){
+  calEventEditingId=id||null;
+  const e=id?calEventData.find(x=>x.id===id):null;
+  document.getElementById('calEventFormTitle').textContent=id?'일정 수정':'새 일정';
+  document.getElementById('calEventDate').value=e?(e.date||''):'';
+  document.getElementById('calEventTime').value=e?(e.time||''):'';
+  document.getElementById('calEventTitle').value=e?(e.title||''):'';
+  document.getElementById('calEventDesc').value=e?(e.description||''):'';
+  document.getElementById('calEventFormCard').style.display='block';
+}
+function hideCalEventForm(){
+  document.getElementById('calEventFormCard').style.display='none';
+  calEventEditingId=null;
+}
+function saveCalEventForm(){
+  const date=document.getElementById('calEventDate').value;
+  const time=document.getElementById('calEventTime').value;
+  const title=document.getElementById('calEventTitle').value.trim();
+  const description=document.getElementById('calEventDesc').value.trim();
+  if(!date)return showToast('날짜를 선택해주세요');
+  if(!title)return showToast('제목을 입력해주세요');
+  if(calEventEditingId){
+    const e=calEventData.find(x=>x.id===calEventEditingId);
+    Object.assign(e,{date,time,title,description});
+  } else {
+    calEventData.push({id:'cal'+Date.now()+Math.floor(Math.random()*1000),date,time,title,description,createdAt:Date.now()});
+  }
+  hideCalEventForm();
+  renderCalEventList();
+  saveCalEventGlobal();
+}
+function deleteCalEvent(id){
+  if(!confirm('이 일정을 삭제할까요?'))return;
+  calEventData=calEventData.filter(e=>e.id!==id);
+  renderCalEventList();
+  saveCalEventGlobal();
+}
+async function saveCalEventGlobal(){
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({calendarEvents:calEventData})});
     const d=await res.json();
     if(d.success)showToast('저장 완료 ✓');
     else showToast(d.error||'저장 실패');

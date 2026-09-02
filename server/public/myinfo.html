@@ -69,6 +69,24 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 .postCommentInputRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:20px;padding:8px 12px;font-size:12px;font-family:inherit}
 .postCommentInputRow button{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:20px;padding:0 14px;font-size:12px;font-weight:700;cursor:pointer}
 
+/* 📅 캘린더 탭: 월 달력 그리드 + 선택한 날짜의 일정 목록 */
+.calHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.calNavBtn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;font-size:15px;cursor:pointer;color:var(--text)}
+.calMonthLabel{font-weight:800;font-size:14px}
+.calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
+.calDowRow{font-size:10.5px;color:var(--muted);font-weight:700;padding:4px 0}
+.calCell{position:relative;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;font-size:12px;cursor:pointer;color:var(--text)}
+.calCell.otherMonth{color:var(--border);cursor:default}
+.calCell.today{border:1.5px solid var(--accent);font-weight:800}
+.calCell.selected{background:var(--accent);color:#fff}
+.calCell .calDot{width:5px;height:5px;border-radius:50%;background:var(--accent2);margin-top:2px}
+.calCell.selected .calDot{background:#fff}
+.calEventRow{padding:9px 0;border-bottom:1px solid var(--border)}
+.calEventRow:last-child{border-bottom:none}
+.calEventTime{font-size:11px;color:var(--accent2);font-weight:700;margin-bottom:2px}
+.calEventTitle{font-size:13px;font-weight:700}
+.calEventDesc{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.6;white-space:pre-wrap}
+
 .wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
 .top{display:flex;align-items:center;gap:10px;padding:6px 2px 18px}
 .top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
@@ -155,6 +173,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
   </button>
   <button class="menuBtn" id="btnTabRoulette" onclick="switchTab('roulette')">
     <span class="mIcon">🎡</span><span>룰렛정보</span>
+  </button>
+  <button class="menuBtn" id="btnTabCal" onclick="switchTab('cal')">
+    <span class="mIcon">📅</span><span>캘린더</span>
   </button>
 </div>
 
@@ -250,6 +271,11 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
       <div id="rouletteListBox"><div class="emptyList">불러오는 중...</div></div>
     </div>
 
+    <!-- 📅 캘린더 탭: DJ가 등록한 행사/방송 일정을 달력 형태로 보여준다 -->
+    <div id="tabCalPanel" class="hidden">
+      <div id="calBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
+    </div>
+
     <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
   </div>
 </div>
@@ -289,21 +315,24 @@ function fallbackCopy(text, cb){
   document.body.removeChild(ta);
 }
 
-// 킵목록 / 포스트 / 게임 / 룰렛정보 탭 전환 — 포스트·게임·룰렛정보는 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, initialTabSet = false;
+// 킵목록 / 포스트 / 게임 / 룰렛정보 / 캘린더 탭 전환 — 포스트·게임·룰렛정보·캘린더는 처음 열 때 한 번만 불러온다
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, initialTabSet = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
   document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
   document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
+  document.getElementById('btnTabCal').classList.toggle('active', name === 'cal');
   document.getElementById('profileCard').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
+  document.getElementById('tabCalPanel').classList.toggle('hidden', name !== 'cal');
   if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
+  if(name === 'cal' && !calLoaded){ calLoaded = true; loadCalendar(); }
 }
 
 function relativeTimeKo(ts){
@@ -465,6 +494,99 @@ async function loadRoulettes(){
   }catch(e){
     box.innerHTML = '<div class="emptyList">불러오기에 실패했어요</div>';
   }
+}
+
+/* ── 📅 캘린더 ── */
+let calEvents = [];       // API에서 받은 전체 일정
+let calEventsByDate = {}; // 'YYYY-MM-DD' -> [일정, ...]
+let calViewYear, calViewMonth; // month는 0-index
+let calSelectedDate = null;
+
+function calYmd(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+async function loadCalendar(){
+  const box = document.getElementById('calBox');
+  try{
+    const res = await fetch(API + '/calendar');
+    const d = await res.json();
+    calEvents = (d.success && d.events) ? d.events : [];
+    calEventsByDate = {};
+    calEvents.forEach(e => { if(!e.date) return; (calEventsByDate[e.date] = calEventsByDate[e.date] || []).push(e); });
+    const now = new Date();
+    calViewYear = now.getFullYear(); calViewMonth = now.getMonth();
+    calSelectedDate = calYmd(now);
+    renderCalMonth();
+  }catch(e){
+    box.innerHTML = '<div class="card"><div class="emptyList">불러오기에 실패했어요</div></div>';
+  }
+}
+
+function calChangeMonth(delta){
+  calViewMonth += delta;
+  if(calViewMonth < 0){ calViewMonth = 11; calViewYear--; }
+  if(calViewMonth > 11){ calViewMonth = 0; calViewYear++; }
+  renderCalMonth();
+}
+
+function renderCalMonth(){
+  const box = document.getElementById('calBox');
+  const first = new Date(calViewYear, calViewMonth, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
+  const daysInPrevMonth = new Date(calViewYear, calViewMonth, 0).getDate();
+  const todayStr = calYmd(new Date());
+
+  let cells = '';
+  for(let i = startDow - 1; i >= 0; i--){
+    cells += `<div class="calCell otherMonth">${daysInPrevMonth - i}</div>`;
+  }
+  for(let d = 1; d <= daysInMonth; d++){
+    const dateStr = calViewYear + '-' + String(calViewMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const hasEvent = !!calEventsByDate[dateStr];
+    const cls = ['calCell'];
+    if(dateStr === todayStr) cls.push('today');
+    if(dateStr === calSelectedDate) cls.push('selected');
+    cells += `<div class="${cls.join(' ')}" data-date="${dateStr}">${d}${hasEvent ? '<span class="calDot"></span>' : ''}</div>`;
+  }
+  const totalCells = startDow + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for(let i = 1; i <= trailing; i++){
+    cells += `<div class="calCell otherMonth">${i}</div>`;
+  }
+
+  box.innerHTML = `
+    <div class="card">
+      <div class="calHeader">
+        <button class="calNavBtn" onclick="calChangeMonth(-1)">‹</button>
+        <span class="calMonthLabel">${calViewYear}년 ${calViewMonth+1}월</span>
+        <button class="calNavBtn" onclick="calChangeMonth(1)">›</button>
+      </div>
+      <div class="calGrid">
+        <div class="calDowRow">일</div><div class="calDowRow">월</div><div class="calDowRow">화</div><div class="calDowRow">수</div><div class="calDowRow">목</div><div class="calDowRow">금</div><div class="calDowRow">토</div>
+        ${cells}
+      </div>
+    </div>
+    <div class="card" id="calEventListBox"></div>`;
+  box.querySelectorAll('.calCell[data-date]').forEach(cell => {
+    cell.addEventListener('click', () => { calSelectedDate = cell.dataset.date; renderCalMonth(); });
+  });
+  renderCalSelectedEvents();
+}
+
+function renderCalSelectedEvents(){
+  const listBox = document.getElementById('calEventListBox');
+  if(!listBox) return;
+  const events = (calEventsByDate[calSelectedDate] || []).slice().sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  if(!events.length){
+    listBox.innerHTML = `<div class="card-title">📅 ${escapeHtml(calSelectedDate)}</div><div class="emptyList">이 날은 등록된 일정이 없어요</div>`;
+    return;
+  }
+  listBox.innerHTML = `<div class="card-title">📅 ${escapeHtml(calSelectedDate)}</div>` + events.map(e => `
+    <div class="calEventRow">
+      ${e.time ? `<div class="calEventTime">${escapeHtml(e.time)}</div>` : ''}
+      <div class="calEventTitle">${escapeHtml(e.title)}</div>
+      ${e.description ? `<div class="calEventDesc">${escapeHtml(e.description)}</div>` : ''}
+    </div>`).join('');
 }
 
 async function registerCode(){

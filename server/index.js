@@ -20087,6 +20087,18 @@ app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
   res.json({ success: true, comment, commentCount: post.comments.length, bonusLotto })
 })
 
+// 📅 캘린더 — DJ가 등록한 행사/방송 일정을 로그인 없이 누구나 볼 수 있게 공개한다 (룰렛정보 탭과
+// 동일하게 조회 전용 · 웹인증 불필요).
+app.get('/myinfo/:djId/calendar', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const events = (settings.calendarEvents || []).slice().sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)).map(e => ({
+    id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
+  }))
+  res.json({ success: true, events })
+})
+
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
 // 파라미터가 하위 경로를 가로채지 않는다.
 app.get('/myinfo/:djId', (req, res) => {
@@ -21209,7 +21221,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21227,6 +21239,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
   if (blindDate) patch.blindDate = blindDate
   if (posts) patch.posts = posts
+  if (calendarEvents) patch.calendarEvents = calendarEvents
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible

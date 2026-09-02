@@ -260,6 +260,9 @@ function defaultSettings() {
     // 📋 포스트 — DJ가 만든 이벤트/공지 게시물. 내정보 웹페이지 "포스트" 탭에서 스푼 앱 게시물처럼
     // 보여준다. { id, title, imageUrl, dateStart, dateEnd, createdAt, likes:[tag,...], comments:[{id,tag,nickname,text,createdAt}] }
     posts: [],
+    // 📅 캘린더 — DJ가 등록한 행사/방송 일정. 내정보 웹페이지 "캘린더" 탭에 달력 형태로 보여준다.
+    // { id, date:'YYYY-MM-DD', time:'HH:MM'(선택), title, description, createdAt }
+    calendarEvents: [],
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
