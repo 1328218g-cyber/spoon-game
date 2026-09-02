@@ -17292,6 +17292,22 @@ app.post('/admin/default-trial-days', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 관리자(sum) 전용 — 마지막 접속 후 몇 일 지나면 다중감시(자동입장) 등록 태그를 자동으로 비울지 조회/설정한다.
+// 0으로 설정하면 자동정리 기능 자체가 꺼진다.
+app.get('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, days: store.getAutoJoinCleanupDays() })
+})
+
+app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const result = store.setAutoJoinCleanupDays((req.body || {}).days)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
 app.get('/admin/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -21320,11 +21336,13 @@ app.listen(PORT, () => {
 
   // 🕐 마지막 접속(lastLoginAt) 기준 아래 일수 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
   // 서버 시작 직후 1회 + 이후 24시간마다 반복 (관리자 sum 계정은 제외).
-  const AUTO_JOIN_CLEANUP_INACTIVE_DAYS = 4
+  // 기준 일수는 관리자 페이지(유저 관리)에서 직접 설정할 수 있고, 0으로 설정하면 자동정리가 꺼진다.
+  // (실행할 때마다 최신 설정값을 다시 읽어서, 관리자가 값을 바꾸면 재배포 없이 바로 반영된다)
   const runAutoJoinCleanup = () => {
     try {
-      const affected = store.cleanupInactiveAutoJoinTags(AUTO_JOIN_CLEANUP_INACTIVE_DAYS)
-      if (affected.length) console.log(`[다중감시 자동정리] ${AUTO_JOIN_CLEANUP_INACTIVE_DAYS}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
+      const days = store.getAutoJoinCleanupDays()
+      const affected = store.cleanupInactiveAutoJoinTags(days)
+      if (affected.length) console.log(`[다중감시 자동정리] ${days}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
     } catch (e) { console.log('[다중감시 자동정리] 실패', e.message) }
   }
   runAutoJoinCleanup()

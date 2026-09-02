@@ -1122,8 +1122,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="sendBroadcastChat()">📢 전체 접속중인 방송에 공지 보내기</button>
         </div>
         <div class="card">
+          <div class="card-title"><span>🕐 다중감시(자동입장) 자동정리 기준일수</span></div>
+          <p class="hint" style="margin-bottom:12px">마지막 접속(로그인)이 아래 일수 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.<br>
+          ※ <b>0</b>으로 저장하면 자동정리 자체가 꺼져요.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="number" id="autoJoinCleanupDaysInput" min="0" style="max-width:120px" placeholder="일수">
+            <span class="hint" style="margin:0">일</span>
+            <button class="btn-connect" style="padding:11px 20px" onclick="saveAutoJoinCleanupDays()">저장</button>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
-          <p class="hint" style="margin-top:0">마지막 접속(로그인)이 4일 이상 지난 계정은 매일 자동으로 등록 태그(다중감시)가 초기화돼요. 다시 로그인하면 정상적으로 다중감시를 재설정할 수 있어요.</p>
+          <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
           <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
@@ -6661,6 +6671,17 @@ async function loadDefaultTrialDays(){
   }catch(e){}
 }
 
+async function loadAutoJoinCleanupDays(){
+  try{
+    const res=await fetch(SERVER+'/admin/autojoin-cleanup-days',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      const input=document.getElementById('autoJoinCleanupDaysInput');
+      if(input) input.value=d.days;
+    }
+  }catch(e){}
+}
+
 async function createAccountManually(){
   const djIdVal=document.getElementById('createAccDjId').value.trim();
   const password=document.getElementById('createAccPassword').value;
@@ -7127,9 +7148,22 @@ async function saveDefaultTrialDays(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+async function saveAutoJoinCleanupDays(){
+  const val=document.getElementById('autoJoinCleanupDaysInput').value;
+  const days=Number(val);
+  if(val===''||isNaN(days)||days<0)return showToast('0 이상의 숫자를 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/autojoin-cleanup-days',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({days})});
+    const d=await res.json();
+    if(d.success){showToast(days===0?'다중감시 자동정리가 꺼졌어요':'다중감시 자동정리 기준이 '+days+'일로 저장됐어요');}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 let adminUserListData=[];
 async function loadUserList(){
   loadDefaultTrialDays();
+  loadAutoJoinCleanupDays();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});

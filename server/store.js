@@ -292,6 +292,26 @@ function setDefaultTrialDays(days) {
   return { ok: true };
 }
 
+// 마지막 접속(로그인)이 이 일수 이상 지난 계정은 다중감시(자동입장) 등록 태그를 자동으로 비운다.
+// 관리자(sum) 계정의 settings.autoJoinCleanupDays에 저장해서 관리한다.
+// 값이 없으면(처음 세팅 전) 기존 하드코딩값과 동일한 기본 4일을 쓴다. 0으로 설정하면 자동정리 자체를 끈다.
+function getAutoJoinCleanupDays() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.autoJoinCleanupDays;
+  return (typeof v === 'number' && v >= 0) ? v : 4;
+}
+
+function setAutoJoinCleanupDays(days) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: '0 이상의 숫자를 입력해주세요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.autoJoinCleanupDays = n;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 // ⚡ 요청 모듈(특정 유저만 접근 가능한 제한 메뉴) 레지스트리.
 // 관리자(sum) 계정의 settings.requestModules에 배열로 저장해서 중앙 관리한다.
 // 각 항목: { id, title, icon, targetPanel, allowedDjIds: [djId, ...] }
@@ -875,6 +895,7 @@ function listDjSummaries() {
 // 그래서 lastLoginAt이 아예 없는 계정은 건드리지 않고, 로그인 기록이 실제로 쌓인 뒤 7일 이상
 // 지난 경우에만 정리한다 — 배포 직후 멀쩡한 계정이 잘못 정리되는 걸 막기 위함.
 function cleanupInactiveAutoJoinTags(inactiveDays = 7) {
+  if (!inactiveDays || inactiveDays <= 0) return []; // 0 이하로 설정되면 자동정리 자체를 끈다
   const djs = loadDjs();
   const cutoff = Date.now() - inactiveDays * 24 * 60 * 60 * 1000;
   const affected = [];
@@ -945,6 +966,8 @@ module.exports = {
   renameDjId,
   getDefaultTrialDays,
   setDefaultTrialDays,
+  getAutoJoinCleanupDays,
+  setAutoJoinCleanupDays,
   getRequestModules,
   saveRequestModules,
   findDuplicateSignup,
