@@ -144,10 +144,10 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 <body>
 <!-- 🔝 상단 메뉴바 — "내정보" 헤더 카드와 별개로 화면 맨 위에 고정 -->
 <div class="pageMenu hidden" id="pageMenu">
-  <button class="menuBtn" id="btnTabPost" onclick="switchTab('post')">
+  <button class="menuBtn active" id="btnTabPost" onclick="switchTab('post')">
     <span class="mIcon">📋</span><span>포스트</span>
   </button>
-  <button class="menuBtn active" id="btnTabKeep" onclick="switchTab('keep')">
+  <button class="menuBtn" id="btnTabKeep" onclick="switchTab('keep')">
     <span class="mIcon">🎁</span><span>킵목록</span><span class="mCount" id="sumKeep">0</span>
   </button>
   <button class="menuBtn" id="btnTabGame" onclick="switchTab('game')">
@@ -174,7 +174,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
 
   <!-- 인증 후: 정보 화면 -->
   <div id="profileWrap" class="hidden">
-    <div class="card" id="profileCard">
+    <div class="card hidden" id="profileCard">
       <div class="profHead">
         <div style="display:flex;align-items:center;gap:10px">
           <img id="pAvatar" src="" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);display:none">
@@ -215,7 +215,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
     </div>
 
     <!-- 🎁 킵목록 탭: 룰렛권·복권 보유 현황을 위쪽에, 그 아래 킵/이벤트/기타 목록 -->
-    <div class="card" id="tabKeepPanel">
+    <div class="card hidden" id="tabKeepPanel">
       <div class="subListTitle" style="margin-top:0">🎟️ 룰렛권 보유</div>
       <div class="chipRow" id="couponChips"><div class="emptyList">보유한 룰렛권이 없어요</div></div>
 
@@ -234,7 +234,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'Noto Sans KR',
     </div>
 
     <!-- 📋 포스트 탭: DJ가 등록한 이벤트/공지 게시물 (스푼 앱 게시물과 비슷한 카드 형태) -->
-    <div id="tabPostPanel" class="hidden">
+    <div id="tabPostPanel">
       <div id="postListBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
     </div>
 
@@ -290,7 +290,7 @@ function fallbackCopy(text, cb){
 }
 
 // 킵목록 / 포스트 / 게임 / 룰렛정보 탭 전환 — 포스트·게임·룰렛정보는 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false;
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, initialTabSet = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
   document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
@@ -582,6 +582,9 @@ async function fetchMe(manual){
     // 인증 완료 — 프로필 화면 렌더
     clearInterval(countdownTimer);
     hide('authCard'); hide('loadingCard'); show('profileWrap'); show('refreshFab'); show('pageMenu');
+    // 페이지에 들어오면 무조건 "포스트" 탭이 메인으로 보이게 강제한다 (3초마다 도는 폴링 때마다
+    // 다시 부르면 안 되므로 최초 1회만 실행되게 막는다 — 이후엔 사용자가 고른 탭을 그대로 유지)
+    if(!initialTabSet){ initialTabSet = true; switchTab('post'); }
 
     document.getElementById('pNick').textContent = sanitizeDisplayName(d.nickname || d.tag);
     document.getElementById('pTag').textContent = '@' + d.tag;
