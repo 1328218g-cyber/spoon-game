@@ -338,11 +338,11 @@ function miMix(hex, withHex, ratio){ // ratio: 0(원래색)~1(withHex색) 사이
 function applyTheme(color){
   if(!/^#[0-9a-fA-F]{6}$/.test(color)) return;
   const root = document.documentElement.style;
-  const bg = miMix(color, '#ffffff', 0.94);
-  const bgSoft = miMix(color, '#ffffff', 0.97);
-  const panel = miMix(color, '#ffffff', 0.985);
-  const surface2 = miMix(color, '#ffffff', 0.94);
-  const border = miMix(color, '#ffffff', 0.83);
+  const bg = miMix(color, '#ffffff', 0.88);
+  const bgSoft = miMix(color, '#ffffff', 0.92);
+  const panel = miMix(color, '#ffffff', 0.95);
+  const surface2 = miMix(color, '#ffffff', 0.85);
+  const border = miMix(color, '#ffffff', 0.70);
   const accent2 = miMix(color, '#ffffff', 0.25); // 그라디언트 끝쪽에 쓸 조금 더 밝은 색
   root.setProperty('--bg', bg);
   root.setProperty('--panel', panel);
