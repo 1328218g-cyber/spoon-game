@@ -338,11 +338,14 @@ function miMix(hex, withHex, ratio){ // ratio: 0(원래색)~1(withHex색) 사이
 function applyTheme(color){
   if(!/^#[0-9a-fA-F]{6}$/.test(color)) return;
   const root = document.documentElement.style;
-  const bg = miMix(color, '#ffffff', 0.88);
-  const bgSoft = miMix(color, '#ffffff', 0.92);
-  const panel = miMix(color, '#ffffff', 0.95);
-  const surface2 = miMix(color, '#ffffff', 0.85);
-  const border = miMix(color, '#ffffff', 0.70);
+  // 🎨 각 영역 색상 = 선택한 색상에 흰색을 몇 % 섞을지로 결정.
+  //    숫자가 작을수록 원래 색이 진하게 남고(연하게 안 됨), 클수록 흰색에 가까워짐(더 연해짐).
+  //    요청사항: "배경은 선택 색상보다 30% 연하게" → bg는 흰색 30%만 섞음(원래 색 70% 유지).
+  const bg = miMix(color, '#ffffff', 0.30);       // 페이지 배경 — 선택색보다 30% 연하게
+  const bgSoft = miMix(color, '#ffffff', 0.40);   // 배경 그라데이션 하단부
+  const panel = miMix(color, '#ffffff', 0.55);    // 카드/상단메뉴 배경 — 배경보다 한 단계 더 연하게(카드가 배경 위에서 도드라지도록)
+  const surface2 = miMix(color, '#ffffff', 0.20); // 배지/칩 등 배경 — bg보다 살짝 진하게
+  const border = miMix(color, '#ffffff', 0.10);   // 테두리 — 가장 진하게(선이 잘 보이도록)
   const accent2 = miMix(color, '#ffffff', 0.25); // 그라디언트 끝쪽에 쓸 조금 더 밝은 색
   root.setProperty('--bg', bg);
   root.setProperty('--panel', panel);
