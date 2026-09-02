@@ -270,6 +270,19 @@ function pickSharedTokenDjId() {
 function tokenDjIdFor(djId) {
   if (tokenManager.hasCookies(djId)) return djId
   const existingRoom = rooms[djId]
+
+  // 🎯 DJ가 입장설정에서 특정 공용 계정을 직접 골라뒀으면 1순위로 그 계정을 쓰되,
+  // 세션이 없거나 이미 정원(SHARED_TOKEN_CAPACITY)이 꽉 찼으면 자동 배정 로직으로 자연스럽게 넘어간다.
+  // (loadDjs가 메모리 캐시라서 여기서 매번 읽어도 부담 없음 — 이 함수는 매우 자주 호출됨)
+  try {
+    const preferred = store.getSettings(djId)?.preferredTokenDjId
+    if (preferred && SHARED_TOKEN_POOL.includes(preferred) && tokenManager.hasCookies(preferred)
+      && countConnectedOnToken(preferred) < SHARED_TOKEN_CAPACITY) {
+      if (existingRoom) existingRoom.tokenDjId = preferred
+      return preferred
+    }
+  } catch (e) {}
+
   if (existingRoom && existingRoom.tokenDjId && SHARED_TOKEN_POOL.includes(existingRoom.tokenDjId)) {
     return existingRoom.tokenDjId
   }
@@ -732,7 +745,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -980,6 +993,249 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
   setTimeout(() => sendChatToRoom(djId, renderFundingItem(funding.itemTemplate, item, idx1, funding)), 400)
 }
 
+// ============================================================
+// 💘 소개팅 매니저 — 커플 목록 / 강전 후보 스택 / 비토·비마 스푼 지갑
+// (참고: 별도 소개팅 매니저 확장앱의 커플·강전·지갑 기능을 에디봇 채팅 명령어 방식으로 이식)
+// ============================================================
+
+// 구버전 계정은 settings에 blindDate 필드가 없을 수 있으므로, 처음 쓰는 시점에 기본값을 채워 저장해둔다.
+function getBlindDateSettings(djId, settings) {
+  if (!settings.blindDate) {
+    settings.blindDate = {
+      cmdCouple: '!커플', cmdStrong: '!강전', cmdWalletView: '!지갑', cmdWalletAdd: '!비토', cmdWalletSub: '!비마',
+      pageSize: 10, couples: [], strongCandidates: [], wallet: { balance: 0, updatedAt: null },
+    }
+    store.saveSettings(djId, { blindDate: settings.blindDate })
+  }
+  if (!settings.blindDate.wallet) settings.blindDate.wallet = { balance: 0, updatedAt: null }
+  if (!settings.blindDate.couples) settings.blindDate.couples = []
+  if (!settings.blindDate.strongCandidates) settings.blindDate.strongCandidates = []
+  return settings.blindDate
+}
+
+function bdNextId(list) {
+  return (list.reduce((max, it) => Math.max(max, Number(it.id) || 0), 0)) + 1
+}
+
+// 등록된 커플/강전 목록을 다른 페이지네이션 명령어(!킵 등)와 동일한 형식으로 출력한다.
+function bdPaginate(items, page, pageSize, formatLine, emptyMsg, header, cmdHint) {
+  if (!items.length) return emptyMsg
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const cur = Math.max(1, Math.min(page || 1, totalPages))
+  const start = (cur - 1) * pageSize
+  const pageItems = items.slice(start, start + pageSize)
+  let msg = `${header} (${cur}/${totalPages}페이지, 총 ${items.length}개)\n`
+  pageItems.forEach((it, i) => { msg += formatLine(it, start + i + 1) + '\n' })
+  if (totalPages > 1) {
+    const next = cur < totalPages ? cur + 1 : 1
+    msg += `\n💡 ${cmdHint} ${next} 로 다른 페이지 확인`
+  }
+  return msg.trim()
+}
+
+// !커플 목록 [페이지] / !커플 추가 태그1 태그2 [강제] / !커플 삭제 [번호] / !커플 초기화 / !커플 전체초기화
+function handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager) {
+  const base = bd.cmdCouple
+  if (!base) return
+  const raw = String(text || '').trim()
+  if (!raw.startsWith(base)) return
+  const rest = raw.slice(base.length).trim()
+  const parts = rest.split(/\s+/).filter(Boolean)
+  const sub = parts[0] || ''
+  const canManage = isDj || isManager
+
+  if (sub === '목록' || sub === '') {
+    const page = parseInt(parts[1], 10) || 1
+    const msg = bdPaginate(
+      bd.couples, page, bd.pageSize || 10,
+      (c, idx) => `${idx}. ${c.nickA}${c.forced ? '💍' : '💕'}${c.nickB}`,
+      '💕 등록된 커플이 없습니다.', '💕 커플 목록', `${base} 목록`
+    )
+    setTimeout(() => sendChatToRoom(djId, msg), 400)
+    return
+  }
+
+  if (sub === '추가') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 추가 권한이 없어요'), 400); return }
+    const args = parts.slice(1)
+    const forced = args.some(p => p === '강제')
+    const tagArgs = args.filter(p => p !== '강제') // @ 없이 고유닉만 입력해도 됨 (혹시 @가 붙어있어도 알아서 제거)
+    if (tagArgs.length < 2) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 추가 태그1 태그2 [강제]`), 400); return }
+    const tagA = tagArgs[0].replace('@', '').toLowerCase()
+    const tagB = tagArgs[1].replace('@', '').toLowerCase()
+    if (!tagA || !tagB || tagA === tagB) { setTimeout(() => sendChatToRoom(djId, '❌ 같은 사람은 커플로 등록할 수 없어요'), 400); return }
+    const nickA = resolveNicknameFromInput(room, tagArgs[0])
+    const nickB = resolveNicknameFromInput(room, tagArgs[1])
+    const dup = bd.couples.find(c => (c.tagA === tagA && c.tagB === tagB) || (c.tagA === tagB && c.tagB === tagA))
+    if (dup) { setTimeout(() => sendChatToRoom(djId, '❌ 이미 등록된 커플이에요'), 400); return }
+    bd.couples.push({ id: bdNextId(bd.couples), tagA, nickA, tagB, nickB, forced, createdAt: new Date().toISOString() })
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, `✅ 커플 등록 완료! ${nickA}${forced ? '💍' : '💕'}${nickB}`), 400)
+    return
+  }
+
+  if (sub === '삭제') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 삭제 권한이 없어요'), 400); return }
+    const idx1 = parseInt(parts[1], 10)
+    const target = idx1 ? bd.couples[idx1 - 1] : null
+    if (!target) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 [번호]`), 400); return }
+    bd.couples.splice(idx1 - 1, 1)
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, `✅ ${idx1}번 커플 삭제 완료`), 400)
+    return
+  }
+
+  if (sub === '초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 초기화 권한이 없어요'), 400); return }
+    bd.couples = bd.couples.filter(c => c.forced) // 강제 커플은 일반 초기화로 지워지지 않음
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, '✅ 일반 커플 전체 삭제 완료 (강제 커플은 유지)'), 400)
+    return
+  }
+
+  if (sub === '전체초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 커플 초기화 권한이 없어요'), 400); return }
+    bd.couples = []
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'couples', couples: bd.couples })
+    setTimeout(() => sendChatToRoom(djId, '✅ 커플 전체 삭제 완료 (강제 커플 포함)'), 400)
+    return
+  }
+}
+
+// !강전 목록 [페이지] / !강전 태그 [±숫자] / !강전 삭제 태그 / !강전 초기화
+function handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager) {
+  const base = bd.cmdStrong
+  if (!base) return
+  const raw = String(text || '').trim()
+  if (!raw.startsWith(base)) return
+  const rest = raw.slice(base.length).trim()
+  const parts = rest.split(/\s+/).filter(Boolean)
+  const sub = parts[0] || ''
+  const canManage = isDj || isManager
+
+  if (sub === '목록' || sub === '') {
+    const page = parseInt(parts[1], 10) || 1
+    const msg = bdPaginate(
+      bd.strongCandidates, page, bd.pageSize || 10,
+      (c, idx) => `${idx}. ${c.nickname} - ${c.stack}`,
+      '🔥 등록된 강전 후보가 없습니다.', '🔥 강전 목록', `${base} 목록`
+    )
+    setTimeout(() => sendChatToRoom(djId, msg), 400)
+    return
+  }
+
+  if (sub === '삭제') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 삭제 권한이 없어요'), 400); return }
+    const tagArg = parts[1]
+    if (!tagArg) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${base} 삭제 태그`), 400); return }
+    const tag = tagArg.replace('@', '').toLowerCase()
+    const before = bd.strongCandidates.length
+    bd.strongCandidates = bd.strongCandidates.filter(c => c.tag !== tag)
+    if (bd.strongCandidates.length === before) { setTimeout(() => sendChatToRoom(djId, '❌ 등록되지 않은 대상이에요'), 400); return }
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, '✅ 강전 후보 삭제 완료'), 400)
+    return
+  }
+
+  if (sub === '초기화') {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 초기화 권한이 없어요'), 400); return }
+    bd.strongCandidates = []
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, '✅ 강전 후보 전체 삭제 완료'), 400)
+    return
+  }
+
+  // 목록/삭제/초기화가 아니면 나머지는 전부 "태그 [증감]" 형태로 취급 (@ 붙여도, 안 붙여도 동작)
+  {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 강전 조절 권한이 없어요'), 400); return }
+    const tag = sub.replace('@', '').toLowerCase()
+    if (!tag) return
+    const nickname = resolveNicknameFromInput(room, sub)
+    const delta = (parts[1] != null && /^[+-]?\d+$/.test(parts[1])) ? parseInt(parts[1], 10) : 1
+    let cand = bd.strongCandidates.find(c => c.tag === tag)
+    if (!cand) {
+      if (delta <= 0) { setTimeout(() => sendChatToRoom(djId, '❌ 등록되지 않은 대상이에요'), 400); return }
+      cand = { id: bdNextId(bd.strongCandidates), tag, nickname, stack: 0, updatedAt: new Date().toISOString() }
+      bd.strongCandidates.push(cand)
+    }
+    cand.nickname = nickname
+    cand.stack = (cand.stack || 0) + delta
+    cand.updatedAt = new Date().toISOString()
+    if (cand.stack <= 0) {
+      bd.strongCandidates = bd.strongCandidates.filter(c => c.tag !== tag) // 스택 0 되면 자동 삭제
+      store.saveSettings(djId, { blindDate: bd })
+      broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+      setTimeout(() => sendChatToRoom(djId, `✅ ${nickname}님 강전 스택 소진 - 목록에서 삭제`), 400)
+      return
+    }
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'strong', strongCandidates: bd.strongCandidates })
+    setTimeout(() => sendChatToRoom(djId, `✅ ${nickname}님 강전 스택: ${cand.stack}`), 400)
+    return
+  }
+}
+
+// !지갑 / !지갑 초기화 / !비토 [숫자] / !비마 [숫자] — 전부 DJ·매니저 전용 (README 기준: 조회도 DJ/매니저만)
+function handleBlindDateWalletCommand(djId, bd, text, isDj, isManager) {
+  const canManage = isDj || isManager
+  const raw = String(text || '').trim()
+
+  if (bd.cmdWalletView && raw === bd.cmdWalletView) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조회 권한이 없어요'), 400); return }
+    setTimeout(() => sendChatToRoom(djId, `💰 현재 지갑: ${(bd.wallet.balance || 0).toLocaleString()}개`), 400)
+    return
+  }
+  if (bd.cmdWalletView && raw === `${bd.cmdWalletView} 초기화`) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 초기화 권한이 없어요'), 400); return }
+    bd.wallet.balance = 0
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, '✅ 지갑 초기화 완료 (0개)'), 400)
+    return
+  }
+  if (bd.cmdWalletAdd && raw.startsWith(bd.cmdWalletAdd)) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조절 권한이 없어요'), 400); return }
+    const rest = raw.slice(bd.cmdWalletAdd.length).trim()
+    const amount = parseInt(rest, 10)
+    if (!rest || !Number.isFinite(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${bd.cmdWalletAdd} [숫자]`), 400); return }
+    bd.wallet.balance = (bd.wallet.balance || 0) + amount
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, `✅ 비토 ${amount.toLocaleString()}개 추가! 현재: ${bd.wallet.balance.toLocaleString()}개`), 400)
+    return
+  }
+  if (bd.cmdWalletSub && raw.startsWith(bd.cmdWalletSub)) {
+    if (!canManage) { setTimeout(() => sendChatToRoom(djId, '❌ 지갑 조절 권한이 없어요'), 400); return }
+    const rest = raw.slice(bd.cmdWalletSub.length).trim()
+    const amount = parseInt(rest, 10)
+    if (!rest || !Number.isFinite(amount) || amount <= 0) { setTimeout(() => sendChatToRoom(djId, `❌ 사용법: ${bd.cmdWalletSub} [숫자]`), 400); return }
+    bd.wallet.balance = (bd.wallet.balance || 0) - amount
+    bd.wallet.updatedAt = new Date().toISOString()
+    store.saveSettings(djId, { blindDate: bd })
+    broadcast({ type: 'blinddate', djId, section: 'wallet', wallet: bd.wallet })
+    setTimeout(() => sendChatToRoom(djId, `▼ 비마 ${amount.toLocaleString()}개 차감! 현재: ${bd.wallet.balance.toLocaleString()}개`), 400)
+    return
+  }
+}
+
+// 소개팅 매니저 통합 진입점 — 메인 채팅 디스패치 체인에서 호출된다
+function handleBlindDateCommand(djId, room, settings, text, isDj, isManager) {
+  if (!isModuleOn(settings, 'blinddate', djId)) return
+  if (!String(text || '').trim().startsWith('!')) return
+  const bd = getBlindDateSettings(djId, settings)
+  handleBlindDateCoupleCommand(djId, room, bd, text, isDj, isManager)
+  handleBlindDateStrongCommand(djId, room, bd, text, isDj, isManager)
+  handleBlindDateWalletCommand(djId, bd, text, isDj, isManager)
+}
+
 // 단축키 명령어 쿨타임 추적용 (메모리에만 유지, 재시작하면 초기화됨 — 큰 문제 없음)
 const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
 
@@ -1091,6 +1347,7 @@ function getSongRequestSettings(djId, settings) {
   }
   if (!settings.songRequest.cmdRecommend) settings.songRequest.cmdRecommend = '!추천곡'
   if (!settings.songRequest.searchSites) settings.songRequest.searchSites = { spotify: false, appleMusic: false }
+  if (settings.songRequest.verifyOriginalOnRequest == null) settings.songRequest.verifyOriginalOnRequest = false
   return settings.songRequest
 }
 
@@ -1120,60 +1377,108 @@ function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
   return score
 }
 
-// 🔑 로컬봇(Electron)이 쓰던 것과 동일한 유튜브 Data API v3 키. 로컬봇 코드에 이미 박혀있던
-// 단비님 소유의 키를 그대로 재사용한다 (검색 결과가 100% 동일하게 나오도록). 환경변수로
-// 덮어쓸 수 있게 해뒀다 — 나중에 키를 새로 발급받으면 Railway 환경변수만 바꾸면 된다.
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY'
+// 🔑 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록해둘 수 있다.
+// 등록된 키가 있으면 그걸 최우선으로 쓰고, 없으면 기존처럼 Railway 환경변수
+// (YOUTUBE_API_KEYS, 콤마로 여러 개 가능 — 예전 방식인 YOUTUBE_API_KEY 단일값도 계속 지원)를,
+// 그것도 없으면 로컬봇 시절부터 쓰던 단비님 소유의 키를 마지막 폴백으로 쓴다.
+function getYoutubeApiKeys() {
+  const fromAdmin = store.getYoutubeApiKeys()
+  if (fromAdmin.length) return fromAdmin
+  const fromEnv = (process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY || '')
+    .split(',').map(s => s.trim()).filter(Boolean)
+  if (fromEnv.length) return fromEnv
+  return ['AIzaSyAIm_oM2903zJF1vkPbjd42VxlUn5KVDmY']
+}
 
-// 로컬봇과 100% 동일한 검색 로직:
+// 🚦 키 하나가 일일 쿼터를 다 쓰면(quotaExceeded 등 403 에러) 그 키를 대략 24시간(구글 쿼터
+// 리셋 주기와 비슷하게) 동안 건너뛰고 다음 등록 키로 자동 전환한다. 메모리에만 기록하므로
+// 서버 재시작되면 초기화된다 — 그래도 다음 검색 때 다시 시도해보면 되니 문제 없다.
+const ytKeyExhaustedUntil = {} // key -> timestampMs
+const YT_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000
+
+function isYoutubeQuotaError(errObj) {
+  if (!errObj) return false
+  const reasons = (errObj.errors || []).map(e => e.reason)
+  return errObj.code === 403 && (reasons.includes('quotaExceeded') || reasons.includes('dailyLimitExceeded') || reasons.includes('rateLimitExceeded'))
+}
+
+async function fetchYoutubeSearchJson(query, key) {
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${key}`
+  try {
+    const r = await fetch(url)
+    return await r.json()
+  } catch (e) {
+    return { error: { message: e.message } }
+  }
+}
+
+// 로컬봇과 100% 동일한 검색 로직 + 다중 키 자동 전환:
 // 1) "가수 제목 audio" + "가수 제목" 두 쿼리를 병렬로 검색 (videoEmbeddable=true, videoCategoryId=10=음악)
-// 2) 결과 병합 + 중복 제거
-// 3) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
-// 4) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
+// 2) 등록된 키 중 하나가 쿼터 초과면 다음 키로 넘어가서 재시도
+// 3) 결과 병합 + 중복 제거
+// 4) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
+// 5) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
 async function searchYoutubeVideo(artist, title) {
   if (!artist && !title) return null
-  try {
-    const q1 = `${artist} ${title} audio`
-    const q2 = `${artist} ${title}`
-    const mkUrl = (q) => `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoEmbeddable=true&videoCategoryId=10&maxResults=10&key=${YOUTUBE_API_KEY}`
-    const [r1, r2] = await Promise.all([
-      fetch(mkUrl(q1)).then(r => r.json()).catch(() => ({ items: [] })),
-      fetch(mkUrl(q2)).then(r => r.json()).catch(() => ({ items: [] })),
-    ])
-    if (r1.error && r2.error) {
-      console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
-      return null
+  const keys = getYoutubeApiKeys()
+  if (!keys.length) return null
+  const now = Date.now()
+  const available = keys.filter(k => !ytKeyExhaustedUntil[k] || ytKeyExhaustedUntil[k] <= now)
+  const tryOrder = available.length ? available : keys // 전부 소진 표시돼있어도 리셋 시점이 부정확할 수 있으니 일단 재시도는 해본다
+
+  for (const key of tryOrder) {
+    try {
+      const q1 = `${artist} ${title} audio`
+      const q2 = `${artist} ${title}`
+      const [r1, r2] = await Promise.all([
+        fetchYoutubeSearchJson(q1, key),
+        fetchYoutubeSearchJson(q2, key),
+      ])
+      const err = r1.error || r2.error
+      if (err && isYoutubeQuotaError(err)) {
+        ytKeyExhaustedUntil[key] = now + YT_QUOTA_COOLDOWN_MS
+        console.log(`[유튜브 API] 키(${key.slice(0, 6)}...) 쿼터 초과 → 다음 등록 키로 자동 전환`)
+        continue
+      }
+      if (r1.error && r2.error) {
+        console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
+        continue // 이 키에서만 나는 일시적 오류일 수 있으니 다음 키로 넘어가서 한 번 더 시도
+      }
+
+      const seen = new Set()
+      const merged = []
+      ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
+        const vid = item.id && item.id.videoId
+        if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
+      })
+      if (!merged.length) return null
+
+      const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
+      const userSearchQuery = `${artist} ${title}`.toLowerCase()
+      const filtered = merged.filter(item => {
+        const vTitle = (item.snippet.title || '').toLowerCase()
+        const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
+        const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
+        return !(isInstInTitle && !isInstInQuery)
+      })
+      const finalCandidates = filtered.length > 0 ? filtered : merged
+
+      const scored = finalCandidates.map(item => ({
+        videoId: item.id.videoId,
+        title: item.snippet.title,
+        channelTitle: item.snippet.channelTitle,
+        score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
+      })).sort((a, b) => b.score - a.score)
+
+      // hasOriginal: MR/반주/노래방 키워드가 아닌 "원곡"으로 보이는 후보가 실제로 있었는지.
+      // filtered가 비어서 merged(MR 포함 전체)로 폴백한 경우엔 false — 신청 접수 시 원곡 없음 판단에 쓴다.
+      return { candidates: scored, matchedTitle: scored[0].title, hasOriginal: filtered.length > 0 }
+    } catch (e) {
+      console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
+      continue
     }
-    const seen = new Set()
-    const merged = []
-    ;[...(r1.items || []), ...(r2.items || [])].forEach(item => {
-      const vid = item.id && item.id.videoId
-      if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
-    })
-    if (!merged.length) return null
-
-    const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
-    const userSearchQuery = `${artist} ${title}`.toLowerCase()
-    const filtered = merged.filter(item => {
-      const vTitle = (item.snippet.title || '').toLowerCase()
-      const isInstInTitle = instKeywords.some(kw => vTitle.includes(kw))
-      const isInstInQuery = instKeywords.some(kw => userSearchQuery.includes(kw))
-      return !(isInstInTitle && !isInstInQuery)
-    })
-    const finalCandidates = filtered.length > 0 ? filtered : merged
-
-    const scored = finalCandidates.map(item => ({
-      videoId: item.id.videoId,
-      title: item.snippet.title,
-      channelTitle: item.snippet.channelTitle,
-      score: scoreYoutubeCandidate(item.snippet.title, item.snippet.channelTitle, artist, title),
-    })).sort((a, b) => b.score - a.score)
-
-    return { candidates: scored, matchedTitle: scored[0].title }
-  } catch (e) {
-    console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
-    return null
   }
+  return null // 등록된 키를 전부 시도했는데도 결과를 못 얻음
 }
 
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
@@ -1247,6 +1552,24 @@ async function handleSongRequestCommand(djId, room, settings, author, authorId, 
     const artist = parts.shift() || ''
     const title = parts.join(' ') || artist
     const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist, title, requester: author }
+
+    // 🎬 켜져있으면 접수 즉시 유튜브에서 원곡 존재 여부를 확인한다. MR/반주/노래방 버전만 나오거나
+    // 아예 검색 결과가 없으면 접수하지 않고 안내만 보낸다 (원곡위주로만 큐에 쌓이도록).
+    if (sr.verifyOriginalOnRequest) {
+      const yt = await searchYoutubeVideo(artist, title)
+      if (!yt || !yt.candidates.length) {
+        setTimeout(() => sendChatToRoom(djId, `❌ [${artist} - ${title}] 유튜브에서 찾을 수 없어요. 가수/제목을 다시 확인해주세요.`), 400)
+        return
+      }
+      if (!yt.hasOriginal) {
+        setTimeout(() => sendChatToRoom(djId, `❌ [${artist} - ${title}] 원곡을 찾지 못했어요 (MR·반주·노래방 버전만 검색돼요). 다른 곡을 신청해주세요.`), 400)
+        return
+      }
+      // 나중에 재생 버튼을 누를 때 다시 검색하지 않도록, 지금 찾은 후보를 그대로 캐싱해둔다.
+      item.matchedTitle = yt.matchedTitle
+      item.ytCandidates = yt.candidates.slice(0, 5).map(c => ({ id: c.videoId, title: c.title }))
+    }
+
     if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
     save()
     broadcast({ type: 'songrequest', djId, items: sr.items })
@@ -6663,13 +6986,14 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
 const GIFT_GALLERY_MAX_ITEMS = 300
 function getGiftGallerySettings(djId, settings) {
   if (!settings.giftGallery) {
-    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', items: [] }
+    settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', spoonColor: '#f97316', items: [] }
     store.saveSettings(djId, { giftGallery: settings.giftGallery })
   }
   if (!Array.isArray(settings.giftGallery.items)) settings.giftGallery.items = []
   if (settings.giftGallery.avatarShape !== 'square' && settings.giftGallery.avatarShape !== 'circle') settings.giftGallery.avatarShape = 'circle'
   if (!['rect', 'pill', 'none'].includes(settings.giftGallery.cardShape)) settings.giftGallery.cardShape = 'pill'
   if (settings.giftGallery.avatarMode !== 'senderOnly' && settings.giftGallery.avatarMode !== 'both') settings.giftGallery.avatarMode = 'both'
+  if (!/^#[0-9a-fA-F]{6}$/.test(settings.giftGallery.spoonColor || '')) settings.giftGallery.spoonColor = '#f97316'
   return settings.giftGallery
 }
 let giftGallerySaveDebounce = {}
@@ -14645,7 +14969,7 @@ function handleRouletteMenuCommand(djId, settings, text) {
   if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
   if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
 
-  const pageSize = 10
+  const pageSize = Math.max(1, Number(settings.roulette.menuPageSize) || 10)
   const totalPages = Math.ceil(rt.items.length / pageSize)
   const cur = Math.max(1, Math.min(page, totalPages))
   const startIdx = (cur - 1) * pageSize
@@ -14914,9 +15238,12 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
 
   if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
-    setTimeout(() => sendChatToRoom(djId, text), 200)
+    const delayMs = Math.max(0, Number(greeting.delaySec) || 0) * 1000 + 200 // 기본 200ms(전송 텀)에 지정한 지연시간을 더해서 내보낸다
+    setTimeout(() => sendChatToRoom(djId, text), delayMs)
     if ((greeting.soundUrl || greeting.soundData) && soundCooldownOk) {
-      broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      setTimeout(() => {
+        broadcast({ type: 'greetsound', djId, id: greeting.id, volume: greeting.soundVolume != null ? greeting.soundVolume : 100 })
+      }, delayMs)
       if (greetKey) room._lastGreetSoundAt.set(greetKey, nowTs)
     }
   } else if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -15046,6 +15373,7 @@ function rebootDjConnection(djId) {
   clearQuizTimers(room)
   delete rooms[djId]           // 다음 getRoom() 호출 시 완전히 새 상태로 재생성됨
   delete repeatLastSent[djId]  // 반복 문구 타이머 기준 시각도 초기화
+  delete repeatSeqState[djId]  // 순서대로 모드 진행 상태도 초기화
 
   for (const key of [...commandCooldowns.keys()]) {
     if (key.startsWith(djId + ':')) commandCooldowns.delete(key)
@@ -15139,6 +15467,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
     repeatLastSent[djId] = {}
+    delete repeatSeqState[djId]
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
@@ -15216,6 +15545,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFlagCommand(djId, room, settings, author, authorId, text)
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleBlindDateCommand(djId, room, settings, text, isDj, isManager)
           handleSongRequestCommand(djId, room, settings, author, authorId, text, liveId)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
@@ -15519,11 +15849,36 @@ setInterval(() => {
 }, 5 * 60 * 1000)
 
 // ══════════════════════════════════════════════════════
-// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 각자 설정한 간격(분/초)마다
-// 방송에 봇이 들어가 있는 동안 자동으로 채팅에 전송한다. 메시지마다 간격이 다를 수 있어서
-// 짧은 주기(10초)로 깨어나 각 메시지의 마지막 전송 시각과 비교하는 방식으로 처리한다.
-const repeatLastSent = {} // djId -> { [messageId]: timestampMs }
+// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 방송에 봇이 들어가 있는 동안
+// 자동으로 채팅에 전송한다. 두 가지 모드를 지원한다 (settings.entryData.repeatMode):
+//  - 'interval'(기본값): 메시지마다 각자 설정한 간격(분/초)마다 독립적으로 반복 — 여러 메시지가
+//    서로 겹쳐서(동시에) 나올 수 있다.
+//  - 'sequence': 순서대로 한 번에 하나씩만 — 앞 메시지가 나온 뒤, 다음에 나올 메시지에 설정된
+//    시간만큼 기다렸다가 그 메시지가 나오고, 마지막 메시지 다음엔 다시 첫 메시지로 돌아간다.
+//    (예: 1분/3분/4분 순서로 등록해두면 1분 뒤 1번째, 그 뒤 3분 지나 2번째, 그 뒤 4분 지나
+//    3번째가 나오고, 다시 1번째의 1분 대기부터 반복)
+// 짧은 주기(10초)로 깨어나 비교하는 방식으로 처리한다.
+const repeatLastSent = {} // djId -> { [messageId]: timestampMs } ('interval' 모드용)
+const repeatSeqState = {} // djId -> { index, nextAt } ('sequence' 모드용)
 const REPEAT_TICK_MS = 10 * 1000
+
+function repeatMsgIntervalMs(m) {
+  return ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+}
+
+function sendRepeatMessage(djId, settings, m) {
+  const text = String(m.text || '').trim()
+  if (!text) return
+  const rv = buildDashboardRankVars(settings)
+  const out = text
+    .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+    .replace(/{nickname}/g, rv.nickname)
+    .replace(/{rank}/g, rv.rank)
+    .replace(/{choice_rank}/g, rv.choice_rank)
+    .replace(/{like_rank}/g, rv.like_rank)
+    .replace(/{time_rank}/g, rv.time_rank)
+  sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+}
 
 setInterval(() => {
   const now = Date.now()
@@ -15535,7 +15890,30 @@ setInterval(() => {
     if (!isModuleOn(settings, 'entrysettings', djId)) continue
     const list = settings.entryData?.repeat || []
     if (!list.length) continue
+    const mode = settings.entryData?.repeatMode === 'sequence' ? 'sequence' : 'interval'
 
+    if (mode === 'sequence') {
+      const activeList = list.filter(m => m && m.enabled !== false && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0)
+      if (!activeList.length) { delete repeatSeqState[djId]; continue }
+
+      if (!repeatSeqState[djId]) repeatSeqState[djId] = { index: 0, nextAt: null }
+      const state = repeatSeqState[djId]
+      if (state.index >= activeList.length) state.index = 0
+
+      if (state.nextAt == null) {
+        // 처음 감지 — 바로 쏘지 않고, 지금 순번 메시지에 설정된 시간만큼 기다렸다가 시작한다.
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+        continue
+      }
+      if (now >= state.nextAt) {
+        sendRepeatMessage(djId, settings, activeList[state.index])
+        state.index = (state.index + 1) % activeList.length
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+      }
+      continue
+    }
+
+    // ── 'interval' 모드 (기존 방식) — 메시지마다 독립적으로 각자 간격 반복 ──
     if (!repeatLastSent[djId]) repeatLastSent[djId] = {}
     const lastMap = repeatLastSent[djId]
 
@@ -15543,7 +15921,7 @@ setInterval(() => {
       if (!m || m.enabled === false) return
       const text = String(m.text || '').trim()
       if (!text) return
-      const intervalMs = ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+      const intervalMs = repeatMsgIntervalMs(m)
       if (intervalMs <= 0) return
 
       const last = lastMap[m.id]
@@ -15553,15 +15931,7 @@ setInterval(() => {
         return
       }
       if (now - last >= intervalMs) {
-        const rv = buildDashboardRankVars(settings)
-        const out = text
-          .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
-          .replace(/{nickname}/g, rv.nickname)
-          .replace(/{rank}/g, rv.rank)
-          .replace(/{choice_rank}/g, rv.choice_rank)
-          .replace(/{like_rank}/g, rv.like_rank)
-          .replace(/{time_rank}/g, rv.time_rank)
-        sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+        sendRepeatMessage(djId, settings, m)
         lastMap[m.id] = now
       }
     })
@@ -15608,7 +15978,11 @@ async function getStickerList() {
         list.push({
           name: s.name,
           title: s.title || s.name,
-          image: s.image_thumbnail_web || s.image_thumbnail || s.image_url_web || '',
+          // 🖼️ [수정] 썸네일(image_thumbnail_web 등)을 우선으로 쓰면, 스티커에 따라 실제 채팅에 뜨는
+          // 컬러 이미지가 아니라 단순 흑백 윤곽선(placeholder) 아이콘이 내려오는 경우가 있었다
+          // (예: 우유 선물). 실제 스푼 채팅/박제판과 똑같이 보이도록 원본 화질(image_url_web)을
+          // 최우선으로 쓰고, 그게 없을 때만 썸네일로 대체한다.
+          image: s.image_url_web || s.image_thumbnail_web || s.image_thumbnail || '',
           price: s.price || 0,
           category: cat.title || cat.name || ''
         })
@@ -15788,10 +16162,11 @@ app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const gallery = getGiftGallerySettings(req.djId, settings)
-  const { avatarShape, cardShape, avatarMode } = req.body || {}
+  const { avatarShape, cardShape, avatarMode, spoonColor } = req.body || {}
   if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
   if (['rect', 'pill', 'none'].includes(cardShape)) gallery.cardShape = cardShape
   if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
+  if (/^#[0-9a-fA-F]{6}$/.test(spoonColor || '')) gallery.spoonColor = spoonColor
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })
@@ -15803,12 +16178,43 @@ app.post('/giftgallery/delete-item', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
 })
+// 🖊️ 카드에 표시되는 닉네임을 DJ가 직접 수정 — 원본 닉네임은 origAuthor에 남겨두고 표시용 author만 바꾼다.
+app.post('/giftgallery/update-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id, author } = req.body || {}
+  const nickname = String(author || '').trim()
+  if (!nickname) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const item = gallery.items.find(it => it.id === id)
+  if (!item) return res.json({ success: false, error: '카드를 찾을 수 없어요' })
+  if (item.origAuthor == null) item.origAuthor = item.author // 최초 수정 시점에만 원본 보존
+  item.author = nickname
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
 app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const gallery = getGiftGallerySettings(req.djId, settings)
   gallery.items = []
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
+})
+// 🔄 이미 저장된 카드들의 스티커 이미지를 최신 우선순위(image_url_web 우선)로 다시 찾아서 갱신한다.
+// 코드만 고쳐서는 이미 저장된 항목의 stickerImage URL이 자동으로 안 바뀌기 때문에 필요한 일회성 작업.
+app.post('/giftgallery/refresh-sticker-images', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  let changed = 0
+  for (const it of gallery.items) {
+    if (!it.sticker) continue
+    try {
+      const fresh = await findStickerImage(it.sticker)
+      if (fresh && fresh !== it.stickerImage) { it.stickerImage = fresh; changed++ }
+    } catch (e) {}
+  }
+  if (changed) store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, changed, settings: gallery })
 })
 
 // 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게
@@ -17046,6 +17452,43 @@ app.post('/admin/default-trial-days', auth.requireAuth, (req, res) => {
   const result = store.setDefaultTrialDays((req.body || {}).days)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 마지막 접속 후 몇 일 지나면 다중감시(자동입장) 등록 태그를 자동으로 비울지 조회/설정한다.
+// 0으로 설정하면 자동정리 기능 자체가 꺼진다.
+app.get('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, days: store.getAutoJoinCleanupDays() })
+})
+
+app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const result = store.setAutoJoinCleanupDays((req.body || {}).days)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 유튜브 Data API v3 키 조회/등록 (최대 3개). 등록해두면 Railway 환경변수보다
+// 우선해서 쓰이고, 검색 도중 하나가 쿼터를 다 쓰면 자동으로 다음 등록 키로 넘어간다.
+// 조회 응답에는 키를 그대로 노출하지 않고 마스킹해서 내려준다 (앞 6자만 보여줌).
+app.get('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const keys = store.getYoutubeApiKeys()
+  res.json({
+    success: true,
+    count: keys.length,
+    maskedKeys: keys.map(k => k.slice(0, 6) + '••••••••'),
+    usingEnvFallback: keys.length === 0 && !!(process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY),
+  })
+})
+
+app.post('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setYoutubeApiKeys((req.body || {}).keys)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
 })
 
 // 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
@@ -20646,7 +21089,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -20662,6 +21105,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (songRequest) patch.songRequest = songRequest
   if (roulette) patch.roulette = roulette
   if (rouletteHistory) patch.rouletteHistory = rouletteHistory
+  if (blindDate) patch.blindDate = blindDate
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
   if (moduleVisible) patch.moduleVisible = moduleVisible
@@ -20697,11 +21141,23 @@ app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
 
 // 🎬 신청곡 유튜브 재생 후보 검색 — 로컬봇의 playSongOnYoutube()와 동일하게, DJ가 재생 버튼을
 // 누른 "그 순간"에 검색해서 점수순 후보 목록을 돌려준다. 재생 실패 시 프론트에서 다음 후보로
-// 자동 전환한다.
+// 자동 전환한다. itemId가 오고 그 항목에 접수 시점에 캐싱해둔 후보(ytCandidates)가 있으면,
+// 똑같은 검색을 또 하지 않고 그 캐시를 그대로 재사용한다 (유튜브 API 쿼터 절약).
 app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
   const artist = String((req.body && req.body.artist) || '').trim()
   const title = String((req.body && req.body.title) || '').trim()
+  const itemId = req.body && req.body.itemId
   if (!artist && !title) return res.json({ success: false, error: '가수/곡제목이 없어요.' })
+
+  if (itemId) {
+    const settings = store.getSettings(req.djId) || {}
+    const sr = getSongRequestSettings(req.djId, settings)
+    const cached = sr.items.find(it => it.id === itemId)
+    if (cached && Array.isArray(cached.ytCandidates) && cached.ytCandidates.length) {
+      return res.json({ success: true, candidates: cached.ytCandidates })
+    }
+  }
+
   const yt = await searchYoutubeVideo(artist, title)
   if (!yt) return res.json({ success: false, error: '곡을 찾을 수 없어요.' })
   res.json({ success: true, candidates: yt.candidates.map(c => ({ id: c.videoId, title: c.title })) })
@@ -21012,6 +21468,29 @@ app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
   res.json({ success: true, pool })
 })
 
+// 🎯 일반 DJ 전용 — 입장설정 화면에서 "어떤 공용 계정(sum/sum2/sum3...)으로 들어갈지" 직접 고를 수 있게
+// 풀 목록(계정 id + 세션 연결 여부만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
+app.get('/session/pool-options', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+  }))
+  res.json({ success: true, pool, preferredTokenDjId: settings.preferredTokenDjId || '' })
+})
+
+app.post('/session/preferred-token', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'entrysettings', djId)) return res.json({ success: false, error: '입장 설정 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const val = String((req.body || {}).preferredTokenDjId || '').trim()
+  if (val && !SHARED_TOKEN_POOL.includes(val)) return res.json({ success: false, error: '등록되지 않은 계정이에요' })
+  store.saveSettings(djId, { preferredTokenDjId: val })
+  // 이미 만들어진 room이 있으면, 다음 tokenDjIdFor 호출 때 새 선택값이 바로 반영되도록 캐시를 지워둔다.
+  if (rooms[djId]) delete rooms[djId].tokenDjId
+  res.json({ success: true })
+})
+
 app.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -21075,11 +21554,13 @@ app.listen(PORT, () => {
 
   // 🕐 마지막 접속(lastLoginAt) 기준 아래 일수 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
   // 서버 시작 직후 1회 + 이후 24시간마다 반복 (관리자 sum 계정은 제외).
-  const AUTO_JOIN_CLEANUP_INACTIVE_DAYS = 4
+  // 기준 일수는 관리자 페이지(유저 관리)에서 직접 설정할 수 있고, 0으로 설정하면 자동정리가 꺼진다.
+  // (실행할 때마다 최신 설정값을 다시 읽어서, 관리자가 값을 바꾸면 재배포 없이 바로 반영된다)
   const runAutoJoinCleanup = () => {
     try {
-      const affected = store.cleanupInactiveAutoJoinTags(AUTO_JOIN_CLEANUP_INACTIVE_DAYS)
-      if (affected.length) console.log(`[다중감시 자동정리] ${AUTO_JOIN_CLEANUP_INACTIVE_DAYS}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
+      const days = store.getAutoJoinCleanupDays()
+      const affected = store.cleanupInactiveAutoJoinTags(days)
+      if (affected.length) console.log(`[다중감시 자동정리] ${days}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
     } catch (e) { console.log('[다중감시 자동정리] 실패', e.message) }
   }
   runAutoJoinCleanup()
