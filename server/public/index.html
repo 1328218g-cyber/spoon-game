@@ -1158,7 +1158,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:10px">여기서 등록해둔 폰트만 각 디제이가 자기 내정보 웹페이지 설정(테마 색상 카드)에서 골라 쓸 수 있어요.<br>
           ※ 표시 이름: 디제이가 목록에서 보게 될 이름 (예: 프리텐다드)<br>
           ※ font-family 값: 실제 CSS에 적용될 폰트 이름 (예: Pretendard, 'Noto Sans KR', sans-serif)<br>
-          ※ 아래 <b>폰트 파일 첨부</b> 또는 <b>웹폰트 링크</b> 둘 중 하나로 실제 글꼴을 연결해주세요. 파일을 첨부하면 그 파일 그대로 서빙되고, 링크만 넣으면(구글폰트 등) 그 주소에서 불러와요. 시스템에 이미 깔려있는 폰트면 둘 다 비워둬도 돼요.</p>
+          ※ 아래 <b>폰트 파일 첨부</b> 또는 <b>웹폰트 링크</b> 둘 중 하나로 실제 글꼴을 연결해주세요. 파일을 첨부하면 그 파일 그대로 서빙되고, 링크만 넣으면(구글폰트 등) 그 주소에서 불러와요. 시스템에 이미 깔려있는 폰트면 둘 다 비워둬도 돼요. (최대 300개)</p>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border:1px dashed var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px">
+            <input type="file" id="miFontBulkInput" accept=".woff2,.woff,.ttf,.otf" multiple style="display:none" onchange="handleMyinfoFontBulk(this.files)">
+            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('miFontBulkInput').click()">📦 폰트 파일 여러 개 한번에 등록</button>
+            <span class="hint" id="miFontBulkStatus" style="margin:0">파일명이 그대로 표시 이름/font-family로 쓰여요.</span>
+          </div>
           <div id="miFontAdminList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
           <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
             <input type="text" id="miFontAdminName" placeholder="표시 이름 (예: 프리텐다드)">
@@ -1969,6 +1974,36 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="number" id="rlKeepPageSize" min="1" max="100" value="10" style="max-width:120px">
             <button class="btn-connect" style="padding:9px 16px;font-size:12px" onclick="saveRlKeepPageSize()">💾 저장</button>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🎙️ 보이스체 타이머 알림음</span></div>
+          <p class="hint" style="margin-bottom:12px">항목 이름에 "N분"/"N초"가 들어있는 킵/이벤트/기타목록 항목(예: "멍멍체 3분")을 사용하면 자동으로 방송용 타이머가 도는데, 그 타이머가 <b>시작될 때</b>와 <b>끝날 때</b> 방송 화면(웹)에서 재생되는 알림음이에요. 안 정해두면 소리 없이 채팅 알림만 나가요.</p>
+          <label style="margin-top:4px">시작 알림음</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+            <button class="btn-gray" onclick="chooseVtSound('start')">🎵 음원 변경</button>
+            <span class="hint" id="vtStartSoundLabel" style="margin:0">소리 없음</span>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewVtSound('start')">▶️ 미리듣기</button>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px;display:none" id="vtStartSoundResetBtn" onclick="resetVtSound('start')">↩️ 소리 없음으로</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+            <span class="hint" style="margin:0">볼륨</span>
+            <input type="range" min="0" max="100" id="vtStartSoundVolume" value="100" style="flex:1;max-width:220px" oninput="document.getElementById('vtStartSoundVolumeLabel').textContent=this.value+'%'">
+            <span class="hint" id="vtStartSoundVolumeLabel" style="margin:0;width:36px">100%</span>
+          </div>
+          <label style="margin-top:18px">종료 알림음</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+            <button class="btn-gray" onclick="chooseVtSound('end')">🎵 음원 변경</button>
+            <span class="hint" id="vtEndSoundLabel" style="margin:0">소리 없음</span>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="previewVtSound('end')">▶️ 미리듣기</button>
+            <button class="btn-gray" style="padding:5px 10px;font-size:11.5px;display:none" id="vtEndSoundResetBtn" onclick="resetVtSound('end')">↩️ 소리 없음으로</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+            <span class="hint" style="margin:0">볼륨</span>
+            <input type="range" min="0" max="100" id="vtEndSoundVolume" value="100" style="flex:1;max-width:220px" oninput="document.getElementById('vtEndSoundVolumeLabel').textContent=this.value+'%'">
+            <span class="hint" id="vtEndSoundVolumeLabel" style="margin:0;width:36px">100%</span>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:14px" onclick="saveVtSoundSettings()">💾 알림음 저장</button>
+          <input type="file" id="vtSoundFileInput" accept="audio/*" style="display:none" onchange="handleVtSoundFile(this)">
         </div>
         <div class="card split-card">
           <div class="split-side">
@@ -3818,6 +3853,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <p class="hint" style="margin-top:4px" id="miThemeFontHint">시청자가 보는 내정보 웹페이지의 글자 폰트를 바꿔요. 여기 목록에 원하는 폰트가 없으면 관리자에게 추가를 요청해주세요.</p>
           </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>🔖 상단 탭 아이콘</span></div>
+          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지로 바꿀 수 있어요. 이모지 하나만 입력하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px">
+            <div><label style="font-size:11.5px">포스트</label><input type="text" id="miTabIconPost" placeholder="📋" maxlength="8"></div>
+            <div><label style="font-size:11.5px">킵목록</label><input type="text" id="miTabIconKeep" placeholder="🎁" maxlength="8"></div>
+            <div><label style="font-size:11.5px">게임</label><input type="text" id="miTabIconGame" placeholder="🎮" maxlength="8"></div>
+            <div><label style="font-size:11.5px">룰렛정보</label><input type="text" id="miTabIconRoulette" placeholder="🎡" maxlength="8"></div>
+            <div><label style="font-size:11.5px">캘린더</label><input type="text" id="miTabIconCal" placeholder="📅" maxlength="8"></div>
+          </div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTabIcons()">💾 아이콘 저장</button>
         </div>
 
         <div class="card">
@@ -6812,6 +6860,7 @@ async function loadDjSettings(){
         myinfoNoticeData.text=s.myinfoNotice.text||'';
         myinfoNoticeData.font=s.myinfoNotice.font||MI_THEME_FONT_DEFAULT;
       }
+      if(s.myinfoTabIcons) Object.assign(myinfoTabIconsData, s.myinfoTabIcons);
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -6835,6 +6884,7 @@ async function loadDjSettings(){
       if(document.getElementById('lottoAutoStatusPill')) loadLottoAutoData();
       if(document.getElementById('lottoRankRowsWrap')) loadLottoRankData();
       if(document.getElementById('reminderActiveWrap')) loadReminderData();
+      if(document.getElementById('vtStartSoundLabel')) loadVtSoundSettings();
       if(document.getElementById('ddayListWrap')) loadDdayData();
       if(document.getElementById('sajuCmd')) loadSajuData();
       if(document.getElementById('tbSlotsWrap')){ loadTrophyBoard(); }
@@ -7040,6 +7090,44 @@ function removeMyinfoFontAdmin(i){
   myinfoFontAdminData.splice(i,1);
   renderMyinfoFontAdminList();
   saveMyinfoFontAdminList();
+}
+
+// 📦 폰트 파일 여러 개(예: 폰트 zip 압축 풀어서 나온 .ttf 전부) 한번에 등록 — 파일마다 이름/family를
+// 일일이 안 치고, 파일명(확장자 뺀 것)을 그대로 표시 이름 + font-family로 써서 순차 업로드/등록한다.
+// 이미 같은 font-family가 등록돼있으면 중복 추가하지 않고 건너뛴다.
+async function handleMyinfoFontBulk(fileList){
+  const files=Array.from(fileList||[]).filter(f=>/\.(woff2|woff|ttf|otf)$/i.test(f.name));
+  if(!files.length){ showToast('폰트 파일(.woff2/.woff/.ttf/.otf)을 선택해주세요'); return; }
+  const statusEl=document.getElementById('miFontBulkStatus');
+  const existingFamilies=new Set(myinfoFontAdminData.map(f=>f.family));
+  let ok=0,skip=0,fail=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    statusEl.textContent=`업로드 중... (${i+1}/${files.length}) ${file.name}`;
+    const baseName=file.name.replace(/\.(woff2|woff|ttf|otf)$/i,'').trim();
+    if(!baseName||existingFamilies.has(baseName)){ skip++; continue; }
+    if(file.size>5*1024*1024){ fail++; continue; }
+    try{
+      const dataUrl=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(reader.result);
+        reader.onerror=reject;
+        reader.readAsDataURL(file);
+      });
+      const res=await fetch(SERVER+'/fonts/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ fail++; continue; }
+      const id='mf'+Date.now()+Math.floor(Math.random()*1000)+i;
+      myinfoFontAdminData.push({id,name:baseName,family:baseName,url:'',fileUrl:d.url});
+      existingFamilies.add(baseName);
+      ok++;
+    }catch(e){ fail++; }
+  }
+  renderMyinfoFontAdminList();
+  await saveMyinfoFontAdminList();
+  statusEl.textContent='파일명이 그대로 표시 이름/font-family로 쓰여요.';
+  document.getElementById('miFontBulkInput').value='';
+  showToast(`등록 완료 — 성공 ${ok}개, 건너뜀(중복) ${skip}개, 실패 ${fail}개`);
 }
 
 async function createAccountManually(){
@@ -9628,6 +9716,84 @@ function resetReminderSound(){
 function previewReminderSound(){
   const vol=Number(document.getElementById('reminderSoundVolume').value)||100;
   playReactionTimerAlert(reminderSoundUrl,vol);
+}
+
+/* 🎙️ 보이스체 타이머 시작/종료 알림음 — 위 리액션 타이머 알림음과 동일한 방식이되, 시작/종료 두 개를
+   따로 관리한다. 기본값은 "소리 없음"(비어있으면 재생 안 함) — 리액션 타이머처럼 번들 기본음이 없다. */
+let vtSoundUrls={start:'',end:''};
+async function loadVtSoundSettings(){
+  try{
+    const res=await fetch(SERVER+'/voicetimer/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    vtSoundUrls.start=d.settings.startSoundUrl||'';
+    vtSoundUrls.end=d.settings.endSoundUrl||'';
+    document.getElementById('vtStartSoundVolume').value=d.settings.startSoundVolume??100;
+    document.getElementById('vtStartSoundVolumeLabel').textContent=(d.settings.startSoundVolume??100)+'%';
+    document.getElementById('vtEndSoundVolume').value=d.settings.endSoundVolume??100;
+    document.getElementById('vtEndSoundVolumeLabel').textContent=(d.settings.endSoundVolume??100)+'%';
+    document.getElementById('vtStartSoundLabel').textContent=vtSoundUrls.start?'🎵 커스텀 음원 사용 중':'소리 없음';
+    document.getElementById('vtStartSoundResetBtn').style.display=vtSoundUrls.start?'inline-block':'none';
+    document.getElementById('vtEndSoundLabel').textContent=vtSoundUrls.end?'🎵 커스텀 음원 사용 중':'소리 없음';
+    document.getElementById('vtEndSoundResetBtn').style.display=vtSoundUrls.end?'inline-block':'none';
+  }catch(e){}
+}
+async function saveVtSoundSettings(){
+  const body={
+    startSoundUrl:vtSoundUrls.start,
+    startSoundVolume:document.getElementById('vtStartSoundVolume').value,
+    endSoundUrl:vtSoundUrls.end,
+    endSoundVolume:document.getElementById('vtEndSoundVolume').value,
+  };
+  try{
+    const res=await fetch(SERVER+'/voicetimer/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success)showToast('알림음 설정을 저장했어요 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+let vtSoundFileTarget='start';
+function chooseVtSound(phase){
+  vtSoundFileTarget=phase;
+  document.getElementById('vtSoundFileInput').click();
+}
+async function handleVtSoundFile(input){
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  if(!file.type||!file.type.startsWith('audio/')){showToast('오디오 파일만 선택할 수 있어요');input.value='';return;}
+  if(file.size>1024*1024){showToast('1MB 이하 파일로 선택해주세요');input.value='';return;}
+  const phase=vtSoundFileTarget;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    showToast('음원 업로드 중...');
+    try{
+      const res=await fetch(SERVER+'/sounds/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){showToast(d.error||'업로드 실패');return;}
+      vtSoundUrls[phase]=d.url;
+      document.getElementById(phase==='start'?'vtStartSoundLabel':'vtEndSoundLabel').textContent='🎵 커스텀 음원 사용 중 ('+file.name+')';
+      document.getElementById(phase==='start'?'vtStartSoundResetBtn':'vtEndSoundResetBtn').style.display='inline-block';
+      showToast('음원을 변경했어요 (위 "알림음 저장" 버튼을 눌러야 최종 저장돼요)');
+    }catch(e){showToast('업로드 오류: '+e.message);}
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+function resetVtSound(phase){
+  vtSoundUrls[phase]='';
+  document.getElementById(phase==='start'?'vtStartSoundLabel':'vtEndSoundLabel').textContent='소리 없음';
+  document.getElementById(phase==='start'?'vtStartSoundResetBtn':'vtEndSoundResetBtn').style.display='none';
+  showToast('소리 없음으로 되돌렸어요 (위 "알림음 저장" 버튼을 눌러야 최종 저장돼요)');
+}
+function previewVtSound(phase){
+  const vol=Number(document.getElementById(phase==='start'?'vtStartSoundVolume':'vtEndSoundVolume').value)||100;
+  playVoiceTimerAlert(vtSoundUrls[phase],vol);
+}
+function playVoiceTimerAlert(soundUrl,volume){
+  if(!soundUrl)return;
+  const src=soundUrl.startsWith('http')?soundUrl:SERVER+soundUrl;
+  const vol=Math.max(0,Math.min(1,(volume!=null?volume:100)/100));
+  try{ const audio=new Audio(src); audio.volume=vol; audio.play().catch(()=>{}); }catch(e){}
 }
 
 /* ── 📅 디데이 ── */
@@ -14882,6 +15048,11 @@ function loadMyInfoSettings(){
   loadMyInfoFontOptions();
   document.getElementById('miNoticeText').value=myinfoNoticeData.text||'';
   loadMyInfoNoticeFontOptions();
+  document.getElementById('miTabIconPost').value=myinfoTabIconsData.post||'';
+  document.getElementById('miTabIconKeep').value=myinfoTabIconsData.keep||'';
+  document.getElementById('miTabIconGame').value=myinfoTabIconsData.game||'';
+  document.getElementById('miTabIconRoulette').value=myinfoTabIconsData.roulette||'';
+  document.getElementById('miTabIconCal').value=myinfoTabIconsData.cal||'';
 }
 
 // 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
@@ -14960,6 +15131,22 @@ async function saveMyInfoTheme(){
    글자 폰트 목록은 위 테마 색상 카드와 같은 관리자 등록 목록(/myinfo-fonts)을 그대로 재사용하되,
    선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
 let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
+let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:''};
+async function saveMyInfoTabIcons(){
+  myinfoTabIconsData={
+    post:document.getElementById('miTabIconPost').value.trim(),
+    keep:document.getElementById('miTabIconKeep').value.trim(),
+    game:document.getElementById('miTabIconGame').value.trim(),
+    roulette:document.getElementById('miTabIconRoulette').value.trim(),
+    cal:document.getElementById('miTabIconCal').value.trim(),
+  };
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTabIcons:myinfoTabIconsData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('탭 아이콘을 저장했어요 🔖');
+  }catch(e){ showToast('오류: '+e.message); }
+}
 async function loadMyInfoNoticeFontOptions(){
   const sel=document.getElementById('miNoticeFont');
   if(!sel)return;
@@ -17220,6 +17407,7 @@ function startSSE(){
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
+    else if(d.type==='voicetimersound')playVoiceTimerAlert(d.soundUrl,d.volume);
     else if(d.type==='entrysound')playEntrySoundById(d.category,d.id,d.soundIndex);
     else if(d.type==='greetsound')playGreetSoundById(d.id,d.volume);
     else if(d.type==='ttsgrant'){ ttsActiveUsers=ttsActiveUsers.filter(u=>u.nickname!==d.nickname); ttsActiveUsers.push({nickname:d.nickname,expiresAt:d.expiresAt}); renderTtsActiveList(); }

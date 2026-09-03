@@ -280,6 +280,9 @@ function defaultSettings() {
     // (관리자가 등록해둔 myinfoFonts 목록 중 하나로) 폰트를 DJ가 직접 설정할 수 있다.
     // 빈 텍스트면 myinfo.html이 배너 자체를 숨긴다.
     myinfoNotice: { text: '', font: 'default' },
+    // 🔖 내정보 웹페이지 상단 탭(포스트/킵목록/게임/룰렛정보/캘린더) 아이콘 — 디제이가 이모지를
+    // 원하는 걸로 바꿀 수 있다. 비어있는 키는 myinfo.html에서 기본 이모지로 대체된다.
+    myinfoTabIcons: { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅' },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
@@ -535,7 +538,7 @@ function setYoutubeApiKeys(keys) {
 
 // 🔤 내정보 웹페이지 글자 폰트 목록 — 관리자(sum)가 관리자 페이지에서 등록해두면, 각 디제이가
 // 본인 내정보 웹페이지 설정에서 그중 하나를 골라 쓸 수 있다. (색상/배경비율과 같은 자리에 저장)
-const MYINFO_FONT_MAX = 20
+const MYINFO_FONT_MAX = 300 // 예전엔 20개로 막혀있어서, 그 이상 등록하면 뒤쪽 폰트가 저장 시 조용히 잘려나갔다(=일부만 적용되는 것처럼 보이던 원인). 대량 등록에 대비해 넉넉하게 올림.
 function getMyinfoFonts() {
   const djs = loadDjs();
   const arr = djs['sum'] && djs['sum'].settings && djs['sum'].settings.myinfoFonts;

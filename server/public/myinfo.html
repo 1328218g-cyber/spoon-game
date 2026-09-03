@@ -380,7 +380,22 @@ async function loadTheme(){
     if(d.success && d.color) applyTheme(d.color, d.bgRatio);
     // 🔤 글자 폰트 — 디제이가 관리자가 등록해둔 목록 중 골라둔 게 있으면 적용(기본값이면 아무것도 안 함)
     if(d.success && d.font) applyMyInfoFont(d.font);
+    // 🔖 상단 탭 아이콘 — 디제이가 바꿔둔 이모지가 있으면 적용
+    if(d.success && d.tabIcons) applyTabIcons(d.tabIcons);
   }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
+}
+
+// 🔖 상단 탭(포스트/킵목록/게임/룰렛정보/캘린더) 아이콘 — 서버가 내려주는 값을 그대로 textContent에 넣는다.
+// 서버가 이미 기본 이모지로 빈 칸을 채워서 내려주므로(theme 라우트 참고), 여기선 그대로 반영만 하면 된다.
+function applyTabIcons(icons){
+  const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+  Object.keys(map).forEach(key => {
+    const val = icons[key];
+    if(!val) return;
+    const btn = document.getElementById(map[key]);
+    const iconEl = btn && btn.querySelector('.mIcon');
+    if(iconEl) iconEl.textContent = val;
+  });
 }
 
 // 🔤 관리자가 등록해두고 디제이가 고른 폰트를 페이지에 반영.
