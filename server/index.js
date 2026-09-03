@@ -20157,6 +20157,24 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   res.json({ success: true, color, bgRatio, font })
 })
 
+// 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
+// 인증 여부와 상관없이 누구나 조회 가능해야 페이지가 열리자마자(그리고 3초마다 폴링할 때마다)
+// 바로 최신 문구로 반영된다. 폰트는 myinfoTheme과 같은 목록(store.getMyinfoFonts())을 재사용하되,
+// 페이지 전체가 아니라 공지 텍스트에만 적용된다(myinfo.html의 applyNoticeFont 참고).
+app.get('/myinfo/:djId/notice', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const notice = settings.myinfoNotice || {}
+  const text = String(notice.text || '').trim()
+  const fontId = notice.font || 'default'
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  res.json({ success: true, text, font })
+})
+
 // 디제이 전용(로그인 필요) — 관리자가 등록해둔 폰트 목록을 본인 내정보 설정 화면에서 고를 수 있게 조회
 app.get('/myinfo-fonts', auth.requireAuth, (req, res) => {
   res.json({ success: true, fonts: store.getMyinfoFonts() })
@@ -21322,7 +21340,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21345,13 +21363,19 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
   //    bgRatio(배경 연하기 비율, 0~0.7)도 함께 저장 — 디제이가 직접 조절 가능. 값이 없거나
   //    범위를 벗어나면 기존 고정값이었던 0.30으로 대체.
+  // 🔤 글자 폰트 — 관리자가 등록해둔 목록(store.getMyinfoFonts())에 있는 id이거나 'default'일 때만 저장.
+  //    페이지 전체 폰트(myinfoTheme.font)와 공지 전용 폰트(myinfoNotice.font)가 같은 목록을 공유한다.
+  const availableFontIds = store.getMyinfoFonts().map(f => f.id)
   if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
     let bgRatio = Number(myinfoTheme.bgRatio)
     if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
-    // 🔤 글자 폰트 — 관리자가 등록해둔 목록(store.getMyinfoFonts())에 있는 id이거나 'default'일 때만 저장
-    const availableFontIds = store.getMyinfoFonts().map(f => f.id)
     const font = (myinfoTheme.font === 'default' || availableFontIds.includes(myinfoTheme.font)) ? myinfoTheme.font : 'default'
     patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio, font }
+  }
+  // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구(최대 200자)와 전용 폰트.
+  if (myinfoNotice) {
+    const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
+    patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim().slice(0, 200), font }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

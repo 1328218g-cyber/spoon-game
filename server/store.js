@@ -276,6 +276,10 @@ function defaultSettings() {
     // 팔레트는 myinfo.html에서 흰색과 섞어 자동으로 계산한다(파스텔 배경이 항상 자연스럽게 나오도록).
     // bgRatio: 배경을 흰색과 얼마나 섞을지(0~0.7) — 예전엔 0.30(30%)으로 고정이었는데 이제 DJ가 직접 조절 가능.
     myinfoTheme: { color: '#ff8fab', bgRatio: 0.30 },
+    // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위에 항상 떠있는 배너. 텍스트와
+    // (관리자가 등록해둔 myinfoFonts 목록 중 하나로) 폰트를 DJ가 직접 설정할 수 있다.
+    // 빈 텍스트면 myinfo.html이 배너 자체를 숨긴다.
+    myinfoNotice: { text: '', font: 'default' },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
