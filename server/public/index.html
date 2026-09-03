@@ -522,7 +522,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Warang+Citi&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Warang+Citi&family=Noto+Sans+Linear+A&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/unifont@latest/index.min.css">
 </head>
 <body>
@@ -5706,9 +5706,11 @@ function isModulePreferenceOn(key){
 }
 function isModuleVisible(key){
   if(moduleVisible[key]!==undefined) return moduleVisible[key]!==false;
-  // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다
-  // — 그 외 메뉴는 모듈 마켓에서 한 번이라도 켜봐야 사이드바에 나타난다.
-  return DEFAULT_VISIBLE_KEYS.includes(key);
+  // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다.
+  // 🔧 단, NEW_MODULE_DEFAULT_OFF_KEYS에 없어서 기능 자체가 기본 ON인 모듈은
+  //    DEFAULT_VISIBLE_KEYS에 없어도 처음부터 사이드바에 보이게 한다.
+  //    (다시 껐다 켜야만 노출되던 버그 — 기본 OFF인 신규 모듈만 모듈 마켓에서 한 번 켜야 나타남)
+  return DEFAULT_VISIBLE_KEYS.includes(key) || !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
 }
 
 function isModuleOn(key){
@@ -10634,7 +10636,7 @@ function renderGgGrid(){
     // 🈵🎨 [업데이트] 'Noto Emoji'는 흑백(모노크롬) 전용 폰트라, 닉네임에 이모지가 들어있으면 화면/
     // 다운로드 이미지에서 흑백으로 보이는 문제가 있었다. 실제 컬러 이모지 폰트(Apple/Segoe/Noto Color
     // Emoji)를 'Noto Emoji'보다 앞에 둬서, 있으면 그 컬러 글꼴을 먼저 쓰고 없을 때만 흑백으로 대체되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Noto Sans Linear A','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
@@ -10714,7 +10716,7 @@ function ggDrawCoverImage(ctx,img,cx,cy,d){
 // 적용해주기 때문에, 화면(DOM)에서 보이는 것과 동일하게 특수문자까지 정상적으로 그려진다.
 // 🎨 컬러 이모지 폰트(Apple/Segoe/Noto Color Emoji)를 흑백 전용인 'Noto Emoji'보다 앞에 둬서,
 // 닉네임에 이모지가 있어도 다운로드 이미지에 흑백이 아닌 원래 색으로 그려지게 한다.
-const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
+const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Noto Sans Linear A','Unifont',sans-serif`
 async function drawGgCardCanvas(it, opts){
   const SCALE=4 // 결과 이미지 배율(고해상도)
   const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
