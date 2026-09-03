@@ -93,7 +93,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 .content{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 26px 60px}
 .panel{display:none;max-width:960px}
-.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"],.panel[data-panel="userlist"],.panel[data-panel="userlistonly"],.panel[data-panel="quiz"],.panel[data-panel="dashboard"]{max-width:100%}
+.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"],.panel[data-panel="userlist"],.panel[data-panel="userlistonly"],.panel[data-panel="quiz"],.panel[data-panel="dashboard"],.panel[data-panel="linkshortener"]{max-width:100%}
 @media (min-width:861px){
   .panel[data-panel="usernotes"] .split-card,.panel[data-panel="autogrant"] .split-card,.panel[data-panel="roulettelog"] .split-card,.panel[data-panel="loyalty"] .split-card,.panel[data-panel="quiz"] .split-card{max-width:1200px}
   .panel[data-panel="userlist"] .card,.panel[data-panel="userlistonly"] .card{max-width:1400px}
@@ -647,6 +647,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="botreboot"><span class="ic ic-img"><img src="/icons/botreboot.png" alt=""></span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic ic-img"><img src="/icons/migrate.png" alt=""></span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="settingsbackup"><span class="ic ic-img"><img src="/icons/settingsbackup.png" alt=""></span><span class="lbl">설정 내보내기/가져오기</span></div>
+    <div class="nav-item" data-panel="linkshortener"><span class="ic">🔗</span><span class="lbl">링크줄이기</span></div>
 
     <div class="nav-group-label">방송 도구</div>
     <div class="nav-item" data-panel="chat"><span class="ic ic-img"><img src="/icons/chat.png" alt=""></span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1338,6 +1339,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="mySystemRestoreListWrapR2" style="margin-top:10px"></div>
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
           <div id="mySystemRestoreResultR2" class="hint" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- 링크줄이기 -->
+      <div class="panel" data-panel="linkshortener">
+        <div class="card" style="padding:0;overflow:hidden">
+          <div class="card-title" style="padding:16px 16px 0"><span>🔗 링크줄이기 (Buly)</span><a href="https://buly.kr/" target="_blank" rel="noopener" class="btn-gray" style="padding:6px 14px;font-size:12px;text-decoration:none">↗ 새 탭에서 열기</a></div>
+          <p class="hint" style="padding:0 16px 12px">외부 서비스(buly.kr) 화면을 그대로 보여드려요. 로그인/API 키 발급 등은 그쪽 사이트에서 직접 진행하시면 돼요. 화면이 안 뜨면 위 "새 탭에서 열기"를 눌러주세요.</p>
+          <iframe src="https://buly.kr/" style="width:100%;height:80vh;border:0;display:block"></iframe>
         </div>
       </div>
 
