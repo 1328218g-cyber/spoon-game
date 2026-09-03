@@ -373,12 +373,14 @@ async function loadTheme(){
 }
 
 // 🔤 관리자가 등록해두고 디제이가 고른 폰트를 페이지에 반영.
-// font: { id, name, family, url } — id가 'default'거나 family가 없으면 기본 폰트 그대로 둔다.
+// font: { id, name, family, url, fileUrl } — id가 'default'거나 family가 없으면 기본 폰트 그대로 둔다.
+// fileUrl(관리자가 직접 첨부한 woff2/woff/ttf/otf 파일)이 있으면 @font-face로 등록하고,
+// 없고 url(구글폰트 등 외부 CSS 링크)만 있으면 <link>로 불러온다.
 // 원래 있던 body/제목 font-family 규칙과 동일한 폴백 스택 앞에 커스텀 폰트만 추가하는 방식이라,
 // 이모지·기호(Noto Sans Symbols 등) 커버리지는 그대로 유지된다.
 function applyMyInfoFont(font){
   if(!font || font.id === 'default' || !font.family) return;
-  if(font.url && !document.getElementById('miCustomFontLink')){
+  if(font.url && !font.fileUrl && !document.getElementById('miCustomFontLink')){
     const link = document.createElement('link');
     link.id = 'miCustomFontLink';
     link.rel = 'stylesheet';
@@ -392,7 +394,15 @@ function applyMyInfoFont(font){
     styleEl.id = 'miCustomFontStyle';
     document.head.appendChild(styleEl);
   }
-  styleEl.textContent =
+  let fontFaceCss = '';
+  if(font.fileUrl){
+    const ext = String(font.fileUrl).split('.').pop().toLowerCase();
+    const formatMap = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' };
+    const format = formatMap[ext] || 'woff2';
+    const fileUrl = String(font.fileUrl).replace(/'/g, "\\'");
+    fontFaceCss = "@font-face{font-family:" + fam + ";src:url('" + fileUrl + "') format('" + format + "');font-display:swap;}\n";
+  }
+  styleEl.textContent = fontFaceCss +
     "body{font-family:" + fam + ",'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Unifont',sans-serif}\n" +
     "h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:" + fam + ",'Noto Sans KR',sans-serif}";
 }

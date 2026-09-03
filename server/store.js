@@ -547,6 +547,7 @@ function setMyinfoFonts(fonts) {
       name: String((f && f.name) || '').trim(),
       family: String((f && f.family) || '').trim(),
       url: String((f && f.url) || '').trim(),
+      fileUrl: String((f && f.fileUrl) || '').trim(), // 🔤 직접 첨부한 폰트 파일(woff2/woff/ttf/otf) 경로 — /fonts/upload로 올린 결과
     }))
     .filter(f => f.id && f.name && f.family)
     .slice(0, MYINFO_FONT_MAX);

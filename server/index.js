@@ -66,6 +66,12 @@ const IMAGES_DIR = path.join(store.DATA_DIR, 'images')
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true })
 app.use('/images', require('express').static(IMAGES_DIR, { maxAge: '30d' }))
 
+// 🔤 내정보 웹페이지에 쓸 수 있는, 관리자가 직접 첨부한 폰트 파일(woff2/woff/ttf/otf).
+// sounds/images와 완전히 같은 이유/같은 방식 — Volume에 실제 파일로 저장하고 URL만 설정에 남긴다.
+const FONTS_DIR = path.join(store.DATA_DIR, 'fonts')
+if (!fs.existsSync(FONTS_DIR)) fs.mkdirSync(FONTS_DIR, { recursive: true })
+app.use('/fonts', require('express').static(FONTS_DIR, { maxAge: '30d' }))
+
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
@@ -20166,6 +20172,38 @@ app.post('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
   const result = store.setMyinfoFonts((req.body || {}).fonts)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, count: result.count })
+})
+
+// 🔤 폰트 파일 직접 첨부 — 링크가 없는 폰트를 쓰고 싶을 때, woff2/woff/ttf/otf 파일 자체를
+// 업로드해서 /fonts/파일명 으로 서빙한다. sounds/images 업로드와 동일한 base64 방식.
+const MYINFO_FONT_ALLOWED_EXT = ['woff2', 'woff', 'ttf', 'otf']
+app.post('/fonts/upload', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1].toLowerCase() : ''
+  if (!MYINFO_FONT_ALLOWED_EXT.includes(ext)) return res.json({ success: false, error: '폰트 파일(.woff2, .woff, .ttf, .otf)만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 파일만 업로드할 수 있어요' })
+  const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(FONTS_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/fonts/${name}`, filename: String(filename || name) })
+})
+// 더 이상 안 쓰는 폰트 파일 삭제(첨부 제거/교체 시 호출).
+app.post('/fonts/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/fonts/')) return res.json({ success: true })
+  const name = path.basename(url)
+  try { fs.unlinkSync(path.join(FONTS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
 })
 
 // ══════════════════════════════════════════════════════
