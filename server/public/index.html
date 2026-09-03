@@ -5703,7 +5703,6 @@ const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday
 const DEFAULT_VISIBLE_KEYS=['dashboard','autojoin','entrysettings','roulette','roulettelog','loyalty','giftcapture','giftgallery','shield','myinfo'];
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
-  if(key==='dashboard') return true; // 🔒 대시보드도 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
   return v!==false;
@@ -5783,7 +5782,6 @@ function applyPanelLockState(name){
 function toggleModuleByKey(key, opts){
   opts = opts || {};
   if(key==='autojoin'){ showToast('자동입장은 항상 켜져 있어서 끌 수 없어요'); return; }
-  if(key==='dashboard'){ showToast('대시보드는 항상 켜져 있어서 끌 수 없어요'); return; }
   const turningOn = !isModulePreferenceOn(key);
   moduleEnabled[key]=turningOn;
   renderModuleBadge(key);
