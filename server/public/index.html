@@ -848,6 +848,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <button class="btn-gray" style="padding:8px 14px;font-size:12.5px;white-space:nowrap" onclick="resetMenuVisibility()">🔄 사이드바 메뉴 기본값으로 초기화</button>
         </div>
+        <div style="position:relative;margin:12px 0 2px">
+          <input type="text" id="marketSearchInput" placeholder="🔍 모듈 이름으로 검색 (예: 룰렛, 신청곡)" oninput="onMarketSearchInput(this.value)" style="width:100%;padding:10px 34px 10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:13px">
+          <button id="marketSearchClearBtn" onclick="document.getElementById('marketSearchInput').value='';onMarketSearchInput('')" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button>
+        </div>
         <div class="tab-bar" id="marketTabBar">
           <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
           <button class="tab-btn" data-tab="on" onclick="switchMarketTab('on')">✅ 사용 중</button>
@@ -5808,6 +5812,14 @@ function toggleModuleBadge(el){
 /* ── 🛒 모듈 마켓 ── */
 const MARKET_ADMIN_ONLY_KEYS=['userlist']; // 관리자 전용 메뉴는 관리자 로그인일 때만 카드로 노출 (세션 연결은 모든 DJ가 쓸 수 있어서 제외)
 let marketTab='all'; // 'all' | 'on' | 'off'
+let marketSearchQuery=''; // 🔍 모듈 마켓 검색어 (소문자 정규화된 상태로 저장)
+
+function onMarketSearchInput(v){
+  marketSearchQuery=(v||'').trim().toLowerCase();
+  const clearBtn=document.getElementById('marketSearchClearBtn');
+  if(clearBtn) clearBtn.style.display=marketSearchQuery?'block':'none';
+  renderModuleMarket();
+}
 
 function switchMarketTab(tab){
   marketTab=tab;
@@ -5831,13 +5843,18 @@ function renderModuleMarket(){
   if(tabNew)tabNew.textContent='🛒 모듈 마켓 ('+newKeys.length+')';
 
   const keys=allKeys.filter(k=>{
-    if(marketTab==='on')return isModuleOn(k);
-    if(marketTab==='new')return NEW_MODULE_DEFAULT_OFF_KEYS.includes(k);
+    if(marketTab==='on'&&!isModuleOn(k))return false;
+    if(marketTab==='new'&&!NEW_MODULE_DEFAULT_OFF_KEYS.includes(k))return false;
+    if(marketSearchQuery){
+      const meta=PANEL_META[k]||['',''];
+      const hay=(meta[0]+' '+(meta[1]||'')).toLowerCase();
+      if(!hay.includes(marketSearchQuery))return false;
+    }
     return true;
   });
 
   if(!keys.length){
-    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.')+'</p>';
+    grid.innerHTML='<p class="hint">'+(marketSearchQuery?`"${escapeHtml(marketSearchQuery)}"에 해당하는 모듈이 없어요.`:(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.'))+'</p>';
     return;
   }
 
