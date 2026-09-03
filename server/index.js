@@ -14938,6 +14938,118 @@ async function handleRandomBoxTrigger(djId, room, settings, author, authorId, li
 }
 
 
+// 🎙️ 보이스체 타이머 — 킵/이벤트/기타목록 항목 이름에 "N분"이나 "N초"(둘 다 가능, 예: "1분30초")가
+// 들어있으면, 그 항목을 "사용"하는 순간(채팅 !킵사용 / 웹페이지 사용 버튼 둘 다) 자동으로 방송용
+// 타이머가 돈다. 이름에서 숫자·분·초를 뺀 나머지가 "종류"가 된다 (예: "멍멍체 3분" → 종류 "멍멍체").
+//  - 지금 도는 타이머와 같은 종류를 또 쓰면, 그 남은시간에 그대로 더해진다 (멍체 2분 두 번 → 총 4분).
+//  - 다른 종류를 쓰면 지금 도는 타이머가 끝난 뒤 순서대로 이어서 시작된다(대기열). 대기 중에 같은
+//    종류를 또 쓰면 대기열에서도 서로 합쳐진다.
+//  - 시작될 때 / 1분마다 / 끝날 때 채팅으로 알려준다.
+// 🔔 보이스체 타이머 시작/종료 알림음 — 리액션 타이머와 같은 방식(음원 URL + 볼륨)이며,
+// 시작용/종료용을 따로 등록할 수 있다. 비어있으면 소리 없이 채팅 알림만 나간다.
+function getVoiceTimerSoundSettings(djId, settings) {
+  if (!settings.voiceTimer) {
+    settings.voiceTimer = { startSoundUrl: '', startSoundVolume: 100, endSoundUrl: '', endSoundVolume: 100 }
+    store.saveSettings(djId, { voiceTimer: settings.voiceTimer })
+  }
+  if (settings.voiceTimer.startSoundVolume == null) settings.voiceTimer.startSoundVolume = 100
+  if (settings.voiceTimer.endSoundVolume == null) settings.voiceTimer.endSoundVolume = 100
+  if (settings.voiceTimer.startSoundUrl == null) settings.voiceTimer.startSoundUrl = ''
+  if (settings.voiceTimer.endSoundUrl == null) settings.voiceTimer.endSoundUrl = ''
+  return settings.voiceTimer
+}
+
+function parseVoiceTimerName(name) {
+  const s = String(name || '').trim()
+  let ms = 0
+  let label = s
+  const minM = s.match(/(\d+)\s*분/)
+  if (minM) { ms += parseInt(minM[1], 10) * 60000; label = label.replace(minM[0], '') }
+  const secM = s.match(/(\d+)\s*초/)
+  if (secM) { ms += parseInt(secM[1], 10) * 1000; label = label.replace(secM[0], '') }
+  label = label.replace(/\s+/g, ' ').trim()
+  if (ms <= 0 || !label) return null
+  return { label, ms }
+}
+
+function formatVoiceTimerMs(ms) {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  if (m > 0 && s > 0) return `${m}분 ${s}초`
+  if (m > 0) return `${m}분`
+  return `${s}초`
+}
+
+// 지금 돌고 있는 타이머가 끝나는 시점을 기준으로 "끝났을 때 할 일"을 다시 예약한다.
+// 연장(같은 종류 추가 사용)될 때마다 끝나는 시점이 뒤로 밀리므로, 그때마다 다시 불러야 한다.
+function scheduleVoiceTimerTick(djId, room) {
+  const vt = room.voiceTimer
+  if (!vt || !vt.active) return
+  if (vt.tickHandle) clearTimeout(vt.tickHandle)
+  const remain = vt.active.endsAt - Date.now()
+  vt.tickHandle = setTimeout(() => voiceTimerFinish(djId, room), Math.max(0, remain))
+}
+
+function voiceTimerFinish(djId, room) {
+  const vt = room.voiceTimer
+  if (!vt || !vt.active) return
+  const finishedLabel = vt.active.label
+  sendChatToRoom(djId, `⏰ [${finishedLabel}] 타이머 종료!`)
+  const sndCfg = getVoiceTimerSoundSettings(djId, store.getSettings(djId) || {})
+  if (sndCfg.endSoundUrl) broadcast({ type: 'voicetimersound', djId, soundUrl: sndCfg.endSoundUrl, volume: sndCfg.endSoundVolume })
+  vt.active = null
+  if (vt.queue.length) {
+    const next = vt.queue.shift()
+    startVoiceTimer(djId, room, next.label, next.ms)
+  } else if (vt.announceTimer) {
+    clearInterval(vt.announceTimer)
+    vt.announceTimer = null
+  }
+}
+
+function startVoiceTimer(djId, room, label, ms) {
+  const vt = room.voiceTimer
+  vt.active = { label, endsAt: Date.now() + ms }
+  setTimeout(() => sendChatToRoom(djId, `🎙️ [${label}] 타이머 시작! (${formatVoiceTimerMs(ms)})`), 800)
+  const sndCfg = getVoiceTimerSoundSettings(djId, store.getSettings(djId) || {})
+  if (sndCfg.startSoundUrl) broadcast({ type: 'voicetimersound', djId, soundUrl: sndCfg.startSoundUrl, volume: sndCfg.startSoundVolume })
+  if (vt.announceTimer) clearInterval(vt.announceTimer)
+  vt.announceTimer = setInterval(() => {
+    if (!vt.active) { clearInterval(vt.announceTimer); vt.announceTimer = null; return }
+    const remain = vt.active.endsAt - Date.now()
+    if (remain <= 500) return // 거의 다 됐으면 voiceTimerFinish의 종료 알림과 안 겹치게 건너뛴다
+    sendChatToRoom(djId, `⏱️ [${vt.active.label}] 남은시간 ${formatVoiceTimerMs(remain)}`)
+  }, 60 * 1000)
+  scheduleVoiceTimerTick(djId, room)
+}
+
+function addVoiceTimerUsage(djId, room, name, count) {
+  const parsed = parseVoiceTimerName(name)
+  if (!parsed) return
+  const useMs = parsed.ms * Math.max(1, Number(count) || 1)
+  if (!room.voiceTimer) room.voiceTimer = { active: null, queue: [], announceTimer: null, tickHandle: null }
+  const vt = room.voiceTimer
+
+  if (vt.active && vt.active.label === parsed.label) {
+    vt.active.endsAt += useMs
+    scheduleVoiceTimerTick(djId, room)
+    const remain = vt.active.endsAt - Date.now()
+    setTimeout(() => sendChatToRoom(djId, `🎙️ [${parsed.label}] 타이머 연장! (${formatVoiceTimerMs(remain)} 남음)`), 800)
+    return
+  }
+
+  if (!vt.active) {
+    startVoiceTimer(djId, room, parsed.label, useMs)
+    return
+  }
+
+  const queued = vt.queue.find(x => x.label === parsed.label)
+  if (queued) queued.ms += useMs
+  else vt.queue.push({ label: parsed.label, ms: useMs })
+  setTimeout(() => sendChatToRoom(djId, `📋 [${parsed.label}] 타이머 대기열에 추가! (${formatVoiceTimerMs(useMs)}, [${vt.active.label}] 끝난 뒤 시작돼요)`), 800)
+}
+
 // !킵, !이벤트, !내카드 [페이지] (본인 조회) / !킵확인N, !이벤트확인N, !내카드확인N [고유닉] (타인 조회)
 // !킵추가 [고유닉] [내용] (DJ 전용) / !킵사용, !이벤트사용, !내카드사용 [번호] [수량]
 async function handleKeepCommands(djId, room, settings, author, authorId, liveId, text) {
@@ -15025,6 +15137,7 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
     broadcast({ type: 'roulette', djId, tag: authorTag || author })
     setTimeout(() => sendChatToRoom(djId, `✅ ${author}님의 [${item}] ${count}개 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 400)
+    addVoiceTimerUsage(djId, room, item, count)
     return
   }
 }
@@ -18177,6 +18290,24 @@ app.post('/reaction/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎙️ 보이스체 타이머 시작/종료 알림음 설정
+app.get('/voicetimer/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVoiceTimerSoundSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+app.post('/voicetimer/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVoiceTimerSoundSettings(req.djId, settings)
+  const { startSoundUrl, startSoundVolume, endSoundUrl, endSoundVolume } = req.body || {}
+  if (startSoundUrl != null) cfg.startSoundUrl = String(startSoundUrl).trim()
+  if (startSoundVolume != null) cfg.startSoundVolume = Math.max(0, Math.min(100, Number(startSoundVolume) || 0))
+  if (endSoundUrl != null) cfg.endSoundUrl = String(endSoundUrl).trim()
+  if (endSoundVolume != null) cfg.endSoundVolume = Math.max(0, Math.min(100, Number(endSoundVolume) || 0))
+  store.saveSettings(req.djId, { voiceTimer: cfg })
+  res.json({ success: true })
+})
+
 // 📝 나만의 메모장
 app.get('/mynotes/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
@@ -20080,6 +20211,7 @@ app.post('/myinfo/:djId/use-item', async (req, res) => {
 
   const displayName = rec.nickname || tag
   setTimeout(() => sendChatToRoom(djId, `✅ ${displayName}님의 [${name}] 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 300)
+  addVoiceTimerUsage(djId, getRoom(djId), name, 1)
 
   const profile = await miBuildProfile(djId, settings, tag)
   res.json({ success: true, ...profile })
@@ -20216,7 +20348,11 @@ app.get('/myinfo/:djId/theme', (req, res) => {
     const found = store.getMyinfoFonts().find(f => f.id === fontId)
     if (found) font = found
   }
-  res.json({ success: true, color, bgRatio, font })
+  // 🔖 상단 탭 아이콘 — 디제이가 안 바꿨으면 기본 이모지 그대로 내려간다.
+  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 }
+  const savedTabIcons = settings.myinfoTabIcons || {}
+  const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
+  res.json({ success: true, color, bgRatio, font, tabIcons })
 })
 
 // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
@@ -20267,7 +20403,7 @@ app.post('/fonts/upload', auth.requireAuth, (req, res) => {
   const ext = extMatch ? extMatch[1].toLowerCase() : ''
   if (!MYINFO_FONT_ALLOWED_EXT.includes(ext)) return res.json({ success: false, error: '폰트 파일(.woff2, .woff, .ttf, .otf)만 업로드할 수 있어요' })
   const buffer = Buffer.from(m[2], 'base64')
-  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 파일만 업로드할 수 있어요' })
+  if (buffer.length > 15 * 1024 * 1024) return res.json({ success: false, error: '15MB 이하 파일만 업로드할 수 있어요' })
   const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
   try {
     fs.writeFileSync(path.join(FONTS_DIR, name), buffer)
@@ -21402,7 +21538,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21438,6 +21574,21 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (myinfoNotice) {
     const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
     patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim(), font }
+  }
+  // 🔖 상단 탭 아이콘 — 이모지 텍스트 또는 업로드한 이미지 경로(/images/...) 둘 다 허용.
+  if (myinfoTabIcons) {
+    const clampIcon = v => String(v == null ? '' : v).trim().slice(0, 300)
+    let size = Number(myinfoTabIcons.size)
+    if (!Number.isFinite(size) || size <= 0) size = 16
+    size = Math.max(10, Math.min(60, size))
+    patch.myinfoTabIcons = {
+      post: clampIcon(myinfoTabIcons.post),
+      keep: clampIcon(myinfoTabIcons.keep),
+      game: clampIcon(myinfoTabIcons.game),
+      roulette: clampIcon(myinfoTabIcons.roulette),
+      cal: clampIcon(myinfoTabIcons.cal),
+      size,
+    }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
