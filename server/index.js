@@ -20268,6 +20268,8 @@ app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
 // 🎰 복권 사용 — 채팅 명령어 "!복권"(단일 사용 분기)과 동일한 3자리 맞히기 추첨 로직을 웹 버튼
 // 한 번으로 처리한다. 항상 1장만 사용하고, 결과는 이 응답으로 웹 화면에도 보여주고 방송
 // 채팅창에도 그대로 올린다.
+// 🎰 복권 사용 — 채팅 명령어 "!복권"을 인자 없이 쳤을 때와 완전히 동일하게 동작한다: 보유한 복권을
+// 전부(최대 100장) 한 번에 써서 등수별 결과를 집계하고, 그만큼의 EXP를 한꺼번에 지급한다.
 app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
@@ -20284,28 +20286,36 @@ app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
   if (!d) return res.json({ success: false, error: '애청지수에 등록되어 있지 않아요. 방송 채팅에서 !내정보 생성을 먼저 입력해주세요.' })
   if ((d.lotto || 0) < 1) return res.json({ success: false, error: '보유한 복권이 없어요.' })
 
-  d.lotto -= 1
   const exp1st = Number(act.lotto1st) || 3000
   const exp2nd = Number(act.lotto2nd) || 500
   const exp3rd = Number(act.lotto3rd) || 100
   const expFail = Number(act.lottoFail) || 1
-  const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
-  const myNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
-  const matches = myNums.filter(n => winNums.includes(n)).length
-  let grade = '꽝', gainExp = expFail
-  if (matches === 3) { grade = '1등'; gainExp = exp1st }
-  else if (matches === 2) { grade = '2등'; gainExp = exp2nd }
-  else if (matches === 1) { grade = '3등'; gainExp = exp3rd }
-  actGrantExp(djId, act, key, gainExp)
+  const useCount = Math.min(d.lotto || 0, 100) // ⚠️ !복권 명령어와 동일하게, 아무리 많이 갖고 있어도 한 번에 최대 100장까지만
+  d.lotto -= useCount
+  let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
+  for (let i = 0; i < useCount; i++) {
+    const win = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const my = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const m = my.filter(n => win.includes(n)).length
+    if (m === 3) cnt1++; else if (m === 2) cnt2++; else if (m === 1) cnt3++; else cntFail++
+  }
+  const totalExp = cnt1 * exp1st + cnt2 * exp2nd + cnt3 * exp3rd + cntFail * expFail
+  actGrantExp(djId, act, key, totalExp)
   store.saveSettings(djId, { activity: act })
 
   const nickname = d.nickname || tag
-  const top = actFormat(act.msgLottoHeader, { nickname, count: 1 })
-  const bottom = `${grade} (당첨번호 ${winNums.join(',')} / 내번호 ${myNums.join(',')}, 일치 ${matches}개) +${gainExp} EXP`
-  setTimeout(() => sendChatToRoom(djId, `${top}\n${bottom}`), 400)
+  const top = actFormat(act.msgLottoAutoHeader, { nickname, count: useCount })
+  const bottom = '━━━━━━━━━━━━━━\n' +
+    `🥇 1등(3개): ${cnt1}회 (+${exp1st} EXP)\n` +
+    `🥈 2등(2개): ${cnt2}회 (+${exp2nd} EXP)\n` +
+    `🥉 3등(1개): ${cnt3}회 (+${exp3rd} EXP)\n` +
+    `💀 꽝(0개): ${cntFail}회 (+${expFail} EXP)\n` +
+    '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
+  setTimeout(() => sendChatToRoom(djId, top), 400)
+  setTimeout(() => sendChatToRoom(djId, bottom), 900)
 
   const profile = await miBuildProfile(djId, settings, tag)
-  res.json({ success: true, grade, matches, winNums, myNums, gainExp, ...profile })
+  res.json({ success: true, useCount, cnt1, cnt2, cnt3, cntFail, totalExp, ...profile })
 })
 
 app.get('/myinfo/:djId/roulettes', (req, res) => {

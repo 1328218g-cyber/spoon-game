@@ -276,7 +276,7 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
         <span class="l">보유 복권</span>
         <span class="bigNum"><span id="pLottoBig">0</span>장</span>
       </div>
-      <button class="useBtn" id="lottoUseBtn" style="width:100%;margin-bottom:14px;padding:10px;font-size:13px" onclick="onDrawLottoClick(event)">🎰 복권 1장 사용해서 뽑기</button>
+      <button class="useBtn" id="lottoUseBtn" style="width:100%;margin-bottom:14px;padding:10px;font-size:13px" onclick="onDrawLottoClick(event)">🎰 복권 사용하기</button>
 
       <div class="subListTitle">🎁 킵목록</div>
       <div id="keepListBox"><div class="emptyList">킵 기록이 없어요</div></div>
@@ -992,10 +992,10 @@ async function onSpinRouletteClick(ev){
   }
 }
 
-// 🎰 복권 "사용" — 버튼을 누르면 그 자리에서 바로 3자리 맞히기 추첨을 돌려 결과까지 보여준다.
-// 항상 1장만 사용한다.
+// 🎰 복권 "사용하기" — 채팅에서 "!복권"을 인자 없이 친 것과 동일하게, 보유한 복권을 전부 한 번에
+// 써서 등수별 결과를 집계해 보여준다.
 async function onDrawLottoClick(ev){
-  if(!confirm('복권 1장을 사용해서 뽑을까요?\n결과가 방송 채팅창에도 올라가요.')) return;
+  if(!confirm('보유한 복권을 전부 사용해서 뽑을까요?\n결과가 방송 채팅창에도 올라가요.')) return;
   const btn = ev.currentTarget;
   btn.disabled = true; const old = btn.textContent; btn.textContent = '뽑는 중';
   try{
@@ -1005,7 +1005,7 @@ async function onDrawLottoClick(ev){
     });
     const d = await res.json();
     if(!d.success){ alert(d.error || '사용에 실패했어요'); btn.disabled = false; btn.textContent = old; return; }
-    showResultToast(`🎰 ${d.grade} (일치 ${d.matches}개) +${d.gainExp} EXP`);
+    showResultToast(`🎰 복권 ${d.useCount}장 사용\n🥇${d.cnt1} 🥈${d.cnt2} 🥉${d.cnt3} 💀${d.cntFail}\n+${d.totalExp} EXP`);
     applyProfileData(d);
   }catch(e){
     alert('사용에 실패했어요');
