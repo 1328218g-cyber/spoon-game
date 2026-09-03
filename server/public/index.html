@@ -1613,6 +1613,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 {current}/{goal} {percent}%</textarea>
           <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}</div>
           <div class="hint" id="flagPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;white-space:pre-line"></div>
+          <label style="margin-top:14px">완료 메시지 <span class="hint-inline">(목표를 채운 순간 한 번만 추가로 전송돼요)</span></label>
+          <textarea id="flagMsgFullInput">🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})</textarea>
           <div class="btn-row">
             <button class="btn-gray" onclick="hideFlagForm()">취소</button>
             <button class="btn-connect" onclick="saveFlagForm()">💾 저장</button>
@@ -6214,6 +6216,7 @@ function showFlagForm(id){
   document.getElementById('flagGoalInput').value=f?f.goal:'';
   document.getElementById('flagUseCycle').checked=f?!!f.useCycle:false;
   document.getElementById('flagTemplateInput').value=f?f.template:'=== {title} ====\n{current}/{goal} {percent}%';
+  document.getElementById('flagMsgFullInput').value=f?(f.msgFull||'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})'):'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})';
   document.querySelectorAll('input[name="flagMode"]').forEach(r=>r.checked=(r.value===(f?f.mode:'manual')));
   document.getElementById('flagFormCard').style.display='block';
   updateFlagPreview();
@@ -6240,12 +6243,13 @@ function saveFlagForm(){
   const mode=document.querySelector('input[name="flagMode"]:checked').value;
   const useCycle=document.getElementById('flagUseCycle').checked;
   const template=document.getElementById('flagTemplateInput').value;
+  const msgFull=document.getElementById('flagMsgFullInput').value;
 
   if(flagEditingId){
     const f=flagsData.items.find(x=>x.id===flagEditingId);
-    Object.assign(f,{title,goal,mode,useCycle,template});
+    Object.assign(f,{title,goal,mode,useCycle,template,msgFull});
   } else {
-    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template});
+    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template,msgFull});
   }
   hideFlagForm();
   renderFlags();
@@ -8484,6 +8488,25 @@ function renderSrList(){
   document.getElementById('srSiteSpotify').checked = !!sites.spotify;
   document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
   renderSrPerms();
+
+  // 🐛 여기서 채워주지 않으면 이 입력창들은 항상 HTML의 하드코딩된 기본값만 보여준다 — 저장된
+  // 커스텀 문구가 있어도 페이지를 새로고침하면 화면엔 기본값이 뜨고, 그 상태로 "설정 저장"을
+  // 누르면 저장해둔 커스텀 값이 기본값으로 도로 덮어써진다. 로드될 때마다 실제 저장값으로 채운다.
+  document.getElementById('srCmdRequest').value=srData.cmdRequest||'!신청곡';
+  document.getElementById('srCmdRemove').value=srData.cmdRemove||'!제거';
+  document.getElementById('srCmdReset').value=srData.cmdReset||'리셋';
+  document.getElementById('srCmdClose').value=srData.cmdClose||'!마감';
+  document.getElementById('srCmdOpen').value=srData.cmdOpen||'!접수';
+  document.getElementById('srCmdPriorityOn').value=srData.cmdPriorityOn||'!우선온';
+  document.getElementById('srCmdPriorityOff').value=srData.cmdPriorityOff||'!우선오프';
+  document.getElementById('srCmdNameOn').value=srData.cmdNameOn||'!이름온';
+  document.getElementById('srCmdNameOff').value=srData.cmdNameOff||'!이름오프';
+  document.getElementById('srCmdRecommend').value=srData.cmdRecommend||'!추천곡';
+  document.getElementById('srDoneTemplate').value=srData.doneTemplate||'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)';
+  document.getElementById('srListTitle').value=srData.listTitle||'🎵 현재 신청곡 목록 🎵';
+  document.getElementById('srListItemTemplate').value=srData.listItemTemplate||'{index}. {artist} - {title}';
+  document.getElementById('srMaxChars').value=srData.maxCharsPerMsg||100;
+  document.getElementById('srMsgInterval').value=srData.msgIntervalMs||600;
 
   const wrap=document.getElementById('srListWrap');
   if(!srData.items.length){

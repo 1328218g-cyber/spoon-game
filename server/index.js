@@ -864,6 +864,20 @@ function renderFlagTemplate(tpl, flag, index) {
     .replace(/{percent}/g, percent)
 }
 
+// 🚩 깃발 목표(goal)가 있으면 그 이상 못 올라가게 막고, 이번 적립으로 "방금 막 채워졌는지"를 알려준다.
+// (goal이 0/미설정이면 상한 없이 그냥 누적 — 목표 없는 깃발은 완료 개념이 없다)
+const DEFAULT_FLAG_FULL_MSG = '🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})'
+function applyFlagDelta(flag, delta) {
+  const goal = Number(flag.goal) || 0
+  const before = Number(flag.current) || 0
+  const wasFull = goal > 0 && before >= goal
+  let next = before + delta
+  if (goal > 0) next = Math.min(next, goal)
+  flag.current = next
+  const isFull = goal > 0 && next >= goal
+  return { justCompleted: isFull && !wasFull }
+}
+
 // 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
 function handleFlagCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'flag', djId)) return
@@ -901,10 +915,13 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
     return
   }
 
-  flag.current = (flag.current || 0) + delta
+  const { justCompleted } = applyFlagDelta(flag, delta)
   store.saveSettings(djId, { flags })
   broadcast({ type: 'flags', djId, items: flags.items })
   setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
+  if (justCompleted) {
+    setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
+  }
 }
 
 // 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
@@ -913,12 +930,20 @@ function handleFlagAutoDonation(djId, settings, amount) {
   const flags = settings.flags
   if (!flags || !flags.items || !flags.items.length || !amount) return
   let changed = false
-  flags.items.forEach(f => {
-    if (f.mode === 'auto') { f.current = (f.current || 0) + amount; changed = true }
+  const completed = []
+  flags.items.forEach((f, i) => {
+    if (f.mode === 'auto') {
+      const { justCompleted } = applyFlagDelta(f, amount)
+      changed = true
+      if (justCompleted) completed.push({ flag: f, idx1: i + 1 })
+    }
   })
   if (changed) {
     store.saveSettings(djId, { flags })
     broadcast({ type: 'flags', djId, items: flags.items })
+    completed.forEach(({ flag, idx1 }) => {
+      setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
+    })
   }
 }
 
