@@ -6789,7 +6789,7 @@ function getChuseokSettings(djId, settings) {
   if (!settings.chuseokEvent) {
     settings.chuseokEvent = {
       active: false, // 지금 스푼 집계를 받고 있는지 — DJ가 직접 켜고 끔
-      currentRound: 1, // 1~3 중 지금 진행중인 라운드
+      currentRound: 1, // 지금 진행중인 라운드(1부터 시작) — 라운드 개수는 고정이 아니라 DJ가 자유롭게 늘리고 줄일 수 있다
       title: '팝블리네 추석명절특집',
       posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
       minSpoons: CHUSEOK_MIN_SPOONS_DEFAULT, // 이 이상 보낸 선물만 스코어로 집계 — DJ가 설정페이지에서 직접 조절 가능
@@ -6809,7 +6809,9 @@ function getChuseokSettings(djId, settings) {
     store.saveSettings(djId, { chuseokEvent: settings.chuseokEvent })
   }
   const ev = settings.chuseokEvent
-  if (!Array.isArray(ev.rounds) || ev.rounds.length !== 3) {
+  // 🆕 라운드 개수를 3개로 고정하지 않고, DJ가 필요할 때마다 자유롭게 추가/삭제할 수 있다.
+  //    데이터가 아예 비어있거나 배열이 아닐 때만 기본 3라운드로 채워준다(완전 초기화 상황 대비).
+  if (!Array.isArray(ev.rounds) || ev.rounds.length === 0) {
     ev.rounds = [
       { teamA: '모듬전', teamB: '스팸세트' },
       { teamA: '사과', teamB: '곶감' },
@@ -6820,13 +6822,14 @@ function getChuseokSettings(djId, settings) {
   if (!ev.authKeys || typeof ev.authKeys !== 'object') ev.authKeys = {}
   if (!ev.webUsers || typeof ev.webUsers !== 'object') ev.webUsers = {}
   if (ev.posterImageUrl == null) ev.posterImageUrl = ''
-  if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > 3) ev.currentRound = 1
+  if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > ev.rounds.length) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
   // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
   // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
   // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
-  const legacyKeys = Object.keys(ev.members).filter(k => !/^[1-3]\|/.test(k))
+  // 🆕 라운드가 3개로 고정이 아니게 되면서 키 앞자리 숫자도 두 자리 이상 나올 수 있어 정규식을 \d+로 넓힘.
+  const legacyKeys = Object.keys(ev.members).filter(k => !/^\d+\|/.test(k))
   if (legacyKeys.length) {
     legacyKeys.forEach(k => {
       const m = ev.members[k]
@@ -6852,19 +6855,24 @@ function chuseokCleanExpiredKeys(ev) {
 }
 // 🔑 라운드가 포함된 키 — 같은 사람이라도 라운드별로 별도 기록을 갖게 해서, 라운드가 넘어가도
 // 예전 라운드 점수/참여기록이 덮어써지지 않고 남아있게 한다 (지난 라운드 조회 !추석N, !내추석에서 사용).
+// 🆕 라운드 개수가 더 이상 3개로 고정이 아니라서, 최댓값을 3으로 자르지 않고 1 이상이면 그대로 쓴다.
 function chuseokMemberKey(round, author, tag) {
   const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
   const base = t ? ('t:' + t) : ('n:' + String(author || '').trim().toLowerCase())
-  return String(Math.max(1, Math.min(3, parseInt(round, 10) || 1))) + '|' + base
+  return String(Math.max(1, parseInt(round, 10) || 1)) + '|' + base
 }
 // 지금 라운드에 참여했으면 그걸 먼저 보여주고, 없으면 과거 라운드 중 가장 최근에 참여한 기록을 찾는다 (!내추석용)
+// 🆕 라운드 개수가 가변적이라 1~3을 훑는 대신, 저장된 모든 참가자 중 같은 사람(태그 우선, 없으면 닉네임)을
+//    직접 찾는 방식으로 바꿨다 — 라운드가 몇 개든, 라운드가 나중에 삭제됐어도 과거 기록을 놓치지 않는다.
 function chuseokFindMemberAnyRound(ev, author, tag) {
   const cur = ev.members[chuseokMemberKey(ev.currentRound, author, tag)]
   if (cur) return cur
+  const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  const n = String(author || '').trim().toLowerCase()
   let best = null
-  for (let r = 1; r <= 3; r++) {
-    const m = ev.members[chuseokMemberKey(r, author, tag)]
-    if (m && (!best || (m.joinedAt || 0) > (best.joinedAt || 0))) best = m
+  for (const m of Object.values(ev.members)) {
+    const matches = t ? (String(m.tag || '').trim().toLowerCase() === t) : (String(m.nickname || '').trim().toLowerCase() === n)
+    if (matches && (!best || (m.joinedAt || 0) > (best.joinedAt || 0))) best = m
   }
   return best
 }
@@ -16488,15 +16496,20 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   const { title, active, currentRound, rounds, posterImageUrl, minSpoons } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
-  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(3, parseInt(currentRound, 10) || 1))
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
-  if (Array.isArray(rounds) && rounds.length === 3) {
+  // 🆕 라운드 개수를 3개로 고정하지 않고 1~20개 사이에서 DJ가 자유롭게 추가/삭제할 수 있다.
+  //    (라운드가 하나도 없으면 이벤트 자체가 성립하지 않으니 최소 1개는 유지, 너무 많이 늘리는 실수를 막기 위해 20개로 상한)
+  if (Array.isArray(rounds) && rounds.length >= 1 && rounds.length <= 20) {
     ev.rounds = rounds.map((r, i) => ({
-      teamA: String(r.teamA || '').trim() || ev.rounds[i].teamA,
-      teamB: String(r.teamB || '').trim() || ev.rounds[i].teamB,
+      teamA: String((r && r.teamA) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamA : `A팀${i + 1}`),
+      teamB: String((r && r.teamB) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamB : `B팀${i + 1}`),
     }))
   }
+  // currentRound는 라운드 배열이 갱신된 뒤(위) 그 길이에 맞춰 정해야 한다 — 라운드를 줄였는데
+  // 지금 라운드가 그보다 크면(예: 5라운드 진행 중에 3개로 줄이면) 마지막 라운드로 자동 보정한다.
+  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(ev.rounds.length, parseInt(currentRound, 10) || 1))
+  else if (ev.currentRound > ev.rounds.length) ev.currentRound = ev.rounds.length
   store.saveSettings(req.djId, { chuseokEvent: ev })
   // 🧹 포스터 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
   if (prevPosterUrl && prevPosterUrl !== ev.posterImageUrl && prevPosterUrl.startsWith('/images/')) {
@@ -16512,7 +16525,7 @@ app.post('/chuseok/add-member', auth.requireAuth, requireRequestModuleAccess('ch
   const { nickname, tag, round, team } = req.body || {}
   const nick = String(nickname || '').trim()
   if (!nick) return res.json({ success: false, error: '닉네임을 입력해주세요' })
-  const roundNum = Math.max(1, Math.min(3, parseInt(round, 10) || 1))
+  const roundNum = Math.max(1, Math.min(ev.rounds.length, parseInt(round, 10) || 1))
   const side = team === 'B' ? 'B' : 'A'
   const key = chuseokMemberKey(roundNum, nick, tag) // 라운드가 포함된 키라, 다른 라운드로 옮겨도 그 라운드의 기존 기록은 그대로 남는다
   const existing = ev.members[key]
