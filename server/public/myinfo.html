@@ -276,6 +276,7 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
         <span class="l">보유 복권</span>
         <span class="bigNum"><span id="pLottoBig">0</span>장</span>
       </div>
+      <button class="useBtn" id="lottoUseBtn" style="width:100%;margin-bottom:14px;padding:10px;font-size:13px" onclick="onDrawLottoClick(event)">🎰 복권 1장 사용해서 뽑기</button>
 
       <div class="subListTitle">🎁 킵목록</div>
       <div id="keepListBox"><div class="emptyList">킵 기록이 없어요</div></div>
@@ -968,6 +969,59 @@ async function onUseItemClick(ev){
   }
 }
 
+// 🎡 룰렛권 "사용" — 보유한 룰렛권 칩의 사용 버튼을 누르면 그 자리에서 바로 룰렛을 돌려 당첨
+// 결과까지 보여준다. 항상 1장만 사용한다(킵목록 사용 버튼과 동일한 원칙).
+async function onSpinRouletteClick(ev){
+  const btn = ev.currentTarget;
+  const idx = btn.dataset.idx;
+  const name = btn.dataset.name;
+  if(!confirm(`[${name}] 룰렛권 1장을 사용해서 룰렛을 돌릴까요?\n결과가 방송 채팅창에도 올라가요.`)) return;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '돌리는 중';
+  try{
+    const res = await fetch(API + '/spin-roulette', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, idx })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '사용에 실패했어요'); btn.disabled = false; btn.textContent = old; return; }
+    showResultToast(`🎡 [${d.rouletteName}] 결과\n👉 ${d.result}`);
+    applyProfileData(d);
+  }catch(e){
+    alert('사용에 실패했어요');
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
+// 🎰 복권 "사용" — 버튼을 누르면 그 자리에서 바로 3자리 맞히기 추첨을 돌려 결과까지 보여준다.
+// 항상 1장만 사용한다.
+async function onDrawLottoClick(ev){
+  if(!confirm('복권 1장을 사용해서 뽑을까요?\n결과가 방송 채팅창에도 올라가요.')) return;
+  const btn = ev.currentTarget;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '뽑는 중';
+  try{
+    const res = await fetch(API + '/draw-lotto', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId })
+    });
+    const d = await res.json();
+    if(!d.success){ alert(d.error || '사용에 실패했어요'); btn.disabled = false; btn.textContent = old; return; }
+    showResultToast(`🎰 ${d.grade} (일치 ${d.matches}개) +${d.gainExp} EXP`);
+    applyProfileData(d);
+  }catch(e){
+    alert('사용에 실패했어요');
+  }
+  btn.disabled = false; btn.textContent = old;
+}
+
+// 룰렛권/복권 사용 결과처럼 잠깐 떴다 사라지는 안내를 화면 하단에 띄운다.
+function showResultToast(text, ms){
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:12px 20px;border-radius:16px;box-shadow:0 6px 20px rgba(14,165,233,.35);z-index:50;white-space:pre-line;text-align:center;max-width:86vw';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), ms || 4000);
+}
+
 async function fetchMe(manual){
   if(!webUserId) return;
   try{
@@ -1017,39 +1071,51 @@ async function fetchMe(manual){
     document.getElementById('sumKeep').textContent = keepTotal;
     document.getElementById('pLottoBig').textContent = (d.loyalty && d.loyalty.lotto) || 0;
 
-    if(d.loyalty && d.loyalty.registered){
-      hide('loyaltyEmpty'); show('loyaltyBlock');
-      document.getElementById('pLevel').textContent = d.loyalty.level;
-      document.getElementById('pRank').textContent = d.loyalty.rank ? `순위 ${d.loyalty.rank}위` : '순위 -';
-      document.getElementById('pExp').textContent = d.loyalty.exp;
-      document.getElementById('pNextExp').textContent = d.loyalty.nextExp;
-      const pct = d.loyalty.nextExp > 0 ? Math.min(100, Math.round(d.loyalty.exp / d.loyalty.nextExp * 100)) : 0;
-      document.getElementById('pExpBar').style.width = pct + '%';
-      document.getElementById('pHeart').textContent = d.loyalty.heart;
-      document.getElementById('pChat').textContent = d.loyalty.chat;
-      document.getElementById('pAttend').textContent = d.loyalty.attend;
-      document.getElementById('pLotto').textContent = d.loyalty.lotto;
-      document.getElementById('pLp').textContent = d.loyalty.lp;
-      document.getElementById('pLpMax').textContent = d.loyalty.lpMax;
-      const lpPct = d.loyalty.lpMax > 0 ? Math.min(100, Math.round(d.loyalty.lp / d.loyalty.lpMax * 100)) : 0;
-      document.getElementById('pLpBar').style.width = lpPct + '%';
-    } else {
-      hide('loyaltyBlock'); show('loyaltyEmpty');
-    }
-
-    const chipBox = document.getElementById('couponChips');
-    if(d.coupons && d.coupons.length){
-      chipBox.innerHTML = d.coupons.map(c => `<div class="chip"><span>${escapeHtml(c.name)}</span><b>${c.count}장</b></div>`).join('');
-    } else {
-      chipBox.innerHTML = '<div class="emptyList">보유한 룰렛권이 없어요</div>';
-    }
-
-    renderList('keepListBox', d.keepList, 'keep');
-    renderList('eventListBox', d.eventList, 'event');
-    renderList('miscListBox', d.miscList, 'misc');
+    applyProfileData(d);
   }catch(e){
     if(manual) alert('불러오기에 실패했어요');
   }
+}
+
+// fetchMe(/me)와 룰렛권/복권 사용 응답(/spin-roulette, /draw-lotto)은 같은 모양(loyalty·coupons·
+// keepList·eventList·miscList)을 돌려주므로, 애청지수 통계·룰렛권 칩·킵/이벤트/기타 목록을
+// 화면에 그리는 부분을 공통 함수로 뽑아 셋 다 재사용한다.
+function applyProfileData(d){
+  const keepTotal = (d.keepList || []).reduce((s, it) => s + (it.count || 0), 0);
+  document.getElementById('sumKeep').textContent = keepTotal;
+  document.getElementById('pLottoBig').textContent = (d.loyalty && d.loyalty.lotto) || 0;
+
+  if(d.loyalty && d.loyalty.registered){
+    hide('loyaltyEmpty'); show('loyaltyBlock');
+    document.getElementById('pLevel').textContent = d.loyalty.level;
+    document.getElementById('pRank').textContent = d.loyalty.rank ? `순위 ${d.loyalty.rank}위` : '순위 -';
+    document.getElementById('pExp').textContent = d.loyalty.exp;
+    document.getElementById('pNextExp').textContent = d.loyalty.nextExp;
+    const pct = d.loyalty.nextExp > 0 ? Math.min(100, Math.round(d.loyalty.exp / d.loyalty.nextExp * 100)) : 0;
+    document.getElementById('pExpBar').style.width = pct + '%';
+    document.getElementById('pHeart').textContent = d.loyalty.heart;
+    document.getElementById('pChat').textContent = d.loyalty.chat;
+    document.getElementById('pAttend').textContent = d.loyalty.attend;
+    document.getElementById('pLotto').textContent = d.loyalty.lotto;
+    document.getElementById('pLp').textContent = d.loyalty.lp;
+    document.getElementById('pLpMax').textContent = d.loyalty.lpMax;
+    const lpPct = d.loyalty.lpMax > 0 ? Math.min(100, Math.round(d.loyalty.lp / d.loyalty.lpMax * 100)) : 0;
+    document.getElementById('pLpBar').style.width = lpPct + '%';
+  } else {
+    hide('loyaltyBlock'); show('loyaltyEmpty');
+  }
+
+  const chipBox = document.getElementById('couponChips');
+  if(d.coupons && d.coupons.length){
+    chipBox.innerHTML = d.coupons.map(c => `<div class="chip"><span>${escapeHtml(c.name)}</span><b>${c.count}장</b><button class="useBtn spinBtn" data-idx="${c.idx}" data-name="${escapeHtml(c.name)}">사용</button></div>`).join('');
+    chipBox.querySelectorAll('.spinBtn').forEach(btn => btn.addEventListener('click', onSpinRouletteClick));
+  } else {
+    chipBox.innerHTML = '<div class="emptyList">보유한 룰렛권이 없어요</div>';
+  }
+
+  renderList('keepListBox', d.keepList, 'keep');
+  renderList('eventListBox', d.eventList, 'event');
+  renderList('miscListBox', d.miscList, 'misc');
 }
 
 // 시작

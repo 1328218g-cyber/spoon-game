@@ -20217,6 +20217,97 @@ app.post('/myinfo/:djId/use-item', async (req, res) => {
   res.json({ success: true, ...profile })
 })
 
+// 🎡 룰렛권 사용 — 채팅 명령어 "!룰렛N"의 시청자 본인 사용 분기(handleRouletteCommand)와 동일한 로직을
+// 웹 버튼 한 번으로 처리한다. 항상 1장만 사용하고(킵목록 "사용" 버튼과 동일한 원칙), 당첨 결과는
+// 이 응답으로 웹 화면에도 보여주고, 방송 채팅창에도 사용 알림 + 당첨 결과를 그대로 올린다.
+app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'roulette', djId)) return res.json({ success: false, error: '룰렛 기능이 꺼져있어요.' })
+
+  const idx = parseInt((req.body || {}).idx, 10)
+  const rl = settings.roulette
+  const rt = rl && rl.list && rl.list[idx - 1]
+  if (!rt || !rt.items || !rt.items.length) return res.json({ success: false, error: '잘못된 룰렛이에요.' })
+
+  const existingRec = settings.rouletteHistory && settings.rouletteHistory[tag]
+  const nickname = (existingRec && existingRec.nickname) || tag
+  const hist = getHistoryRecByIdentity(settings, tag, nickname)
+
+  const have = Number(hist.coupons[idx] || 0)
+  if (have < 1) return res.json({ success: false, error: '보유한 룰렛권이 없어요.' })
+  hist.coupons[idx] = have - 1
+
+  const won = percentPick(rt.items)
+  const resultName = won ? won.name : ''
+  if (won) {
+    if (!won.skipHistory) {
+      hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+      addRouletteWinToList(hist, won.saveTo, won.name)
+    }
+    applySpecialRouletteItem(djId, settings, tag, nickname, won.name)
+  }
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const useMsg = (rl.couponUseTemplate || '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)')
+    .replace(/{닉네임}/g, nickname).replace(/{번호}/g, idx).replace(/{수량}/g, 1).replace(/{잔여}/g, hist.coupons[idx])
+  const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, nickname)
+  setTimeout(() => sendChatToRoom(djId, useMsg), 300)
+  setTimeout(() => sendChatToRoom(djId, `${header}\n👉 ${resultName}`), 900)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, rouletteName: rt.name, result: resultName, ...profile })
+})
+
+// 🎰 복권 사용 — 채팅 명령어 "!복권"(단일 사용 분기)과 동일한 3자리 맞히기 추첨 로직을 웹 버튼
+// 한 번으로 처리한다. 항상 1장만 사용하고, 결과는 이 응답으로 웹 화면에도 보여주고 방송
+// 채팅창에도 그대로 올린다.
+app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'loyalty', djId)) return res.json({ success: false, error: '애청지수 기능이 꺼져있어요.' })
+
+  const act = getActivitySettings(djId, settings)
+  const key = actResolveKey(act, null, tag)
+  const d = key ? act.users[key] : null
+  if (!d) return res.json({ success: false, error: '애청지수에 등록되어 있지 않아요. 방송 채팅에서 !내정보 생성을 먼저 입력해주세요.' })
+  if ((d.lotto || 0) < 1) return res.json({ success: false, error: '보유한 복권이 없어요.' })
+
+  d.lotto -= 1
+  const exp1st = Number(act.lotto1st) || 3000
+  const exp2nd = Number(act.lotto2nd) || 500
+  const exp3rd = Number(act.lotto3rd) || 100
+  const expFail = Number(act.lottoFail) || 1
+  const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
+  const myNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
+  const matches = myNums.filter(n => winNums.includes(n)).length
+  let grade = '꽝', gainExp = expFail
+  if (matches === 3) { grade = '1등'; gainExp = exp1st }
+  else if (matches === 2) { grade = '2등'; gainExp = exp2nd }
+  else if (matches === 1) { grade = '3등'; gainExp = exp3rd }
+  actGrantExp(djId, act, key, gainExp)
+  store.saveSettings(djId, { activity: act })
+
+  const nickname = d.nickname || tag
+  const top = actFormat(act.msgLottoHeader, { nickname, count: 1 })
+  const bottom = `${grade} (당첨번호 ${winNums.join(',')} / 내번호 ${myNums.join(',')}, 일치 ${matches}개) +${gainExp} EXP`
+  setTimeout(() => sendChatToRoom(djId, `${top}\n${bottom}`), 400)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, grade, matches, winNums, myNums, gainExp, ...profile })
+})
+
 app.get('/myinfo/:djId/roulettes', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
