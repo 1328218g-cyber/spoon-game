@@ -390,18 +390,20 @@ async function loadTheme(){
 // 채워서 내려주므로(theme 라우트 참고), 여기선 그대로 반영만 하면 된다.
 function applyTabIcons(icons){
   const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+  const size = Number(icons.size) > 0 ? Number(icons.size) : 16;
   Object.keys(map).forEach(key => {
     const val = icons[key];
-    if(!val) return;
     const btn = document.getElementById(map[key]);
     const iconEl = btn && btn.querySelector('.mIcon');
     if(!iconEl) return;
+    iconEl.style.fontSize = size + 'px'; // 이모지 크기
+    if(!val) return;
     if(val.startsWith('/') || val.startsWith('http')){
       iconEl.innerHTML = '';
       const img = document.createElement('img');
       img.src = val;
       img.alt = '';
-      img.style.cssText = 'width:18px;height:18px;object-fit:contain;display:block';
+      img.style.cssText = `width:${size}px;height:${size}px;object-fit:contain;display:block`;
       iconEl.appendChild(img);
     } else {
       iconEl.textContent = val;
@@ -1075,7 +1077,20 @@ if(!DJ_ID){
   initMyInfo();
 }
 window.addEventListener('pageshow', function(e){
+  // 🔄 뒤로가기/다른 방 링크 이동(bfcache)뿐 아니라, 앱 내장 브라우저가 URL만 바꾸고 스크립트를
+  // 새로 안 돌리는 경우까지 잡기 위해, pageshow가 뜰 때마다(e.persisted 여부와 상관없이) 지금
+  // 주소창의 디제이 아이디를 다시 읽어서 이 페이지가 로드됐을 때의 DJ_ID랑 비교한다.
+  // 하나라도 달라졌으면 부분 재초기화로는 못 믿으므로 아예 location.reload()로 완전히 새로 불러온다.
+  const currentDjId = decodeURIComponent((location.pathname.split('/').filter(Boolean))[1] || '');
+  if(currentDjId !== DJ_ID){ location.reload(); return; }
   if(e.persisted && DJ_ID) initMyInfo();
+});
+// 📱 스푼 앱 내장 브라우저 등 pageshow가 안 잡아주는 경우를 위한 이중 안전장치 — 탭/웹뷰가
+// 다시 보이게 될 때마다도 같은 방식으로 주소 불일치를 확인한다.
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState !== 'visible') return;
+  const currentDjId = decodeURIComponent((location.pathname.split('/').filter(Boolean))[1] || '');
+  if(currentDjId !== DJ_ID) location.reload();
 });
 </script>
 </body>

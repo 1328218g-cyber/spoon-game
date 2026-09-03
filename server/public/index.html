@@ -93,10 +93,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 .content{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 26px 60px}
 .panel{display:none;max-width:960px}
-.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"],.panel[data-panel="userlist"],.panel[data-panel="quiz"],.panel[data-panel="dashboard"]{max-width:100%}
+.panel[data-panel="usernotes"],.panel[data-panel="autogrant"],.panel[data-panel="roulettelog"],.panel[data-panel="loyalty"],.panel[data-panel="userlist"],.panel[data-panel="userlistonly"],.panel[data-panel="quiz"],.panel[data-panel="dashboard"]{max-width:100%}
 @media (min-width:861px){
   .panel[data-panel="usernotes"] .split-card,.panel[data-panel="autogrant"] .split-card,.panel[data-panel="roulettelog"] .split-card,.panel[data-panel="loyalty"] .split-card,.panel[data-panel="quiz"] .split-card{max-width:1200px}
-  .panel[data-panel="userlist"] .card{max-width:1400px}
+  .panel[data-panel="userlist"] .card,.panel[data-panel="userlistonly"] .card{max-width:1400px}
   .panel[data-panel="dashboard"] > *{max-width:1300px}
 }
 .panel.active{display:block;animation:fadeIn .15s ease}
@@ -640,6 +640,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic ic-img"><img src="/icons/session-connect.png" alt=""></span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="userlist"><span class="ic ic-img"><img src="/icons/user-management.png" alt=""></span><span class="lbl">유저 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" id="userListOnlyNav" data-panel="userlistonly" style="display:none"><span class="ic">👥</span><span class="lbl">유저 목록</span></div>
     <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic ic-img"><img src="/icons/adminstats.png" alt=""></span><span class="lbl">관리자 대시보드</span></div>
     <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic ic-img"><img src="/icons/eventviewer.png" alt=""></span><span class="lbl">이벤트 뷰어</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic ic-img"><img src="/icons/room-entry.png" alt=""></span><span class="lbl">자동입장</span><span class="nav-badge on" style="cursor:default" title="자동입장은 항상 켜져 있어요">ON</span></div>
@@ -1059,6 +1060,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
+      <div class="panel" data-panel="userlistonly">
+        <div class="card">
+          <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
+          <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정(유저 관리 패널)에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
+          <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
+          <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <div class="panel" data-panel="userlist">
         <div class="card">
           <div class="card-title">👤 계정 수동 생성</div>
@@ -1179,12 +1189,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="text" id="miFontAdminUrl" placeholder="웹폰트 링크 (선택, 파일을 첨부했으면 비워두세요. 예: https://fonts.googleapis.com/css2?family=...)">
             <button class="btn-connect" onclick="addMyinfoFontAdmin()">+ 폰트 추가</button>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
-          <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
-          <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
-          <div id="userListWrap"><p class="hint">불러오는 중...</p></div>
         </div>
         <div class="card">
           <div class="card-title">🔐 중복 가입 방지</div>
@@ -3858,6 +3862,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>🔖 상단 탭 아이콘</span></div>
           <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(5MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span class="hint" style="margin:0;white-space:nowrap">아이콘 크기</span>
+            <input type="range" min="10" max="60" id="miTabIconSize" value="16" style="flex:1;max-width:220px" oninput="document.getElementById('miTabIconSizeLabel').textContent=this.value+'px'">
+            <span class="hint" id="miTabIconSizeLabel" style="margin:0;width:36px">16px</span>
+          </div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px">
             <div>
               <label style="font-size:11.5px">포스트</label>
@@ -5365,6 +5374,8 @@ function enterApp(){
   // (각자 본인 계정으로 세션 연결하고 싶은 사람을 위한 화면이라 전체 공개로 변경)
   const userlistNav=document.querySelector('.nav-item[data-panel="userlist"]');
   if(userlistNav) userlistNav.style.display = isAdmin ? '' : 'none';
+  const userListOnlyNav=document.getElementById('userListOnlyNav');
+  if(userListOnlyNav) userListOnlyNav.style.display = isAdmin ? '' : 'none';
   const adminStatsNav=document.getElementById('adminStatsNav');
   if(adminStatsNav) adminStatsNav.style.display = isAdmin ? '' : 'none';
   const eventViewerNav=document.getElementById('eventViewerNav');
@@ -5551,6 +5562,7 @@ function selectPanel(name){
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
+  if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
@@ -15093,6 +15105,9 @@ function loadMyInfoSettings(){
   document.getElementById('miTabIconGame').value=myinfoTabIconsData.game||'';
   document.getElementById('miTabIconRoulette').value=myinfoTabIconsData.roulette||'';
   document.getElementById('miTabIconCal').value=myinfoTabIconsData.cal||'';
+  const sz=myinfoTabIconsData.size||16;
+  document.getElementById('miTabIconSize').value=sz;
+  document.getElementById('miTabIconSizeLabel').textContent=sz+'px';
   TAB_ICON_KEYS.forEach(updateTabIconPreview);
 }
 
@@ -15172,7 +15187,7 @@ async function saveMyInfoTheme(){
    글자 폰트 목록은 위 테마 색상 카드와 같은 관리자 등록 목록(/myinfo-fonts)을 그대로 재사용하되,
    선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
 let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
-let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:''};
+let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:'',size:16};
 const TAB_ICON_KEYS=['post','keep','game','roulette','cal'];
 function isImagePath(v){ return typeof v==='string' && v.length>0 && (v.startsWith('/')||v.startsWith('http')); }
 function updateTabIconPreview(key){
@@ -15205,6 +15220,7 @@ async function saveMyInfoTabIcons(){
     game:document.getElementById('miTabIconGame').value.trim(),
     roulette:document.getElementById('miTabIconRoulette').value.trim(),
     cal:document.getElementById('miTabIconCal').value.trim(),
+    size:Number(document.getElementById('miTabIconSize').value)||16,
   };
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTabIcons:myinfoTabIconsData})});

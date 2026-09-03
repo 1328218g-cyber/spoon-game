@@ -282,7 +282,8 @@ function defaultSettings() {
     myinfoNotice: { text: '', font: 'default' },
     // 🔖 내정보 웹페이지 상단 탭(포스트/킵목록/게임/룰렛정보/캘린더) 아이콘 — 디제이가 이모지를
     // 원하는 걸로 바꿀 수 있다. 비어있는 키는 myinfo.html에서 기본 이모지로 대체된다.
-    myinfoTabIcons: { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅' },
+    // size: 아이콘 크기(px, 이모지/이미지 공통 적용). 기본 16px.
+    myinfoTabIcons: { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어

@@ -20349,7 +20349,7 @@ app.get('/myinfo/:djId/theme', (req, res) => {
     if (found) font = found
   }
   // 🔖 상단 탭 아이콘 — 디제이가 안 바꿨으면 기본 이모지 그대로 내려간다.
-  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅' }
+  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 }
   const savedTabIcons = settings.myinfoTabIcons || {}
   const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
   res.json({ success: true, color, bgRatio, font, tabIcons })
@@ -21578,12 +21578,16 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   // 🔖 상단 탭 아이콘 — 이모지 텍스트 또는 업로드한 이미지 경로(/images/...) 둘 다 허용.
   if (myinfoTabIcons) {
     const clampIcon = v => String(v == null ? '' : v).trim().slice(0, 300)
+    let size = Number(myinfoTabIcons.size)
+    if (!Number.isFinite(size) || size <= 0) size = 16
+    size = Math.max(10, Math.min(60, size))
     patch.myinfoTabIcons = {
       post: clampIcon(myinfoTabIcons.post),
       keep: clampIcon(myinfoTabIcons.keep),
       game: clampIcon(myinfoTabIcons.game),
       roulette: clampIcon(myinfoTabIcons.roulette),
       cal: clampIcon(myinfoTabIcons.cal),
+      size,
     }
   }
   if (activity) patch.activity = activity
