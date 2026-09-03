@@ -66,6 +66,12 @@ const IMAGES_DIR = path.join(store.DATA_DIR, 'images')
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true })
 app.use('/images', require('express').static(IMAGES_DIR, { maxAge: '30d' }))
 
+// 🔤 내정보 웹페이지에 쓸 수 있는, 관리자가 직접 첨부한 폰트 파일(woff2/woff/ttf/otf).
+// sounds/images와 완전히 같은 이유/같은 방식 — Volume에 실제 파일로 저장하고 URL만 설정에 남긴다.
+const FONTS_DIR = path.join(store.DATA_DIR, 'fonts')
+if (!fs.existsSync(FONTS_DIR)) fs.mkdirSync(FONTS_DIR, { recursive: true })
+app.use('/fonts', require('express').static(FONTS_DIR, { maxAge: '30d' }))
+
 const GW_BASE = 'https://kr-gw.spooncast.net'
 const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
@@ -858,6 +864,20 @@ function renderFlagTemplate(tpl, flag, index) {
     .replace(/{percent}/g, percent)
 }
 
+// 🚩 깃발 목표(goal)가 있으면 그 이상 못 올라가게 막고, 이번 적립으로 "방금 막 채워졌는지"를 알려준다.
+// (goal이 0/미설정이면 상한 없이 그냥 누적 — 목표 없는 깃발은 완료 개념이 없다)
+const DEFAULT_FLAG_FULL_MSG = '🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})'
+function applyFlagDelta(flag, delta) {
+  const goal = Number(flag.goal) || 0
+  const before = Number(flag.current) || 0
+  const wasFull = goal > 0 && before >= goal
+  let next = before + delta
+  if (goal > 0) next = Math.min(next, goal)
+  flag.current = next
+  const isFull = goal > 0 && next >= goal
+  return { justCompleted: isFull && !wasFull }
+}
+
 // 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
 function handleFlagCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'flag', djId)) return
@@ -895,10 +915,13 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
     return
   }
 
-  flag.current = (flag.current || 0) + delta
+  const { justCompleted } = applyFlagDelta(flag, delta)
   store.saveSettings(djId, { flags })
   broadcast({ type: 'flags', djId, items: flags.items })
   setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
+  if (justCompleted) {
+    setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
+  }
 }
 
 // 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
@@ -907,12 +930,20 @@ function handleFlagAutoDonation(djId, settings, amount) {
   const flags = settings.flags
   if (!flags || !flags.items || !flags.items.length || !amount) return
   let changed = false
-  flags.items.forEach(f => {
-    if (f.mode === 'auto') { f.current = (f.current || 0) + amount; changed = true }
+  const completed = []
+  flags.items.forEach((f, i) => {
+    if (f.mode === 'auto') {
+      const { justCompleted } = applyFlagDelta(f, amount)
+      changed = true
+      if (justCompleted) completed.push({ flag: f, idx1: i + 1 })
+    }
   })
   if (changed) {
     store.saveSettings(djId, { flags })
     broadcast({ type: 'flags', djId, items: flags.items })
+    completed.forEach(({ flag, idx1 }) => {
+      setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
+    })
   }
 }
 
@@ -4855,6 +4886,42 @@ async function handleNoticeCommand(djId, room, settings, author, authorId, text)
   }
 }
 
+// 📢 !웹공지 [내용] / !웹공지끄기 / !웹공지폰트 [폰트이름] — DJ 전용, "내정보" 웹페이지
+// 포스트 탭 상단에 뜨는 실시간 공지 배너를 방송 중 채팅으로 바로 바꾼다. 위의 !공지(스푼 앱
+// 자체 방송 공지사항을 바꾸는 명령어)와는 완전히 별개 — 이건 에디봇 내정보 웹페이지 전용 배너다.
+async function handleWebNoticeCommand(djId, room, settings, author, authorId, text) {
+  const msg = String(text || '').trim()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) return
+  const cur = settings.myinfoNotice || { text: '', font: 'default' }
+
+  if (msg === '!웹공지끄기') {
+    store.saveSettings(djId, { myinfoNotice: { text: '', font: cur.font || 'default' } })
+    setTimeout(() => sendChatToRoom(djId, '✅ 웹페이지 실시간 공지를 껐어요'), 400)
+    return
+  }
+
+  if (msg.startsWith('!웹공지폰트 ')) {
+    const query = msg.slice('!웹공지폰트 '.length).trim()
+    if (!query || query === '기본') {
+      store.saveSettings(djId, { myinfoNotice: { text: cur.text || '', font: 'default' } })
+      setTimeout(() => sendChatToRoom(djId, '✅ 웹공지 폰트를 기본으로 되돌렸어요'), 400)
+      return
+    }
+    const found = store.getMyinfoFonts().find(f => f.name.includes(query))
+    if (!found) { setTimeout(() => sendChatToRoom(djId, `❌ "${query}" 이름의 폰트를 찾을 수 없어요`), 400); return }
+    store.saveSettings(djId, { myinfoNotice: { text: cur.text || '', font: found.id } })
+    setTimeout(() => sendChatToRoom(djId, `✅ 웹공지 폰트가 "${found.name}"(으)로 바뀌었어요`), 400)
+    return
+  }
+
+  if (!msg.startsWith('!웹공지 ')) return
+  const newText = msg.slice('!웹공지 '.length).trim()
+  if (!newText) { setTimeout(() => sendChatToRoom(djId, '⚠️ 사용법: !웹공지 [내용]'), 400); return }
+  store.saveSettings(djId, { myinfoNotice: { text: newText, font: cur.font || 'default' } })
+  setTimeout(() => sendChatToRoom(djId, `✅ 웹페이지 실시간 공지가 바뀌었어요: ${newText}`), 400)
+}
+
 function handleManagerTokenCommand(djId, room, settings, author, authorId, tag, text) {
   if (!isModuleOn(settings, 'managertoken', djId)) return
   const cfg = getManagerTokenSettings(djId, settings)
@@ -6789,7 +6856,7 @@ function getChuseokSettings(djId, settings) {
   if (!settings.chuseokEvent) {
     settings.chuseokEvent = {
       active: false, // 지금 스푼 집계를 받고 있는지 — DJ가 직접 켜고 끔
-      currentRound: 1, // 1~3 중 지금 진행중인 라운드
+      currentRound: 1, // 지금 진행중인 라운드(1부터 시작) — 라운드 개수는 고정이 아니라 DJ가 자유롭게 늘리고 줄일 수 있다
       title: '팝블리네 추석명절특집',
       posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
       minSpoons: CHUSEOK_MIN_SPOONS_DEFAULT, // 이 이상 보낸 선물만 스코어로 집계 — DJ가 설정페이지에서 직접 조절 가능
@@ -6809,7 +6876,9 @@ function getChuseokSettings(djId, settings) {
     store.saveSettings(djId, { chuseokEvent: settings.chuseokEvent })
   }
   const ev = settings.chuseokEvent
-  if (!Array.isArray(ev.rounds) || ev.rounds.length !== 3) {
+  // 🆕 라운드 개수를 3개로 고정하지 않고, DJ가 필요할 때마다 자유롭게 추가/삭제할 수 있다.
+  //    데이터가 아예 비어있거나 배열이 아닐 때만 기본 3라운드로 채워준다(완전 초기화 상황 대비).
+  if (!Array.isArray(ev.rounds) || ev.rounds.length === 0) {
     ev.rounds = [
       { teamA: '모듬전', teamB: '스팸세트' },
       { teamA: '사과', teamB: '곶감' },
@@ -6820,13 +6889,14 @@ function getChuseokSettings(djId, settings) {
   if (!ev.authKeys || typeof ev.authKeys !== 'object') ev.authKeys = {}
   if (!ev.webUsers || typeof ev.webUsers !== 'object') ev.webUsers = {}
   if (ev.posterImageUrl == null) ev.posterImageUrl = ''
-  if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > 3) ev.currentRound = 1
+  if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > ev.rounds.length) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
   // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
   // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
   // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
-  const legacyKeys = Object.keys(ev.members).filter(k => !/^[1-3]\|/.test(k))
+  // 🆕 라운드가 3개로 고정이 아니게 되면서 키 앞자리 숫자도 두 자리 이상 나올 수 있어 정규식을 \d+로 넓힘.
+  const legacyKeys = Object.keys(ev.members).filter(k => !/^\d+\|/.test(k))
   if (legacyKeys.length) {
     legacyKeys.forEach(k => {
       const m = ev.members[k]
@@ -6852,19 +6922,24 @@ function chuseokCleanExpiredKeys(ev) {
 }
 // 🔑 라운드가 포함된 키 — 같은 사람이라도 라운드별로 별도 기록을 갖게 해서, 라운드가 넘어가도
 // 예전 라운드 점수/참여기록이 덮어써지지 않고 남아있게 한다 (지난 라운드 조회 !추석N, !내추석에서 사용).
+// 🆕 라운드 개수가 더 이상 3개로 고정이 아니라서, 최댓값을 3으로 자르지 않고 1 이상이면 그대로 쓴다.
 function chuseokMemberKey(round, author, tag) {
   const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
   const base = t ? ('t:' + t) : ('n:' + String(author || '').trim().toLowerCase())
-  return String(Math.max(1, Math.min(3, parseInt(round, 10) || 1))) + '|' + base
+  return String(Math.max(1, parseInt(round, 10) || 1)) + '|' + base
 }
 // 지금 라운드에 참여했으면 그걸 먼저 보여주고, 없으면 과거 라운드 중 가장 최근에 참여한 기록을 찾는다 (!내추석용)
+// 🆕 라운드 개수가 가변적이라 1~3을 훑는 대신, 저장된 모든 참가자 중 같은 사람(태그 우선, 없으면 닉네임)을
+//    직접 찾는 방식으로 바꿨다 — 라운드가 몇 개든, 라운드가 나중에 삭제됐어도 과거 기록을 놓치지 않는다.
 function chuseokFindMemberAnyRound(ev, author, tag) {
   const cur = ev.members[chuseokMemberKey(ev.currentRound, author, tag)]
   if (cur) return cur
+  const t = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  const n = String(author || '').trim().toLowerCase()
   let best = null
-  for (let r = 1; r <= 3; r++) {
-    const m = ev.members[chuseokMemberKey(r, author, tag)]
-    if (m && (!best || (m.joinedAt || 0) > (best.joinedAt || 0))) best = m
+  for (const m of Object.values(ev.members)) {
+    const matches = t ? (String(m.tag || '').trim().toLowerCase() === t) : (String(m.nickname || '').trim().toLowerCase() === n)
+    if (matches && (!best || (m.joinedAt || 0) > (best.joinedAt || 0))) best = m
   }
   return best
 }
@@ -15621,6 +15696,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleTempRankCommand(djId, settings, text)
           handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
           handleNoticeCommand(djId, room, settings, author, authorId, text)
+          handleWebNoticeCommand(djId, room, settings, author, authorId, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -16488,15 +16564,20 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   const { title, active, currentRound, rounds, posterImageUrl, minSpoons } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
-  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(3, parseInt(currentRound, 10) || 1))
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
-  if (Array.isArray(rounds) && rounds.length === 3) {
+  // 🆕 라운드 개수를 3개로 고정하지 않고 1~20개 사이에서 DJ가 자유롭게 추가/삭제할 수 있다.
+  //    (라운드가 하나도 없으면 이벤트 자체가 성립하지 않으니 최소 1개는 유지, 너무 많이 늘리는 실수를 막기 위해 20개로 상한)
+  if (Array.isArray(rounds) && rounds.length >= 1 && rounds.length <= 20) {
     ev.rounds = rounds.map((r, i) => ({
-      teamA: String(r.teamA || '').trim() || ev.rounds[i].teamA,
-      teamB: String(r.teamB || '').trim() || ev.rounds[i].teamB,
+      teamA: String((r && r.teamA) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamA : `A팀${i + 1}`),
+      teamB: String((r && r.teamB) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamB : `B팀${i + 1}`),
     }))
   }
+  // currentRound는 라운드 배열이 갱신된 뒤(위) 그 길이에 맞춰 정해야 한다 — 라운드를 줄였는데
+  // 지금 라운드가 그보다 크면(예: 5라운드 진행 중에 3개로 줄이면) 마지막 라운드로 자동 보정한다.
+  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(ev.rounds.length, parseInt(currentRound, 10) || 1))
+  else if (ev.currentRound > ev.rounds.length) ev.currentRound = ev.rounds.length
   store.saveSettings(req.djId, { chuseokEvent: ev })
   // 🧹 포스터 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
   if (prevPosterUrl && prevPosterUrl !== ev.posterImageUrl && prevPosterUrl.startsWith('/images/')) {
@@ -16512,7 +16593,7 @@ app.post('/chuseok/add-member', auth.requireAuth, requireRequestModuleAccess('ch
   const { nickname, tag, round, team } = req.body || {}
   const nick = String(nickname || '').trim()
   if (!nick) return res.json({ success: false, error: '닉네임을 입력해주세요' })
-  const roundNum = Math.max(1, Math.min(3, parseInt(round, 10) || 1))
+  const roundNum = Math.max(1, Math.min(ev.rounds.length, parseInt(round, 10) || 1))
   const side = team === 'B' ? 'B' : 'A'
   const key = chuseokMemberKey(roundNum, nick, tag) // 라운드가 포함된 키라, 다른 라운드로 옮겨도 그 라운드의 기존 기록은 그대로 남는다
   const existing = ev.members[key]
@@ -20117,6 +20198,9 @@ app.get('/myinfo/:djId', (req, res) => {
 // 🎨 내정보 웹페이지 테마 색상 — DJ가 관리자 페이지에서 고른 accent 색상을 로그인/인증 여부와
 // 상관없이 누구나 조회할 수 있어야 페이지가 열리자마자(인증 전에도) 바로 적용할 수 있다.
 // 저장 안 해뒀으면 기존 기본 핑크색을 그대로 돌려준다.
+// 🔤 내정보 웹페이지 글자 폰트 — 관리자(sum)가 /admin/myinfo-fonts 로 등록해둔 목록 중에서만
+// 디제이가 고를 수 있다. 'default'는 목록에 없어도 항상 허용되는 특수값(시스템 기본 폰트, 커스텀 미적용).
+
 app.get('/myinfo/:djId/theme', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
@@ -20124,7 +20208,82 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   // 배경 연하기 비율 — 디제이가 저장한 값이 있으면 그대로, 없으면(구버전 데이터 포함) 기존 고정값 0.30
   const bgRatioRaw = settings.myinfoTheme && settings.myinfoTheme.bgRatio
   const bgRatio = (typeof bgRatioRaw === 'number' && bgRatioRaw >= 0 && bgRatioRaw <= 0.7) ? bgRatioRaw : 0.30
-  res.json({ success: true, color, bgRatio })
+  const fontId = (settings.myinfoTheme && settings.myinfoTheme.font) || 'default'
+  // 인증 전에도 누구나 조회하는 공개 endpoint라, family/url까지 그대로 내려줘야 myinfo.html이
+  // 별도 요청 없이 바로 <style>에 적용하고 필요하면 웹폰트 링크를 붙일 수 있다.
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  res.json({ success: true, color, bgRatio, font })
+})
+
+// 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
+// 인증 여부와 상관없이 누구나 조회 가능해야 페이지가 열리자마자(그리고 3초마다 폴링할 때마다)
+// 바로 최신 문구로 반영된다. 폰트는 myinfoTheme과 같은 목록(store.getMyinfoFonts())을 재사용하되,
+// 페이지 전체가 아니라 공지 텍스트에만 적용된다(myinfo.html의 applyNoticeFont 참고).
+app.get('/myinfo/:djId/notice', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const notice = settings.myinfoNotice || {}
+  const text = String(notice.text || '').trim()
+  const fontId = notice.font || 'default'
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  res.json({ success: true, text, font })
+})
+
+// 디제이 전용(로그인 필요) — 관리자가 등록해둔 폰트 목록을 본인 내정보 설정 화면에서 고를 수 있게 조회
+app.get('/myinfo-fonts', auth.requireAuth, (req, res) => {
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+
+// 관리자(sum) 전용 — 내정보 웹페이지에서 디제이들이 고를 수 있는 폰트 목록을 등록/조회
+app.get('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+app.post('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setMyinfoFonts((req.body || {}).fonts)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
+})
+
+// 🔤 폰트 파일 직접 첨부 — 링크가 없는 폰트를 쓰고 싶을 때, woff2/woff/ttf/otf 파일 자체를
+// 업로드해서 /fonts/파일명 으로 서빙한다. sounds/images 업로드와 동일한 base64 방식.
+const MYINFO_FONT_ALLOWED_EXT = ['woff2', 'woff', 'ttf', 'otf']
+app.post('/fonts/upload', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1].toLowerCase() : ''
+  if (!MYINFO_FONT_ALLOWED_EXT.includes(ext)) return res.json({ success: false, error: '폰트 파일(.woff2, .woff, .ttf, .otf)만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 파일만 업로드할 수 있어요' })
+  const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(FONTS_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/fonts/${name}`, filename: String(filename || name) })
+})
+// 더 이상 안 쓰는 폰트 파일 삭제(첨부 제거/교체 시 호출).
+app.post('/fonts/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/fonts/')) return res.json({ success: true })
+  const name = path.basename(url)
+  try { fs.unlinkSync(path.join(FONTS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
 })
 
 // ══════════════════════════════════════════════════════
@@ -21243,7 +21402,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21266,10 +21425,19 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
   //    bgRatio(배경 연하기 비율, 0~0.7)도 함께 저장 — 디제이가 직접 조절 가능. 값이 없거나
   //    범위를 벗어나면 기존 고정값이었던 0.30으로 대체.
+  // 🔤 글자 폰트 — 관리자가 등록해둔 목록(store.getMyinfoFonts())에 있는 id이거나 'default'일 때만 저장.
+  //    페이지 전체 폰트(myinfoTheme.font)와 공지 전용 폰트(myinfoNotice.font)가 같은 목록을 공유한다.
+  const availableFontIds = store.getMyinfoFonts().map(f => f.id)
   if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
     let bgRatio = Number(myinfoTheme.bgRatio)
     if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
-    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio }
+    const font = (myinfoTheme.font === 'default' || availableFontIds.includes(myinfoTheme.font)) ? myinfoTheme.font : 'default'
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio, font }
+  }
+  // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구와 전용 폰트.
+  if (myinfoNotice) {
+    const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
+    patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim(), font }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

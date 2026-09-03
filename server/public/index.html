@@ -1154,6 +1154,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </details>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔤 내정보 웹페이지 폰트 관리</span></div>
+          <p class="hint" style="margin-bottom:10px">여기서 등록해둔 폰트만 각 디제이가 자기 내정보 웹페이지 설정(테마 색상 카드)에서 골라 쓸 수 있어요.<br>
+          ※ 표시 이름: 디제이가 목록에서 보게 될 이름 (예: 프리텐다드)<br>
+          ※ font-family 값: 실제 CSS에 적용될 폰트 이름 (예: Pretendard, 'Noto Sans KR', sans-serif)<br>
+          ※ 아래 <b>폰트 파일 첨부</b> 또는 <b>웹폰트 링크</b> 둘 중 하나로 실제 글꼴을 연결해주세요. 파일을 첨부하면 그 파일 그대로 서빙되고, 링크만 넣으면(구글폰트 등) 그 주소에서 불러와요. 시스템에 이미 깔려있는 폰트면 둘 다 비워둬도 돼요.</p>
+          <div id="miFontAdminList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+          <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
+            <input type="text" id="miFontAdminName" placeholder="표시 이름 (예: 프리텐다드)">
+            <input type="text" id="miFontAdminFamily" placeholder="font-family 값 (예: Pretendard)">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <input type="file" id="miFontAdminFile" accept=".woff2,.woff,.ttf,.otf" style="display:none" onchange="uploadMyinfoFontFile(this.files[0])">
+                <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="document.getElementById('miFontAdminFile').click()">📎 폰트 파일 첨부 (woff2/woff/ttf/otf, 5MB 이하)</button>
+                <span class="hint" id="miFontAdminFileName" style="margin:0"></span>
+                <button class="btn-shield-reset" id="miFontAdminFileRemoveBtn" style="padding:8px 14px;font-size:12.5px;display:none" onclick="removeMyinfoFontFile()">제거</button>
+              </div>
+            </div>
+            <input type="text" id="miFontAdminUrl" placeholder="웹폰트 링크 (선택, 파일을 첨부했으면 비워두세요. 예: https://fonts.googleapis.com/css2?family=...)">
+            <button class="btn-connect" onclick="addMyinfoFontAdmin()">+ 폰트 추가</button>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
@@ -1591,6 +1613,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 {current}/{goal} {percent}%</textarea>
           <div class="hint">변수: {index}, {title}, {current}, {goal}, {percent}</div>
           <div class="hint" id="flagPreview" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;white-space:pre-line"></div>
+          <label style="margin-top:14px">완료 메시지 <span class="hint-inline">(목표를 채운 순간 한 번만 추가로 전송돼요)</span></label>
+          <textarea id="flagMsgFullInput">🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})</textarea>
           <div class="btn-row">
             <button class="btn-gray" onclick="hideFlagForm()">취소</button>
             <button class="btn-connect" onclick="saveFlagForm()">💾 저장</button>
@@ -3784,7 +3808,32 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <input type="range" id="miThemeBgRatio" min="0" max="70" step="1" value="30" style="width:100%" oninput="miThemeBgRatioChange(this.value)">
             <p class="hint" style="margin-top:4px">숫자가 클수록 배경이 더 하얗고 연해져요. 0%면 선택한 색이 배경에 그대로(진하게) 나와요.</p>
           </div>
+          <!-- 🔤 글자 폰트 — 디제이가 내정보 웹페이지 전체 글꼴을 골라서 저장할 수 있게 추가.
+               옵션 목록은 관리자가 유저 관리 페이지에서 등록해둔 폰트를 fetch해서 채운다 (loadMyInfoFontOptions). -->
+          <div style="margin-top:14px">
+            <div style="font-size:12.5px;color:var(--text-muted,#888)">글자 폰트</div>
+            <select id="miThemeFont" style="width:100%;margin-top:6px" onchange="miThemeFontChange(this.value)">
+              <option value="default">기본 (시스템 폰트)</option>
+            </select>
+            <p class="hint" style="margin-top:4px" id="miThemeFontHint">시청자가 보는 내정보 웹페이지의 글자 폰트를 바꿔요. 여기 목록에 원하는 폰트가 없으면 관리자에게 추가를 요청해주세요.</p>
+          </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📢 실시간 공지</span></div>
+          <p class="hint">내정보 웹페이지의 "포스트" 탭 맨 위에 항상 떠있는 공지 배너예요. 방송 채팅에서 <b>!웹공지 [내용]</b> / <b>!웹공지끄기</b> / <b>!웹공지폰트 [폰트이름]</b>으로도 바로 바꿀 수 있어요.</p>
+          <textarea id="miNoticeText" rows="3" placeholder="예: 오늘은 22시부터 방송해요!" style="width:100%;resize:vertical;margin-top:8px"></textarea>
+          <!-- 🔤 공지 전용 글자 폰트 — 위 "테마 색상" 카드의 페이지 전체 폰트와는 별개로, 공지 문구에만 적용된다.
+               옵션 목록은 같은 관리자 등록 폰트 목록(loadMyInfoFontOptions와 동일한 엔드포인트)을 재사용한다. -->
+          <div style="margin-top:14px">
+            <div style="font-size:12.5px;color:var(--text-muted,#888)">글자 폰트</div>
+            <select id="miNoticeFont" style="width:100%;margin-top:6px" onchange="miNoticeFontChange(this.value)">
+              <option value="default">기본 (시스템 폰트)</option>
+            </select>
+            <p class="hint" style="margin-top:4px">공지 문구에만 적용되는 전용 폰트예요. 여기 목록에 원하는 폰트가 없으면 관리자에게 추가를 요청해주세요.</p>
+          </div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoNotice()">💾 공지 저장</button>
         </div>
 
         <div class="card">
@@ -4059,11 +4108,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label class="check-opt" style="margin-top:0"><input type="checkbox" id="csActive"> 스푼 집계 중 (켜야 선물이 점수로 쌓여요)</label>
             <div style="display:flex;align-items:center;gap:8px">
               <label style="margin:0">현재 라운드</label>
-              <select id="csCurrentRound" style="padding:6px 10px">
-                <option value="1">1라운드</option>
-                <option value="2">2라운드</option>
-                <option value="3">3라운드</option>
-              </select>
+              <select id="csCurrentRound" style="padding:6px 10px"></select>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <label style="margin:0">집계 스푼수</label>
@@ -4091,8 +4136,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title">🍽️ 라운드별 팀 이름</div>
-          <p class="hint" style="margin-bottom:12px">각 라운드의 두 팀 이름을 정하세요. 이 이름이 곧 참여/순위 확인 채팅 명령어가 돼요 (예: 팀 이름이 "모듬전"이면 <b>!모듬전</b>).</p>
+          <div class="card-title"><span>🍽️ 라운드별 팀 이름</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="csAddRound()">+ 라운드 추가</button></div>
+          <p class="hint" style="margin-bottom:12px">각 라운드의 두 팀 이름을 정하세요. 이 이름이 곧 참여/순위 확인 채팅 명령어가 돼요 (예: 팀 이름이 "모듬전"이면 <b>!모듬전</b>). 필요한 만큼 라운드를 계속 추가할 수 있어요 (최소 1개).</p>
           <div id="csRoundsWrap" style="display:flex;flex-direction:column;gap:12px"></div>
         </div>
 
@@ -4110,11 +4155,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr auto;align-items:end">
             <div><label>라운드</label>
-              <select id="csAddRound">
-                <option value="1">1라운드</option>
-                <option value="2">2라운드</option>
-                <option value="3">3라운드</option>
-              </select>
+              <select id="csAddRound"></select>
             </div>
             <div><label>팀</label>
               <select id="csAddTeam">
@@ -6175,6 +6216,7 @@ function showFlagForm(id){
   document.getElementById('flagGoalInput').value=f?f.goal:'';
   document.getElementById('flagUseCycle').checked=f?!!f.useCycle:false;
   document.getElementById('flagTemplateInput').value=f?f.template:'=== {title} ====\n{current}/{goal} {percent}%';
+  document.getElementById('flagMsgFullInput').value=f?(f.msgFull||'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})'):'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})';
   document.querySelectorAll('input[name="flagMode"]').forEach(r=>r.checked=(r.value===(f?f.mode:'manual')));
   document.getElementById('flagFormCard').style.display='block';
   updateFlagPreview();
@@ -6201,12 +6243,13 @@ function saveFlagForm(){
   const mode=document.querySelector('input[name="flagMode"]:checked').value;
   const useCycle=document.getElementById('flagUseCycle').checked;
   const template=document.getElementById('flagTemplateInput').value;
+  const msgFull=document.getElementById('flagMsgFullInput').value;
 
   if(flagEditingId){
     const f=flagsData.items.find(x=>x.id===flagEditingId);
-    Object.assign(f,{title,goal,mode,useCycle,template});
+    Object.assign(f,{title,goal,mode,useCycle,template,msgFull});
   } else {
-    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template});
+    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template,msgFull});
   }
   hideFlagForm();
   renderFlags();
@@ -6763,6 +6806,11 @@ async function loadDjSettings(){
       if(s.myinfoTheme && s.myinfoTheme.color) {
         myinfoThemeData.color=s.myinfoTheme.color;
         myinfoThemeData.bgRatio=(typeof s.myinfoTheme.bgRatio==='number')?s.myinfoTheme.bgRatio:MI_THEME_BGRATIO_DEFAULT;
+        myinfoThemeData.font=s.myinfoTheme.font||MI_THEME_FONT_DEFAULT;
+      }
+      if(s.myinfoNotice) {
+        myinfoNoticeData.text=s.myinfoNotice.text||'';
+        myinfoNoticeData.font=s.myinfoNotice.font||MI_THEME_FONT_DEFAULT;
       }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
@@ -6907,6 +6955,91 @@ async function saveYoutubeApiKey(){
     if(d.success){showToast(keys.length?`유튜브 API 키 ${d.count}개 저장됐어요`:'키를 전부 비웠어요 (환경변수를 다시 사용해요)');loadYoutubeApiKey();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🔤 관리자 전용 — 내정보 웹페이지 폰트 관리 (디제이들이 고를 수 있는 목록)
+let myinfoFontAdminData=[];
+async function loadMyinfoFontAdmin(){
+  const wrap=document.getElementById('miFontAdminList');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/admin/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)myinfoFontAdminData=d.fonts||[];
+  }catch(e){}
+  renderMyinfoFontAdminList();
+}
+function renderMyinfoFontAdminList(){
+  const wrap=document.getElementById('miFontAdminList');
+  if(!wrap)return;
+  if(!myinfoFontAdminData.length){ wrap.innerHTML='<p class="hint" style="margin:0">아직 등록한 폰트가 없어요. 아래에서 추가해보세요.</p>'; return; }
+  wrap.innerHTML=myinfoFontAdminData.map((f,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escapeHtml(f.name)}</div>
+        <div class="hint" style="margin:2px 0 0;font-size:11.5px;word-break:break-all">font-family: ${escapeHtml(f.family)}${f.fileUrl?`<br>📎 첨부파일: ${escapeHtml(f.fileUrl.split('/').pop())}`:''}${f.url?`<br>링크: ${escapeHtml(f.url)}`:''}</div>
+      </div>
+      <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="removeMyinfoFontAdmin(${i})">삭제</button>
+    </div>`).join('');
+}
+async function saveMyinfoFontAdminList(){
+  try{
+    const res=await fetch(SERVER+'/admin/myinfo-fonts',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({fonts:myinfoFontAdminData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('폰트 목록을 저장했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+// 폰트 추가 폼에서 첨부한 파일의 업로드 결과 URL — addMyinfoFontAdmin이 저장할 때 같이 쓴다.
+let miFontAdminPendingFileUrl='';
+async function uploadMyinfoFontFile(file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 파일만 첨부할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/fonts/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      miFontAdminPendingFileUrl=d.url;
+      document.getElementById('miFontAdminFileName').textContent='✅ '+file.name;
+      document.getElementById('miFontAdminFileRemoveBtn').style.display='';
+      showToast('폰트 파일을 첨부했어요');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+function removeMyinfoFontFile(){
+  if(miFontAdminPendingFileUrl){
+    fetch(SERVER+'/fonts/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({url:miFontAdminPendingFileUrl})}).catch(()=>{});
+  }
+  miFontAdminPendingFileUrl='';
+  document.getElementById('miFontAdminFileName').textContent='';
+  document.getElementById('miFontAdminFileRemoveBtn').style.display='none';
+  document.getElementById('miFontAdminFile').value='';
+}
+function addMyinfoFontAdmin(){
+  const name=document.getElementById('miFontAdminName').value.trim();
+  const family=document.getElementById('miFontAdminFamily').value.trim();
+  const url=document.getElementById('miFontAdminUrl').value.trim();
+  const fileUrl=miFontAdminPendingFileUrl;
+  if(!name||!family){ showToast('표시 이름과 font-family 값을 입력해주세요'); return; }
+  const id='mf'+Date.now()+Math.floor(Math.random()*1000);
+  myinfoFontAdminData.push({id,name,family,url,fileUrl});
+  document.getElementById('miFontAdminName').value='';
+  document.getElementById('miFontAdminFamily').value='';
+  document.getElementById('miFontAdminUrl').value='';
+  document.getElementById('miFontAdminFileName').textContent='';
+  document.getElementById('miFontAdminFileRemoveBtn').style.display='none';
+  document.getElementById('miFontAdminFile').value='';
+  miFontAdminPendingFileUrl='';
+  renderMyinfoFontAdminList();
+  saveMyinfoFontAdminList();
+}
+function removeMyinfoFontAdmin(i){
+  myinfoFontAdminData.splice(i,1);
+  renderMyinfoFontAdminList();
+  saveMyinfoFontAdminList();
 }
 
 async function createAccountManually(){
@@ -7392,6 +7525,7 @@ async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
   loadYoutubeApiKey();
+  loadMyinfoFontAdmin();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
@@ -8354,6 +8488,25 @@ function renderSrList(){
   document.getElementById('srSiteSpotify').checked = !!sites.spotify;
   document.getElementById('srSiteAppleMusic').checked = !!sites.appleMusic;
   renderSrPerms();
+
+  // 🐛 여기서 채워주지 않으면 이 입력창들은 항상 HTML의 하드코딩된 기본값만 보여준다 — 저장된
+  // 커스텀 문구가 있어도 페이지를 새로고침하면 화면엔 기본값이 뜨고, 그 상태로 "설정 저장"을
+  // 누르면 저장해둔 커스텀 값이 기본값으로 도로 덮어써진다. 로드될 때마다 실제 저장값으로 채운다.
+  document.getElementById('srCmdRequest').value=srData.cmdRequest||'!신청곡';
+  document.getElementById('srCmdRemove').value=srData.cmdRemove||'!제거';
+  document.getElementById('srCmdReset').value=srData.cmdReset||'리셋';
+  document.getElementById('srCmdClose').value=srData.cmdClose||'!마감';
+  document.getElementById('srCmdOpen').value=srData.cmdOpen||'!접수';
+  document.getElementById('srCmdPriorityOn').value=srData.cmdPriorityOn||'!우선온';
+  document.getElementById('srCmdPriorityOff').value=srData.cmdPriorityOff||'!우선오프';
+  document.getElementById('srCmdNameOn').value=srData.cmdNameOn||'!이름온';
+  document.getElementById('srCmdNameOff').value=srData.cmdNameOff||'!이름오프';
+  document.getElementById('srCmdRecommend').value=srData.cmdRecommend||'!추천곡';
+  document.getElementById('srDoneTemplate').value=srData.doneTemplate||'✅ [{artist} - {title}] 신청 완료! (대기: {count}번)';
+  document.getElementById('srListTitle').value=srData.listTitle||'🎵 현재 신청곡 목록 🎵';
+  document.getElementById('srListItemTemplate').value=srData.listItemTemplate||'{index}. {artist} - {title}';
+  document.getElementById('srMaxChars').value=srData.maxCharsPerMsg||100;
+  document.getElementById('srMsgInterval').value=srData.msgIntervalMs||600;
 
   const wrap=document.getElementById('srListWrap');
   if(!srData.items.length){
@@ -10250,7 +10403,10 @@ function renderGgGrid(){
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
+    // 🈵🎨 [업데이트] 'Noto Emoji'는 흑백(모노크롬) 전용 폰트라, 닉네임에 이모지가 들어있으면 화면/
+    // 다운로드 이미지에서 흑백으로 보이는 문제가 있었다. 실제 컬러 이모지 폰트(Apple/Segoe/Noto Color
+    // Emoji)를 'Noto Emoji'보다 앞에 둬서, 있으면 그 컬러 글꼴을 먼저 쓰고 없을 때만 흑백으로 대체되게 한다.
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
@@ -10328,7 +10484,9 @@ function ggDrawCoverImage(ctx,img,cx,cy,d){
 // 대응을 위해 불러온 전체 폰트 목록(Noto 계열 + Warang Citi + Unifont)을 그대로 ctx.font에
 // 지정한다 — 최신 브라우저는 Canvas 텍스트에도 이 폰트 목록 순서대로 글자별 대체(fallback)를
 // 적용해주기 때문에, 화면(DOM)에서 보이는 것과 동일하게 특수문자까지 정상적으로 그려진다.
-const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
+// 🎨 컬러 이모지 폰트(Apple/Segoe/Noto Color Emoji)를 흑백 전용인 'Noto Emoji'보다 앞에 둬서,
+// 닉네임에 이모지가 있어도 다운로드 이미지에 흑백이 아닌 원래 색으로 그려지게 한다.
+const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
 async function drawGgCardCanvas(it, opts){
   const SCALE=4 // 결과 이미지 배율(고해상도)
   const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE
@@ -11092,7 +11250,6 @@ async function loadChuseokSettings(){
     const s=d.settings;
     document.getElementById('csTitle').value=s.title||'팝블리네 추석명절특집';
     document.getElementById('csActive').checked=!!s.active;
-    document.getElementById('csCurrentRound').value=String(s.currentRound||1);
     document.getElementById('csMinSpoons').value=String(s.minSpoons||10);
     csRounds=(s.rounds||csRounds).map(r=>({...r}));
     csMembers=s.members||[];
@@ -11100,6 +11257,9 @@ async function loadChuseokSettings(){
     updateCsPosterPreview();
     document.getElementById('csPublicLink').value=SERVER+'/chuseok/'+djId;
     renderCsRounds();
+    // 🆕 select 옵션을 라운드 개수만큼 채운 뒤(renderCsRounds 안에서 처리됨)에 실제 저장된 현재
+    // 라운드 값을 넣어야, 옵션이 새로 그려지면서 값이 초기화되는 걸 피할 수 있다.
+    document.getElementById('csCurrentRound').value=String(s.currentRound||1);
     renderCsCmdHint();
     renderCsMembers();
   }catch(e){}
@@ -11157,8 +11317,37 @@ function renderCsRounds(){
       <input type="text" value="${escapeAttr(r.teamA)}" placeholder="A팀 이름" style="flex:1;min-width:100px" oninput="csRounds[${i}].teamA=this.value;renderCsCmdHint()">
       <span class="hint" style="margin:0">vs</span>
       <input type="text" value="${escapeAttr(r.teamB)}" placeholder="B팀 이름" style="flex:1;min-width:100px" oninput="csRounds[${i}].teamB=this.value;renderCsCmdHint()">
+      <button class="btn-shield-reset" style="padding:6px 10px;font-size:12px" onclick="csRemoveRound(${i})" ${csRounds.length<=1?'disabled title="라운드는 최소 1개 있어야 해요"':''}>삭제</button>
     </div>
   `).join('');
+  renderCsRoundSelects();
+}
+
+// 🆕 현재 라운드/참가자 추가 폼의 라운드 선택 목록을 csRounds 개수에 맞춰 다시 그려준다.
+// (라운드를 추가/삭제할 때마다 같이 갱신해야 목록이 항상 실제 라운드 수와 맞음)
+function renderCsRoundSelects(){
+  const opts=csRounds.map((r,i)=>`<option value="${i+1}">${i+1}라운드</option>`).join('');
+  const curSel=document.getElementById('csCurrentRound');
+  const addSel=document.getElementById('csAddRound');
+  if(curSel){ const prev=curSel.value; curSel.innerHTML=opts; if([...curSel.options].some(o=>o.value===prev)) curSel.value=prev; else curSel.value=String(csRounds.length); }
+  if(addSel){ const prev=addSel.value; addSel.innerHTML=opts; if([...addSel.options].some(o=>o.value===prev)) addSel.value=prev; else addSel.value=String(csRounds.length); }
+}
+
+// 새 라운드를 목록 맨 뒤에 추가한다. 저장 버튼을 눌러야 서버에 실제 반영된다(다른 필드들과 동일하게).
+function csAddRound(){
+  const n=csRounds.length+1;
+  csRounds.push({teamA:`A팀${n}`,teamB:`B팀${n}`});
+  renderCsRounds();
+  renderCsCmdHint();
+  showToast(`${n}라운드가 추가됐어요 — 저장 버튼을 눌러야 반영돼요`);
+}
+// 라운드를 삭제한다. 그 라운드에 참여했던 기록은 서버에 그대로 남아있고(과거 조회용), 화면에서만 목록이 줄어든다.
+function csRemoveRound(i){
+  if(csRounds.length<=1){ showToast('라운드는 최소 1개는 있어야 해요'); return; }
+  if(!confirm(`${i+1}라운드를 삭제할까요? (참가자 기록은 남지만, 이후 이 라운드로는 채팅 참여가 안 돼요)`))return;
+  csRounds.splice(i,1);
+  renderCsRounds();
+  renderCsCmdHint();
 }
 
 function renderCsCmdHint(){
@@ -14690,12 +14879,35 @@ function loadMyInfoSettings(){
   const ratioPct=Math.round((typeof myinfoThemeData.bgRatio==='number'?myinfoThemeData.bgRatio:MI_THEME_BGRATIO_DEFAULT)*100);
   document.getElementById('miThemeBgRatio').value=ratioPct;
   document.getElementById('miThemeBgRatioVal').textContent=ratioPct+'%';
+  loadMyInfoFontOptions();
+  document.getElementById('miNoticeText').value=myinfoNoticeData.text||'';
+  loadMyInfoNoticeFontOptions();
+}
+
+// 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
+// 저장된 값이 목록에 없으면(관리자가 삭제한 경우 등) 기본값으로 되돌린다.
+async function loadMyInfoFontOptions(){
+  const sel=document.getElementById('miThemeFont');
+  if(!sel)return;
+  let fonts=[];
+  try{
+    const res=await fetch(SERVER+'/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)fonts=d.fonts||[];
+  }catch(e){}
+  const cur=myinfoThemeData.font||MI_THEME_FONT_DEFAULT;
+  sel.innerHTML='<option value="default">기본 (시스템 폰트)</option>'+
+    fonts.map(f=>`<option value="${escapeAttr(escapeHtml(f.id))}">${escapeHtml(f.name)}</option>`).join('');
+  const validIds=['default',...fonts.map(f=>f.id)];
+  sel.value=validIds.includes(cur)?cur:MI_THEME_FONT_DEFAULT;
+  myinfoThemeData.font=sel.value;
 }
 
 /* 🎨 내정보 웹페이지 테마 색상 */
 const MI_THEME_DEFAULT='#ff8fab';
 const MI_THEME_BGRATIO_DEFAULT=0.30; // 예전 고정값(30%) — 슬라이더 기본값 및 서버 미저장 시 대체값으로 유지
-let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT};
+const MI_THEME_FONT_DEFAULT='default'; // 🔤 글자 폰트 기본값(시스템 폰트) — 목록은 서버 FONT 허용목록과 일치해야 함
+let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT,font:MI_THEME_FONT_DEFAULT};
 function miThemeColorFromPicker(val){
   myinfoThemeData.color=val;
   const hexEl=document.getElementById('miThemeColorHex');
@@ -14715,13 +14927,18 @@ function miThemeBgRatioChange(val){
   myinfoThemeData.bgRatio=pct/100;
   document.getElementById('miThemeBgRatioVal').textContent=pct+'%';
 }
+function miThemeFontChange(val){
+  myinfoThemeData.font=val;
+}
 function miThemeColorReset(){
   myinfoThemeData.color=MI_THEME_DEFAULT;
   myinfoThemeData.bgRatio=MI_THEME_BGRATIO_DEFAULT;
+  myinfoThemeData.font=MI_THEME_FONT_DEFAULT;
   document.getElementById('miThemeColorPicker').value=MI_THEME_DEFAULT;
   document.getElementById('miThemeColorHex').value=MI_THEME_DEFAULT;
   document.getElementById('miThemeBgRatio').value=Math.round(MI_THEME_BGRATIO_DEFAULT*100);
   document.getElementById('miThemeBgRatioVal').textContent=Math.round(MI_THEME_BGRATIO_DEFAULT*100)+'%';
+  document.getElementById('miThemeFont').value=MI_THEME_FONT_DEFAULT;
   saveMyInfoTheme();
 }
 async function saveMyInfoTheme(){
@@ -14730,11 +14947,46 @@ async function saveMyInfoTheme(){
   myinfoThemeData.color=hex;
   const ratioPct=Number(document.getElementById('miThemeBgRatio').value);
   myinfoThemeData.bgRatio=Math.max(0,Math.min(70,isNaN(ratioPct)?30:ratioPct))/100;
+  myinfoThemeData.font=document.getElementById('miThemeFont').value||MI_THEME_FONT_DEFAULT;
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTheme:myinfoThemeData})});
     const d=await res.json();
     if(!d.success){ showToast(d.error||'저장 실패'); return; }
     showToast('테마 색상을 저장했어요 🎨');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구 + 전용 폰트.
+   글자 폰트 목록은 위 테마 색상 카드와 같은 관리자 등록 목록(/myinfo-fonts)을 그대로 재사용하되,
+   선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
+let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
+async function loadMyInfoNoticeFontOptions(){
+  const sel=document.getElementById('miNoticeFont');
+  if(!sel)return;
+  let fonts=[];
+  try{
+    const res=await fetch(SERVER+'/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)fonts=d.fonts||[];
+  }catch(e){}
+  const cur=myinfoNoticeData.font||MI_THEME_FONT_DEFAULT;
+  sel.innerHTML='<option value="default">기본 (시스템 폰트)</option>'+
+    fonts.map(f=>`<option value="${escapeAttr(escapeHtml(f.id))}">${escapeHtml(f.name)}</option>`).join('');
+  const validIds=['default',...fonts.map(f=>f.id)];
+  sel.value=validIds.includes(cur)?cur:MI_THEME_FONT_DEFAULT;
+  myinfoNoticeData.font=sel.value;
+}
+function miNoticeFontChange(val){
+  myinfoNoticeData.font=val;
+}
+async function saveMyInfoNotice(){
+  myinfoNoticeData.text=document.getElementById('miNoticeText').value.trim();
+  myinfoNoticeData.font=document.getElementById('miNoticeFont').value||MI_THEME_FONT_DEFAULT;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoNotice:myinfoNoticeData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('실시간 공지를 저장했어요 📢');
   }catch(e){ showToast('오류: '+e.message); }
 }
 

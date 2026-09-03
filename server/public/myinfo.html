@@ -50,6 +50,12 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
 .itemChip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:11.5px;color:var(--text)}
 
 /* 📋 포스트 탭: 스푼 앱 게시물과 비슷한 카드 형태 */
+/* 📢 실시간 공지 — 포스트 탭 맨 위에 항상 떠있는 배너. 텍스트는 관리자가 등록해둔 목록 중
+   고른 전용 폰트(applyNoticeFont)로 표시할 수 있고, 페이지 전체 폰트와는 별개로 적용된다. */
+.noticeBanner{display:flex;align-items:flex-start;gap:10px;background:var(--panel);border:2px dashed var(--accent);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;box-shadow:0 3px 12px rgba(255,143,171,.12)}
+.noticeBanner .noticeIcon{font-size:16px;line-height:1.6;flex-shrink:0}
+.noticeBanner .noticeText{flex:1;min-width:0;font-size:13px;font-weight:700;line-height:1.7;color:var(--text);white-space:pre-wrap;overflow-wrap:break-word}
+
 .postCard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(14,100,140,.05)}
 .postCard:last-child{margin-bottom:0}
 .postHead{display:flex;align-items:center;gap:9px;margin-bottom:10px}
@@ -281,6 +287,11 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
 
     <!-- 📋 포스트 탭: DJ가 등록한 이벤트/공지 게시물 (스푼 앱 게시물과 비슷한 카드 형태) -->
     <div id="tabPostPanel">
+      <!-- 📢 실시간 공지 — 문구가 비어있으면 hidden 유지, 있으면 자동으로 보인다 -->
+      <div class="noticeBanner hidden" id="noticeBanner">
+        <span class="noticeIcon">📢</span>
+        <div class="noticeText" id="noticeText"></div>
+      </div>
       <div id="postListBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
     </div>
 
@@ -367,7 +378,93 @@ async function loadTheme(){
     // d.bgRatio: 디제이가 관리자 설정에서 직접 정한 배경 연하기 비율(0~1, 예: 0.3 = 30%).
     // 서버가 아직 이 값을 안 내려줘도(구버전) applyTheme 안에서 0.30 기본값으로 처리되므로 안전함.
     if(d.success && d.color) applyTheme(d.color, d.bgRatio);
+    // 🔤 글자 폰트 — 디제이가 관리자가 등록해둔 목록 중 골라둔 게 있으면 적용(기본값이면 아무것도 안 함)
+    if(d.success && d.font) applyMyInfoFont(d.font);
   }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
+}
+
+// 🔤 관리자가 등록해두고 디제이가 고른 폰트를 페이지에 반영.
+// font: { id, name, family, url, fileUrl } — id가 'default'거나 family가 없으면 기본 폰트 그대로 둔다.
+// fileUrl(관리자가 직접 첨부한 woff2/woff/ttf/otf 파일)이 있으면 @font-face로 등록하고,
+// 없고 url(구글폰트 등 외부 CSS 링크)만 있으면 <link>로 불러온다.
+// 원래 있던 body/제목 font-family 규칙과 동일한 폴백 스택 앞에 커스텀 폰트만 추가하는 방식이라,
+// 이모지·기호(Noto Sans Symbols 등) 커버리지는 그대로 유지된다.
+function applyMyInfoFont(font){
+  if(!font || font.id === 'default' || !font.family) return;
+  if(font.url && !font.fileUrl && !document.getElementById('miCustomFontLink')){
+    const link = document.createElement('link');
+    link.id = 'miCustomFontLink';
+    link.rel = 'stylesheet';
+    link.href = font.url;
+    document.head.appendChild(link);
+  }
+  const fam = "'" + String(font.family).replace(/'/g, "\\'") + "'";
+  let styleEl = document.getElementById('miCustomFontStyle');
+  if(!styleEl){
+    styleEl = document.createElement('style');
+    styleEl.id = 'miCustomFontStyle';
+    document.head.appendChild(styleEl);
+  }
+  let fontFaceCss = '';
+  if(font.fileUrl){
+    const ext = String(font.fileUrl).split('.').pop().toLowerCase();
+    const formatMap = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' };
+    const format = formatMap[ext] || 'woff2';
+    const fileUrl = String(font.fileUrl).replace(/'/g, "\\'");
+    fontFaceCss = "@font-face{font-family:" + fam + ";src:url('" + fileUrl + "') format('" + format + "');font-display:swap;}\n";
+  }
+  styleEl.textContent = fontFaceCss +
+    "body{font-family:" + fam + ",'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Pretendard','Malgun Gothic','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Unifont',sans-serif}\n" +
+    "h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:" + fam + ",'Noto Sans KR',sans-serif}";
+}
+
+// 📢 실시간 공지 — fetchMe와 같은 3초 폴링 주기에 얹어서 부르기 때문에, 관리자가 문구를
+// 바꾸면 페이지를 새로고침하지 않아도 곧 반영된다. 문구가 비어있으면 배너 자체를 숨긴다.
+async function loadNotice(){
+  try{
+    const res = await fetch(API + '/notice');
+    const d = await res.json();
+    if(!d.success) return;
+    const text = String(d.text || '').trim();
+    if(!text){ hide('noticeBanner'); return; }
+    document.getElementById('noticeText').textContent = text;
+    show('noticeBanner');
+    applyNoticeFont(d.font);
+  }catch(e){ /* 실패해도 그냥 배너 안 보여주면 됨 */ }
+}
+
+// 🔤 공지 전용 폰트 — 페이지 전체 폰트(applyMyInfoFont)와 별개로 .noticeText 요소에만 적용.
+// 관리자가 등록해둔 같은 폰트 목록(myinfoFonts)을 재사용한다. 매 폴링마다 값이 바뀔 수 있어서,
+// 'default'로 돌아오면 이전에 걸어둔 커스텀 폰트 스타일도 같이 초기화한다.
+function applyNoticeFont(font){
+  const styleEl = document.getElementById('miNoticeFontStyle');
+  if(!font || font.id === 'default' || !font.family){
+    if(styleEl) styleEl.textContent = '';
+    return;
+  }
+  if(font.url && !font.fileUrl && !document.getElementById('miNoticeFontLink')){
+    const link = document.createElement('link');
+    link.id = 'miNoticeFontLink';
+    link.rel = 'stylesheet';
+    link.href = font.url;
+    document.head.appendChild(link);
+  }
+  const fam = "'" + String(font.family).replace(/'/g, "\\'") + "'";
+  let el = styleEl;
+  if(!el){
+    el = document.createElement('style');
+    el.id = 'miNoticeFontStyle';
+    document.head.appendChild(el);
+  }
+  let fontFaceCss = '';
+  if(font.fileUrl){
+    const ext = String(font.fileUrl).split('.').pop().toLowerCase();
+    const formatMap = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' };
+    const format = formatMap[ext] || 'woff2';
+    const fileUrl = String(font.fileUrl).replace(/'/g, "\\'");
+    fontFaceCss = "@font-face{font-family:" + fam + ";src:url('" + fileUrl + "') format('" + format + "');font-display:swap;}\n";
+  }
+  el.textContent = fontFaceCss + ".noticeText{font-family:" + fam + ",'Noto Sans KR','Noto Sans',sans-serif}";
 }
 
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
@@ -869,6 +966,7 @@ async function fetchMe(manual){
     // 인증 완료 — 프로필 화면 렌더
     clearInterval(countdownTimer);
     hide('authCard'); hide('loadingCard'); show('profileWrap'); show('refreshFab'); show('pageMenu');
+    loadNotice(); // 📢 실시간 공지 — fetchMe 폴링 주기에 얹어서 매번 최신 문구로 갱신
     // 페이지에 들어오면 무조건 "포스트" 탭이 메인으로 보이게 강제한다 (3초마다 도는 폴링 때마다
     // 다시 부르면 안 되므로 최초 1회만 실행되게 막는다 — 이후엔 사용자가 고른 탭을 그대로 유지)
     if(!initialTabSet){ initialTabSet = true; switchTab('post'); }
@@ -927,19 +1025,32 @@ async function fetchMe(manual){
 }
 
 // 시작
-(function init(){
-  loadTheme();
-  if(!DJ_ID){
-    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
-    return;
-  }
+// 🔄 initMyInfo()로 분리한 이유: 모바일 브라우저(특히 사파리)는 뒤로가기/다른 방 링크 이동처럼
+//    페이지를 벗어났다가 돌아올 때 스크립트를 다시 실행하지 않고 이전 화면을 그대로 복원(bfcache)할
+//    때가 있다. 이러면 실제로는 다른 디제이(DJ_ID)의 페이지인데도 화면엔 이전 방 정보가 남아있어서
+//    "다른 계정 인증" 버튼을 직접 눌러야만 새로고침되는 문제가 생긴다. 아래 pageshow 리스너로
+//    페이지가 (다시) 보일 때마다 이 DJ_ID 기준 인증 상태를 매번 새로 계산하게 만들어서, 수동으로
+//    누르지 않아도 자동으로 해당 방 기준으로 재인증(또는 이미 인증돼있으면 그 방 정보 조회)되게 한다.
+function initMyInfo(){
+  webUserId = localStorage.getItem(LS_KEY) || '';
+  clearInterval(pollTimer); clearInterval(countdownTimer);
+  hide('profileWrap'); hide('refreshFab'); hide('pageMenu'); hide('authCard');
   if(webUserId){
-    hide('authCard'); show('loadingCard');
+    show('loadingCard');
     startPolling();
   } else {
     registerCode();
   }
-})();
+}
+loadTheme();
+if(!DJ_ID){
+  document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
+} else {
+  initMyInfo();
+}
+window.addEventListener('pageshow', function(e){
+  if(e.persisted && DJ_ID) initMyInfo();
+});
 </script>
 </body>
 </html>

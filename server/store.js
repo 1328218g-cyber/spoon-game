@@ -254,8 +254,32 @@ function defaultSettings() {
       couponUseTemplate: '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)',
       couponLowTemplate: '🎡 {닉네임}님, 룰렛{번호}({룰렛명}) 권이 부족합니다.',
       menuPageSize: 10, // !룰렛메뉴N 명령어로 항목 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
+      keepPageSize: 10, // !킵/!이벤트/!내카드(기타목록) 목록을 볼 때 한 번에 몇 개씩 끊어서 보여줄지
     },
     rouletteHistory: {}, // { [tag]: { coupons: {}, wins: [], keepList: {name:count}, miscList: {}, eventList: {} } }
+    // 📋 포스트 — DJ가 만든 이벤트/공지 게시물. 내정보 웹페이지 "포스트" 탭에서 스푼 앱 게시물처럼
+    // 보여준다. { id, title, imageUrl, dateStart, dateEnd, createdAt, likes:[tag,...], comments:[{id,tag,nickname,text,createdAt}] }
+    posts: [],
+    // 📅 캘린더 — DJ가 등록한 행사/방송 일정. 내정보 웹페이지 "캘린더" 탭에 달력 형태로 보여준다.
+    // { id, date:'YYYY-MM-DD', time:'HH:MM'(선택), title, description, createdAt }
+    calendarEvents: [],
+    // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
+    // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
+    // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
+    // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
+    // overlay를 켜면 이미지 안의 "달력 표" 영역(퍼센트 좌표)에 실제 클릭 가능한 투명 칸을 겹쳐서,
+    // 이미지에 그려진 날짜를 클릭하면 그 날짜의 일정이 뜨게 만들 수 있다 (year/month는 이 이미지가
+    // 어느 달을 나타내는지, top/left/width/height는 이미지 안에서 달력 표가 차지하는 영역 %).
+    calendarImage: { url: '', hideGrid: false, overlay: { enabled: false, year: null, month: null, top: 0, left: 0, width: 100, height: 100 } },
+    // 🎨 내정보 웹페이지 테마 색상 — DJ가 직접 색상 코드(HEX)를 골라서 기본 핑크 테마를
+    // 원하는 색으로 바꿀 수 있게 한다. 저장된 accent 색을 기준으로 배경/보더 등 나머지
+    // 팔레트는 myinfo.html에서 흰색과 섞어 자동으로 계산한다(파스텔 배경이 항상 자연스럽게 나오도록).
+    // bgRatio: 배경을 흰색과 얼마나 섞을지(0~0.7) — 예전엔 0.30(30%)으로 고정이었는데 이제 DJ가 직접 조절 가능.
+    myinfoTheme: { color: '#ff8fab', bgRatio: 0.30 },
+    // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위에 항상 떠있는 배너. 텍스트와
+    // (관리자가 등록해둔 myinfoFonts 목록 중 하나로) 폰트를 DJ가 직접 설정할 수 있다.
+    // 빈 텍스트면 myinfo.html이 배너 자체를 숨긴다.
+    myinfoNotice: { text: '', font: 'default' },
     // 💘 소개팅 매니저 — 커플/강전 후보 목록과 비토·비마 스푼 지갑을 DJ별로 관리
     blindDate: {
       cmdCouple: '!커플',       // 목록/추가/삭제/초기화/전체초기화 서브명령의 기준 단어
@@ -505,6 +529,33 @@ function setYoutubeApiKeys(keys) {
     .slice(0, YOUTUBE_API_KEY_MAX);
   djs['sum'].settings.youtubeApiKeys = cleaned;
   delete djs['sum'].settings.youtubeApiKey; // 새 배열 필드로 완전히 이전
+  saveDjs(djs);
+  return { ok: true, count: cleaned.length };
+}
+
+// 🔤 내정보 웹페이지 글자 폰트 목록 — 관리자(sum)가 관리자 페이지에서 등록해두면, 각 디제이가
+// 본인 내정보 웹페이지 설정에서 그중 하나를 골라 쓸 수 있다. (색상/배경비율과 같은 자리에 저장)
+const MYINFO_FONT_MAX = 20
+function getMyinfoFonts() {
+  const djs = loadDjs();
+  const arr = djs['sum'] && djs['sum'].settings && djs['sum'].settings.myinfoFonts;
+  return Array.isArray(arr) ? arr : [];
+}
+function setMyinfoFonts(fonts) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cleaned = (Array.isArray(fonts) ? fonts : [])
+    .map(f => ({
+      id: String((f && f.id) || '').trim(),
+      name: String((f && f.name) || '').trim(),
+      family: String((f && f.family) || '').trim(),
+      url: String((f && f.url) || '').trim(),
+      fileUrl: String((f && f.fileUrl) || '').trim(), // 🔤 직접 첨부한 폰트 파일(woff2/woff/ttf/otf) 경로 — /fonts/upload로 올린 결과
+    }))
+    .filter(f => f.id && f.name && f.family)
+    .slice(0, MYINFO_FONT_MAX);
+  djs['sum'].settings.myinfoFonts = cleaned;
   saveDjs(djs);
   return { ok: true, count: cleaned.length };
 }
@@ -1022,6 +1073,8 @@ module.exports = {
   setSessionModuleGlobalOff,
   getYoutubeApiKeys,
   setYoutubeApiKeys,
+  getMyinfoFonts,
+  setMyinfoFonts,
   getAdminStats,
   validEmail,
   DATA_DIR,
