@@ -385,8 +385,9 @@ async function loadTheme(){
   }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
 }
 
-// 🔖 상단 탭(포스트/킵목록/게임/룰렛정보/캘린더) 아이콘 — 서버가 내려주는 값을 그대로 textContent에 넣는다.
-// 서버가 이미 기본 이모지로 빈 칸을 채워서 내려주므로(theme 라우트 참고), 여기선 그대로 반영만 하면 된다.
+// 🔖 상단 탭(포스트/킵목록/게임/룰렛정보/캘린더) 아이콘 — 서버가 내려주는 값이 이미지 경로(/images/... 또는
+// http로 시작)면 <img>로, 아니면 이모지 텍스트로 그대로 넣는다. 서버가 이미 기본 이모지로 빈 칸을
+// 채워서 내려주므로(theme 라우트 참고), 여기선 그대로 반영만 하면 된다.
 function applyTabIcons(icons){
   const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
   Object.keys(map).forEach(key => {
@@ -394,7 +395,17 @@ function applyTabIcons(icons){
     if(!val) return;
     const btn = document.getElementById(map[key]);
     const iconEl = btn && btn.querySelector('.mIcon');
-    if(iconEl) iconEl.textContent = val;
+    if(!iconEl) return;
+    if(val.startsWith('/') || val.startsWith('http')){
+      iconEl.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = val;
+      img.alt = '';
+      img.style.cssText = 'width:18px;height:18px;object-fit:contain;display:block';
+      iconEl.appendChild(img);
+    } else {
+      iconEl.textContent = val;
+    }
   });
 }
 

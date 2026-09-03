@@ -3857,13 +3857,53 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔖 상단 탭 아이콘</span></div>
-          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지로 바꿀 수 있어요. 이모지 하나만 입력하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
+          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(5MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
           <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px">
-            <div><label style="font-size:11.5px">포스트</label><input type="text" id="miTabIconPost" placeholder="📋" maxlength="8"></div>
-            <div><label style="font-size:11.5px">킵목록</label><input type="text" id="miTabIconKeep" placeholder="🎁" maxlength="8"></div>
-            <div><label style="font-size:11.5px">게임</label><input type="text" id="miTabIconGame" placeholder="🎮" maxlength="8"></div>
-            <div><label style="font-size:11.5px">룰렛정보</label><input type="text" id="miTabIconRoulette" placeholder="🎡" maxlength="8"></div>
-            <div><label style="font-size:11.5px">캘린더</label><input type="text" id="miTabIconCal" placeholder="📅" maxlength="8"></div>
+            <div>
+              <label style="font-size:11.5px">포스트</label>
+              <input type="text" id="miTabIconPost" placeholder="📋" oninput="updateTabIconPreview('post')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconPostPreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconPostFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('post',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconPostFile').click()">📎</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11.5px">킵목록</label>
+              <input type="text" id="miTabIconKeep" placeholder="🎁" oninput="updateTabIconPreview('keep')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconKeepPreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconKeepFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('keep',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconKeepFile').click()">📎</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11.5px">게임</label>
+              <input type="text" id="miTabIconGame" placeholder="🎮" oninput="updateTabIconPreview('game')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconGamePreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconGameFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('game',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconGameFile').click()">📎</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11.5px">룰렛정보</label>
+              <input type="text" id="miTabIconRoulette" placeholder="🎡" oninput="updateTabIconPreview('roulette')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconRoulettePreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconRouletteFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('roulette',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconRouletteFile').click()">📎</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11.5px">캘린더</label>
+              <input type="text" id="miTabIconCal" placeholder="📅" oninput="updateTabIconPreview('cal')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconCalPreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconCalFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('cal',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconCalFile').click()">📎</button>
+              </div>
+            </div>
           </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTabIcons()">💾 아이콘 저장</button>
         </div>
@@ -15053,6 +15093,7 @@ function loadMyInfoSettings(){
   document.getElementById('miTabIconGame').value=myinfoTabIconsData.game||'';
   document.getElementById('miTabIconRoulette').value=myinfoTabIconsData.roulette||'';
   document.getElementById('miTabIconCal').value=myinfoTabIconsData.cal||'';
+  TAB_ICON_KEYS.forEach(updateTabIconPreview);
 }
 
 // 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
@@ -15132,6 +15173,31 @@ async function saveMyInfoTheme(){
    선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
 let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
 let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:''};
+const TAB_ICON_KEYS=['post','keep','game','roulette','cal'];
+function isImagePath(v){ return typeof v==='string' && v.length>0 && (v.startsWith('/')||v.startsWith('http')); }
+function updateTabIconPreview(key){
+  const val=document.getElementById('miTabIcon'+key.charAt(0).toUpperCase()+key.slice(1)).value.trim();
+  const img=document.getElementById('miTabIcon'+key.charAt(0).toUpperCase()+key.slice(1)+'Preview');
+  if(isImagePath(val)){ img.src=val.startsWith('http')?val:SERVER+val; img.style.display='inline-block'; }
+  else{ img.style.display='none'; img.src=''; }
+}
+async function uploadTabIconImage(key,file){
+  if(!file)return;
+  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl:reader.result,filename:file.name})});
+      const d=await res.json();
+      if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+      const inputEl=document.getElementById('miTabIcon'+key.charAt(0).toUpperCase()+key.slice(1));
+      inputEl.value=d.url;
+      updateTabIconPreview(key);
+      showToast('이미지를 첨부했어요 (아래 "아이콘 저장" 버튼을 눌러야 최종 저장돼요)');
+    }catch(e){ showToast('오류: '+e.message); }
+  };
+  reader.readAsDataURL(file);
+}
 async function saveMyInfoTabIcons(){
   myinfoTabIconsData={
     post:document.getElementById('miTabIconPost').value.trim(),

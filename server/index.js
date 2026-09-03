@@ -21575,9 +21575,9 @@ app.post('/settings', auth.requireAuth, (req, res) => {
     const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
     patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim(), font }
   }
-  // 🔖 상단 탭 아이콘 — 이모지 하나(또는 짧은 텍스트)만 허용. 빈 값이면 myinfo.html이 기본 이모지로 대체한다.
+  // 🔖 상단 탭 아이콘 — 이모지 텍스트 또는 업로드한 이미지 경로(/images/...) 둘 다 허용.
   if (myinfoTabIcons) {
-    const clampIcon = v => String(v == null ? '' : v).trim().slice(0, 8)
+    const clampIcon = v => String(v == null ? '' : v).trim().slice(0, 300)
     patch.myinfoTabIcons = {
       post: clampIcon(myinfoTabIcons.post),
       keep: clampIcon(myinfoTabIcons.keep),
