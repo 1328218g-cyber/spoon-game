@@ -10360,7 +10360,10 @@ function renderGgGrid(){
     // 🈵 [업데이트] PC/모바일마다 기본 폰트가 달라서 어떤 특수문자는 한쪽에서만 보이는 문제가
     // 있었다. 구글 폰트(Noto Sans KR + Noto Sans Symbols 2)를 명시적으로 불러와서 어느 기기에서
     // 봐도 동일한 폰트로 렌더링되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
+    // 🈵🎨 [업데이트] 'Noto Emoji'는 흑백(모노크롬) 전용 폰트라, 닉네임에 이모지가 들어있으면 화면/
+    // 다운로드 이미지에서 흑백으로 보이는 문제가 있었다. 실제 컬러 이모지 폰트(Apple/Segoe/Noto Color
+    // Emoji)를 'Noto Emoji'보다 앞에 둬서, 있으면 그 컬러 글꼴을 먼저 쓰고 없을 때만 흑백으로 대체되게 한다.
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
@@ -10438,7 +10441,9 @@ function ggDrawCoverImage(ctx,img,cx,cy,d){
 // 대응을 위해 불러온 전체 폰트 목록(Noto 계열 + Warang Citi + Unifont)을 그대로 ctx.font에
 // 지정한다 — 최신 브라우저는 Canvas 텍스트에도 이 폰트 목록 순서대로 글자별 대체(fallback)를
 // 적용해주기 때문에, 화면(DOM)에서 보이는 것과 동일하게 특수문자까지 정상적으로 그려진다.
-const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
+// 🎨 컬러 이모지 폰트(Apple/Segoe/Noto Color Emoji)를 흑백 전용인 'Noto Emoji'보다 앞에 둬서,
+// 닉네임에 이모지가 있어도 다운로드 이미지에 흑백이 아닌 원래 색으로 그려지게 한다.
+const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
 async function drawGgCardCanvas(it, opts){
   const SCALE=4 // 결과 이미지 배율(고해상도)
   const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE

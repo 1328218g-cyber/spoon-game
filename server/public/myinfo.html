@@ -964,19 +964,32 @@ async function fetchMe(manual){
 }
 
 // 시작
-(function init(){
-  loadTheme();
-  if(!DJ_ID){
-    document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
-    return;
-  }
+// 🔄 initMyInfo()로 분리한 이유: 모바일 브라우저(특히 사파리)는 뒤로가기/다른 방 링크 이동처럼
+//    페이지를 벗어났다가 돌아올 때 스크립트를 다시 실행하지 않고 이전 화면을 그대로 복원(bfcache)할
+//    때가 있다. 이러면 실제로는 다른 디제이(DJ_ID)의 페이지인데도 화면엔 이전 방 정보가 남아있어서
+//    "다른 계정 인증" 버튼을 직접 눌러야만 새로고침되는 문제가 생긴다. 아래 pageshow 리스너로
+//    페이지가 (다시) 보일 때마다 이 DJ_ID 기준 인증 상태를 매번 새로 계산하게 만들어서, 수동으로
+//    누르지 않아도 자동으로 해당 방 기준으로 재인증(또는 이미 인증돼있으면 그 방 정보 조회)되게 한다.
+function initMyInfo(){
+  webUserId = localStorage.getItem(LS_KEY) || '';
+  clearInterval(pollTimer); clearInterval(countdownTimer);
+  hide('profileWrap'); hide('refreshFab'); hide('pageMenu'); hide('authCard');
   if(webUserId){
-    hide('authCard'); show('loadingCard');
+    show('loadingCard');
     startPolling();
   } else {
     registerCode();
   }
-})();
+}
+loadTheme();
+if(!DJ_ID){
+  document.getElementById('loadingCard').innerHTML = '<p class="hint" style="text-align:center;color:var(--danger)">잘못된 접속 경로예요.</p>';
+} else {
+  initMyInfo();
+}
+window.addEventListener('pageshow', function(e){
+  if(e.persisted && DJ_ID) initMyInfo();
+});
 </script>
 </body>
 </html>
