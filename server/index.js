@@ -4861,6 +4861,42 @@ async function handleNoticeCommand(djId, room, settings, author, authorId, text)
   }
 }
 
+// 📢 !웹공지 [내용] / !웹공지끄기 / !웹공지폰트 [폰트이름] — DJ 전용, "내정보" 웹페이지
+// 포스트 탭 상단에 뜨는 실시간 공지 배너를 방송 중 채팅으로 바로 바꾼다. 위의 !공지(스푼 앱
+// 자체 방송 공지사항을 바꾸는 명령어)와는 완전히 별개 — 이건 에디봇 내정보 웹페이지 전용 배너다.
+async function handleWebNoticeCommand(djId, room, settings, author, authorId, text) {
+  const msg = String(text || '').trim()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) return
+  const cur = settings.myinfoNotice || { text: '', font: 'default' }
+
+  if (msg === '!웹공지끄기') {
+    store.saveSettings(djId, { myinfoNotice: { text: '', font: cur.font || 'default' } })
+    setTimeout(() => sendChatToRoom(djId, '✅ 웹페이지 실시간 공지를 껐어요'), 400)
+    return
+  }
+
+  if (msg.startsWith('!웹공지폰트 ')) {
+    const query = msg.slice('!웹공지폰트 '.length).trim()
+    if (!query || query === '기본') {
+      store.saveSettings(djId, { myinfoNotice: { text: cur.text || '', font: 'default' } })
+      setTimeout(() => sendChatToRoom(djId, '✅ 웹공지 폰트를 기본으로 되돌렸어요'), 400)
+      return
+    }
+    const found = store.getMyinfoFonts().find(f => f.name.includes(query))
+    if (!found) { setTimeout(() => sendChatToRoom(djId, `❌ "${query}" 이름의 폰트를 찾을 수 없어요`), 400); return }
+    store.saveSettings(djId, { myinfoNotice: { text: cur.text || '', font: found.id } })
+    setTimeout(() => sendChatToRoom(djId, `✅ 웹공지 폰트가 "${found.name}"(으)로 바뀌었어요`), 400)
+    return
+  }
+
+  if (!msg.startsWith('!웹공지 ')) return
+  const newText = msg.slice('!웹공지 '.length).trim()
+  if (!newText) { setTimeout(() => sendChatToRoom(djId, '⚠️ 사용법: !웹공지 [내용]'), 400); return }
+  store.saveSettings(djId, { myinfoNotice: { text: newText, font: cur.font || 'default' } })
+  setTimeout(() => sendChatToRoom(djId, `✅ 웹페이지 실시간 공지가 바뀌었어요: ${newText}`), 400)
+}
+
 function handleManagerTokenCommand(djId, room, settings, author, authorId, tag, text) {
   if (!isModuleOn(settings, 'managertoken', djId)) return
   const cfg = getManagerTokenSettings(djId, settings)
@@ -15635,6 +15671,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleTempRankCommand(djId, settings, text)
           handleManagerTokenCommand(djId, room, settings, author, authorId, actTag, text)
           handleNoticeCommand(djId, room, settings, author, authorId, text)
+          handleWebNoticeCommand(djId, room, settings, author, authorId, text)
           handleMemo2Command(djId, room, settings, author, authorId, text, liveId)
           handleRaffleCommand(djId, room, settings, author, authorId, liveId, text)
           handleDiceCommand(djId, settings, author, text)
@@ -21372,10 +21409,10 @@ app.post('/settings', auth.requireAuth, (req, res) => {
     const font = (myinfoTheme.font === 'default' || availableFontIds.includes(myinfoTheme.font)) ? myinfoTheme.font : 'default'
     patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio, font }
   }
-  // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구(최대 200자)와 전용 폰트.
+  // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구와 전용 폰트.
   if (myinfoNotice) {
     const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
-    patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim().slice(0, 200), font }
+    patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim(), font }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

@@ -3819,6 +3819,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>📢 실시간 공지</span></div>
+          <p class="hint">내정보 웹페이지의 "포스트" 탭 맨 위에 항상 떠있는 공지 배너예요. 방송 채팅에서 <b>!웹공지 [내용]</b> / <b>!웹공지끄기</b> / <b>!웹공지폰트 [폰트이름]</b>으로도 바로 바꿀 수 있어요.</p>
+          <textarea id="miNoticeText" rows="3" placeholder="예: 오늘은 22시부터 방송해요!" style="width:100%;resize:vertical;margin-top:8px"></textarea>
+          <!-- 🔤 공지 전용 글자 폰트 — 위 "테마 색상" 카드의 페이지 전체 폰트와는 별개로, 공지 문구에만 적용된다.
+               옵션 목록은 같은 관리자 등록 폰트 목록(loadMyInfoFontOptions와 동일한 엔드포인트)을 재사용한다. -->
+          <div style="margin-top:14px">
+            <div style="font-size:12.5px;color:var(--text-muted,#888)">글자 폰트</div>
+            <select id="miNoticeFont" style="width:100%;margin-top:6px" onchange="miNoticeFontChange(this.value)">
+              <option value="default">기본 (시스템 폰트)</option>
+            </select>
+            <p class="hint" style="margin-top:4px">공지 문구에만 적용되는 전용 폰트예요. 여기 목록에 원하는 폰트가 없으면 관리자에게 추가를 요청해주세요.</p>
+          </div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoNotice()">💾 공지 저장</button>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>📋 포스트 (<span id="postCount">0</span>개)</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="showPostForm()">+ 새 포스트</button></div>
           <p class="hint">이미지+제목(해시태그)+기간으로 이벤트/공지 게시물을 만들면, 시청자가 내정보 웹페이지의 "포스트" 탭에서 스푼 앱 게시물처럼 확인하고 좋아요·댓글을 남길 수 있어요. (실제 스푼 앱 피드에 올라가는 건 아니고, 우리 사이트 안에서만 보여요)<br>
           🎰 시청자가 포스트에 좋아요 또는 댓글을 <b>생애 최초 1회</b> 남기면 자동으로 복권 10장을 받아요 (애청지수 메뉴가 켜져있어야 지급돼요).</p>
@@ -6787,6 +6803,10 @@ async function loadDjSettings(){
         myinfoThemeData.color=s.myinfoTheme.color;
         myinfoThemeData.bgRatio=(typeof s.myinfoTheme.bgRatio==='number')?s.myinfoTheme.bgRatio:MI_THEME_BGRATIO_DEFAULT;
         myinfoThemeData.font=s.myinfoTheme.font||MI_THEME_FONT_DEFAULT;
+      }
+      if(s.myinfoNotice) {
+        myinfoNoticeData.text=s.myinfoNotice.text||'';
+        myinfoNoticeData.font=s.myinfoNotice.font||MI_THEME_FONT_DEFAULT;
       }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
@@ -14837,6 +14857,8 @@ function loadMyInfoSettings(){
   document.getElementById('miThemeBgRatio').value=ratioPct;
   document.getElementById('miThemeBgRatioVal').textContent=ratioPct+'%';
   loadMyInfoFontOptions();
+  document.getElementById('miNoticeText').value=myinfoNoticeData.text||'';
+  loadMyInfoNoticeFontOptions();
 }
 
 // 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
@@ -14908,6 +14930,40 @@ async function saveMyInfoTheme(){
     const d=await res.json();
     if(!d.success){ showToast(d.error||'저장 실패'); return; }
     showToast('테마 색상을 저장했어요 🎨');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구 + 전용 폰트.
+   글자 폰트 목록은 위 테마 색상 카드와 같은 관리자 등록 목록(/myinfo-fonts)을 그대로 재사용하되,
+   선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
+let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
+async function loadMyInfoNoticeFontOptions(){
+  const sel=document.getElementById('miNoticeFont');
+  if(!sel)return;
+  let fonts=[];
+  try{
+    const res=await fetch(SERVER+'/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)fonts=d.fonts||[];
+  }catch(e){}
+  const cur=myinfoNoticeData.font||MI_THEME_FONT_DEFAULT;
+  sel.innerHTML='<option value="default">기본 (시스템 폰트)</option>'+
+    fonts.map(f=>`<option value="${escapeAttr(escapeHtml(f.id))}">${escapeHtml(f.name)}</option>`).join('');
+  const validIds=['default',...fonts.map(f=>f.id)];
+  sel.value=validIds.includes(cur)?cur:MI_THEME_FONT_DEFAULT;
+  myinfoNoticeData.font=sel.value;
+}
+function miNoticeFontChange(val){
+  myinfoNoticeData.font=val;
+}
+async function saveMyInfoNotice(){
+  myinfoNoticeData.text=document.getElementById('miNoticeText').value.trim();
+  myinfoNoticeData.font=document.getElementById('miNoticeFont').value||MI_THEME_FONT_DEFAULT;
+  try{
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoNotice:myinfoNoticeData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('실시간 공지를 저장했어요 📢');
   }catch(e){ showToast('오류: '+e.message); }
 }
 
