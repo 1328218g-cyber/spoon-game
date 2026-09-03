@@ -20403,7 +20403,7 @@ app.post('/fonts/upload', auth.requireAuth, (req, res) => {
   const ext = extMatch ? extMatch[1].toLowerCase() : ''
   if (!MYINFO_FONT_ALLOWED_EXT.includes(ext)) return res.json({ success: false, error: '폰트 파일(.woff2, .woff, .ttf, .otf)만 업로드할 수 있어요' })
   const buffer = Buffer.from(m[2], 'base64')
-  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 파일만 업로드할 수 있어요' })
+  if (buffer.length > 15 * 1024 * 1024) return res.json({ success: false, error: '15MB 이하 파일만 업로드할 수 있어요' })
   const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
   try {
     fs.writeFileSync(path.join(FONTS_DIR, name), buffer)
