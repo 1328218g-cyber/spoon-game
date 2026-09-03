@@ -20130,6 +20130,9 @@ app.get('/myinfo/:djId', (req, res) => {
 // 🎨 내정보 웹페이지 테마 색상 — DJ가 관리자 페이지에서 고른 accent 색상을 로그인/인증 여부와
 // 상관없이 누구나 조회할 수 있어야 페이지가 열리자마자(인증 전에도) 바로 적용할 수 있다.
 // 저장 안 해뒀으면 기존 기본 핑크색을 그대로 돌려준다.
+// 🔤 내정보 웹페이지 글자 폰트 — 관리자(sum)가 /admin/myinfo-fonts 로 등록해둔 목록 중에서만
+// 디제이가 고를 수 있다. 'default'는 목록에 없어도 항상 허용되는 특수값(시스템 기본 폰트, 커스텀 미적용).
+
 app.get('/myinfo/:djId/theme', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
@@ -20137,7 +20140,32 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   // 배경 연하기 비율 — 디제이가 저장한 값이 있으면 그대로, 없으면(구버전 데이터 포함) 기존 고정값 0.30
   const bgRatioRaw = settings.myinfoTheme && settings.myinfoTheme.bgRatio
   const bgRatio = (typeof bgRatioRaw === 'number' && bgRatioRaw >= 0 && bgRatioRaw <= 0.7) ? bgRatioRaw : 0.30
-  res.json({ success: true, color, bgRatio })
+  const fontId = (settings.myinfoTheme && settings.myinfoTheme.font) || 'default'
+  // 인증 전에도 누구나 조회하는 공개 endpoint라, family/url까지 그대로 내려줘야 myinfo.html이
+  // 별도 요청 없이 바로 <style>에 적용하고 필요하면 웹폰트 링크를 붙일 수 있다.
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  res.json({ success: true, color, bgRatio, font })
+})
+
+// 디제이 전용(로그인 필요) — 관리자가 등록해둔 폰트 목록을 본인 내정보 설정 화면에서 고를 수 있게 조회
+app.get('/myinfo-fonts', auth.requireAuth, (req, res) => {
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+
+// 관리자(sum) 전용 — 내정보 웹페이지에서 디제이들이 고를 수 있는 폰트 목록을 등록/조회
+app.get('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+app.post('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setMyinfoFonts((req.body || {}).fonts)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
 })
 
 // ══════════════════════════════════════════════════════
@@ -21282,7 +21310,10 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
     let bgRatio = Number(myinfoTheme.bgRatio)
     if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
-    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio }
+    // 🔤 글자 폰트 — 관리자가 등록해둔 목록(store.getMyinfoFonts())에 있는 id이거나 'default'일 때만 저장
+    const availableFontIds = store.getMyinfoFonts().map(f => f.id)
+    const font = (myinfoTheme.font === 'default' || availableFontIds.includes(myinfoTheme.font)) ? myinfoTheme.font : 'default'
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio, font }
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

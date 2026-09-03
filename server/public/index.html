@@ -1154,6 +1154,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </details>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔤 내정보 웹페이지 폰트 관리</span></div>
+          <p class="hint" style="margin-bottom:10px">여기서 등록해둔 폰트만 각 디제이가 자기 내정보 웹페이지 설정(테마 색상 카드)에서 골라 쓸 수 있어요.<br>
+          ※ 표시 이름: 디제이가 목록에서 보게 될 이름 (예: 프리텐다드)<br>
+          ※ font-family 값: 실제 CSS에 적용될 폰트 이름 (예: Pretendard, 'Noto Sans KR', sans-serif). 시청자 브라우저나 아래 웹폰트 링크로 해당 글꼴이 실제로 설치/로드되어 있어야 화면에 반영돼요.<br>
+          ※ 웹폰트 링크(선택): 구글폰트 등에서 발급되는 CSS 링크 주소를 넣으면, 내정보 페이지가 자동으로 그 폰트를 불러와요. 시스템에 이미 깔린 폰트라면 비워두세요.</p>
+          <div id="miFontAdminList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+          <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
+            <input type="text" id="miFontAdminName" placeholder="표시 이름 (예: 프리텐다드)">
+            <input type="text" id="miFontAdminFamily" placeholder="font-family 값 (예: Pretendard)">
+            <input type="text" id="miFontAdminUrl" placeholder="웹폰트 링크 (선택, 예: https://fonts.googleapis.com/css2?family=...)">
+            <button class="btn-connect" onclick="addMyinfoFontAdmin()">+ 폰트 추가</button>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
           <input type="text" id="userListSearch" placeholder="아이디 또는 등록 태그로 검색" oninput="renderUserListTable()" style="margin-bottom:12px">
@@ -3783,6 +3797,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
             <input type="range" id="miThemeBgRatio" min="0" max="70" step="1" value="30" style="width:100%" oninput="miThemeBgRatioChange(this.value)">
             <p class="hint" style="margin-top:4px">숫자가 클수록 배경이 더 하얗고 연해져요. 0%면 선택한 색이 배경에 그대로(진하게) 나와요.</p>
+          </div>
+          <!-- 🔤 글자 폰트 — 디제이가 내정보 웹페이지 전체 글꼴을 골라서 저장할 수 있게 추가.
+               옵션 목록은 관리자가 유저 관리 페이지에서 등록해둔 폰트를 fetch해서 채운다 (loadMyInfoFontOptions). -->
+          <div style="margin-top:14px">
+            <div style="font-size:12.5px;color:var(--text-muted,#888)">글자 폰트</div>
+            <select id="miThemeFont" style="width:100%;margin-top:6px" onchange="miThemeFontChange(this.value)">
+              <option value="default">기본 (시스템 폰트)</option>
+            </select>
+            <p class="hint" style="margin-top:4px" id="miThemeFontHint">시청자가 보는 내정보 웹페이지의 글자 폰트를 바꿔요. 여기 목록에 원하는 폰트가 없으면 관리자에게 추가를 요청해주세요.</p>
           </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTheme()">💾 색상 저장</button>
         </div>
@@ -6755,6 +6778,7 @@ async function loadDjSettings(){
       if(s.myinfoTheme && s.myinfoTheme.color) {
         myinfoThemeData.color=s.myinfoTheme.color;
         myinfoThemeData.bgRatio=(typeof s.myinfoTheme.bgRatio==='number')?s.myinfoTheme.bgRatio:MI_THEME_BGRATIO_DEFAULT;
+        myinfoThemeData.font=s.myinfoTheme.font||MI_THEME_FONT_DEFAULT;
       }
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
@@ -6899,6 +6923,58 @@ async function saveYoutubeApiKey(){
     if(d.success){showToast(keys.length?`유튜브 API 키 ${d.count}개 저장됐어요`:'키를 전부 비웠어요 (환경변수를 다시 사용해요)');loadYoutubeApiKey();}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🔤 관리자 전용 — 내정보 웹페이지 폰트 관리 (디제이들이 고를 수 있는 목록)
+let myinfoFontAdminData=[];
+async function loadMyinfoFontAdmin(){
+  const wrap=document.getElementById('miFontAdminList');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/admin/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)myinfoFontAdminData=d.fonts||[];
+  }catch(e){}
+  renderMyinfoFontAdminList();
+}
+function renderMyinfoFontAdminList(){
+  const wrap=document.getElementById('miFontAdminList');
+  if(!wrap)return;
+  if(!myinfoFontAdminData.length){ wrap.innerHTML='<p class="hint" style="margin:0">아직 등록한 폰트가 없어요. 아래에서 추가해보세요.</p>'; return; }
+  wrap.innerHTML=myinfoFontAdminData.map((f,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escapeHtml(f.name)}</div>
+        <div class="hint" style="margin:2px 0 0;font-size:11.5px;word-break:break-all">font-family: ${escapeHtml(f.family)}${f.url?`<br>링크: ${escapeHtml(f.url)}`:''}</div>
+      </div>
+      <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="removeMyinfoFontAdmin(${i})">삭제</button>
+    </div>`).join('');
+}
+async function saveMyinfoFontAdminList(){
+  try{
+    const res=await fetch(SERVER+'/admin/myinfo-fonts',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({fonts:myinfoFontAdminData})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('폰트 목록을 저장했어요');
+  }catch(e){showToast('오류: '+e.message);}
+}
+function addMyinfoFontAdmin(){
+  const name=document.getElementById('miFontAdminName').value.trim();
+  const family=document.getElementById('miFontAdminFamily').value.trim();
+  const url=document.getElementById('miFontAdminUrl').value.trim();
+  if(!name||!family){ showToast('표시 이름과 font-family 값을 입력해주세요'); return; }
+  const id='mf'+Date.now()+Math.floor(Math.random()*1000);
+  myinfoFontAdminData.push({id,name,family,url});
+  document.getElementById('miFontAdminName').value='';
+  document.getElementById('miFontAdminFamily').value='';
+  document.getElementById('miFontAdminUrl').value='';
+  renderMyinfoFontAdminList();
+  saveMyinfoFontAdminList();
+}
+function removeMyinfoFontAdmin(i){
+  myinfoFontAdminData.splice(i,1);
+  renderMyinfoFontAdminList();
+  saveMyinfoFontAdminList();
 }
 
 async function createAccountManually(){
@@ -7384,6 +7460,7 @@ async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
   loadYoutubeApiKey();
+  loadMyinfoFontAdmin();
   const wrap=document.getElementById('userListWrap');
   try{
     const res=await fetch(SERVER+'/admin/users',{headers:authHeaders()});
@@ -14713,12 +14790,33 @@ function loadMyInfoSettings(){
   const ratioPct=Math.round((typeof myinfoThemeData.bgRatio==='number'?myinfoThemeData.bgRatio:MI_THEME_BGRATIO_DEFAULT)*100);
   document.getElementById('miThemeBgRatio').value=ratioPct;
   document.getElementById('miThemeBgRatioVal').textContent=ratioPct+'%';
+  loadMyInfoFontOptions();
+}
+
+// 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
+// 저장된 값이 목록에 없으면(관리자가 삭제한 경우 등) 기본값으로 되돌린다.
+async function loadMyInfoFontOptions(){
+  const sel=document.getElementById('miThemeFont');
+  if(!sel)return;
+  let fonts=[];
+  try{
+    const res=await fetch(SERVER+'/myinfo-fonts',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success)fonts=d.fonts||[];
+  }catch(e){}
+  const cur=myinfoThemeData.font||MI_THEME_FONT_DEFAULT;
+  sel.innerHTML='<option value="default">기본 (시스템 폰트)</option>'+
+    fonts.map(f=>`<option value="${escapeAttr(escapeHtml(f.id))}">${escapeHtml(f.name)}</option>`).join('');
+  const validIds=['default',...fonts.map(f=>f.id)];
+  sel.value=validIds.includes(cur)?cur:MI_THEME_FONT_DEFAULT;
+  myinfoThemeData.font=sel.value;
 }
 
 /* 🎨 내정보 웹페이지 테마 색상 */
 const MI_THEME_DEFAULT='#ff8fab';
 const MI_THEME_BGRATIO_DEFAULT=0.30; // 예전 고정값(30%) — 슬라이더 기본값 및 서버 미저장 시 대체값으로 유지
-let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT};
+const MI_THEME_FONT_DEFAULT='default'; // 🔤 글자 폰트 기본값(시스템 폰트) — 목록은 서버 FONT 허용목록과 일치해야 함
+let myinfoThemeData={color:MI_THEME_DEFAULT,bgRatio:MI_THEME_BGRATIO_DEFAULT,font:MI_THEME_FONT_DEFAULT};
 function miThemeColorFromPicker(val){
   myinfoThemeData.color=val;
   const hexEl=document.getElementById('miThemeColorHex');
@@ -14738,13 +14836,18 @@ function miThemeBgRatioChange(val){
   myinfoThemeData.bgRatio=pct/100;
   document.getElementById('miThemeBgRatioVal').textContent=pct+'%';
 }
+function miThemeFontChange(val){
+  myinfoThemeData.font=val;
+}
 function miThemeColorReset(){
   myinfoThemeData.color=MI_THEME_DEFAULT;
   myinfoThemeData.bgRatio=MI_THEME_BGRATIO_DEFAULT;
+  myinfoThemeData.font=MI_THEME_FONT_DEFAULT;
   document.getElementById('miThemeColorPicker').value=MI_THEME_DEFAULT;
   document.getElementById('miThemeColorHex').value=MI_THEME_DEFAULT;
   document.getElementById('miThemeBgRatio').value=Math.round(MI_THEME_BGRATIO_DEFAULT*100);
   document.getElementById('miThemeBgRatioVal').textContent=Math.round(MI_THEME_BGRATIO_DEFAULT*100)+'%';
+  document.getElementById('miThemeFont').value=MI_THEME_FONT_DEFAULT;
   saveMyInfoTheme();
 }
 async function saveMyInfoTheme(){
@@ -14753,6 +14856,7 @@ async function saveMyInfoTheme(){
   myinfoThemeData.color=hex;
   const ratioPct=Number(document.getElementById('miThemeBgRatio').value);
   myinfoThemeData.bgRatio=Math.max(0,Math.min(70,isNaN(ratioPct)?30:ratioPct))/100;
+  myinfoThemeData.font=document.getElementById('miThemeFont').value||MI_THEME_FONT_DEFAULT;
   try{
     const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoTheme:myinfoThemeData})});
     const d=await res.json();

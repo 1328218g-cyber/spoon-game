@@ -529,6 +529,32 @@ function setYoutubeApiKeys(keys) {
   return { ok: true, count: cleaned.length };
 }
 
+// 🔤 내정보 웹페이지 글자 폰트 목록 — 관리자(sum)가 관리자 페이지에서 등록해두면, 각 디제이가
+// 본인 내정보 웹페이지 설정에서 그중 하나를 골라 쓸 수 있다. (색상/배경비율과 같은 자리에 저장)
+const MYINFO_FONT_MAX = 20
+function getMyinfoFonts() {
+  const djs = loadDjs();
+  const arr = djs['sum'] && djs['sum'].settings && djs['sum'].settings.myinfoFonts;
+  return Array.isArray(arr) ? arr : [];
+}
+function setMyinfoFonts(fonts) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cleaned = (Array.isArray(fonts) ? fonts : [])
+    .map(f => ({
+      id: String((f && f.id) || '').trim(),
+      name: String((f && f.name) || '').trim(),
+      family: String((f && f.family) || '').trim(),
+      url: String((f && f.url) || '').trim(),
+    }))
+    .filter(f => f.id && f.name && f.family)
+    .slice(0, MYINFO_FONT_MAX);
+  djs['sum'].settings.myinfoFonts = cleaned;
+  saveDjs(djs);
+  return { ok: true, count: cleaned.length };
+}
+
 // 📊 관리자 대시보드용 요약 통계
 function getAdminStats() {
   const djs = loadDjs();
@@ -1042,6 +1068,8 @@ module.exports = {
   setSessionModuleGlobalOff,
   getYoutubeApiKeys,
   setYoutubeApiKeys,
+  getMyinfoFonts,
+  setMyinfoFonts,
   getAdminStats,
   validEmail,
   DATA_DIR,
