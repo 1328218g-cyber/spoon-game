@@ -2967,7 +2967,10 @@ function mcCleanExpiredKeys(d) {
 // 💬 웹 도감 인증 — 몬스터잡기 모듈이 켜져있는 어느 방에서든(도감이 전체 공용이라) 채팅으로
 // "!도감인증 코드"(또는 코드만 딱)를 치면 그 채팅 계정(고유닉)과 웹 세션을 연결해준다.
 async function handleMonsterDexCommand(djId, settings, author, actTag, text, profileUrl) {
-  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  // ⚠️ /register, /data(웹페이지) 쪽은 "몬스터잡기 OR 리버시" 둘 중 하나만 켜있어도 동작하게
+  // 되어있는데, 여기(채팅으로 코드 인증하는 부분)만 몬스터잡기 단독 체크라 리버시만 켜놓은
+  // 방에서는 코드를 채팅에 쳐도 영영 인증이 안 되고 웹페이지가 로딩 상태로 멈춰있었다.
+  if (!isModuleOn(settings, 'monstercatch', djId) && !isModuleOn(settings, 'reversi', djId)) return
   // ⚠️ mc.collections/mc.levels/mc.points 등은 전부 "소문자로 통일한 고유닉"을 키로 쓰고 있어서
   // (다른 몬스터잡기 명령어들이 다 key.toLowerCase()로 처리함), 여기도 반드시 소문자로 맞춰야
   // 웹 도감이 실제 채팅에서 잡은 기록과 같은 사람으로 인식된다. 이걸 안 맞추면 대소문자가
