@@ -35,7 +35,7 @@ try {
 const app = express()
 app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
 app.use(cors({ origin: '*' }))
-app.use(express.json({ limit: '20mb' })) // 로컬 에디봇 설정 마이그레이션 업로드(/account/migrate-local)를 위해 여유있게 설정
+app.use(express.json({ limit: '85mb' })) // 이미지 업로드가 60MB까지 허용되면서(base64 인코딩 시 약 1.33배) 여유있게 상향
 app.use(require('express').static(__dirname + '/public'))
 
 // 🎵 입장/좋아요/지정인사 등에 첨부하는 음원 파일 — 예전엔 base64로 인코딩해서 djs.json 안에
@@ -16345,7 +16345,7 @@ app.post('/images/upload', auth.requireAuth, (req, res) => {
   if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
   if (!m[1].startsWith('image/')) return res.json({ success: false, error: '이미지 파일만 업로드할 수 있어요' })
   const buffer = Buffer.from(m[2], 'base64')
-  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 이미지만 업로드할 수 있어요' })
+  if (buffer.length > 60 * 1024 * 1024) return res.json({ success: false, error: '60MB 이하 이미지만 업로드할 수 있어요' })
   const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
   const ext = extMatch ? extMatch[1] : 'png'
   const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
@@ -20358,6 +20358,25 @@ app.get('/myinfo/:djId/posts', (req, res) => {
     commentCount: (p.comments || []).length,
   }))
   res.json({ success: true, posts, author })
+})
+
+// ✍️ 내정보 웹페이지에서 DJ 본인이 직접 글쓰기 — 관리자 패널 로그인과 완전히 같은 계정/비밀번호
+// 인증(auth.requireAuth)을 그대로 재사용한다. URL의 djId와 로그인한 토큰의 djId가 다르면(다른
+// DJ 계정으로 남의 방 포스트를 건드리려는 경우) 막는다.
+app.get('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const settings = store.getSettings(djId) || {}
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  res.json({ success: true, posts })
+})
+app.post('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const posts = (req.body || {}).posts
+  if (!Array.isArray(posts)) return res.json({ success: false, error: '잘못된 요청이에요.' })
+  store.saveSettings(djId, { posts })
+  res.json({ success: true })
 })
 
 app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {

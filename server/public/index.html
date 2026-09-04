@@ -1108,7 +1108,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">🖼️ 이미지 팝업 (로그인 팝업)</div>
           <p class="hint" style="margin-bottom:12px">위 "업데이트 공지"(텍스트)랑 완전히 독립된 별개 기능이에요. 등록해두면 로그인하는 모든 유저한테 <b>이미지 팝업이 먼저</b> 뜨고, 그 다음에 업데이트 공지(텍스트)가 떠요. 이미 본 유저한테는 다시 안 뜨고, 새로 등록하면 그때 다시 떠요.<br>
           지금 등록돼있는 이미지가 있으면 아래에 자동으로 불러와져요.</p>
-          <label>이미지 (5MB 이하)</label>
+          <label>이미지 (60MB 이하)</label>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <img id="imagePopupPreview" src="" style="max-width:160px;max-height:100px;object-fit:contain;border-radius:8px;border:1px solid var(--border);display:none">
             <input type="file" id="imagePopupInput" accept="image/*" style="display:none" onchange="uploadImagePopupImage(this.files[0])">
@@ -3883,7 +3883,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔖 상단 탭 아이콘</span></div>
-          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(5MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
+          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(60MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
             <span class="hint" style="margin:0;white-space:nowrap">아이콘 크기</span>
             <input type="range" min="10" max="60" id="miTabIconSize" value="16" style="flex:1;max-width:220px" oninput="document.getElementById('miTabIconSizeLabel').textContent=this.value+'px'">
@@ -4124,7 +4124,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" id="tbBgRemoveBtn" style="display:none" onclick="removeTbBgImage()">배경 제거</button>
             <button class="btn-gray" onclick="cleanupTbImages()">🧹 사용 안 하는 이미지 정리</button>
           </div>
-          <div class="hint" style="margin-top:6px">5MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요. 새 배경으로 바꾸면 예전 이미지는 자동으로 정리돼요 — "사용 안 하는 이미지 정리"는 그 전에 이미 쌓여있던 파일들을 한 번에 청소할 때만 누르면 돼요.</div>
+          <div class="hint" style="margin-top:6px">60MB 이하 이미지 권장. 업로드한 이미지가 박제판 뒷배경 전체에 깔려요. 새 배경으로 바꾸면 예전 이미지는 자동으로 정리돼요 — "사용 안 하는 이미지 정리"는 그 전에 이미 쌓여있던 파일들을 한 번에 청소할 때만 누르면 돼요.</div>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
             <div><label>가로 칸 수</label><input type="number" id="tbColumns" value="4" min="1" max="12" oninput="renderTbPreview()"></div>
             <div><label>세로 칸 수</label><input type="number" id="tbRows" value="4" min="1" max="20" oninput="renderTbPreview()"></div>
@@ -4251,7 +4251,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-gray" onclick="document.getElementById('csPosterFileInput').click()">🖼️ 포스터 업로드</button>
             <button class="btn-gray" id="csPosterRemoveBtn" style="display:none" onclick="removeCsPoster()">제거</button>
           </div>
-          <div class="hint" style="margin-top:6px">공개 페이지 맨 위에 보여줄 이미지예요. 5MB 이하 권장.</div>
+          <div class="hint" style="margin-top:6px">공개 페이지 맨 위에 보여줄 이미지예요. 60MB 이하 권장.</div>
         </div>
 
         <div class="card">
@@ -7305,7 +7305,7 @@ function updateImagePopupPreview(){
 }
 async function uploadImagePopupImage(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -11098,7 +11098,7 @@ function onTbPreviewDrop(ev,row,col){
 
 async function uploadTbBgImage(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -11378,7 +11378,7 @@ async function saveGcBgOnly(){
 
 async function uploadGcBgImage(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -11550,7 +11550,7 @@ async function saveCsPosterOnly(){
 }
 async function uploadCsPoster(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -12081,7 +12081,7 @@ function addGmcMonster(){
 }
 async function uploadGmcMonsterImage(i,file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -12246,7 +12246,7 @@ function addMcMonster(){
 }
 async function uploadMcMonsterImage(i,file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -15250,7 +15250,7 @@ function updateTabIconPreview(key){
 }
 async function uploadTabIconImage(key,file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -15387,7 +15387,7 @@ function updatePostImgPreview(){
 }
 async function uploadPostImage(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
@@ -15523,7 +15523,7 @@ function updateCalImgPreview(){
 }
 async function uploadCalImage(file){
   if(!file)return;
-  if(file.size>5*1024*1024){ showToast('5MB 이하 이미지만 업로드할 수 있어요'); return; }
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
   const reader=new FileReader();
   reader.onload=async()=>{
     try{

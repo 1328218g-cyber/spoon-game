@@ -293,6 +293,7 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
         <span class="noticeIcon">📢</span>
         <div class="noticeText" id="noticeText"></div>
       </div>
+      <div id="djWriteBox"></div>
       <div id="postListBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
     </div>
 
@@ -532,7 +533,7 @@ function switchTab(name){
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
   document.getElementById('tabCalPanel').classList.toggle('hidden', name !== 'cal');
-  if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); }
+  if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); initDjWrite(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
   if(name === 'cal' && !calLoaded){ calLoaded = true; loadCalendar(); }
@@ -590,6 +591,217 @@ async function loadPosts(){
   }catch(e){
     box.innerHTML = '<div class="card"><div class="emptyList">불러오기에 실패했어요</div></div>';
   }
+}
+
+// ✍️ DJ 본인 글쓰기 — 시청자용 인증코드 흐름과는 완전히 별개로, 관리자 패널과 같은 아이디/비밀번호
+// 로그인(auth.requireAuth)을 그대로 재사용한다. 다른 사람에게는 절대 안 보이고, 이 방의 DJ 본인
+// 계정으로 로그인했을 때만 아래에 글쓰기 UI가 나타난다.
+let djToken = localStorage.getItem('djToken') || '';
+let djWriteMode = false;
+let djPosts = [];
+let djPostEditingId = null;
+let djPostFormImageUrl = '';
+
+async function initDjWrite(){
+  if(!djToken){ renderDjWriteEntry(); return; }
+  try{
+    const res = await fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + djToken } });
+    const d = await res.json();
+    djWriteMode = !!(d.success && d.djId === DJ_ID);
+  }catch(e){ djWriteMode = false; }
+  renderDjWriteEntry();
+}
+
+function renderDjWriteEntry(){
+  const box = document.getElementById('djWriteBox');
+  if(!djWriteMode){
+    // 👀 로그인 링크 자체는 항상 떠있지만(눌러도 비밀번호 없인 아무것도 못 함), 실제 글쓰기
+    // 기능은 DJ 본인 로그인 전엔 전혀 안 보인다.
+    box.innerHTML = `<div style="text-align:right;margin-bottom:8px"><span class="hint" style="cursor:pointer;text-decoration:underline" onclick="showDjLoginForm()">✍️ DJ이신가요? 글쓰기 로그인</span></div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:800;font-size:13px">✍️ DJ 글쓰기 (${escapeHtml(DJ_ID)}로 로그인됨)</span>
+        <span class="hint" style="cursor:pointer;text-decoration:underline" onclick="djLogout()">로그아웃</span>
+      </div>
+      <button class="btn btn-primary" style="margin-top:10px" onclick="showDjPostForm()">➕ 새 포스트 작성</button>
+    </div>
+    <div id="djPostFormCard"></div>`;
+  djLoadPosts();
+}
+
+function showDjLoginForm(){
+  const box = document.getElementById('djWriteBox');
+  box.innerHTML = `
+    <div class="card">
+      <div style="font-weight:800;font-size:13px;margin-bottom:8px">✍️ DJ 글쓰기 로그인</div>
+      <p class="hint" style="margin-top:0">이 방의 에디봇 계정 아이디/비밀번호로 로그인하면, 이 페이지에서 바로 포스트를 작성·수정할 수 있어요. (다른 시청자에게는 이 기능 자체가 안 보여요)</p>
+      <input type="text" id="djwId" placeholder="아이디" style="width:100%;margin-top:8px">
+      <input type="password" id="djwPw" placeholder="비밀번호" style="width:100%;margin-top:8px">
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-ghost" style="margin:0" onclick="renderDjWriteEntry()">취소</button>
+        <button class="btn btn-primary" style="margin:0" onclick="djLoginSubmit()">로그인</button>
+      </div>
+    </div>`;
+}
+
+async function djLoginSubmit(){
+  const id = document.getElementById('djwId').value.trim();
+  const pw = document.getElementById('djwPw').value;
+  if(!id || !pw){ showToast('아이디/비밀번호를 입력해주세요'); return; }
+  try{
+    const res = await fetch('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ djId: id, password: pw })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error || '로그인에 실패했어요'); return; }
+    if(d.djId !== DJ_ID){ showToast('이 페이지(' + DJ_ID + ' 방)의 DJ 계정이 아니에요'); return; }
+    djToken = d.token;
+    localStorage.setItem('djToken', djToken);
+    djWriteMode = true;
+    renderDjWriteEntry();
+    showToast('DJ 인증 완료 ✓');
+  }catch(e){ showToast('오류: ' + e.message); }
+}
+
+function djLogout(){
+  djToken = '';
+  djWriteMode = false;
+  localStorage.removeItem('djToken');
+  renderDjWriteEntry();
+}
+
+async function djLoadPosts(){
+  try{
+    const res = await fetch('/myinfo/' + encodeURIComponent(DJ_ID) + '/dj-posts', { headers: { 'Authorization': 'Bearer ' + djToken } });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error || '포스트를 불러오지 못했어요'); return; }
+    djPosts = d.posts || [];
+    djRenderPostList();
+  }catch(e){ showToast('오류: ' + e.message); }
+}
+
+function djRenderPostList(){
+  let wrap = document.getElementById('djPostListWrap');
+  if(!wrap){
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<div style="font-weight:800;font-size:13px;margin-bottom:8px">내 포스트 (<span id="djPostCount">0</span>개)</div><div id="djPostListWrap"></div>';
+    document.getElementById('djWriteBox').appendChild(card);
+    wrap = document.getElementById('djPostListWrap');
+  }
+  document.getElementById('djPostCount').textContent = djPosts.length;
+  if(!djPosts.length){ wrap.innerHTML = '<div class="emptyList">아직 작성한 포스트가 없어요</div>'; return; }
+  wrap.innerHTML = djPosts.map(p => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px solid var(--border)">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">${escapeHtml((p.title || '').split('\n')[0])}</span>
+      <button class="useBtn" style="background:var(--surface2);color:var(--text)" onclick="showDjPostForm('${p.id}')">수정</button>
+      <button class="useBtn" style="background:#e35d5d" onclick="djDeletePost('${p.id}')">삭제</button>
+    </div>`).join('');
+}
+
+function showDjPostForm(id){
+  djPostEditingId = id || null;
+  const p = id ? djPosts.find(x => x.id === id) : null;
+  djPostFormImageUrl = p ? (p.imageUrl || '') : '';
+  let card = document.getElementById('djPostFormCard');
+  card.innerHTML = `
+    <div class="card">
+      <div style="font-weight:800;font-size:13px;margin-bottom:8px">${id ? '포스트 수정' : '새 포스트'}</div>
+      <label class="hint" style="display:block;margin-bottom:4px">제목 (해시태그도 그냥 텍스트로 같이 입력하면 돼요)</label>
+      <textarea id="djPostTitleInput" placeholder="# 아이스크림 먹으러 갈래?" style="width:100%;min-height:70px;resize:vertical">${p ? escapeHtml(p.title || '') : ''}</textarea>
+      <label class="hint" style="display:block;margin:10px 0 4px">이미지</label>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <img id="djPostImgPreview" src="${djPostFormImageUrl}" alt="" style="width:90px;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--border);${djPostFormImageUrl ? '' : 'display:none'}">
+        <div>
+          <input type="file" id="djPostImgFile" accept="image/*" style="display:none" onchange="uploadDjPostImage(this.files[0])">
+          <button class="btn btn-ghost" style="width:auto;margin:0;padding:8px 14px;font-size:12.5px" onclick="document.getElementById('djPostImgFile').click()">🖼️ 이미지 선택</button>
+          <button class="btn btn-ghost" style="width:auto;margin:0;padding:8px 14px;font-size:12.5px;${djPostFormImageUrl ? '' : 'display:none'}" id="djPostImgRemoveBtn" onclick="djRemovePostImage()">제거</button>
+        </div>
+      </div>
+      <label class="hint" style="display:block;margin:12px 0 4px">기간 (선택, 비워두면 상시 노출)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="date" id="djPostDateStart" value="${p ? (p.dateStart || '') : ''}" style="flex:1">
+        <span class="hint" style="margin:0">~</span>
+        <input type="date" id="djPostDateEnd" value="${p ? (p.dateEnd || '') : ''}" style="flex:1">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-ghost" style="margin:0" onclick="hideDjPostForm()">취소</button>
+        <button class="btn btn-primary" style="margin:0" onclick="saveDjPostForm()">💾 저장</button>
+      </div>
+    </div>`;
+}
+
+function hideDjPostForm(){
+  document.getElementById('djPostFormCard').innerHTML = '';
+  djPostEditingId = null;
+}
+
+async function uploadDjPostImage(file){
+  if(!file) return;
+  if(file.size > 60 * 1024 * 1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const res = await fetch('/images/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + djToken },
+        body: JSON.stringify({ dataUrl: reader.result, filename: file.name })
+      });
+      const d = await res.json();
+      if(!d.success){ showToast(d.error || '업로드 실패'); return; }
+      djPostFormImageUrl = d.url;
+      const img = document.getElementById('djPostImgPreview');
+      img.src = djPostFormImageUrl; img.style.display = '';
+      document.getElementById('djPostImgRemoveBtn').style.display = '';
+    }catch(e){ showToast('오류: ' + e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+
+function djRemovePostImage(){
+  djPostFormImageUrl = '';
+  const img = document.getElementById('djPostImgPreview');
+  img.src = ''; img.style.display = 'none';
+  document.getElementById('djPostImgRemoveBtn').style.display = 'none';
+}
+
+async function saveDjPostForm(){
+  const title = document.getElementById('djPostTitleInput').value.trim();
+  const dateStart = document.getElementById('djPostDateStart').value;
+  const dateEnd = document.getElementById('djPostDateEnd').value;
+  if(!title){ showToast('제목을 입력해주세요'); return; }
+  if(djPostEditingId){
+    const p = djPosts.find(x => x.id === djPostEditingId);
+    Object.assign(p, { title, imageUrl: djPostFormImageUrl, dateStart, dateEnd });
+  } else {
+    djPosts.push({ id: 'post' + Date.now() + Math.floor(Math.random() * 1000), title, imageUrl: djPostFormImageUrl, dateStart, dateEnd, createdAt: Date.now(), likes: [], comments: [] });
+  }
+  hideDjPostForm();
+  await djSavePostsGlobal();
+  djRenderPostList();
+  loadPosts(); // 시청자용 목록도 바로 최신화
+}
+
+async function djDeletePost(id){
+  if(!confirm('이 포스트를 삭제할까요? 좋아요/댓글 기록도 함께 사라져요.')) return;
+  djPosts = djPosts.filter(p => p.id !== id);
+  await djSavePostsGlobal();
+  djRenderPostList();
+  loadPosts();
+}
+
+async function djSavePostsGlobal(){
+  try{
+    const res = await fetch('/myinfo/' + encodeURIComponent(DJ_ID) + '/dj-posts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + djToken },
+      body: JSON.stringify({ posts: djPosts })
+    });
+    const d = await res.json();
+    if(!d.success) showToast(d.error || '저장에 실패했어요');
+  }catch(e){ showToast('오류: ' + e.message); }
 }
 
 async function onPostLikeClick(ev){
