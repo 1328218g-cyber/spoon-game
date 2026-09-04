@@ -430,7 +430,11 @@
             const rect = containDrawRect(bgEl.naturalWidth, bgEl.naturalHeight, outW, outH);
             ctx.drawImage(bgEl, 0, 0, bgEl.naturalWidth, bgEl.naturalHeight, rect.dx, rect.dy, rect.dw, rect.dh);
           }
-          recAnimCtx.clearRect(0, 0, recAnimCanvas.width, recAnimCanvas.height);
+          // ⚠️ recAnimCanvas는 바로 위 recAnim.goToAndStop() 호출 안에서 lottie가 이미 그 프레임을
+          // 그려놓은 상태다(rendererSettings.clearCanvas:true라 lottie가 매번 알아서 지우고 다시
+          // 그림) — 여기서 또 clearRect로 지우면 방금 그려진 스티커가 합성 직전에 투명하게
+          // 지워져버려서 배경만 남는다. 절대 여기서 지우지 않는다.
+
           ctx.drawImage(recAnimCanvas, bx, by, bw, bh);
         }
 
