@@ -1,3 +1,6 @@
+git add .
+git commit -m "75336fdrt2sei적"
+git push origin dev
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -33,6 +36,9 @@
   #playBtn:hover{background:#7a4bdb}
   #captureBtn{background:#e0952f;min-width:110px}
   #captureBtn:hover{background:#c77f20}
+  #recordBtn{background:#16a34a;min-width:110px}
+  #recordBtn:hover{background:#128a3e}
+  #recordBtn:disabled,#captureBtn:disabled,#playBtn:disabled{opacity:.55;cursor:default}
 </style>
 </head>
 <body>
@@ -50,6 +56,7 @@
     <div id="btnRow">
       <button class="ctrlBtn" id="playBtn" onclick="togglePlay()">▶ 재생</button>
       <button class="ctrlBtn" id="captureBtn" onclick="captureFrame()">📸 캡처</button>
+      <button class="ctrlBtn" id="recordBtn" onclick="recordVideo()">🎥 영상 저장</button>
     </div>
   </div>
 
@@ -64,6 +71,7 @@
     let userSeeking = false;
     let mediaAspect = 1;
     let mediaNaturalW = 300;
+    let gcLottieJson = null; // 🎥 영상 저장(recordVideo)에서 캔버스 렌더러로 다시 로드할 때 재사용
 
     // 크기/위치는 더 이상 슬라이더로 조절하지 않고 고정값 사용 (배경 대비 스푼 표준 화면 비율로 자동 계산된 크기 + 얼굴 근처 기본 위치)
     const FIXED_X_PCT = 50; // 가로 가운데
@@ -144,6 +152,7 @@
             mediaAspect = (Number(lottieJson.w)||300) / (Number(lottieJson.h)||300);
             mediaNaturalW = Number(lottieJson.w)||300;
             mediaKind = 'lottie';
+            gcLottieJson = lottieJson;
           }catch(e){ mediaKind = null; }
         }
         if(!mediaKind && d.item.stickerImage){
@@ -176,6 +185,8 @@
           document.getElementById('fgWrap').innerHTML = '<div id="animBox"><img id="stickerImgEl" src="'+proxied(d.item.stickerImage)+'"></div>';
           document.getElementById('noAnimNotice').style.display = 'block';
           document.getElementById('seekRow').style.display = 'none'; // 애니메이션이 없으면 구간 탐색이 의미 없음
+          const rb = document.getElementById('recordBtn');
+          if(rb) rb.style.display = 'none'; // 정지 이미지는 영상으로 저장할 게 없음
         }
 
         document.getElementById('controls').style.display = 'flex';
@@ -338,6 +349,124 @@
     }
     function captureFailed(){
       alert('자동 저장에 실패했어요 (브라우저 보안 정책 때문일 수 있어요). 대신 이 화면을 캡처 프로그램으로 직접 잡아주세요.');
+    }
+
+    // 🎥 영상 저장 — "캡처"가 지금 프레임 하나만 이미지로 저장하는 것과 달리, 애니메이션을 처음부터
+    // 끝까지 한 바퀴 실제로 재생하면서 캔버스에 매 프레임을 그려서 webm 영상으로 녹화한다.
+    // SVG 렌더러(화면에 보이는 것)는 매 프레임 래스터화하는 비용이 커서 실시간 녹화엔 못 쓰고,
+    // 녹화 전용으로 lottie 캔버스 렌더러 인스턴스를 하나 더 만들어(같은 원본 데이터) 그걸 그린다.
+    let isRecording = false;
+    async function recordVideo(){
+      if(isRecording) return;
+      if(!gcLottieJson){ alert('정지 이미지는 영상으로 저장할 수 없어요. (움직이는 선물만 가능해요)'); return; }
+      if(!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream){
+        alert('이 브라우저에서는 영상 저장을 지원하지 않아요. 최신 크롬(PC) 브라우저에서 이용해주세요.');
+        return;
+      }
+      pause(); // 화면에 보이는 재생은 멈추고, 녹화는 별도 인스턴스로 처음부터 새로 돈다
+
+      isRecording = true;
+      const recBtn = document.getElementById('recordBtn');
+      const playBtn = document.getElementById('playBtn');
+      const capBtn = document.getElementById('captureBtn');
+      const oldRecTxt = recBtn.textContent;
+      recBtn.disabled = true; recBtn.textContent = '⏳ 준비중';
+      if(playBtn) playBtn.disabled = true;
+      if(capBtn) capBtn.disabled = true;
+
+      let recAnim = null;
+      try{
+        const outW = canvasNaturalW, outH = canvasNaturalH;
+        const bgEl = document.getElementById('bgImgEl');
+        if(bgEl && !bgEl.complete) await new Promise(r=>{ bgEl.onload=r; bgEl.onerror=r; });
+
+        // 애니메이션 크기/위치는 화면에 보이는 것과 같은 비율로, 저장 원본 해상도 기준으로 환산한다.
+        const scale = canvasElW > 0 ? (outW / canvasElW) : 1;
+        const animBox = document.getElementById('animBox');
+        const bx = (parseFloat(animBox.style.left)||0) * scale;
+        const by = (parseFloat(animBox.style.top)||0) * scale;
+        const bw = (parseFloat(animBox.style.width)||0) * scale;
+        const bh = (parseFloat(animBox.style.height)||0) * scale;
+
+        // 녹화 전용 캔버스 렌더러 애니메이션 — 살짝 크게 그려서(슈퍼샘플링) 축소하면 더 또렷하다.
+        const SS = 2;
+        const recAnimCanvas = document.createElement('canvas');
+        recAnimCanvas.width = Math.max(1, Math.round(bw*SS));
+        recAnimCanvas.height = Math.max(1, Math.round(bh*SS));
+        const recAnimCtx = recAnimCanvas.getContext('2d');
+        recAnim = lottie.loadAnimation({
+          container: document.createElement('div'),
+          renderer: 'canvas',
+          loop: false,
+          autoplay: false,
+          animationData: gcLottieJson,
+          rendererSettings: { context: recAnimCtx, clearCanvas: true, preserveAspectRatio: 'xMidYMid meet' }
+        });
+        await new Promise(resolve=>{ recAnim.addEventListener('DOMLoaded', resolve); });
+
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = outW; finalCanvas.height = outH;
+        const ctx = finalCanvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        function drawFinalFrame(){
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, outW, outH);
+          if(bgEl){
+            const rect = containDrawRect(bgEl.naturalWidth, bgEl.naturalHeight, outW, outH);
+            ctx.drawImage(bgEl, 0, 0, bgEl.naturalWidth, bgEl.naturalHeight, rect.dx, rect.dy, rect.dw, rect.dh);
+          }
+          recAnimCtx.clearRect(0, 0, recAnimCanvas.width, recAnimCanvas.height);
+          ctx.drawImage(recAnimCanvas, bx, by, bw, bh);
+        }
+
+        const totalFrames = Math.max(1, Math.floor(recAnim.totalFrames));
+        const frameRate = recAnim.frameRate || 30;
+
+        const stream = finalCanvas.captureStream();
+        const mimeCandidates = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+        const mimeType = mimeCandidates.find(m => MediaRecorder.isTypeSupported(m)) || '';
+        const recorder = mimeType ? new MediaRecorder(stream, {mimeType}) : new MediaRecorder(stream);
+        const chunks = [];
+        recorder.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
+        const recordingStopped = new Promise(resolve=>{ recorder.onstop = resolve; });
+        recorder.start();
+
+        const durationMs = (totalFrames / frameRate) * 1000;
+        const startTs = performance.now();
+        await new Promise(resolve=>{
+          function tick(now){
+            const elapsed = now - startTs;
+            const frame = Math.min(totalFrames - 1, Math.floor(elapsed/1000*frameRate));
+            recAnim.goToAndStop(frame, true); // 캔버스 렌더러라 이 호출 안에서 recAnimCanvas에 바로 그려짐
+            drawFinalFrame();
+            recBtn.textContent = '⏺ 녹화 중 '+Math.min(100, Math.round(elapsed/durationMs*100))+'%';
+            if(elapsed < durationMs) requestAnimationFrame(tick);
+            else resolve();
+          }
+          requestAnimationFrame(tick);
+        });
+
+        recorder.stop();
+        await recordingStopped;
+
+        const blob = new Blob(chunks, {type: (mimeType.split(';')[0]) || 'video/webm'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'gift-capture-'+Date.now()+'.webm';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }catch(e){
+        alert('영상 저장에 실패했어요: '+e.message);
+      }finally{
+        if(recAnim) recAnim.destroy();
+        isRecording = false;
+        recBtn.disabled = false; recBtn.textContent = oldRecTxt;
+        if(playBtn) playBtn.disabled = false;
+        if(capBtn) capBtn.disabled = false;
+      }
     }
 
     document.addEventListener('keydown', (e)=>{

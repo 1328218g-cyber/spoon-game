@@ -1013,13 +1013,17 @@ async function onDrawLottoClick(ev){
   btn.disabled = false; btn.textContent = old;
 }
 
-// 룰렛권/복권 사용 결과처럼 잠깐 떴다 사라지는 안내를 화면 하단에 띄운다.
+// 룰렛권/복권 사용 결과를 화면 정중앙에 잠깐 띄운다. (탭하거나 시간이 지나면 사라짐)
 function showResultToast(text, ms){
+  const backdrop = document.createElement('div');
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:49;display:flex;align-items:center;justify-content:center;padding:20px';
   const el = document.createElement('div');
   el.textContent = text;
-  el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:13px;padding:12px 20px;border-radius:16px;box-shadow:0 6px 20px rgba(14,165,233,.35);z-index:50;white-space:pre-line;text-align:center;max-width:86vw';
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), ms || 4000);
+  el.style.cssText = 'background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:15px;line-height:1.7;padding:24px 28px;border-radius:18px;box-shadow:0 10px 30px rgba(14,165,233,.4);white-space:pre-line;text-align:center;max-width:86vw';
+  backdrop.appendChild(el);
+  backdrop.addEventListener('click', () => backdrop.remove());
+  document.body.appendChild(backdrop);
+  setTimeout(() => backdrop.remove(), ms || 4000);
 }
 
 async function fetchMe(manual){
