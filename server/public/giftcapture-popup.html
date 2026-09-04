@@ -373,6 +373,7 @@
 
       let recAnim = null;
       let finalCanvasEl = null;
+      let recContainerEl = null;
       try{
         const outW = canvasNaturalW, outH = canvasNaturalH;
         const bgEl = document.getElementById('bgImgEl');
@@ -392,8 +393,15 @@
         recAnimCanvas.width = Math.max(1, Math.round(bw*SS));
         recAnimCanvas.height = Math.max(1, Math.round(bh*SS));
         const recAnimCtx = recAnimCanvas.getContext('2d');
+        // 🎥 lottie는 context를 직접 넘겨받아도 내부적으로 container 엘리먼트의 실제 크기(offsetWidth/
+        // Height)를 기준으로 스케일을 계산한다 — container가 document에 안 붙어있으면 크기가 0으로
+        // 잡혀서 애니메이션이 스케일 0으로(=안 보이게) 그려진다. 그래서 이것도 화면 밖에 실제로 붙여둔다.
+        const recContainer = document.createElement('div');
+        recContainer.style.cssText = 'position:fixed;left:-99999px;top:0;width:'+recAnimCanvas.width+'px;height:'+recAnimCanvas.height+'px';
+        document.body.appendChild(recContainer);
+        recContainerEl = recContainer;
         recAnim = lottie.loadAnimation({
-          container: document.createElement('div'),
+          container: recContainer,
           renderer: 'canvas',
           loop: false,
           autoplay: false,
@@ -468,6 +476,7 @@
       }finally{
         if(recAnim) recAnim.destroy();
         if(finalCanvasEl && finalCanvasEl.parentNode) finalCanvasEl.parentNode.removeChild(finalCanvasEl);
+        if(recContainerEl && recContainerEl.parentNode) recContainerEl.parentNode.removeChild(recContainerEl);
         isRecording = false;
         recBtn.disabled = false; recBtn.textContent = oldRecTxt;
         if(playBtn) playBtn.disabled = false;
