@@ -3835,6 +3835,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin:4px 0 0">시청자가 웹페이지에서 인증코드를 받아 채팅으로 딱 치면, 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 웹에서 바로 확인할 수 있어요. 애청지수·룰렛 데이터는 각 기능 설정 그대로를 보여주기만 해요.</p>
         </div>
 
+        <div class="tab-bar" id="miTabBar">
+          <button class="tab-btn active" data-tab="settings" onclick="switchMiTab('settings')">⚙️ 설정</button>
+          <button class="tab-btn" data-tab="content" onclick="switchMiTab('content')">✍️ 컨텐츠 작성</button>
+        </div>
+
+        <!-- ═══ 설정 (테마/아이콘 등 페이지 자체 꾸미기) ═══ -->
+        <div id="miPanelSettings">
+
         <div class="card">
           <div class="card-title"><span>🔗 공개 페이지</span></div>
           <p class="hint">이 링크를 방송 소개글이나 채팅에 공유하면, 시청자가 로그인 없이 바로 내정보 페이지로 접속할 수 있어요. (다른 웹 기능들을 한곳에 모은 시청자 허브가 아니라, 이 방의 내정보 페이지로 바로 이동해요)</p>
@@ -3930,6 +3938,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoTabIcons()">💾 아이콘 저장</button>
         </div>
+
+        </div>
+        <!-- ═══ /설정 ═══ -->
+
+        <!-- ═══ 컨텐츠 작성 (공지/포스트/캘린더처럼 자주 업데이트하는 것들) ═══ -->
+        <div id="miPanelContent" style="display:none">
 
         <div class="card">
           <div class="card-title"><span>📢 실시간 공지</span></div>
@@ -4028,6 +4042,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <button class="btn-connect" onclick="saveCalEventForm()">💾 저장</button>
           </div>
         </div>
+
+        </div>
+        <!-- ═══ /컨텐츠 작성 ═══ -->
 
         <div class="card">
           <div class="card-title"><span>📱 시청자에게 이렇게 보여요 (미리보기)</span></div>
@@ -8439,6 +8456,14 @@ function switchActTab(tab){
   document.getElementById('actPanelScore').style.display = tab==='score' ? 'block' : 'none';
   document.getElementById('actPanelCmd').style.display = tab==='cmd' ? 'block' : 'none';
   if(tab==='users' && !actUsersCache.length) loadActivityUsers();
+}
+
+// 👤 내정보 웹페이지 — "⚙️ 설정"(테마/아이콘 등 페이지 자체 꾸미기)이랑 "✍️ 컨텐츠 작성"(공지/포스트/
+// 캘린더처럼 자주 업데이트하는 것들)을 분리해서, 한 화면에 다 몰려있던 걸 덜 복잡해 보이게 나눴다.
+function switchMiTab(tab){
+  document.querySelectorAll('#miTabBar .tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.getElementById('miPanelSettings').style.display = tab==='settings' ? 'block' : 'none';
+  document.getElementById('miPanelContent').style.display = tab==='content' ? 'block' : 'none';
 }
 
 async function loadActivityUsers(){
