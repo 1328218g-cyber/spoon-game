@@ -2967,7 +2967,10 @@ function mcCleanExpiredKeys(d) {
 // 💬 웹 도감 인증 — 몬스터잡기 모듈이 켜져있는 어느 방에서든(도감이 전체 공용이라) 채팅으로
 // "!도감인증 코드"(또는 코드만 딱)를 치면 그 채팅 계정(고유닉)과 웹 세션을 연결해준다.
 async function handleMonsterDexCommand(djId, settings, author, actTag, text, profileUrl) {
-  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  // ⚠️ /register, /data(웹페이지) 쪽은 "몬스터잡기 OR 리버시" 둘 중 하나만 켜있어도 동작하게
+  // 되어있는데, 여기(채팅으로 코드 인증하는 부분)만 몬스터잡기 단독 체크라 리버시만 켜놓은
+  // 방에서는 코드를 채팅에 쳐도 영영 인증이 안 되고 웹페이지가 로딩 상태로 멈춰있었다.
+  if (!isModuleOn(settings, 'monstercatch', djId) && !isModuleOn(settings, 'reversi', djId)) return
   // ⚠️ mc.collections/mc.levels/mc.points 등은 전부 "소문자로 통일한 고유닉"을 키로 쓰고 있어서
   // (다른 몬스터잡기 명령어들이 다 key.toLowerCase()로 처리함), 여기도 반드시 소문자로 맞춰야
   // 웹 도감이 실제 채팅에서 잡은 기록과 같은 사람으로 인식된다. 이걸 안 맞추면 대소문자가
@@ -20215,6 +20218,107 @@ app.post('/myinfo/:djId/use-item', async (req, res) => {
 
   const profile = await miBuildProfile(djId, settings, tag)
   res.json({ success: true, ...profile })
+})
+
+// 🎡 룰렛권 사용 — 채팅 명령어 "!룰렛N"의 시청자 본인 사용 분기(handleRouletteCommand)와 동일한 로직을
+// 웹 버튼 한 번으로 처리한다. 항상 1장만 사용하고(킵목록 "사용" 버튼과 동일한 원칙), 당첨 결과는
+// 이 응답으로 웹 화면에도 보여주고, 방송 채팅창에도 사용 알림 + 당첨 결과를 그대로 올린다.
+app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'roulette', djId)) return res.json({ success: false, error: '룰렛 기능이 꺼져있어요.' })
+
+  const idx = parseInt((req.body || {}).idx, 10)
+  const rl = settings.roulette
+  const rt = rl && rl.list && rl.list[idx - 1]
+  if (!rt || !rt.items || !rt.items.length) return res.json({ success: false, error: '잘못된 룰렛이에요.' })
+
+  const existingRec = settings.rouletteHistory && settings.rouletteHistory[tag]
+  const nickname = (existingRec && existingRec.nickname) || tag
+  const hist = getHistoryRecByIdentity(settings, tag, nickname)
+
+  const have = Number(hist.coupons[idx] || 0)
+  if (have < 1) return res.json({ success: false, error: '보유한 룰렛권이 없어요.' })
+  hist.coupons[idx] = have - 1
+
+  const won = percentPick(rt.items)
+  const resultName = won ? won.name : ''
+  if (won) {
+    if (!won.skipHistory) {
+      hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+      addRouletteWinToList(hist, won.saveTo, won.name)
+    }
+    applySpecialRouletteItem(djId, settings, tag, nickname, won.name)
+  }
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const useMsg = (rl.couponUseTemplate || '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)')
+    .replace(/{닉네임}/g, nickname).replace(/{번호}/g, idx).replace(/{수량}/g, 1).replace(/{잔여}/g, hist.coupons[idx])
+  const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, nickname)
+  setTimeout(() => sendChatToRoom(djId, useMsg), 300)
+  setTimeout(() => sendChatToRoom(djId, `${header}\n👉 ${resultName}`), 900)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, rouletteName: rt.name, result: resultName, ...profile })
+})
+
+// 🎰 복권 사용 — 채팅 명령어 "!복권"(단일 사용 분기)과 동일한 3자리 맞히기 추첨 로직을 웹 버튼
+// 한 번으로 처리한다. 항상 1장만 사용하고, 결과는 이 응답으로 웹 화면에도 보여주고 방송
+// 채팅창에도 그대로 올린다.
+// 🎰 복권 사용 — 채팅 명령어 "!복권"을 인자 없이 쳤을 때와 완전히 동일하게 동작한다: 보유한 복권을
+// 전부(최대 100장) 한 번에 써서 등수별 결과를 집계하고, 그만큼의 EXP를 한꺼번에 지급한다.
+app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'loyalty', djId)) return res.json({ success: false, error: '애청지수 기능이 꺼져있어요.' })
+
+  const act = getActivitySettings(djId, settings)
+  const key = actResolveKey(act, null, tag)
+  const d = key ? act.users[key] : null
+  if (!d) return res.json({ success: false, error: '애청지수에 등록되어 있지 않아요. 방송 채팅에서 !내정보 생성을 먼저 입력해주세요.' })
+  if ((d.lotto || 0) < 1) return res.json({ success: false, error: '보유한 복권이 없어요.' })
+
+  const exp1st = Number(act.lotto1st) || 3000
+  const exp2nd = Number(act.lotto2nd) || 500
+  const exp3rd = Number(act.lotto3rd) || 100
+  const expFail = Number(act.lottoFail) || 1
+  const useCount = Math.min(d.lotto || 0, 100) // ⚠️ !복권 명령어와 동일하게, 아무리 많이 갖고 있어도 한 번에 최대 100장까지만
+  d.lotto -= useCount
+  let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
+  for (let i = 0; i < useCount; i++) {
+    const win = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const my = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const m = my.filter(n => win.includes(n)).length
+    if (m === 3) cnt1++; else if (m === 2) cnt2++; else if (m === 1) cnt3++; else cntFail++
+  }
+  const totalExp = cnt1 * exp1st + cnt2 * exp2nd + cnt3 * exp3rd + cntFail * expFail
+  actGrantExp(djId, act, key, totalExp)
+  store.saveSettings(djId, { activity: act })
+
+  const nickname = d.nickname || tag
+  const top = actFormat(act.msgLottoAutoHeader, { nickname, count: useCount })
+  const bottom = '━━━━━━━━━━━━━━\n' +
+    `🥇 1등(3개): ${cnt1}회 (+${exp1st} EXP)\n` +
+    `🥈 2등(2개): ${cnt2}회 (+${exp2nd} EXP)\n` +
+    `🥉 3등(1개): ${cnt3}회 (+${exp3rd} EXP)\n` +
+    `💀 꽝(0개): ${cntFail}회 (+${expFail} EXP)\n` +
+    '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
+  setTimeout(() => sendChatToRoom(djId, top), 400)
+  setTimeout(() => sendChatToRoom(djId, bottom), 900)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, useCount, cnt1, cnt2, cnt3, cntFail, totalExp, ...profile })
 })
 
 app.get('/myinfo/:djId/roulettes', (req, res) => {

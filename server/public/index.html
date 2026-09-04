@@ -522,7 +522,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Warang+Citi&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Warang+Citi&family=Noto+Sans+Linear+A&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/unifont@latest/index.min.css">
 </head>
 <body>
@@ -847,6 +847,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <p class="hint" style="margin-bottom:0">필요한 기능만 켜고 나머지는 꺼두세요. 여기서 켜고 끄는 건 사이드바 메뉴 옆 ON/OFF 배지랑 완전히 같은 설정이라, 어디서 바꿔도 똑같이 반영돼요.</p>
           </div>
           <button class="btn-gray" style="padding:8px 14px;font-size:12.5px;white-space:nowrap" onclick="resetMenuVisibility()">🔄 사이드바 메뉴 기본값으로 초기화</button>
+        </div>
+        <div style="position:relative;margin:12px 0 2px">
+          <input type="text" id="marketSearchInput" placeholder="🔍 모듈 이름으로 검색 (예: 룰렛, 신청곡)" oninput="onMarketSearchInput(this.value)" style="width:100%;padding:10px 34px 10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:13px">
+          <button id="marketSearchClearBtn" onclick="document.getElementById('marketSearchInput').value='';onMarketSearchInput('')" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button>
         </div>
         <div class="tab-bar" id="marketTabBar">
           <button class="tab-btn active" data-tab="all" onclick="switchMarketTab('all')">전체</button>
@@ -5699,16 +5703,17 @@ const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday
 const DEFAULT_VISIBLE_KEYS=['dashboard','autojoin','entrysettings','roulette','roulettelog','loyalty','giftcapture','giftgallery','shield','myinfo'];
 function isModulePreferenceOn(key){
   if(key==='autojoin') return true; // 🔒 자동입장은 끌 수 없음 — 항상 켜짐
-  if(key==='dashboard') return true; // 🔒 대시보드도 끌 수 없음 — 항상 켜짐
   const v=moduleEnabled[key];
   if(v===undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
   return v!==false;
 }
 function isModuleVisible(key){
   if(moduleVisible[key]!==undefined) return moduleVisible[key]!==false;
-  // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다
-  // — 그 외 메뉴는 모듈 마켓에서 한 번이라도 켜봐야 사이드바에 나타난다.
-  return DEFAULT_VISIBLE_KEYS.includes(key);
+  // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다.
+  // 🔧 단, NEW_MODULE_DEFAULT_OFF_KEYS에 없어서 기능 자체가 기본 ON인 모듈은
+  //    DEFAULT_VISIBLE_KEYS에 없어도 처음부터 사이드바에 보이게 한다.
+  //    (다시 껐다 켜야만 노출되던 버그 — 기본 OFF인 신규 모듈만 모듈 마켓에서 한 번 켜야 나타남)
+  return DEFAULT_VISIBLE_KEYS.includes(key) || !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key);
 }
 
 function isModuleOn(key){
@@ -5777,7 +5782,6 @@ function applyPanelLockState(name){
 function toggleModuleByKey(key, opts){
   opts = opts || {};
   if(key==='autojoin'){ showToast('자동입장은 항상 켜져 있어서 끌 수 없어요'); return; }
-  if(key==='dashboard'){ showToast('대시보드는 항상 켜져 있어서 끌 수 없어요'); return; }
   const turningOn = !isModulePreferenceOn(key);
   moduleEnabled[key]=turningOn;
   renderModuleBadge(key);
@@ -5806,6 +5810,14 @@ function toggleModuleBadge(el){
 /* ── 🛒 모듈 마켓 ── */
 const MARKET_ADMIN_ONLY_KEYS=['userlist']; // 관리자 전용 메뉴는 관리자 로그인일 때만 카드로 노출 (세션 연결은 모든 DJ가 쓸 수 있어서 제외)
 let marketTab='all'; // 'all' | 'on' | 'off'
+let marketSearchQuery=''; // 🔍 모듈 마켓 검색어 (소문자 정규화된 상태로 저장)
+
+function onMarketSearchInput(v){
+  marketSearchQuery=(v||'').trim().toLowerCase();
+  const clearBtn=document.getElementById('marketSearchClearBtn');
+  if(clearBtn) clearBtn.style.display=marketSearchQuery?'block':'none';
+  renderModuleMarket();
+}
 
 function switchMarketTab(tab){
   marketTab=tab;
@@ -5829,13 +5841,18 @@ function renderModuleMarket(){
   if(tabNew)tabNew.textContent='🛒 모듈 마켓 ('+newKeys.length+')';
 
   const keys=allKeys.filter(k=>{
-    if(marketTab==='on')return isModuleOn(k);
-    if(marketTab==='new')return NEW_MODULE_DEFAULT_OFF_KEYS.includes(k);
+    if(marketTab==='on'&&!isModuleOn(k))return false;
+    if(marketTab==='new'&&!NEW_MODULE_DEFAULT_OFF_KEYS.includes(k))return false;
+    if(marketSearchQuery){
+      const meta=PANEL_META[k]||['',''];
+      const hay=(meta[0]+' '+(meta[1]||'')).toLowerCase();
+      if(!hay.includes(marketSearchQuery))return false;
+    }
     return true;
   });
 
   if(!keys.length){
-    grid.innerHTML='<p class="hint">'+(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.')+'</p>';
+    grid.innerHTML='<p class="hint">'+(marketSearchQuery?`"${escapeHtml(marketSearchQuery)}"에 해당하는 모듈이 없어요.`:(marketTab==='on'?'지금 사용 중인 모듈이 없어요.':marketTab==='new'?'아직 새로 추가된 모듈이 없어요.':'표시할 모듈이 없어요.'))+'</p>';
     return;
   }
 
@@ -10634,7 +10651,7 @@ function renderGgGrid(){
     // 🈵🎨 [업데이트] 'Noto Emoji'는 흑백(모노크롬) 전용 폰트라, 닉네임에 이모지가 들어있으면 화면/
     // 다운로드 이미지에서 흑백으로 보이는 문제가 있었다. 실제 컬러 이모지 폰트(Apple/Segoe/Noto Color
     // Emoji)를 'Noto Emoji'보다 앞에 둬서, 있으면 그 컬러 글꼴을 먼저 쓰고 없을 때만 흑백으로 대체되게 한다.
-    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`;
+    const ggFontFamily=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Noto Sans Linear A','Unifont',sans-serif`;
     html+=`<div id="${cardId}" style="display:inline-flex;align-items:center;gap:8px;background:${cardBg};border-radius:${cardRadius};padding:6px 14px 6px 6px;box-shadow:${cardShadow};position:relative;font-family:${ggFontFamily}"
         onmouseenter="document.getElementById('${btnId}').style.display='flex';document.getElementById('${dlId}').style.display='flex';document.getElementById('${editId}').style.display='flex'" onmouseleave="document.getElementById('${btnId}').style.display='none';document.getElementById('${dlId}').style.display='none';document.getElementById('${editId}').style.display='none'">
       <div style="display:flex;flex-shrink:0">${userAvatar}${djAvatar}</div>
@@ -10714,7 +10731,7 @@ function ggDrawCoverImage(ctx,img,cx,cy,d){
 // 적용해주기 때문에, 화면(DOM)에서 보이는 것과 동일하게 특수문자까지 정상적으로 그려진다.
 // 🎨 컬러 이모지 폰트(Apple/Segoe/Noto Color Emoji)를 흑백 전용인 'Noto Emoji'보다 앞에 둬서,
 // 닉네임에 이모지가 있어도 다운로드 이미지에 흑백이 아닌 원래 색으로 그려지게 한다.
-const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Unifont',sans-serif`
+const GG_FONT_STACK=`'Noto Sans KR','Noto Sans','Noto Sans Symbols 2','Noto Sans Symbols','Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Noto Emoji','Noto Sans JP','Noto Sans SC','Noto Sans Warang Citi','Noto Sans Linear A','Unifont',sans-serif`
 async function drawGgCardCanvas(it, opts){
   const SCALE=4 // 결과 이미지 배율(고해상도)
   const boxSize=32*SCALE, overlap=12*SCALE, gap=8*SCALE

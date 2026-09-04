@@ -166,6 +166,13 @@ async function checkAuth(){
     authCode = d.code;
     renderAuthCode();
     if(!authPollTimer) authPollTimer = setInterval(checkAuth, 2500);
+  } else if(!d.success){
+    // 🛡️ 서버가 실패 응답을 준 경우(예: 리버시/몬스터잡기가 방에서 꺼져있음) 그냥 무시하고
+    // 넘어가면 화면이 스피너 상태로 영영 멈춰있는 것처럼 보인다 — 폴링 멈추고 에러를 보여준다.
+    clearInterval(authPollTimer);
+    authPollTimer = null;
+    showToast(d.error||'인증 확인에 실패했어요');
+    renderAuthStart();
   } else {
     renderAuthStart();
   }
