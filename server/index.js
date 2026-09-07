@@ -501,6 +501,13 @@ async function fetchUserTagFromGeneralProfile(userId, accessToken) {
 const TAG_RESOLVE_MAX_TRIES = 4
 const TAG_RESOLVE_RETRY_DELAY_MS = 450
 
+// 🚪 RoomJoin 시점 태그 조회 추가 재시도 — 방금 막 들어온 유저는 getCachedUserTag의 내부
+// 재시도(위 4회)를 전부 거쳐도 스푼 서버에 정보가 아직 안 붙어있어서 실패할 때가 가끔 있다.
+// 그 상태로 넘어가면 "지정 인사"가 그 방문 동안은 영영 안 나가고(닉네임 키로 이미 인사 처리됨
+// 처리됨), 진짜로 나갔다 다시 들어와야만(퇴장 감지 후 재입장) 다시 시도된다. 그래서 포기하기 전에
+// 시간 간격을 늘려가며 몇 번 더 시도한다.
+const JOIN_TAG_EXTRA_RETRIES = [1200, 2500, 4000]
+
 async function getCachedUserTag(room, liveId, userId, accessToken) {
   if (userId == null) return null
   if (room && room.tagCache && room.tagCache.has(userId)) {
@@ -15911,10 +15918,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
         if (!isLurker) {
           let tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
-          if (!tag) {
-            // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 한 번에 실패할 때가 있다.
-            // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 잠깐 기다렸다가 한 번 더 시도한다.
-            await new Promise(r => setTimeout(r, 1200))
+          // 입장 직후엔 스푼 서버에 아직 유저 정보가 안 붙어있어서 태그 조회가 실패할 때가 있다.
+          // "지정 인사"가 조용히 안 나가는 걸 막기 위해, 간격을 늘려가며 몇 번 더 시도한다.
+          for (let i = 0; !tag && i < JOIN_TAG_EXTRA_RETRIES.length; i++) {
+            await new Promise(r => setTimeout(r, JOIN_TAG_EXTRA_RETRIES[i]))
             tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
           }
           rememberTagNickname(room, tag, author)
