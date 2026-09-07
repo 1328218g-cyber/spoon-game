@@ -35,7 +35,7 @@ try {
 const app = express()
 app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
 app.use(cors({ origin: '*' }))
-app.use(express.json({ limit: '20mb' })) // 로컬 에디봇 설정 마이그레이션 업로드(/account/migrate-local)를 위해 여유있게 설정
+app.use(express.json({ limit: '85mb' })) // 이미지 업로드가 60MB까지 허용되면서(base64 인코딩 시 약 1.33배) 여유있게 상향
 app.use(require('express').static(__dirname + '/public'))
 
 // 🎵 입장/좋아요/지정인사 등에 첨부하는 음원 파일 — 예전엔 base64로 인코딩해서 djs.json 안에
@@ -1848,6 +1848,21 @@ function actSafeSetNickname(d, nickname, tag) {
   d.nickname = nickname
 }
 
+// 🚨 스푼 태그 조회 API가 가끔 부정확한 값을 돌려주는 문제가 있다(코드 내 다른 주석에서도
+// "결과가 오락가락한다"고 확인됨). 애청지수는 보통 태그를 도감 key로 그대로 쓰기 때문에,
+// 이 d.tag 필드를 이벤트 올 때마다 최신값으로 무조건 덮어쓰면 — 어쩌다 한 번 잘못된 태그가
+// 섞여 들어왔을 때 원래 정상이던 태그가 오염되고, 그 다음부터는 (key로도, 저장된 tag로도)
+// 이 사람을 다시 못 찾게 돼서 "애청지수 정보가 사라진 것처럼" 보이는 원인이 된다.
+// → 이미 key와 일치하는 정상 태그가 있으면 건드리지 않고, 비어있을 때만 채워넣는다.
+function actSafeSetTag(d, key, tag) {
+  if (!tag) return
+  if (d.tag && d.tag === key) {
+    if (tag !== d.tag) console.log(`[애청지수][태그방어] key=${key} 저장된tag=${d.tag} 이번에받은tag=${tag} → 무시(기존 유지)`)
+    return // 이미 키와 일치하는 정상 태그 — 잘못된 새 값으로부터 보호
+  }
+  d.tag = tag
+}
+
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
 function handleActChatHook(djId, settings, author, tag, profileUrl) {
@@ -1858,7 +1873,7 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   if (!key) return
   const d = act.users[key]
   actSafeSetNickname(d, author, tag)
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
   const chatTier = getVipTierForTag(settings, tag)
@@ -1877,7 +1892,7 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   if (!key) return
   const d = act.users[key]
   actSafeSetNickname(d, author, tag)
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   if (profileUrl) d.imgUrl = profileUrl
   d.heart = (d.heart || 0) + 1
   const heartExp = Number(act.scoreHeart) || 1
@@ -1893,7 +1908,7 @@ function handleActAttendHook(djId, settings, author, tag) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   const now = Date.now()
   const interval = 30 * 60 * 1000
   if (now - (d.lastAttendTime || 0) < interval) return
@@ -1912,7 +1927,7 @@ function handleActLottoPointHook(djId, settings, author, amount, tag) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   const exchange = Number(act.lottoExchange) || 22
   const expPerPoint = Number(act.scoreLottoPoint) || 5
   d.lp = (d.lp || 0) + amount
@@ -2827,19 +2842,37 @@ const MC_SHINY_POWER_MULT = 1.1  // 이로치는 같은 몬스터의 일반 개�
 const MC_SHINY_CHANCE = 0.1      // 희귀상자를 열었을 때 이로치가 나올 확률 (10%)
 function mcIsShinyId(id) { return typeof id === 'string' && id.startsWith(MC_SHINY_PREFIX) }
 function mcBaseIdFromShiny(id) { return mcIsShinyId(id) ? id.slice(MC_SHINY_PREFIX.length) : id }
-// id(이로치 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
+
+// 🌟 거다이맥스 — 이로치와 똑같은 방식(원본 도감 id 앞에 별도 접두사)으로 취급하는 영구 변종.
+// 이로치보다 더 희귀하고(3%) 공격력 보너스도 더 크다(+30%). id 하나엔 접두사가 하나만 붙을 수 있어서
+// 이로치와 거다이맥스를 동시에 가질 순 없다 — 잡을 때/상자를 열 때 거다이맥스 확률을 먼저 굴리고,
+// 거다이맥스가 안 나왔을 때만 이로치 확률을 굴린다(어떤 몬스터 종이든 확률적으로 나올 수 있음).
+const MC_GMAX_PREFIX = 'gmax_'
+const MC_GMAX_POWER_MULT = 1.3
+const MC_GMAX_CHANCE = 0.03
+function mcIsGmaxId(id) { return typeof id === 'string' && id.startsWith(MC_GMAX_PREFIX) }
+function mcBaseIdFromGmax(id) { return mcIsGmaxId(id) ? id.slice(MC_GMAX_PREFIX.length) : id }
+// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 1세대(도감 001~151)
+// 기준으로 실제 거다이맥스가 존재하는 12종만 화이트리스트로 관리한다: 이상해꽃/리자몽/거북왕/버터플/
+// 피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보. 이 목록 밖의 몬스터는 거다이맥스 확률 자체가 적용되지 않는다.
+const MC_GMAX_ELIGIBLE_IDS = ['pkmn-003', 'pkmn-006', 'pkmn-009', 'pkmn-012', 'pkmn-025', 'pkmn-052', 'pkmn-068', 'pkmn-094', 'pkmn-099', 'pkmn-131', 'pkmn-133', 'pkmn-143']
+function mcIsGmaxEligible(id) { return MC_GMAX_ELIGIBLE_IDS.includes(id) }
+
+// id(이로치/거다이맥스 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
 function mcResolveMonster(id, monsters, tag) {
-  const shiny = mcIsShinyId(id)
-  const baseId = mcBaseIdFromShiny(id)
+  const gmax = mcIsGmaxId(id)
+  const shiny = !gmax && mcIsShinyId(id)
+  const baseId = gmax ? mcBaseIdFromGmax(id) : mcBaseIdFromShiny(id)
   const m = (monsters || []).find(mm => mm.id === baseId)
   if (!m) return null
   const basePower = Number(m.power) || 10
-  let power = shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower
+  let power = gmax ? Math.round(basePower * MC_GMAX_POWER_MULT) : (shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower)
   if (tag) power += mcLevelBonus(mcMonsterLevel(tag, id)) // 🆙 웹 도감에서 레벨업한 만큼 공격력 보너스
   return {
     monster: m,
     shiny,
-    name: shiny ? `🌈이로치 ${m.name}` : m.name,
+    gmax,
+    name: gmax ? `🌟거다이맥스 ${m.name}` : (shiny ? `🌈이로치 ${m.name}` : m.name),
     power,
   }
 }
@@ -2952,7 +2985,7 @@ function mcMonsterLevel(tag, monsterId) {
   return entry ? entry.level : 1
 }
 function mcLevelUpCost(currentLevel) { return currentLevel * 10 } // 레벨이 높을수록 다음 레벨 비용이 커진다
-function mcDismantlePoints(basePower, shiny) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 1.1 : 1)) }
+function mcDismantlePoints(basePower, shiny, gmax) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (gmax ? 1.3 : (shiny ? 1.1 : 1))) }
 const MC_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function mcGenAuthKey(d) {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -3334,8 +3367,9 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
     const totalTypes = allKnownIds.size
 
-    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id)).length
+    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id) && !mcIsGmaxId(id)).length
     const shinyDiscovered = ownedIds.filter(id => mcIsShinyId(id)).length
+    const gmaxDiscovered = ownedIds.filter(id => mcIsGmaxId(id)).length
     const points = mcGetWebData().points[key] || 0
     const ranking = mcComputeGlobalRanking(mc)
     const myRankIdx = ranking.findIndex(r => r.tag.toLowerCase() === key.toLowerCase())
@@ -3345,6 +3379,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       + `-${ace ? ace.name : '(없음)'} ${ace ? ace.level : 0}Lv 공격:${ace ? ace.power : 0}\n`
       + `-일반: ${normalDiscovered}/${totalTypes}\n`
       + `-이로치 ${shinyDiscovered}/${totalTypes}\n`
+      + `-거다이맥스 ${gmaxDiscovered}/${totalTypes}\n`
       + `-남은포인트:${points}\n`
       + `-순위:${myRankIdx !== -1 ? myRankIdx + 1 : '순위없음'}`
     sendChatSplit(djId, out, 150, 500)
@@ -3402,9 +3437,9 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     if (success) {
       const grant = mcGrantCaughtMonster(mc, key, active.id)
       mcSaveUserData()
-      const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+      const monsterLabel = grant.isGmax ? `🌟거다이맥스 ${active.name}` : (grant.isShiny ? `🌈이로치 ${active.name}` : active.name)
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
-      if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
+      if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, grant.grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
     } else {
       mcSaveUserData()
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchFailMsg, { nickname: author, monster: active.name, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
@@ -3419,14 +3454,15 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   if (room._activeMonsterTimeout) { clearTimeout(room._activeMonsterTimeout); room._activeMonsterTimeout = null }
   const grant = mcGrantCaughtMonster(mc, key, active.id)
   mcSaveUserData()
-  const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+  const monsterLabel = grant.isGmax ? `🌟거다이맥스 ${active.name}` : (grant.isShiny ? `🌈이로치 ${active.name}` : active.name)
   setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
   room._activeMonster = null
-  if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
+  if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, grant.grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
 }
 
 // 채팅 한 번 칠 때마다 소소한 확률로 포획볼 1개 획득 (모험을 시작한 유저만 대상)
 // 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다 (수동: !진화 [이름]).
+// 거다이맥스는 이름 앞에 "거다이맥스 " 또는 "🌟거다이맥스 "를 붙여서 입력하면 거다이맥스 개체 쪽 도감을 대상으로 진화한다.
 function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
@@ -3434,35 +3470,47 @@ function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
   const msg = String(text || '').trim()
   if (msg !== cmdEvolve && !msg.startsWith(cmdEvolve + ' ')) return
 
-  const monsterName = msg.slice(cmdEvolve.length).trim()
-  if (!monsterName) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveUsage, { cmdEvolve })), 400); return }
+  const rawName = msg.slice(cmdEvolve.length).trim()
+  if (!rawName) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveUsage, { cmdEvolve })), 400); return }
+
+  let requestGmax = false
+  let monsterName = rawName
+  for (const p of ['🌟거다이맥스 ', '거다이맥스 ']) {
+    if (monsterName.startsWith(p)) { requestGmax = true; monsterName = monsterName.slice(p.length).trim(); break }
+  }
 
   const mon = mc.monsters.find(m => m.name === monsterName)
-  if (!mon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: monsterName })), 400); return }
+  if (!mon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: rawName })), 400); return }
   if (!mon.evolvesTo) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
   const target = mc.monsters.find(m => m.id === mon.evolvesTo)
   if (!target) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
+  if (requestGmax && !mcIsGmaxEligible(mon.id)) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: rawName })), 400); return }
 
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
-  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
-  if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: mon.name, need, owned })), 400); return }
+  const sourceId = requestGmax ? MC_GMAX_PREFIX + mon.id : mon.id
+  const targetId = requestGmax ? MC_GMAX_PREFIX + target.id : target.id
+  const owned = (mc.collections[key] && mc.collections[key][sourceId]) || 0
+  if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: rawName, need, owned })), 400); return }
 
-  mc.collections[key][mon.id] -= need
-  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  mc.collections[key][sourceId] -= need
+  mc.collections[key][targetId] = (mc.collections[key][targetId] || 0) + 1
   mcSaveUserData()
-  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: mon.name, need, targetMonster: target.name })), 400)
+  const label = requestGmax ? '🌟거다이맥스 ' : ''
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: label + mon.name, need, targetMonster: label + target.name })), 400)
 }
 
 // 잡기 성공 직후에 호출 — "자동 진화"가 켜져있고 조건이 채워졌으면 조용히 즉시 진화시킨다.
-// 🌈 잡기 성공 시 이 함수로 도감에 넣는다 — 희귀상자랑 같은 확률(MC_SHINY_CHANCE)로 이로치가 나온다.
+// 🌈🌟 잡기 성공 시 이 함수로 도감에 넣는다 — 희귀상자랑 같은 확률로 이로치/거다이맥스가 나온다.
+// 거다이맥스(MC_GMAX_CHANCE)는 MC_GMAX_ELIGIBLE_IDS에 있는 종만 대상이고, 그 외엔 이로치(MC_SHINY_CHANCE)만 굴린다.
 function mcGrantCaughtMonster(mc, key, monsterId) {
-  const isShiny = Math.random() < MC_SHINY_CHANCE
-  const grantId = isShiny ? MC_SHINY_PREFIX + monsterId : monsterId
+  const isGmax = mcIsGmaxEligible(monsterId) && Math.random() < MC_GMAX_CHANCE
+  const isShiny = !isGmax && Math.random() < MC_SHINY_CHANCE
+  const grantId = isGmax ? MC_GMAX_PREFIX + monsterId : (isShiny ? MC_SHINY_PREFIX + monsterId : monsterId)
   if (!mc.collections[key]) mc.collections[key] = {}
   mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
-  return { grantId, isShiny, count: mc.collections[key][grantId] }
+  return { grantId, isShiny, isGmax, count: mc.collections[key][grantId] }
 }
 
 // 🌿 보스 몬스터 — 이 방의 등록된 몬스터 중 "풀" 타입만 골라서 랜덤으로 하나 뽑는다.
@@ -3860,19 +3908,24 @@ app.post('/worldboss-admin/spawn-now', auth.requireAuth, (req, res) => {
   res.json({ success: true, count })
 })
 
-function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
+function mcCheckAutoEvolve(djId, mc, key, grantId, author) {
   if (!mc.autoEvolve) return
-  const mon = mc.monsters.find(m => m.id === monsterId)
+  const gmax = mcIsGmaxId(grantId)
+  const baseId = mcBaseIdFromGmax(grantId)
+  const mon = mc.monsters.find(m => m.id === baseId)
   if (!mon || !mon.evolvesTo) return
   const target = mc.monsters.find(m => m.id === mon.evolvesTo)
   if (!target) return
   const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
-  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
+  const sourceId = gmax ? MC_GMAX_PREFIX + mon.id : mon.id
+  const targetId = gmax ? MC_GMAX_PREFIX + target.id : target.id
+  const owned = (mc.collections[key] && mc.collections[key][sourceId]) || 0
   if (owned < need) return
-  mc.collections[key][mon.id] -= need
-  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  mc.collections[key][sourceId] -= need
+  mc.collections[key][targetId] = (mc.collections[key][targetId] || 0) + 1
   mcSaveUserData()
-  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: mon.name, targetMonster: target.name })), 500)
+  const label = gmax ? '🌟거다이맥스 ' : ''
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: label + mon.name, targetMonster: label + target.name })), 500)
 }
 
 function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
@@ -3950,14 +4003,16 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
       for (let i = 0; i < totalGrant; i++) {
         const picked = mcPickMonster(mc)
         if (!picked) continue
-        // ✨ 희귀상자에서만 일정 확률로 "이로치"(색다른 개체) 몬스터가 나온다. 이로치는 같은
-        // 몬스터의 일반 개체보다 공격력이 10% 더 강하고, 도감에는 별도 항목(✨이로치 OOO)으로 쌓인다.
-        const isShiny = Math.random() < MC_SHINY_CHANCE
-        const grantId = isShiny ? MC_SHINY_PREFIX + picked.id : picked.id
-        const displayName = isShiny ? `🌈이로치 ${picked.name}` : picked.name
+        // ✨🌟 희귀상자에서만 일정 확률로 "이로치"/"거다이맥스"(색다른 개체) 몬스터가 나온다. 거다이맥스는
+        // MC_GMAX_ELIGIBLE_IDS에 있는 종만 대상이고, 더 희귀하며 공격력 보너스도 더 크다. 도감에는 각각
+        // 별도 항목(🌈이로치/🌟거다이맥스 OOO)으로 쌓인다.
+        const isGmax = mcIsGmaxEligible(picked.id) && Math.random() < MC_GMAX_CHANCE
+        const isShiny = !isGmax && Math.random() < MC_SHINY_CHANCE
+        const grantId = isGmax ? MC_GMAX_PREFIX + picked.id : (isShiny ? MC_SHINY_PREFIX + picked.id : picked.id)
+        const displayName = isGmax ? `🌟거다이맥스 ${picked.name}` : (isShiny ? `🌈이로치 ${picked.name}` : picked.name)
         mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
         sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBox, { nickname: author, monster: displayName }))
-        if (!isShiny) mcCheckAutoEvolve(djId, mc, key, picked.id, author) // 이로치는 별도 id라 진화 체인 대상에서는 일단 제외
+        if (!isShiny) mcCheckAutoEvolve(djId, mc, key, grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
       }
       mcSaveUserData()
     } else {
@@ -6863,6 +6918,7 @@ function getChuseokSettings(djId, settings) {
       title: '팝블리네 추석명절특집',
       posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
       minSpoons: CHUSEOK_MIN_SPOONS_DEFAULT, // 이 이상 보낸 선물만 스코어로 집계 — DJ가 설정페이지에서 직접 조절 가능
+      cmdRoundPrefix: '추석', // "!추석1/2/3" 명령어의 앞부분 — DJ가 다른 단어로 바꿀 수 있다(예: "!점수" → !점수1)
       rounds: [
         { teamA: '모듬전', teamB: '스팸세트' },
         { teamA: '사과', teamB: '곶감' },
@@ -6895,6 +6951,7 @@ function getChuseokSettings(djId, settings) {
   if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > ev.rounds.length) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
+  if (!ev.cmdRoundPrefix || typeof ev.cmdRoundPrefix !== 'string') ev.cmdRoundPrefix = '추석'
   // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
   // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
   // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
@@ -7038,10 +7095,10 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     return
   }
 
-  // !추석1 / !추석2 / !추석3
-  const roundMatch = cmd.match(/^추석([123])$/)
-  if (roundMatch) {
-    const roundNum = Number(roundMatch[1])
+  // !추석1 / !추석2 / !추석3 (커맨드 앞부분은 ev.cmdRoundPrefix로 커스텀 가능 — 기본값 "추석")
+  const roundPrefix = ev.cmdRoundPrefix || '추석'
+  if (cmd.startsWith(roundPrefix) && /^[123]$/.test(cmd.slice(roundPrefix.length))) {
+    const roundNum = Number(cmd.slice(roundPrefix.length))
     const r = ev.rounds[roundNum - 1]
     const scoreA = chuseokTeamMembers(ev, roundNum, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
     const scoreB = chuseokTeamMembers(ev, roundNum, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
@@ -7064,7 +7121,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
       joinNote = `⚠️ 이미 이번 라운드에 다른 팀으로 참여중이에요.\n`
     }
   }
-  const list = chuseokTeamMembers(ev, found.round, found.side).slice(0, 5)
+  const list = chuseokTeamMembers(ev, found.round, found.side)
   let body = `🎑 ${ev.title} 🎑\n🍽️ ${found.teamName}팀 현재순위 🍽️\n`
   if (!list.length) {
     body += '아직 참여자가 없어요.'
@@ -16345,7 +16402,7 @@ app.post('/images/upload', auth.requireAuth, (req, res) => {
   if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
   if (!m[1].startsWith('image/')) return res.json({ success: false, error: '이미지 파일만 업로드할 수 있어요' })
   const buffer = Buffer.from(m[2], 'base64')
-  if (buffer.length > 5 * 1024 * 1024) return res.json({ success: false, error: '5MB 이하 이미지만 업로드할 수 있어요' })
+  if (buffer.length > 60 * 1024 * 1024) return res.json({ success: false, error: '60MB 이하 이미지만 업로드할 수 있어요' })
   const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
   const ext = extMatch ? extMatch[1] : 'png'
   const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
@@ -16677,11 +16734,16 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
   const prevPosterUrl = ev.posterImageUrl
-  const { title, active, currentRound, rounds, posterImageUrl, minSpoons } = req.body || {}
+  const { title, active, currentRound, rounds, posterImageUrl, minSpoons, cmdRoundPrefix } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
+  // 🔧 "!추석1/2/3" 명령어의 앞부분 — 공백/느낌표 없이 순수 텍스트만 허용(명령어 파싱과 어긋나지 않게)
+  if (cmdRoundPrefix != null) {
+    const cleaned = String(cmdRoundPrefix).trim().replace(/^!/, '').replace(/\s+/g, '')
+    ev.cmdRoundPrefix = cleaned || '추석'
+  }
   // 🆕 라운드 개수를 3개로 고정하지 않고 1~20개 사이에서 DJ가 자유롭게 추가/삭제할 수 있다.
   //    (라운드가 하나도 없으면 이벤트 자체가 성립하지 않으니 최소 1개는 유지, 너무 많이 늘리는 실수를 막기 위해 20개로 상한)
   if (Array.isArray(rounds) && rounds.length >= 1 && rounds.length <= 20) {
@@ -17881,6 +17943,29 @@ app.post('/admin/users/:djId/expiry', auth.requireAuth, (req, res) => {
   if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
   store.saveSettings(targetId, { expiresAt: parsed.toISOString(), expiryStartAt: new Date().toISOString() })
   res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 설정했어요` })
+})
+
+// 관리자(sum) 전용 — 체크박스로 선택한 여러 디제이에게 같은 이용 만료일을 한 번에 설정한다.
+app.post('/admin/users/bulk-expiry', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const djIds = Array.isArray((req.body || {}).djIds) ? [...new Set(req.body.djIds.map(String))] : []
+  if (!djIds.length) return res.json({ success: false, error: '선택된 디제이가 없어요' })
+  const raw = (req.body || {}).expiresAt
+  if (!raw) return res.json({ success: false, error: '만료 일시를 선택해주세요' })
+  const parsed = new Date(raw)
+  if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  const isoExpiresAt = parsed.toISOString()
+  const isoStartAt = new Date().toISOString()
+  const notFound = []
+  let okCount = 0
+  for (const targetId of djIds) {
+    if (!store.exists(targetId)) { notFound.push(targetId); continue }
+    store.saveSettings(targetId, { expiresAt: isoExpiresAt, expiryStartAt: isoStartAt })
+    okCount++
+  }
+  res.json({ success: true, okCount, notFound })
 })
 
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
@@ -20360,6 +20445,25 @@ app.get('/myinfo/:djId/posts', (req, res) => {
   res.json({ success: true, posts, author })
 })
 
+// ✍️ 내정보 웹페이지에서 DJ 본인이 직접 글쓰기 — 관리자 패널 로그인과 완전히 같은 계정/비밀번호
+// 인증(auth.requireAuth)을 그대로 재사용한다. URL의 djId와 로그인한 토큰의 djId가 다르면(다른
+// DJ 계정으로 남의 방 포스트를 건드리려는 경우) 막는다.
+app.get('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const settings = store.getSettings(djId) || {}
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  res.json({ success: true, posts })
+})
+app.post('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const posts = (req.body || {}).posts
+  if (!Array.isArray(posts)) return res.json({ success: false, error: '잘못된 요청이에요.' })
+  store.saveSettings(djId, { posts })
+  res.json({ success: true })
+})
+
 app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
@@ -20453,10 +20557,18 @@ app.get('/myinfo/:djId/theme', (req, res) => {
     if (found) font = found
   }
   // 🔖 상단 탭 아이콘 — 디제이가 안 바꿨으면 기본 이모지 그대로 내려간다.
-  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 }
+  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', board: '🏆', size: 16 }
   const savedTabIcons = settings.myinfoTabIcons || {}
   const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
-  res.json({ success: true, color, bgRatio, font, tabIcons })
+  // 🔘 상단 탭 노출 — 디제이가 안 껐으면 6개 다 기본으로 보여준다.
+  const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true, board: true }
+  const savedMenuVisible = settings.myinfoMenuVisible || {}
+  const menuVisible = { ...defaultMenuVisible, ...savedMenuVisible }
+  // 🔀 상단 탭 순서 — 디제이가 안 바꿨으면 기존 기본 순서 그대로.
+  const defaultMenuOrder = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
+  const savedMenuOrder = Array.isArray(settings.myinfoMenuOrder) ? settings.myinfoMenuOrder : null
+  const menuOrder = (savedMenuOrder && defaultMenuOrder.every(k => savedMenuOrder.includes(k)) && savedMenuOrder.length === defaultMenuOrder.length) ? savedMenuOrder : defaultMenuOrder
+  res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible, menuOrder })
 })
 
 // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
@@ -20663,25 +20775,33 @@ app.get('/monsterdex/:djId/data', (req, res) => {
   const owned = collection || {}
   const dex = catalog.map(m => {
     const shinyId = MC_SHINY_PREFIX + m.id
+    const gmaxId = MC_GMAX_PREFIX + m.id
     const count = owned[m.id] || 0
     const shinyCount = owned[shinyId] || 0
+    const gmaxCount = owned[gmaxId] || 0
     // 🐾 "지금 몇 마리 있는지"(count)와 "한 번이라도 잡아본 적 있는지"(discovered)는 다르다.
     // 분해해서 0마리가 돼도 discovered는 계속 true로 남아있어서 도감 이미지가 안 사라진다.
     const discovered = Object.prototype.hasOwnProperty.call(owned, m.id)
     const shinyDiscovered = Object.prototype.hasOwnProperty.call(owned, shinyId)
+    const gmaxDiscovered = Object.prototype.hasOwnProperty.call(owned, gmaxId)
     const level = mcMonsterLevel(tag, m.id)
     const shinyLevel = mcMonsterLevel(tag, shinyId)
+    const gmaxLevel = mcMonsterLevel(tag, gmaxId)
     const resolved = discovered ? mcResolveMonster(m.id, catalog, tag) : null
     const shinyResolved = shinyDiscovered ? mcResolveMonster(shinyId, catalog, tag) : null
+    const gmaxResolved = gmaxDiscovered ? mcResolveMonster(gmaxId, catalog, tag) : null
     const basePower = Number(m.power) || 10
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
       count, level, power: resolved ? resolved.power : null, discovered,
       shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null, shinyDiscovered,
+      gmaxCount, gmaxLevel, gmaxPower: gmaxResolved ? gmaxResolved.power : null, gmaxDiscovered,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
       shinySelected: d.selected[tag] === shinyId,
-      dismantlePoints: mcDismantlePoints(basePower, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
-      shinyDismantlePoints: mcDismantlePoints(basePower, true),
+      gmaxSelected: d.selected[tag] === gmaxId,
+      dismantlePoints: mcDismantlePoints(basePower, false, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
+      shinyDismantlePoints: mcDismantlePoints(basePower, true, false),
+      gmaxDismantlePoints: mcDismantlePoints(basePower, false, true),
     }
   })
   res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
@@ -20739,7 +20859,7 @@ app.post('/monsterdex/:djId/dismantle', (req, res) => {
   const resolved = mcResolveMonster(monsterId, catalog, tag)
   if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
   const basePower = Number(resolved.monster.power) || 10
-  const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+  const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
   // 🐾 0마리가 돼도 도감 항목 자체는 지우지 않는다(0으로만 남겨둔다) — 그래야 "한 번이라도
   // 잡았던 기록"이 도감에 계속 남아서, 이미지가 다시 안 사라지고 "분해 불가"로만 표시된다.
   collection[monsterId] = owned - count
@@ -20779,7 +20899,7 @@ app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
     const resolved = mcResolveMonster(monsterId, catalog, tag)
     if (!resolved) return res.json({ success: false, error: `알 수 없는 몬스터예요. (${monsterId})` })
     const basePower = Number(resolved.monster.power) || 10
-    const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+    const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
     plan.push({ monsterId, count, gained, name: resolved.name })
   }
 
@@ -21379,6 +21499,7 @@ const WEB_HUB_FEATURES = [
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
+  { key: 'trophyboard', path: 'board', icon: '🏆', title: '박제판', desc: '정해진 선물을 보내면 그 칸에 내 닉네임이 새겨지는 전시판이에요' },
   { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
@@ -21642,7 +21763,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons, myinfoMenuVisible, myinfoMenuOrder } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21691,8 +21812,29 @@ app.post('/settings', auth.requireAuth, (req, res) => {
       game: clampIcon(myinfoTabIcons.game),
       roulette: clampIcon(myinfoTabIcons.roulette),
       cal: clampIcon(myinfoTabIcons.cal),
+      board: clampIcon(myinfoTabIcons.board),
       size,
     }
+  }
+  // 🔘 상단 탭 노출 — 6개 탭(포스트/킵목록/게임/룰렛정보/캘린더/박제판) 중 필요한 것만 켜둘 수 있게.
+  //    최소 1개는 켜져있어야 한다(다 꺼버리면 페이지에 아무것도 안 보이는 사고 방지).
+  if (myinfoMenuVisible) {
+    const norm = {
+      post: myinfoMenuVisible.post !== false,
+      keep: myinfoMenuVisible.keep !== false,
+      game: myinfoMenuVisible.game !== false,
+      roulette: myinfoMenuVisible.roulette !== false,
+      cal: myinfoMenuVisible.cal !== false,
+      board: myinfoMenuVisible.board !== false,
+    }
+    if (Object.values(norm).some(Boolean)) patch.myinfoMenuVisible = norm
+  }
+  // 🔀 상단 탭 순서 — 6개 키가 정확히 한 번씩만 들어있는 배열일 때만 저장(순서 뒤섞임/중복/누락 방지).
+  if (Array.isArray(myinfoMenuOrder)) {
+    const validKeys = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
+    const cleaned = myinfoMenuOrder.map(k => String(k)).filter(k => validKeys.includes(k))
+    const isValidPermutation = cleaned.length === validKeys.length && validKeys.every(k => cleaned.includes(k))
+    if (isValidPermutation) patch.myinfoMenuOrder = cleaned
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

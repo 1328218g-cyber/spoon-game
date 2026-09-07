@@ -35,6 +35,9 @@
   .dex-cell.shiny-cell.owned{background:linear-gradient(160deg,#1f2e1c,#182338);border-color:#f9c74f;box-shadow:0 0 0 1px rgba(249,199,79,.25)}
   .dex-cell.shiny-cell img{filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)}
   .shiny-badge{position:absolute;top:2px;left:4px;font-size:11px}
+  .dex-cell.gmax-cell.owned{background:linear-gradient(160deg,#3a1030,#182338);border-color:#ff3860;box-shadow:0 0 0 1px rgba(255,56,96,.3)}
+  .dex-cell.gmax-cell img{filter:saturate(1.6) brightness(1.1) drop-shadow(0 0 4px rgba(255,56,96,.6));transform:scale(1.08)}
+  .gmax-badge{position:absolute;top:2px;left:4px;font-size:11px}
   .dex-cell img{width:56px;height:56px;object-fit:contain}
   .dex-cell .q{width:56px;height:56px;border-radius:50%;border:2px solid #3a4258;color:#3a4258;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto}
   .dex-cell .num{font-size:9.5px;color:var(--text-dim);margin-top:3px}
@@ -112,6 +115,7 @@
     <div class="tabs">
       <div class="tab-btn active" id="dexModeNormal" onclick="mdSwitchDexMode('normal')">📖 일반 도감</div>
       <div class="tab-btn" id="dexModeShiny" onclick="mdSwitchDexMode('shiny')">✨ 이로치 도감</div>
+      <div class="tab-btn" id="dexModeGmax" onclick="mdSwitchDexMode('gmax')">🌟 거다이맥스 도감</div>
     </div>
 
     <div class="card" id="dexTabCard">
@@ -303,42 +307,50 @@ async function checkMe(){
     document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
     document.getElementById('myPoints').textContent = myPoints;
     let aceMon = dexList.find(m=>m.selected);
-    let aceIsShiny = false;
-    if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceIsShiny = true; }
+    let aceVariant = 'normal';
+    if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceVariant = 'shiny'; }
+    if(!aceMon){ aceMon = dexList.find(m=>m.gmaxSelected); aceVariant = 'gmax'; }
     document.getElementById('aceBtn').textContent = aceMon
-      ? `⚔️ ${(aceIsShiny?'🌈':'')}${aceMon.name}`
+      ? `⚔️ ${VARIANT_LABEL[aceVariant]||''}${aceMon.name}`
       : '⚔️ 대표 몬스터: 미설정';
     showCard('main');
     renderDex();
     if(selectedMonster){
       const fresh = dexList.find(m=>String(m.id)===String(selectedMonster.displayId));
-      if(fresh){ selectedMonster = buildSelectedMonsterObj(fresh, selectedMonster.isShiny); renderDetail(selectedMonster); }
+      if(fresh){ selectedMonster = buildSelectedMonsterObj(fresh, selectedMonster.variant); renderDetail(selectedMonster); }
     }
   }catch(e){ /* 조용히 재시도 */ }
 }
 
-let dexMode = 'normal'; // 'normal' | 'shiny'
+// 이로치/거다이맥스 둘 다 같은 방식(별도 id 접두사)으로 다루기 위한 공통 매핑.
+const VARIANT_PREFIX = { shiny: 'shiny_', gmax: 'gmax_' };
+const VARIANT_LABEL = { shiny: '🌈이로치 ', gmax: '🌟거다이맥스 ' };
+
+let dexMode = 'normal'; // 'normal' | 'shiny' | 'gmax'
 function mdSwitchDexMode(mode){
   dexMode = mode;
   document.getElementById('dexModeNormal').classList.toggle('active', mode==='normal');
   document.getElementById('dexModeShiny').classList.toggle('active', mode==='shiny');
+  document.getElementById('dexModeGmax').classList.toggle('active', mode==='gmax');
   renderDex();
 }
 
-// 일반/이로치 어느 쪽이든 공통으로 다루기 쉽게, 원본 dexList 항목을 화면/서버 호출에
-// 그대로 쓸 수 있는 하나의 형태로 합쳐준다. 이로치는 서버에 보낼 id에 "shiny_" 접두사를 붙인다.
-function buildSelectedMonsterObj(m, isShiny){
+// 일반/이로치/거다이맥스 어느 쪽이든 공통으로 다루기 쉽게, 원본 dexList 항목을 화면/서버 호출에
+// 그대로 쓸 수 있는 하나의 형태로 합쳐준다. 이로치/거다이맥스는 서버에 보낼 id에 각자 접두사를 붙인다.
+function buildSelectedMonsterObj(m, variant){
+  const prefix = VARIANT_PREFIX[variant] || '';
+  const label = VARIANT_LABEL[variant] || '';
   return {
-    id: isShiny ? ('shiny_'+m.id) : String(m.id),
+    id: prefix ? (prefix+m.id) : String(m.id),
     displayId: m.id,
-    name: (isShiny?'🌈이로치 ':'') + m.name,
+    name: label + m.name,
     image: m.image,
     legendary: m.legendary,
-    count: isShiny ? m.shinyCount : m.count,
-    level: isShiny ? m.shinyLevel : m.level,
-    power: isShiny ? m.shinyPower : m.power,
-    selected: isShiny ? m.shinySelected : m.selected,
-    isShiny,
+    count: variant==='shiny' ? m.shinyCount : (variant==='gmax' ? m.gmaxCount : m.count),
+    level: variant==='shiny' ? m.shinyLevel : (variant==='gmax' ? m.gmaxLevel : m.level),
+    power: variant==='shiny' ? m.shinyPower : (variant==='gmax' ? m.gmaxPower : m.power),
+    selected: variant==='shiny' ? m.shinySelected : (variant==='gmax' ? m.gmaxSelected : m.selected),
+    variant,
   };
 }
 let batchMode = false;
@@ -346,54 +358,57 @@ let batchSelection = {}; // { effId: { count, name, points, maxCount } }
 
 function renderDex(){
   const grid = document.getElementById('dexGrid');
-  const shiny = dexMode==='shiny';
+  const variant = dexMode;
   grid.innerHTML = dexList.map(m=>{
-    const count = shiny ? m.shinyCount : m.count;
-    const level = shiny ? m.shinyLevel : m.level;
-    const selected = shiny ? m.shinySelected : m.selected;
-    const discovered = shiny ? m.shinyDiscovered : m.discovered;
+    const count = variant==='shiny' ? m.shinyCount : (variant==='gmax' ? m.gmaxCount : m.count);
+    const level = variant==='shiny' ? m.shinyLevel : (variant==='gmax' ? m.gmaxLevel : m.level);
+    const selected = variant==='shiny' ? m.shinySelected : (variant==='gmax' ? m.gmaxSelected : m.selected);
+    const discovered = variant==='shiny' ? m.shinyDiscovered : (variant==='gmax' ? m.gmaxDiscovered : m.discovered);
     const canDismantle = count>0;
-    const effId = shiny ? ('shiny_'+m.id) : String(m.id);
+    const prefix = VARIANT_PREFIX[variant] || '';
+    const effId = prefix ? (prefix+m.id) : String(m.id);
     const isBatchSelected = !!batchSelection[effId];
-    const cls = 'dex-cell'+(discovered?' owned':'')+(m.legendary?' legendary':'')+(selected?' selected':'')+(shiny?' shiny-cell':'')+(isBatchSelected?' batch-selected':'')+(discovered&&!canDismantle?' depleted':'');
+    const cls = 'dex-cell'+(discovered?' owned':'')+(m.legendary?' legendary':'')+(selected?' selected':'')+(variant==='shiny'?' shiny-cell':'')+(variant==='gmax'?' gmax-cell':'')+(isBatchSelected?' batch-selected':'')+(discovered&&!canDismantle?' depleted':'');
     const inner = discovered
       ? `<img src="${escapeHtml(m.image)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="q" style="display:none">?</div>`
       : `<div class="q">?</div>`;
-    return `<div class="${cls}" onclick="mdCellClick('${escapeHtml(effId)}',${shiny})">
+    return `<div class="${cls}" onclick="mdCellClick('${escapeHtml(effId)}','${variant}')">
       ${discovered&&count>1?`<span class="cnt">x${count}</span>`:''}
-      ${shiny&&discovered?'<span class="shiny-badge">✨</span>':''}
+      ${variant==='shiny'&&discovered?'<span class="shiny-badge">✨</span>':''}
+      ${variant==='gmax'&&discovered?'<span class="gmax-badge">🌟</span>':''}
       ${batchMode&&canDismantle?`<span class="batch-check">${isBatchSelected?'✓':''}</span>`:''}
       ${inner}
-      <div class="nm">${discovered?escapeHtml((shiny?'🌈':'')+m.name):'???'}</div>
+      <div class="nm">${discovered?escapeHtml((VARIANT_LABEL[variant]||'')+m.name):'???'}</div>
       ${discovered?`<div class="lv">Lv.${level}</div>`:''}
       ${discovered?`<div class="dismantle-badge ${canDismantle?'ok':'no'}">${canDismantle?'분해 가능':'분해 불가'}</div>`:''}
     </div>`;
   }).join('');
 }
 
-function mdCellClick(effId, isShiny){
-  if(batchMode) mdToggleBatchItem(effId, isShiny);
-  else mdPick(effId, isShiny);
+function mdCellClick(effId, variant){
+  if(batchMode) mdToggleBatchItem(effId, variant);
+  else mdPick(effId, variant);
 }
 
-// ⚔️ 포인트 옆 "대표 몬스터" 버튼 — 지금 대결용으로 선택해둔 몬스터(일반/이로치 중 하나) 정보를 바로 팝업으로 보여준다.
+// ⚔️ 포인트 옆 "대표 몬스터" 버튼 — 지금 대결용으로 선택해둔 몬스터(일반/이로치/거다이맥스 중 하나) 정보를 바로 팝업으로 보여준다.
 function mdShowAce(){
   let ace = dexList.find(m=>m.selected);
-  let isShinyAce = false;
-  if(!ace){ ace = dexList.find(m=>m.shinySelected); isShinyAce = true; }
+  let aceVariant = 'normal';
+  if(!ace){ ace = dexList.find(m=>m.shinySelected); aceVariant = 'shiny'; }
+  if(!ace){ ace = dexList.find(m=>m.gmaxSelected); aceVariant = 'gmax'; }
   if(!ace){ showToast('아직 대표(대결) 몬스터를 선택하지 않았어요'); return; }
-  selectedMonster = buildSelectedMonsterObj(ace, isShinyAce);
+  selectedMonster = buildSelectedMonsterObj(ace, aceVariant);
   dismantleCount = 1;
   renderDetail(selectedMonster);
   document.getElementById('detailModalBg').classList.add('show');
 }
 
-function mdPick(effId, isShiny){
-  const baseId = isShiny ? String(effId).replace(/^shiny_/,'') : effId;
+function mdPick(effId, variant){
+  const baseId = variant==='normal' ? effId : String(effId).replace(new RegExp('^'+(VARIANT_PREFIX[variant]||'')), '');
   const m = dexList.find(x=>String(x.id)===String(baseId));
-  const discovered = m ? (isShiny ? m.shinyDiscovered : m.discovered) : false;
+  const discovered = m ? (variant==='shiny' ? m.shinyDiscovered : (variant==='gmax' ? m.gmaxDiscovered : m.discovered)) : false;
   if(!m || !discovered){ showToast('아직 잡지 못한 몬스터예요'); return; }
-  selectedMonster = buildSelectedMonsterObj(m, isShiny);
+  selectedMonster = buildSelectedMonsterObj(m, variant);
   dismantleCount = 1;
   renderDetail(selectedMonster);
   document.getElementById('detailModalBg').classList.add('show');
@@ -404,7 +419,8 @@ function mdCloseDetail(){
 }
 
 function renderDetail(m){
-  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain;${m.isShiny?'filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)':''}" onerror="this.style.display='none'">`;
+  const filterStyle = m.variant==='shiny' ? 'filter:hue-rotate(45deg) saturate(1.8) brightness(1.15)' : (m.variant==='gmax' ? 'filter:saturate(1.6) brightness(1.1) drop-shadow(0 0 4px rgba(255,56,96,.6))' : '');
+  document.getElementById('detailImgWrap').innerHTML = `<img src="${escapeHtml(m.image)}" alt="" style="width:64px;height:64px;object-fit:contain;${filterStyle}" onerror="this.style.display='none'">`;
   document.getElementById('detailName').textContent = (m.legendary?'✨ ':'') + m.name + ' #' + m.displayId;
   document.getElementById('detailMeta').textContent = `보유 ${m.count}마리 · Lv.${m.level} · 공격력 ${m.power??'-'}`;
   const canDismantle = m.count>0;
@@ -445,7 +461,7 @@ function renderDetail(m){
 function mdPointsFor(m){
   const base = dexList.find(x=>String(x.id)===String(m.displayId));
   if(!base) return 0;
-  return m.isShiny ? (base.shinyDismantlePoints||0) : (base.dismantlePoints||0);
+  return m.variant==='shiny' ? (base.shinyDismantlePoints||0) : (m.variant==='gmax' ? (base.gmaxDismantlePoints||0) : (base.dismantlePoints||0));
 }
 
 function mdChangeDismantle(delta){
@@ -500,16 +516,16 @@ function mdToggleBatchMode(){
   renderBatchBar();
 }
 
-function mdToggleBatchItem(effId, isShiny){
-  const baseId = isShiny ? String(effId).replace(/^shiny_/,'') : effId;
+function mdToggleBatchItem(effId, variant){
+  const baseId = variant==='normal' ? effId : String(effId).replace(new RegExp('^'+(VARIANT_PREFIX[variant]||'')), '');
   const m = dexList.find(x=>String(x.id)===String(baseId));
-  const count = m ? (isShiny ? m.shinyCount : m.count) : 0;
+  const count = m ? (variant==='shiny' ? m.shinyCount : (variant==='gmax' ? m.gmaxCount : m.count)) : 0;
   if(!m || count<=0){ showToast('분해할 수 있는 개체가 없어요'); return; }
   if(batchSelection[effId]){
     delete batchSelection[effId];
   } else {
-    const points = isShiny ? (m.shinyDismantlePoints||0) : (m.dismantlePoints||0);
-    batchSelection[effId] = { count:1, maxCount:count, name:(isShiny?'🌈이로치 ':'')+m.name, points };
+    const points = variant==='shiny' ? (m.shinyDismantlePoints||0) : (variant==='gmax' ? (m.gmaxDismantlePoints||0) : (m.dismantlePoints||0));
+    batchSelection[effId] = { count:1, maxCount:count, name:(VARIANT_LABEL[variant]||'')+m.name, points };
   }
   renderDex();
   renderBatchBar();
