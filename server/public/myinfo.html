@@ -384,6 +384,8 @@ async function loadTheme(){
     if(d.success && d.font) applyMyInfoFont(d.font);
     // 🔖 상단 탭 아이콘 — 디제이가 바꿔둔 이모지가 있으면 적용
     if(d.success && d.tabIcons) applyTabIcons(d.tabIcons);
+    // 🔘 상단 탭 노출 — 디제이가 꺼둔 탭은 메뉴에서 숨긴다
+    if(d.success && d.menuVisible) applyMenuVisible(d.menuVisible);
   }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
 }
 
@@ -411,6 +413,25 @@ function applyTabIcons(icons){
       iconEl.textContent = val;
     }
   });
+}
+
+// 🔘 상단 탭 노출 — 디제이가 꺼둔 탭 버튼은 화면에서 아예 숨긴다. 지금 열려있는 탭이 방금
+// 숨겨진 탭이면(예: '게임' 탭 보던 중에 디제이가 게임 탭을 꺼버린 경우), 남아있는 탭 중
+// 첫 번째로 자동 전환해서 빈 화면이 뜨는 걸 막는다.
+let hiddenTabKeys = [];
+function applyMenuVisible(vis){
+  const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+  hiddenTabKeys = Object.keys(map).filter(key => vis[key] === false);
+  Object.keys(map).forEach(key => {
+    const btn = document.getElementById(map[key]);
+    if(btn) btn.classList.toggle('hidden', vis[key] === false);
+  });
+  const currentBtn = document.querySelector('.menuBtn.active');
+  const currentKey = currentBtn && Object.keys(map).find(key => map[key] === currentBtn.id);
+  if(currentKey && hiddenTabKeys.includes(currentKey)){
+    const firstVisible = Object.keys(map).find(key => !hiddenTabKeys.includes(key));
+    if(firstVisible) switchTab(firstVisible);
+  }
 }
 
 // 🔤 관리자가 등록해두고 디제이가 고른 폰트를 페이지에 반영.
@@ -1267,7 +1288,14 @@ async function fetchMe(manual){
     loadNotice(); // 📢 실시간 공지 — fetchMe 폴링 주기에 얹어서 매번 최신 문구로 갱신
     // 페이지에 들어오면 무조건 "포스트" 탭이 메인으로 보이게 강제한다 (3초마다 도는 폴링 때마다
     // 다시 부르면 안 되므로 최초 1회만 실행되게 막는다 — 이후엔 사용자가 고른 탭을 그대로 유지)
-    if(!initialTabSet){ initialTabSet = true; switchTab('post'); }
+    // 단, 디제이가 "포스트" 탭 자체를 꺼뒀으면(hiddenTabKeys) 그 탭으로 강제 이동하면 안 되므로
+    // 켜져있는 첫 번째 탭으로 대신 이동한다.
+    if(!initialTabSet){
+      initialTabSet = true;
+      const order = ['post', 'keep', 'game', 'roulette', 'cal'];
+      const first = order.find(key => !hiddenTabKeys.includes(key)) || 'post';
+      switchTab(first);
+    }
 
     document.getElementById('pNick').textContent = sanitizeDisplayName(d.nickname || d.tag);
     document.getElementById('pTag').textContent = '@' + d.tag;

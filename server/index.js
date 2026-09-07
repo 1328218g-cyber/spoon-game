@@ -1848,6 +1848,21 @@ function actSafeSetNickname(d, nickname, tag) {
   d.nickname = nickname
 }
 
+// 🚨 스푼 태그 조회 API가 가끔 부정확한 값을 돌려주는 문제가 있다(코드 내 다른 주석에서도
+// "결과가 오락가락한다"고 확인됨). 애청지수는 보통 태그를 도감 key로 그대로 쓰기 때문에,
+// 이 d.tag 필드를 이벤트 올 때마다 최신값으로 무조건 덮어쓰면 — 어쩌다 한 번 잘못된 태그가
+// 섞여 들어왔을 때 원래 정상이던 태그가 오염되고, 그 다음부터는 (key로도, 저장된 tag로도)
+// 이 사람을 다시 못 찾게 돼서 "애청지수 정보가 사라진 것처럼" 보이는 원인이 된다.
+// → 이미 key와 일치하는 정상 태그가 있으면 건드리지 않고, 비어있을 때만 채워넣는다.
+function actSafeSetTag(d, key, tag) {
+  if (!tag) return
+  if (d.tag && d.tag === key) {
+    if (tag !== d.tag) console.log(`[애청지수][태그방어] key=${key} 저장된tag=${d.tag} 이번에받은tag=${tag} → 무시(기존 유지)`)
+    return // 이미 키와 일치하는 정상 태그 — 잘못된 새 값으로부터 보호
+  }
+  d.tag = tag
+}
+
 // 채팅 수신 시 훅 (등록된 유저만 채팅 EXP 적립, 미등록 유저는 조용히 무시)
 // tag가 있으면 그 태그를 키로 우선 사용한다 (로컬봇과 동일한 방식).
 function handleActChatHook(djId, settings, author, tag, profileUrl) {
@@ -1858,7 +1873,7 @@ function handleActChatHook(djId, settings, author, tag, profileUrl) {
   if (!key) return
   const d = act.users[key]
   actSafeSetNickname(d, author, tag)
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   if (profileUrl) d.imgUrl = profileUrl
   d.chat = (d.chat || 0) + 1
   const chatTier = getVipTierForTag(settings, tag)
@@ -1877,7 +1892,7 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   if (!key) return
   const d = act.users[key]
   actSafeSetNickname(d, author, tag)
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   if (profileUrl) d.imgUrl = profileUrl
   d.heart = (d.heart || 0) + 1
   const heartExp = Number(act.scoreHeart) || 1
@@ -1893,7 +1908,7 @@ function handleActAttendHook(djId, settings, author, tag) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   const now = Date.now()
   const interval = 30 * 60 * 1000
   if (now - (d.lastAttendTime || 0) < interval) return
@@ -1912,7 +1927,7 @@ function handleActLottoPointHook(djId, settings, author, amount, tag) {
   const key = actResolveKey(act, author, tag)
   if (!key) return
   const d = act.users[key]
-  if (tag) d.tag = tag
+  actSafeSetTag(d, key, tag)
   const exchange = Number(act.lottoExchange) || 22
   const expPerPoint = Number(act.scoreLottoPoint) || 5
   d.lp = (d.lp || 0) + amount
@@ -20538,7 +20553,11 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 }
   const savedTabIcons = settings.myinfoTabIcons || {}
   const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
-  res.json({ success: true, color, bgRatio, font, tabIcons })
+  // 🔘 상단 탭 노출 — 디제이가 안 껐으면 5개 다 기본으로 보여준다.
+  const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true }
+  const savedMenuVisible = settings.myinfoMenuVisible || {}
+  const menuVisible = { ...defaultMenuVisible, ...savedMenuVisible }
+  res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible })
 })
 
 // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
@@ -21469,6 +21488,7 @@ const WEB_HUB_FEATURES = [
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
+  { key: 'trophyboard', path: 'board', icon: '🏆', title: '박제판', desc: '정해진 선물을 보내면 그 칸에 내 닉네임이 새겨지는 전시판이에요' },
   { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
 ]
 app.get('/play/:djId/list', (req, res) => {
@@ -21732,7 +21752,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons, myinfoMenuVisible } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21783,6 +21803,18 @@ app.post('/settings', auth.requireAuth, (req, res) => {
       cal: clampIcon(myinfoTabIcons.cal),
       size,
     }
+  }
+  // 🔘 상단 탭 노출 — 5개 탭(포스트/킵목록/게임/룰렛정보/캘린더) 중 필요한 것만 켜둘 수 있게.
+  //    최소 1개는 켜져있어야 한다(다 꺼버리면 페이지에 아무것도 안 보이는 사고 방지).
+  if (myinfoMenuVisible) {
+    const norm = {
+      post: myinfoMenuVisible.post !== false,
+      keep: myinfoMenuVisible.keep !== false,
+      game: myinfoMenuVisible.game !== false,
+      roulette: myinfoMenuVisible.roulette !== false,
+      cal: myinfoMenuVisible.cal !== false,
+    }
+    if (Object.values(norm).some(Boolean)) patch.myinfoMenuVisible = norm
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled
