@@ -4259,6 +4259,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <input type="number" id="csMinSpoons" min="1" max="99999" value="10" style="width:90px;padding:6px 8px">
               <span class="hint" style="margin:0">개 이상부터 집계</span>
             </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="margin:0">스코어 명령어</label>
+              <span class="hint" style="margin:0">!</span>
+              <input type="text" id="csCmdRoundPrefix" value="추석" placeholder="추석" style="width:90px;padding:6px 8px" oninput="renderCsCmdHint()">
+              <span class="hint" style="margin:0">1/2/3 (라운드 번호 자동)</span>
+            </div>
           </div>
           <label style="margin-top:16px">포스터 이미지</label>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -5725,6 +5731,7 @@ let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표�
 let expiryTimer=null;
 
 function isAccountExpired(){
+  if(djId===ADMIN_DJ_ID) return false; // 🔓 관리자(sum) 계정은 이용 만료일을 테스트/기록용으로 저장해둘 순 있어도, 스스로를 잠가버리면 안 되니 화면에서도 항상 예외
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
@@ -11615,6 +11622,7 @@ async function loadChuseokSettings(){
     document.getElementById('csTitle').value=s.title||'팝블리네 추석명절특집';
     document.getElementById('csActive').checked=!!s.active;
     document.getElementById('csMinSpoons').value=String(s.minSpoons||10);
+    document.getElementById('csCmdRoundPrefix').value=s.cmdRoundPrefix||'추석';
     csRounds=(s.rounds||csRounds).map(r=>({...r}));
     csMembers=s.members||[];
     csPosterUrl=s.posterImageUrl||'';
@@ -11717,7 +11725,9 @@ function csRemoveRound(i){
 function renderCsCmdHint(){
   const el=document.getElementById('csCmdHint');
   if(!el)return;
-  const lines=csRounds.map((r,i)=>`<b>${i+1}라운드</b> — !${escapeHtml(r.teamA||'?')} · !${escapeHtml(r.teamB||'?')} (팀 순위) · !추석${i+1} (합산 스코어)`);
+  const prefixEl=document.getElementById('csCmdRoundPrefix');
+  const prefix=(prefixEl?prefixEl.value.trim():'')||'추석';
+  const lines=csRounds.map((r,i)=>`<b>${i+1}라운드</b> — !${escapeHtml(r.teamA||'?')} · !${escapeHtml(r.teamB||'?')} (팀 순위, 전체 참여자) · !${escapeHtml(prefix)}${i+1} (합산 스코어)`);
   lines.push('공통 — <b>!내추석</b> (내 참여 현황)');
   el.innerHTML=lines.join('<br>');
 }
@@ -11736,16 +11746,35 @@ function renderCsMembers(){
     wrap.innerHTML='<p class="hint">아직 참가자가 없어요.</p>';
     return;
   }
+  // ✍️ 지금 DJ가 점수 입력칸에 커서를 놓고 타이핑 중일 수 있는데, 5초마다 도는 폴링(refreshCsMembersOnly)이
+  // 목록을 통째로 다시 그리면서 그 입력값을 서버의 예전 값으로 덮어써버려 "지우고 고치는 도중에 자꾸
+  // 원래 점수로 돌아간다"는 문제가 있었다. 다시 그리기 직전에 "지금 포커스된 점수 입력칸"의 키·값·커서
+  // 위치를 기억해뒀다가, 그 칸만 타이핑 중이던 값 그대로 유지하고 다시 그린 뒤 포커스도 복원한다.
+  const active=document.activeElement;
+  let focusedKey=null, focusedVal=null, selStart=null, selEnd=null;
+  if(active && active.id && active.id.startsWith('csScoreInput-')){
+    focusedKey=active.id.slice('csScoreInput-'.length);
+    focusedVal=active.value;
+    selStart=active.selectionStart;
+    selEnd=active.selectionEnd;
+  }
   const sorted=csMembers.slice().sort((a,b)=> b.round-a.round || (b.score-a.score));
-  wrap.innerHTML=sorted.map(m=>`
+  wrap.innerHTML=sorted.map(m=>{
+    const isFocused=focusedKey!=null && String(m.key)===focusedKey;
+    const scoreVal=isFocused?focusedVal:m.score;
+    return `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface2)">
       <div style="min-width:120px"><b>${escapeHtml(m.nickname)}</b>${m.tag?` <span class="hint" style="margin:0">@${escapeHtml(m.tag)}</span>`:''}</div>
       <span class="hint" style="margin:0">${m.round}R · ${escapeHtml(csTeamLabel(m.round,m.team))}</span>
-      <input type="number" value="${m.score}" style="width:90px;padding:5px 6px" id="csScoreInput-${escapeAttr(m.key)}">
+      <input type="number" value="${escapeAttr(String(scoreVal))}" style="width:90px;padding:5px 6px" id="csScoreInput-${escapeAttr(m.key)}">
       <button class="btn-gray" style="padding:5px 10px;font-size:12px" onclick="chuseokSetScore('${escapeAttr(m.key)}')">점수 저장</button>
       <button class="btn-shield-reset" style="padding:5px 10px;font-size:12px" onclick="chuseokRemoveMember('${escapeAttr(m.key)}')">삭제</button>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+  if(focusedKey!=null){
+    const el=document.getElementById('csScoreInput-'+focusedKey);
+    if(el){ el.focus(); try{ el.setSelectionRange(selStart, selEnd); }catch(e){} }
+  }
 }
 
 async function saveChuseokSettings(){
@@ -11754,6 +11783,7 @@ async function saveChuseokSettings(){
     active:document.getElementById('csActive').checked,
     currentRound:document.getElementById('csCurrentRound').value,
     minSpoons:document.getElementById('csMinSpoons').value,
+    cmdRoundPrefix:document.getElementById('csCmdRoundPrefix').value,
     rounds:csRounds,
   };
   try{

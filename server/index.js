@@ -6918,6 +6918,7 @@ function getChuseokSettings(djId, settings) {
       title: '팝블리네 추석명절특집',
       posterImageUrl: '', // 공개 페이지 상단에 보여줄 포스터 이미지
       minSpoons: CHUSEOK_MIN_SPOONS_DEFAULT, // 이 이상 보낸 선물만 스코어로 집계 — DJ가 설정페이지에서 직접 조절 가능
+      cmdRoundPrefix: '추석', // "!추석1/2/3" 명령어의 앞부분 — DJ가 다른 단어로 바꿀 수 있다(예: "!점수" → !점수1)
       rounds: [
         { teamA: '모듬전', teamB: '스팸세트' },
         { teamA: '사과', teamB: '곶감' },
@@ -6950,6 +6951,7 @@ function getChuseokSettings(djId, settings) {
   if (!ev.currentRound || ev.currentRound < 1 || ev.currentRound > ev.rounds.length) ev.currentRound = 1
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
+  if (!ev.cmdRoundPrefix || typeof ev.cmdRoundPrefix !== 'string') ev.cmdRoundPrefix = '추석'
   // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
   // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
   // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
@@ -7093,10 +7095,10 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     return
   }
 
-  // !추석1 / !추석2 / !추석3
-  const roundMatch = cmd.match(/^추석([123])$/)
-  if (roundMatch) {
-    const roundNum = Number(roundMatch[1])
+  // !추석1 / !추석2 / !추석3 (커맨드 앞부분은 ev.cmdRoundPrefix로 커스텀 가능 — 기본값 "추석")
+  const roundPrefix = ev.cmdRoundPrefix || '추석'
+  if (cmd.startsWith(roundPrefix) && /^[123]$/.test(cmd.slice(roundPrefix.length))) {
+    const roundNum = Number(cmd.slice(roundPrefix.length))
     const r = ev.rounds[roundNum - 1]
     const scoreA = chuseokTeamMembers(ev, roundNum, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
     const scoreB = chuseokTeamMembers(ev, roundNum, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
@@ -7119,7 +7121,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
       joinNote = `⚠️ 이미 이번 라운드에 다른 팀으로 참여중이에요.\n`
     }
   }
-  const list = chuseokTeamMembers(ev, found.round, found.side).slice(0, 5)
+  const list = chuseokTeamMembers(ev, found.round, found.side)
   let body = `🎑 ${ev.title} 🎑\n🍽️ ${found.teamName}팀 현재순위 🍽️\n`
   if (!list.length) {
     body += '아직 참여자가 없어요.'
@@ -16732,11 +16734,16 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
   const prevPosterUrl = ev.posterImageUrl
-  const { title, active, currentRound, rounds, posterImageUrl, minSpoons } = req.body || {}
+  const { title, active, currentRound, rounds, posterImageUrl, minSpoons, cmdRoundPrefix } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
   if (active != null) ev.active = !!active
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
+  // 🔧 "!추석1/2/3" 명령어의 앞부분 — 공백/느낌표 없이 순수 텍스트만 허용(명령어 파싱과 어긋나지 않게)
+  if (cmdRoundPrefix != null) {
+    const cleaned = String(cmdRoundPrefix).trim().replace(/^!/, '').replace(/\s+/g, '')
+    ev.cmdRoundPrefix = cleaned || '추석'
+  }
   // 🆕 라운드 개수를 3개로 고정하지 않고 1~20개 사이에서 DJ가 자유롭게 추가/삭제할 수 있다.
   //    (라운드가 하나도 없으면 이벤트 자체가 성립하지 않으니 최소 1개는 유지, 너무 많이 늘리는 실수를 막기 위해 20개로 상한)
   if (Array.isArray(rounds) && rounds.length >= 1 && rounds.length <= 20) {
