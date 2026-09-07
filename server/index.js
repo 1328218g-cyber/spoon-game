@@ -20550,15 +20550,15 @@ app.get('/myinfo/:djId/theme', (req, res) => {
     if (found) font = found
   }
   // 🔖 상단 탭 아이콘 — 디제이가 안 바꿨으면 기본 이모지 그대로 내려간다.
-  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', size: 16 }
+  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', board: '🏆', size: 16 }
   const savedTabIcons = settings.myinfoTabIcons || {}
   const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
-  // 🔘 상단 탭 노출 — 디제이가 안 껐으면 5개 다 기본으로 보여준다.
-  const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true }
+  // 🔘 상단 탭 노출 — 디제이가 안 껐으면 6개 다 기본으로 보여준다.
+  const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true, board: true }
   const savedMenuVisible = settings.myinfoMenuVisible || {}
   const menuVisible = { ...defaultMenuVisible, ...savedMenuVisible }
   // 🔀 상단 탭 순서 — 디제이가 안 바꿨으면 기존 기본 순서 그대로.
-  const defaultMenuOrder = ['post', 'keep', 'game', 'roulette', 'cal']
+  const defaultMenuOrder = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
   const savedMenuOrder = Array.isArray(settings.myinfoMenuOrder) ? settings.myinfoMenuOrder : null
   const menuOrder = (savedMenuOrder && defaultMenuOrder.every(k => savedMenuOrder.includes(k)) && savedMenuOrder.length === defaultMenuOrder.length) ? savedMenuOrder : defaultMenuOrder
   res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible, menuOrder })
@@ -21805,10 +21805,11 @@ app.post('/settings', auth.requireAuth, (req, res) => {
       game: clampIcon(myinfoTabIcons.game),
       roulette: clampIcon(myinfoTabIcons.roulette),
       cal: clampIcon(myinfoTabIcons.cal),
+      board: clampIcon(myinfoTabIcons.board),
       size,
     }
   }
-  // 🔘 상단 탭 노출 — 5개 탭(포스트/킵목록/게임/룰렛정보/캘린더) 중 필요한 것만 켜둘 수 있게.
+  // 🔘 상단 탭 노출 — 6개 탭(포스트/킵목록/게임/룰렛정보/캘린더/박제판) 중 필요한 것만 켜둘 수 있게.
   //    최소 1개는 켜져있어야 한다(다 꺼버리면 페이지에 아무것도 안 보이는 사고 방지).
   if (myinfoMenuVisible) {
     const norm = {
@@ -21817,12 +21818,13 @@ app.post('/settings', auth.requireAuth, (req, res) => {
       game: myinfoMenuVisible.game !== false,
       roulette: myinfoMenuVisible.roulette !== false,
       cal: myinfoMenuVisible.cal !== false,
+      board: myinfoMenuVisible.board !== false,
     }
     if (Object.values(norm).some(Boolean)) patch.myinfoMenuVisible = norm
   }
-  // 🔀 상단 탭 순서 — 5개 키가 정확히 한 번씩만 들어있는 배열일 때만 저장(순서 뒤섞임/중복/누락 방지).
+  // 🔀 상단 탭 순서 — 6개 키가 정확히 한 번씩만 들어있는 배열일 때만 저장(순서 뒤섞임/중복/누락 방지).
   if (Array.isArray(myinfoMenuOrder)) {
-    const validKeys = ['post', 'keep', 'game', 'roulette', 'cal']
+    const validKeys = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
     const cleaned = myinfoMenuOrder.map(k => String(k)).filter(k => validKeys.includes(k))
     const isValidPermutation = cleaned.length === validKeys.length && validKeys.every(k => cleaned.includes(k))
     if (isValidPermutation) patch.myinfoMenuOrder = cleaned

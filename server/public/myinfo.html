@@ -208,6 +208,9 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
   <button class="menuBtn" id="btnTabCal" onclick="switchTab('cal')">
     <span class="mIcon">📅</span><span>캘린더</span>
   </button>
+  <button class="menuBtn" id="btnTabBoard" onclick="switchTab('board')">
+    <span class="mIcon">🏆</span><span>박제판</span>
+  </button>
 </div>
 
 <div class="wrap">
@@ -314,6 +317,13 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
       <div id="calBox"><div class="card"><div class="emptyList">불러오는 중...</div></div></div>
     </div>
 
+    <!-- 🏆 박제판 탭: 실제 박제판(칸 배치/배경이미지/실시간 갱신)은 이미 board.html에 다 구현돼있어서
+         새로 그리지 않고, 그 공개 페이지로 바로 이동하는 카드 하나만 보여준다. -->
+    <div class="card hidden" id="tabBoardPanel">
+      <div class="card-title">🏆 박제판</div>
+      <div id="boardLinkBox"><div class="emptyList">불러오는 중...</div></div>
+    </div>
+
     <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
   </div>
 </div>
@@ -395,7 +405,7 @@ async function loadTheme(){
 // http로 시작)면 <img>로, 아니면 이모지 텍스트로 그대로 넣는다. 서버가 이미 기본 이모지로 빈 칸을
 // 채워서 내려주므로(theme 라우트 참고), 여기선 그대로 반영만 하면 된다.
 function applyTabIcons(icons){
-  const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+  const map = MI_MENU_MAP;
   const size = Number(icons.size) > 0 ? Number(icons.size) : 16;
   Object.keys(map).forEach(key => {
     const val = icons[key];
@@ -420,8 +430,8 @@ function applyTabIcons(icons){
 // 🔘 상단 탭 노출 — 디제이가 꺼둔 탭 버튼은 화면에서 아예 숨긴다. 지금 열려있는 탭이 방금
 // 숨겨진 탭이면(예: '게임' 탭 보던 중에 디제이가 게임 탭을 꺼버린 경우), 남아있는 탭 중
 // 첫 번째로 자동 전환해서 빈 화면이 뜨는 걸 막는다.
-const MI_MENU_MAP = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
-let menuOrderKeys = ['post', 'keep', 'game', 'roulette', 'cal']; // 디제이가 정한 상단 탭 순서 (기본값)
+const MI_MENU_MAP = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal', board: 'btnTabBoard' };
+let menuOrderKeys = ['post', 'keep', 'game', 'roulette', 'cal', 'board']; // 디제이가 정한 상단 탭 순서 (기본값)
 let hiddenTabKeys = [];
 // 🔀 상단 탭 순서 — 서버가 내려준 순서대로 버튼 DOM을 실제로 재배치한다(그냥 CSS order가 아니라
 // appendChild로 옮겨서, 탭간 이동(포커스/접근성 등)도 실제 화면 순서와 일치하게 만든다).
@@ -555,24 +565,48 @@ function fallbackCopy(text, cb){
   document.body.removeChild(ta);
 }
 
-// 킵목록 / 포스트 / 게임 / 룰렛정보 / 캘린더 탭 전환 — 포스트·게임·룰렛정보·캘린더는 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, initialTabSet = false;
+// 킵목록 / 포스트 / 게임 / 룰렛정보 / 캘린더 / 박제판 탭 전환 — 포스트·게임·룰렛정보·캘린더·박제판은 처음 열 때 한 번만 불러온다
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, boardLoaded = false, initialTabSet = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
   document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
   document.getElementById('btnTabGame').classList.toggle('active', name === 'game');
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
   document.getElementById('btnTabCal').classList.toggle('active', name === 'cal');
+  document.getElementById('btnTabBoard').classList.toggle('active', name === 'board');
   document.getElementById('profileCard').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
   document.getElementById('tabGamePanel').classList.toggle('hidden', name !== 'game');
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
   document.getElementById('tabCalPanel').classList.toggle('hidden', name !== 'cal');
+  document.getElementById('tabBoardPanel').classList.toggle('hidden', name !== 'board');
   if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); initDjWrite(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
   if(name === 'cal' && !calLoaded){ calLoaded = true; loadCalendar(); }
+  if(name === 'board' && !boardLoaded){ boardLoaded = true; loadBoardLink(); }
+}
+
+// 🏆 박제판 바로가기 카드 — 그 방에 박제판이 켜져있고 공개된 상태일 때만 링크를 보여준다.
+async function loadBoardLink(){
+  const box = document.getElementById('boardLinkBox');
+  try{
+    const res = await fetch(location.origin + '/board-data/' + encodeURIComponent(DJ_ID));
+    const d = await res.json();
+    if(!d.success){ box.innerHTML = '<div class="emptyList">아직 박제판이 공개되지 않았어요</div>'; return; }
+    box.innerHTML = `
+      <a class="gameItem" href="/board/${encodeURIComponent(DJ_ID)}" target="_blank" rel="noopener">
+        <div class="gIcon">🏆</div>
+        <div class="gInfo">
+          <div class="gTitle">${escapeHtml(d.title || '박제판')}</div>
+          <div class="gDesc">눌러서 박제판 보러가기</div>
+        </div>
+        <div class="gArrow">›</div>
+      </a>`;
+  }catch(e){
+    box.innerHTML = '<div class="emptyList">불러오기에 실패했어요</div>';
+  }
 }
 
 function relativeTimeKo(ts){
@@ -914,7 +948,7 @@ async function loadGames(){
   try{
     const res = await fetch(location.origin + '/play/' + encodeURIComponent(DJ_ID) + '/list');
     const d = await res.json();
-    const items = (d.items || []).filter(it => it.enabled && !/^\/myinfo\//.test(it.url));
+    const items = (d.items || []).filter(it => it.enabled && !/^\/myinfo\//.test(it.url) && !/^\/board\//.test(it.url));
     if(!items.length){ box.innerHTML = '<div class="emptyList">지금 켜져있는 게임이 없어요</div>'; return; }
     box.innerHTML = items.map(it => `
       <a class="gameItem" href="${it.url}" target="_blank" rel="noopener">

@@ -3883,13 +3883,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
         <div class="card">
           <div class="card-title"><span>🔖 상단 탭 아이콘</span></div>
-          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 5개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(60MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
+          <p class="hint" style="margin-bottom:10px">내정보 웹페이지 맨 위 6개 탭의 아이콘을 원하는 이모지나 이미지로 바꿀 수 있어요. 이모지를 직접 입력하거나, 📎로 이미지 파일(60MB 이하)을 첨부하세요 (비워두면 기본 이모지가 그대로 쓰여요).</p>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
             <span class="hint" style="margin:0;white-space:nowrap">아이콘 크기</span>
             <input type="range" min="10" max="60" id="miTabIconSize" value="16" style="flex:1;max-width:220px" oninput="document.getElementById('miTabIconSizeLabel').textContent=this.value+'px'">
             <span class="hint" id="miTabIconSizeLabel" style="margin:0;width:36px">16px</span>
           </div>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px">
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:8px">
             <div>
               <label style="font-size:11.5px">포스트</label>
               <input type="text" id="miTabIconPost" placeholder="📋" oninput="updateTabIconPreview('post')">
@@ -3933,6 +3933,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
                 <img id="miTabIconCalPreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
                 <input type="file" id="miTabIconCalFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('cal',this.files[0])">
                 <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconCalFile').click()">📎</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11.5px">박제판</label>
+              <input type="text" id="miTabIconBoard" placeholder="🏆" oninput="updateTabIconPreview('board')">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <img id="miTabIconBoardPreview" style="display:none;width:22px;height:22px;object-fit:contain;border-radius:4px">
+                <input type="file" id="miTabIconBoardFile" accept="image/*" style="display:none" onchange="uploadTabIconImage('board',this.files[0])">
+                <button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="document.getElementById('miTabIconBoardFile').click()">📎</button>
               </div>
             </div>
           </div>
@@ -6965,7 +6974,7 @@ async function loadDjSettings(){
       }
       if(s.myinfoTabIcons) Object.assign(myinfoTabIconsData, s.myinfoTabIcons);
       if(s.myinfoMenuVisible) Object.assign(myinfoMenuVisibleData, s.myinfoMenuVisible);
-      if(Array.isArray(s.myinfoMenuOrder) && s.myinfoMenuOrder.length===5) myinfoMenuOrderData=s.myinfoMenuOrder.slice();
+      if(Array.isArray(s.myinfoMenuOrder) && s.myinfoMenuOrder.length===6) myinfoMenuOrderData=s.myinfoMenuOrder.slice();
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -15242,6 +15251,7 @@ function loadMyInfoSettings(){
   document.getElementById('miTabIconGame').value=myinfoTabIconsData.game||'';
   document.getElementById('miTabIconRoulette').value=myinfoTabIconsData.roulette||'';
   document.getElementById('miTabIconCal').value=myinfoTabIconsData.cal||'';
+  document.getElementById('miTabIconBoard').value=myinfoTabIconsData.board||'';
   const sz=myinfoTabIconsData.size||16;
   document.getElementById('miTabIconSize').value=sz;
   document.getElementById('miTabIconSizeLabel').textContent=sz+'px';
@@ -15326,10 +15336,10 @@ async function saveMyInfoTheme(){
    선택값은 myinfoThemeData(페이지 전체 폰트)와 완전히 별개인 myinfoNoticeData에 따로 저장한다. */
 let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
 let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:'',size:16};
-let myinfoMenuVisibleData={post:true,keep:true,game:true,roulette:true,cal:true};
-let myinfoMenuOrderData=['post','keep','game','roulette','cal'];
-const MI_MENU_LABELS={post:'포스트',keep:'킵목록',game:'게임',roulette:'룰렛정보',cal:'캘린더'};
-const TAB_ICON_KEYS=['post','keep','game','roulette','cal'];
+let myinfoMenuVisibleData={post:true,keep:true,game:true,roulette:true,cal:true,board:true};
+let myinfoMenuOrderData=['post','keep','game','roulette','cal','board'];
+const MI_MENU_LABELS={post:'포스트',keep:'킵목록',game:'게임',roulette:'룰렛정보',cal:'캘린더',board:'박제판'};
+const TAB_ICON_KEYS=['post','keep','game','roulette','cal','board'];
 function isImagePath(v){ return typeof v==='string' && v.length>0 && (v.startsWith('/')||v.startsWith('http')); }
 function updateTabIconPreview(key){
   const val=document.getElementById('miTabIcon'+key.charAt(0).toUpperCase()+key.slice(1)).value.trim();
@@ -15361,6 +15371,7 @@ async function saveMyInfoTabIcons(){
     game:document.getElementById('miTabIconGame').value.trim(),
     roulette:document.getElementById('miTabIconRoulette').value.trim(),
     cal:document.getElementById('miTabIconCal').value.trim(),
+    board:document.getElementById('miTabIconBoard').value.trim(),
     size:Number(document.getElementById('miTabIconSize').value)||16,
   };
   try{
