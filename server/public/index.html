@@ -3940,31 +3940,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
-          <div class="card-title"><span>🔘 상단 탭 노출</span></div>
-          <p class="hint" style="margin-bottom:10px">체크 해제한 탭은 시청자가 보는 내정보 웹페이지 상단 메뉴에서 아예 빠져요. 예: "게임" 탭을 꺼두면 몬스터도감/박제판 등 게임 목록 자체가 안 보여요. 최소 1개는 켜둬야 해요.</p>
-          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px">
-            <label style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
-              <span>포스트</span>
-              <input type="checkbox" id="miMenuVisPost" checked style="width:18px;height:18px">
-            </label>
-            <label style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
-              <span>킵목록</span>
-              <input type="checkbox" id="miMenuVisKeep" checked style="width:18px;height:18px">
-            </label>
-            <label style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
-              <span>게임</span>
-              <input type="checkbox" id="miMenuVisGame" checked style="width:18px;height:18px">
-            </label>
-            <label style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
-              <span>룰렛정보</span>
-              <input type="checkbox" id="miMenuVisRoulette" checked style="width:18px;height:18px">
-            </label>
-            <label style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;cursor:pointer">
-              <span>캘린더</span>
-              <input type="checkbox" id="miMenuVisCal" checked style="width:18px;height:18px">
-            </label>
-          </div>
-          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoMenuVisible()">💾 노출 설정 저장</button>
+          <div class="card-title"><span>🔘 상단 탭 노출 · 순서</span></div>
+          <p class="hint" style="margin-bottom:10px">체크 해제한 탭은 시청자가 보는 내정보 웹페이지 상단 메뉴에서 아예 빠져요. 예: "게임" 탭을 꺼두면 몬스터도감/박제판 등 게임 목록 자체가 안 보여요. 최소 1개는 켜둬야 해요. ▲▼로 메뉴에 뜨는 순서도 바꿀 수 있어요.</p>
+          <div id="miMenuOrderBox"></div>
+          <button class="btn-connect" style="margin-top:10px;width:100%" onclick="saveMyInfoMenuVisible()">💾 노출·순서 저장</button>
         </div>
 
         </div>
@@ -6986,6 +6965,7 @@ async function loadDjSettings(){
       }
       if(s.myinfoTabIcons) Object.assign(myinfoTabIconsData, s.myinfoTabIcons);
       if(s.myinfoMenuVisible) Object.assign(myinfoMenuVisibleData, s.myinfoMenuVisible);
+      if(Array.isArray(s.myinfoMenuOrder) && s.myinfoMenuOrder.length===5) myinfoMenuOrderData=s.myinfoMenuOrder.slice();
       if(s.moduleEnabled) Object.assign(moduleEnabled, s.moduleEnabled);
       if(s.moduleVisible) Object.assign(moduleVisible, s.moduleVisible);
       expiresAt=s.expiresAt||null;
@@ -15266,10 +15246,7 @@ function loadMyInfoSettings(){
   document.getElementById('miTabIconSize').value=sz;
   document.getElementById('miTabIconSizeLabel').textContent=sz+'px';
   TAB_ICON_KEYS.forEach(updateTabIconPreview);
-  TAB_ICON_KEYS.forEach(k=>{
-    const cb=document.getElementById('miMenuVis'+k.charAt(0).toUpperCase()+k.slice(1));
-    if(cb)cb.checked=myinfoMenuVisibleData[k]!==false;
-  });
+  renderMiMenuOrderUI();
 }
 
 // 🔤 관리자가 등록해둔 폰트 목록을 불러와 <select id="miThemeFont"> 옵션을 채운다.
@@ -15350,6 +15327,8 @@ async function saveMyInfoTheme(){
 let myinfoNoticeData={text:'',font:MI_THEME_FONT_DEFAULT};
 let myinfoTabIconsData={post:'',keep:'',game:'',roulette:'',cal:'',size:16};
 let myinfoMenuVisibleData={post:true,keep:true,game:true,roulette:true,cal:true};
+let myinfoMenuOrderData=['post','keep','game','roulette','cal'];
+const MI_MENU_LABELS={post:'포스트',keep:'킵목록',game:'게임',roulette:'룰렛정보',cal:'캘린더'};
 const TAB_ICON_KEYS=['post','keep','game','roulette','cal'];
 function isImagePath(v){ return typeof v==='string' && v.length>0 && (v.startsWith('/')||v.startsWith('http')); }
 function updateTabIconPreview(key){
@@ -15391,27 +15370,47 @@ async function saveMyInfoTabIcons(){
     showToast('탭 아이콘을 저장했어요 🔖');
   }catch(e){ showToast('오류: '+e.message); }
 }
+// 🔀 상단 탭 노출·순서 UI — 체크박스 5개를 지금 순서(myinfoMenuOrderData) 그대로 그려주고,
+// 각 줄에 ▲▼ 버튼을 달아서 화면 갱신 없이 배열 순서만 바꾼다. 저장은 별도 버튼으로.
+function renderMiMenuOrderUI(){
+  const box=document.getElementById('miMenuOrderBox');
+  if(!box)return;
+  box.innerHTML=myinfoMenuOrderData.map((key,i)=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <button class="btn-gray" style="padding:2px 8px;font-size:11px;line-height:1" ${i===0?'disabled':''} onclick="miMenuOrderMove('${key}',-1)">▲</button>
+        <button class="btn-gray" style="padding:2px 8px;font-size:11px;line-height:1" ${i===myinfoMenuOrderData.length-1?'disabled':''} onclick="miMenuOrderMove('${key}',1)">▼</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="miMenuVis${key.charAt(0).toUpperCase()+key.slice(1)}" ${myinfoMenuVisibleData[key]!==false?'checked':''} style="width:18px;height:18px">
+        <span>${MI_MENU_LABELS[key]}</span>
+      </label>
+      <span class="hint" style="margin:0">${i+1}번째</span>
+    </div>`).join('');
+}
+function miMenuOrderMove(key,dir){
+  const idx=myinfoMenuOrderData.indexOf(key);
+  const target=idx+dir;
+  if(idx<0||target<0||target>=myinfoMenuOrderData.length)return;
+  [myinfoMenuOrderData[idx],myinfoMenuOrderData[target]]=[myinfoMenuOrderData[target],myinfoMenuOrderData[idx]];
+  renderMiMenuOrderUI();
+}
 // 🔘 상단 탭 노출 — 체크 해제한 탭은 시청자용 내정보 페이지 상단 메뉴에서 아예 안 보인다.
 // 최소 1개는 켜져있어야 해서, 마지막 하나를 끄려고 하면 막는다.
 async function saveMyInfoMenuVisible(){
-  const next={
-    post:document.getElementById('miMenuVisPost').checked,
-    keep:document.getElementById('miMenuVisKeep').checked,
-    game:document.getElementById('miMenuVisGame').checked,
-    roulette:document.getElementById('miMenuVisRoulette').checked,
-    cal:document.getElementById('miMenuVisCal').checked,
-  };
+  const next={};
+  myinfoMenuOrderData.forEach(key=>{ next[key]=document.getElementById('miMenuVis'+key.charAt(0).toUpperCase()+key.slice(1)).checked; });
   if(!Object.values(next).some(Boolean)){
     showToast('탭을 최소 1개는 켜둬야 해요');
-    TAB_ICON_KEYS.forEach(k=>{ document.getElementById('miMenuVis'+k.charAt(0).toUpperCase()+k.slice(1)).checked=myinfoMenuVisibleData[k]!==false; });
+    renderMiMenuOrderUI();
     return;
   }
   myinfoMenuVisibleData=next;
   try{
-    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoMenuVisible:next})});
+    const res=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({myinfoMenuVisible:next,myinfoMenuOrder:myinfoMenuOrderData})});
     const d=await res.json();
     if(!d.success){ showToast(d.error||'저장 실패'); return; }
-    showToast('상단 탭 노출 설정을 저장했어요 🔘');
+    showToast('상단 탭 노출·순서를 저장했어요 🔘');
   }catch(e){ showToast('오류: '+e.message); }
 }
 async function loadMyInfoNoticeFontOptions(){

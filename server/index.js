@@ -20557,7 +20557,11 @@ app.get('/myinfo/:djId/theme', (req, res) => {
   const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true }
   const savedMenuVisible = settings.myinfoMenuVisible || {}
   const menuVisible = { ...defaultMenuVisible, ...savedMenuVisible }
-  res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible })
+  // 🔀 상단 탭 순서 — 디제이가 안 바꿨으면 기존 기본 순서 그대로.
+  const defaultMenuOrder = ['post', 'keep', 'game', 'roulette', 'cal']
+  const savedMenuOrder = Array.isArray(settings.myinfoMenuOrder) ? settings.myinfoMenuOrder : null
+  const menuOrder = (savedMenuOrder && defaultMenuOrder.every(k => savedMenuOrder.includes(k)) && savedMenuOrder.length === defaultMenuOrder.length) ? savedMenuOrder : defaultMenuOrder
+  res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible, menuOrder })
 })
 
 // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
@@ -21752,7 +21756,7 @@ app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
 })
 
 app.post('/settings', auth.requireAuth, (req, res) => {
-  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons, myinfoMenuVisible } = req.body || {}
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons, myinfoMenuVisible, myinfoMenuOrder } = req.body || {}
   const patch = {}
   if (joinMessages) patch.joinMessages = joinMessages
   if (likeMessages) patch.likeMessages = likeMessages
@@ -21815,6 +21819,13 @@ app.post('/settings', auth.requireAuth, (req, res) => {
       cal: myinfoMenuVisible.cal !== false,
     }
     if (Object.values(norm).some(Boolean)) patch.myinfoMenuVisible = norm
+  }
+  // 🔀 상단 탭 순서 — 5개 키가 정확히 한 번씩만 들어있는 배열일 때만 저장(순서 뒤섞임/중복/누락 방지).
+  if (Array.isArray(myinfoMenuOrder)) {
+    const validKeys = ['post', 'keep', 'game', 'roulette', 'cal']
+    const cleaned = myinfoMenuOrder.map(k => String(k)).filter(k => validKeys.includes(k))
+    const isValidPermutation = cleaned.length === validKeys.length && validKeys.every(k => cleaned.includes(k))
+    if (isValidPermutation) patch.myinfoMenuOrder = cleaned
   }
   if (activity) patch.activity = activity
   if (moduleEnabled) patch.moduleEnabled = moduleEnabled

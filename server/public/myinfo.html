@@ -384,6 +384,8 @@ async function loadTheme(){
     if(d.success && d.font) applyMyInfoFont(d.font);
     // 🔖 상단 탭 아이콘 — 디제이가 바꿔둔 이모지가 있으면 적용
     if(d.success && d.tabIcons) applyTabIcons(d.tabIcons);
+    // 🔀 상단 탭 순서 — 노출 여부보다 먼저 적용해야, 노출 계산 시 "첫 번째로 보이는 탭"이 정확해진다
+    if(d.success && Array.isArray(d.menuOrder)) applyMenuOrder(d.menuOrder);
     // 🔘 상단 탭 노출 — 디제이가 꺼둔 탭은 메뉴에서 숨긴다
     if(d.success && d.menuVisible) applyMenuVisible(d.menuVisible);
   }catch(e){ /* 실패해도 기본 핑크 테마 그대로 보여주면 됨 */ }
@@ -418,9 +420,22 @@ function applyTabIcons(icons){
 // 🔘 상단 탭 노출 — 디제이가 꺼둔 탭 버튼은 화면에서 아예 숨긴다. 지금 열려있는 탭이 방금
 // 숨겨진 탭이면(예: '게임' 탭 보던 중에 디제이가 게임 탭을 꺼버린 경우), 남아있는 탭 중
 // 첫 번째로 자동 전환해서 빈 화면이 뜨는 걸 막는다.
+const MI_MENU_MAP = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+let menuOrderKeys = ['post', 'keep', 'game', 'roulette', 'cal']; // 디제이가 정한 상단 탭 순서 (기본값)
 let hiddenTabKeys = [];
+// 🔀 상단 탭 순서 — 서버가 내려준 순서대로 버튼 DOM을 실제로 재배치한다(그냥 CSS order가 아니라
+// appendChild로 옮겨서, 탭간 이동(포커스/접근성 등)도 실제 화면 순서와 일치하게 만든다).
+function applyMenuOrder(order){
+  const container = document.getElementById('pageMenu');
+  if(!container) return;
+  menuOrderKeys = order.filter(key => MI_MENU_MAP[key]);
+  menuOrderKeys.forEach(key => {
+    const btn = document.getElementById(MI_MENU_MAP[key]);
+    if(btn) container.appendChild(btn);
+  });
+}
 function applyMenuVisible(vis){
-  const map = { post: 'btnTabPost', keep: 'btnTabKeep', game: 'btnTabGame', roulette: 'btnTabRoulette', cal: 'btnTabCal' };
+  const map = MI_MENU_MAP;
   hiddenTabKeys = Object.keys(map).filter(key => vis[key] === false);
   Object.keys(map).forEach(key => {
     const btn = document.getElementById(map[key]);
@@ -429,7 +444,7 @@ function applyMenuVisible(vis){
   const currentBtn = document.querySelector('.menuBtn.active');
   const currentKey = currentBtn && Object.keys(map).find(key => map[key] === currentBtn.id);
   if(currentKey && hiddenTabKeys.includes(currentKey)){
-    const firstVisible = Object.keys(map).find(key => !hiddenTabKeys.includes(key));
+    const firstVisible = menuOrderKeys.find(key => !hiddenTabKeys.includes(key));
     if(firstVisible) switchTab(firstVisible);
   }
 }
@@ -1292,8 +1307,7 @@ async function fetchMe(manual){
     // 켜져있는 첫 번째 탭으로 대신 이동한다.
     if(!initialTabSet){
       initialTabSet = true;
-      const order = ['post', 'keep', 'game', 'roulette', 'cal'];
-      const first = order.find(key => !hiddenTabKeys.includes(key)) || 'post';
+      const first = menuOrderKeys.find(key => !hiddenTabKeys.includes(key)) || 'post';
       switchTab(first);
     }
 
