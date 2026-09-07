@@ -7705,6 +7705,8 @@ async function saveAutoJoinCleanupDays(){
 }
 
 let adminUserListData=[];
+let selectedExpiryDjIds=new Set();
+let expirySoonPopupShown=false;
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
@@ -7718,9 +7720,37 @@ async function loadUserList(){
     adminUserListData=d.users||[];
     renderUserListTable();
     renderAdminUserSearch();
+    if(!expirySoonPopupShown){ expirySoonPopupShown=true; checkExpiringSoonPopup(); }
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }
+}
+
+/* ── ⏳ 만료 3일 이내 디제이 알림 팝업 (페이지당 1회) ── */
+function checkExpiringSoonPopup(){
+  const now=Date.now();
+  const soon=adminUserListData
+    .filter(u=>u.djId!=='sum' && u.expiresAt)
+    .map(u=>({djId:u.djId, exp:new Date(u.expiresAt).getTime()}))
+    .filter(u=>u.exp>now && (u.exp-now)<=3*86400000)
+    .sort((a,b)=>a.exp-b.exp);
+  if(!soon.length)return;
+  const rows=soon.map(u=>{
+    const days=Math.ceil((u.exp-now)/86400000);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span>${escapeHtml(u.djId)}</span><span class="status-pill dday">D-${days}</span>
+    </div>`;
+  }).join('');
+  const modal=document.createElement('div');
+  modal.id='expirySoonModal';
+  modal.className='modal-overlay';
+  modal.onclick=(e)=>{ if(e.target===modal)modal.remove(); };
+  modal.innerHTML=`<div class="modal-box" style="max-width:420px;max-height:80vh;overflow-y:auto">
+    <div class="modal-title"><span>⏳ 만료 임박 디제이 (${soon.length}명)</span><button class="icon-btn" onclick="dashRemoveModal('expirySoonModal')">✕</button></div>
+    <p class="hint" style="margin-top:0">이용 만료일이 3일 이내로 남았어요.</p>
+    ${rows}
+  </div>`;
+  document.body.appendChild(modal);
 }
 function renderUserListTable(){
   const wrap=document.getElementById('userListWrap');
@@ -7758,6 +7788,7 @@ function renderUserListTable(){
           ${u.expiresAt?`<button class="btn-gray" style="padding:5px 8px;font-size:11px" onclick="clearUserExpiry('${escapeAttr(u.djId)}')">해제</button>`:''}
         </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
+        <td>${isSum?'':`<input type="checkbox" class="expiry-select-cb" data-djid="${escapeAttr(u.djId)}" ${selectedExpiryDjIds.has(u.djId)?'checked':''} onchange="toggleExpirySelect('${escapeAttr(u.djId)}',this.checked)">`}</td>
         <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}</td>
         <td>${u.autoJoinTag?`<a href="https://www.spooncast.net/kr/@${escapeAttr(u.autoJoinTag)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline">@${escapeHtml(u.autoJoinTag)}</a>`:'<span class="hint" style="margin:0">미설정</span>'}${isSum?'':`<div style="margin-top:4px"><button class="btn-gray" style="padding:4px 8px;font-size:10.5px" onclick="resetUserAutoJoinLock('${escapeAttr(u.djId)}')">🔓 2일잠금 해제</button></div>`}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
@@ -7775,10 +7806,55 @@ function renderUserListTable(){
         <td>${isSum?'':`<button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteUser('${escapeAttr(u.djId)}')">삭제</button>`}</td>
       </tr>`;
     }).join('');
-    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
+    const selectableCount=list.filter(u=>u.djId!=='sum').length;
+    const bulkBar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+      <span class="hint" style="margin:0" id="expiryBulkCount">${selectedExpiryDjIds.size}명 선택됨</span>
+      <input type="datetime-local" id="expiryBulkInput" style="padding:6px 8px;font-size:12px">
+      <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="applyBulkExpiry()">✅ 선택 일괄 설정</button>
+      <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="clearExpirySelection()">선택 해제</button>
+    </div>`;
+    wrap.innerHTML=`${bulkBar}<div style="overflow-x:auto"><table class="user-table">
+      <thead><tr><th><input type="checkbox" id="expirySelectAllCb" ${selectableCount&&list.filter(u=>u.djId!=='sum').every(u=>selectedExpiryDjIds.has(u.djId))?'checked':''} onchange="toggleExpirySelectAll(this)"></th><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+}
+
+/* ── ☑️ 이용만료일 일괄 설정: 체크박스 선택 관리 ── */
+function toggleExpirySelect(djId,checked){
+  if(checked)selectedExpiryDjIds.add(djId);else selectedExpiryDjIds.delete(djId);
+  const countEl=document.getElementById('expiryBulkCount');
+  if(countEl)countEl.textContent=selectedExpiryDjIds.size+'명 선택됨';
+}
+function toggleExpirySelectAll(cb){
+  document.querySelectorAll('#userListWrap .expiry-select-cb').forEach(el=>{
+    const djId=el.getAttribute('data-djid');
+    if(cb.checked)selectedExpiryDjIds.add(djId);else selectedExpiryDjIds.delete(djId);
+    el.checked=cb.checked;
+  });
+  const countEl=document.getElementById('expiryBulkCount');
+  if(countEl)countEl.textContent=selectedExpiryDjIds.size+'명 선택됨';
+}
+function clearExpirySelection(){
+  selectedExpiryDjIds.clear();
+  renderUserListTable();
+}
+async function applyBulkExpiry(){
+  if(!selectedExpiryDjIds.size)return showToast('선택된 디제이가 없어요');
+  const input=document.getElementById('expiryBulkInput');
+  const val=input?input.value:'';
+  if(!val)return showToast('만료 일시를 선택해주세요');
+  const iso=new Date(val).toISOString();
+  const djIds=[...selectedExpiryDjIds];
+  if(!confirm(`선택한 ${djIds.length}명의 이용 만료일을 한 번에 설정할까요?`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/bulk-expiry',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djIds,expiresAt:iso})});
+    const d=await res.json();
+    if(d.success){
+      showToast(`${d.okCount}명 설정 완료${d.notFound&&d.notFound.length?` (실패 ${d.notFound.length}명)`:''}`);
+      selectedExpiryDjIds.clear();
+      loadUserList();
+    }else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 

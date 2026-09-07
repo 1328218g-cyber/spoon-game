@@ -2827,19 +2827,37 @@ const MC_SHINY_POWER_MULT = 1.1  // 이로치는 같은 몬스터의 일반 개�
 const MC_SHINY_CHANCE = 0.1      // 희귀상자를 열었을 때 이로치가 나올 확률 (10%)
 function mcIsShinyId(id) { return typeof id === 'string' && id.startsWith(MC_SHINY_PREFIX) }
 function mcBaseIdFromShiny(id) { return mcIsShinyId(id) ? id.slice(MC_SHINY_PREFIX.length) : id }
-// id(이로치 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
+
+// 🌟 거다이맥스 — 이로치와 똑같은 방식(원본 도감 id 앞에 별도 접두사)으로 취급하는 영구 변종.
+// 이로치보다 더 희귀하고(3%) 공격력 보너스도 더 크다(+30%). id 하나엔 접두사가 하나만 붙을 수 있어서
+// 이로치와 거다이맥스를 동시에 가질 순 없다 — 잡을 때/상자를 열 때 거다이맥스 확률을 먼저 굴리고,
+// 거다이맥스가 안 나왔을 때만 이로치 확률을 굴린다(어떤 몬스터 종이든 확률적으로 나올 수 있음).
+const MC_GMAX_PREFIX = 'gmax_'
+const MC_GMAX_POWER_MULT = 1.3
+const MC_GMAX_CHANCE = 0.03
+function mcIsGmaxId(id) { return typeof id === 'string' && id.startsWith(MC_GMAX_PREFIX) }
+function mcBaseIdFromGmax(id) { return mcIsGmaxId(id) ? id.slice(MC_GMAX_PREFIX.length) : id }
+// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 1세대(도감 001~151)
+// 기준으로 실제 거다이맥스가 존재하는 12종만 화이트리스트로 관리한다: 이상해꽃/리자몽/거북왕/버터플/
+// 피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보. 이 목록 밖의 몬스터는 거다이맥스 확률 자체가 적용되지 않는다.
+const MC_GMAX_ELIGIBLE_IDS = ['pkmn-003', 'pkmn-006', 'pkmn-009', 'pkmn-012', 'pkmn-025', 'pkmn-052', 'pkmn-068', 'pkmn-094', 'pkmn-099', 'pkmn-131', 'pkmn-133', 'pkmn-143']
+function mcIsGmaxEligible(id) { return MC_GMAX_ELIGIBLE_IDS.includes(id) }
+
+// id(이로치/거다이맥스 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
 function mcResolveMonster(id, monsters, tag) {
-  const shiny = mcIsShinyId(id)
-  const baseId = mcBaseIdFromShiny(id)
+  const gmax = mcIsGmaxId(id)
+  const shiny = !gmax && mcIsShinyId(id)
+  const baseId = gmax ? mcBaseIdFromGmax(id) : mcBaseIdFromShiny(id)
   const m = (monsters || []).find(mm => mm.id === baseId)
   if (!m) return null
   const basePower = Number(m.power) || 10
-  let power = shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower
+  let power = gmax ? Math.round(basePower * MC_GMAX_POWER_MULT) : (shiny ? Math.round(basePower * MC_SHINY_POWER_MULT) : basePower)
   if (tag) power += mcLevelBonus(mcMonsterLevel(tag, id)) // 🆙 웹 도감에서 레벨업한 만큼 공격력 보너스
   return {
     monster: m,
     shiny,
-    name: shiny ? `🌈이로치 ${m.name}` : m.name,
+    gmax,
+    name: gmax ? `🌟거다이맥스 ${m.name}` : (shiny ? `🌈이로치 ${m.name}` : m.name),
     power,
   }
 }
@@ -2952,7 +2970,7 @@ function mcMonsterLevel(tag, monsterId) {
   return entry ? entry.level : 1
 }
 function mcLevelUpCost(currentLevel) { return currentLevel * 10 } // 레벨이 높을수록 다음 레벨 비용이 커진다
-function mcDismantlePoints(basePower, shiny) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (shiny ? 1.1 : 1)) }
+function mcDismantlePoints(basePower, shiny, gmax) { return Math.round(Math.max(1, Math.round((Number(basePower) || 10) / 3)) * (gmax ? 1.3 : (shiny ? 1.1 : 1))) }
 const MC_AUTH_KEY_TTL_MS = 10 * 60 * 1000
 function mcGenAuthKey(d) {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -3334,8 +3352,9 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     const allKnownIds = new Set([...mc.monsters.map(m => m.id), ...Object.keys(catalog)])
     const totalTypes = allKnownIds.size
 
-    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id)).length
+    const normalDiscovered = ownedIds.filter(id => !mcIsShinyId(id) && !mcIsGmaxId(id)).length
     const shinyDiscovered = ownedIds.filter(id => mcIsShinyId(id)).length
+    const gmaxDiscovered = ownedIds.filter(id => mcIsGmaxId(id)).length
     const points = mcGetWebData().points[key] || 0
     const ranking = mcComputeGlobalRanking(mc)
     const myRankIdx = ranking.findIndex(r => r.tag.toLowerCase() === key.toLowerCase())
@@ -3345,6 +3364,7 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
       + `-${ace ? ace.name : '(없음)'} ${ace ? ace.level : 0}Lv 공격:${ace ? ace.power : 0}\n`
       + `-일반: ${normalDiscovered}/${totalTypes}\n`
       + `-이로치 ${shinyDiscovered}/${totalTypes}\n`
+      + `-거다이맥스 ${gmaxDiscovered}/${totalTypes}\n`
       + `-남은포인트:${points}\n`
       + `-순위:${myRankIdx !== -1 ? myRankIdx + 1 : '순위없음'}`
     sendChatSplit(djId, out, 150, 500)
@@ -3402,9 +3422,9 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
     if (success) {
       const grant = mcGrantCaughtMonster(mc, key, active.id)
       mcSaveUserData()
-      const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+      const monsterLabel = grant.isGmax ? `🌟거다이맥스 ${active.name}` : (grant.isShiny ? `🌈이로치 ${active.name}` : active.name)
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
-      if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
+      if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, grant.grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
     } else {
       mcSaveUserData()
       setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchFailMsg, { nickname: author, monster: active.name, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
@@ -3419,14 +3439,15 @@ function handleMonsterCatchCommand(djId, room, settings, author, tag, text, auth
   if (room._activeMonsterTimeout) { clearTimeout(room._activeMonsterTimeout); room._activeMonsterTimeout = null }
   const grant = mcGrantCaughtMonster(mc, key, active.id)
   mcSaveUserData()
-  const monsterLabel = grant.isShiny ? `🌈이로치 ${active.name}` : active.name
+  const monsterLabel = grant.isGmax ? `🌟거다이맥스 ${active.name}` : (grant.isShiny ? `🌈이로치 ${active.name}` : active.name)
   setTimeout(() => sendChatToRoom(djId, mcFormat(mc.catchSuccessMsg, { nickname: author, monster: monsterLabel, count: grant.count, balls: mc.bags[key], greatBalls: mc.greatBags[key] })), 300)
   room._activeMonster = null
-  if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, active.id, author) // 이로치는 별도 id라 진화 체인 대상에서 제외
+  if (!grant.isShiny) mcCheckAutoEvolve(djId, mc, key, grant.grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
 }
 
 // 채팅 한 번 칠 때마다 소소한 확률로 포획볼 1개 획득 (모험을 시작한 유저만 대상)
 // 🌟 진화 — 같은 몬스터를 정해진 마리 수만큼 모으면 다른 몬스터로 바뀐다 (수동: !진화 [이름]).
+// 거다이맥스는 이름 앞에 "거다이맥스 " 또는 "🌟거다이맥스 "를 붙여서 입력하면 거다이맥스 개체 쪽 도감을 대상으로 진화한다.
 function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
   if (!isModuleOn(settings, 'monstercatch', djId)) return
   const mc = getMonsterCatchSettings(djId, settings)
@@ -3434,35 +3455,47 @@ function handleMonsterEvolveCommand(djId, room, settings, author, tag, text) {
   const msg = String(text || '').trim()
   if (msg !== cmdEvolve && !msg.startsWith(cmdEvolve + ' ')) return
 
-  const monsterName = msg.slice(cmdEvolve.length).trim()
-  if (!monsterName) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveUsage, { cmdEvolve })), 400); return }
+  const rawName = msg.slice(cmdEvolve.length).trim()
+  if (!rawName) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveUsage, { cmdEvolve })), 400); return }
+
+  let requestGmax = false
+  let monsterName = rawName
+  for (const p of ['🌟거다이맥스 ', '거다이맥스 ']) {
+    if (monsterName.startsWith(p)) { requestGmax = true; monsterName = monsterName.slice(p.length).trim(); break }
+  }
 
   const mon = mc.monsters.find(m => m.name === monsterName)
-  if (!mon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: monsterName })), 400); return }
+  if (!mon) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: rawName })), 400); return }
   if (!mon.evolvesTo) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
   const target = mc.monsters.find(m => m.id === mon.evolvesTo)
   if (!target) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNoTarget, { monster: mon.name })), 400); return }
+  if (requestGmax && !mcIsGmaxEligible(mon.id)) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveNotFound, { monster: rawName })), 400); return }
 
   const key = String(tag || '').trim().toLowerCase()
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
-  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
-  if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: mon.name, need, owned })), 400); return }
+  const sourceId = requestGmax ? MC_GMAX_PREFIX + mon.id : mon.id
+  const targetId = requestGmax ? MC_GMAX_PREFIX + target.id : target.id
+  const owned = (mc.collections[key] && mc.collections[key][sourceId]) || 0
+  if (owned < need) { setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveFail, { monster: rawName, need, owned })), 400); return }
 
-  mc.collections[key][mon.id] -= need
-  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  mc.collections[key][sourceId] -= need
+  mc.collections[key][targetId] = (mc.collections[key][targetId] || 0) + 1
   mcSaveUserData()
-  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: mon.name, need, targetMonster: target.name })), 400)
+  const label = requestGmax ? '🌟거다이맥스 ' : ''
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgEvolveSuccess, { nickname: author, monster: label + mon.name, need, targetMonster: label + target.name })), 400)
 }
 
 // 잡기 성공 직후에 호출 — "자동 진화"가 켜져있고 조건이 채워졌으면 조용히 즉시 진화시킨다.
-// 🌈 잡기 성공 시 이 함수로 도감에 넣는다 — 희귀상자랑 같은 확률(MC_SHINY_CHANCE)로 이로치가 나온다.
+// 🌈🌟 잡기 성공 시 이 함수로 도감에 넣는다 — 희귀상자랑 같은 확률로 이로치/거다이맥스가 나온다.
+// 거다이맥스(MC_GMAX_CHANCE)는 MC_GMAX_ELIGIBLE_IDS에 있는 종만 대상이고, 그 외엔 이로치(MC_SHINY_CHANCE)만 굴린다.
 function mcGrantCaughtMonster(mc, key, monsterId) {
-  const isShiny = Math.random() < MC_SHINY_CHANCE
-  const grantId = isShiny ? MC_SHINY_PREFIX + monsterId : monsterId
+  const isGmax = mcIsGmaxEligible(monsterId) && Math.random() < MC_GMAX_CHANCE
+  const isShiny = !isGmax && Math.random() < MC_SHINY_CHANCE
+  const grantId = isGmax ? MC_GMAX_PREFIX + monsterId : (isShiny ? MC_SHINY_PREFIX + monsterId : monsterId)
   if (!mc.collections[key]) mc.collections[key] = {}
   mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
-  return { grantId, isShiny, count: mc.collections[key][grantId] }
+  return { grantId, isShiny, isGmax, count: mc.collections[key][grantId] }
 }
 
 // 🌿 보스 몬스터 — 이 방의 등록된 몬스터 중 "풀" 타입만 골라서 랜덤으로 하나 뽑는다.
@@ -3860,19 +3893,24 @@ app.post('/worldboss-admin/spawn-now', auth.requireAuth, (req, res) => {
   res.json({ success: true, count })
 })
 
-function mcCheckAutoEvolve(djId, mc, key, monsterId, author) {
+function mcCheckAutoEvolve(djId, mc, key, grantId, author) {
   if (!mc.autoEvolve) return
-  const mon = mc.monsters.find(m => m.id === monsterId)
+  const gmax = mcIsGmaxId(grantId)
+  const baseId = mcBaseIdFromGmax(grantId)
+  const mon = mc.monsters.find(m => m.id === baseId)
   if (!mon || !mon.evolvesTo) return
   const target = mc.monsters.find(m => m.id === mon.evolvesTo)
   if (!target) return
   const need = Math.max(1, parseInt(mon.evolveCount, 10) || 10)
-  const owned = (mc.collections[key] && mc.collections[key][mon.id]) || 0
+  const sourceId = gmax ? MC_GMAX_PREFIX + mon.id : mon.id
+  const targetId = gmax ? MC_GMAX_PREFIX + target.id : target.id
+  const owned = (mc.collections[key] && mc.collections[key][sourceId]) || 0
   if (owned < need) return
-  mc.collections[key][mon.id] -= need
-  mc.collections[key][target.id] = (mc.collections[key][target.id] || 0) + 1
+  mc.collections[key][sourceId] -= need
+  mc.collections[key][targetId] = (mc.collections[key][targetId] || 0) + 1
   mcSaveUserData()
-  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: mon.name, targetMonster: target.name })), 500)
+  const label = gmax ? '🌟거다이맥스 ' : ''
+  setTimeout(() => sendChatToRoom(djId, mcFormat(mc.msgAutoEvolve, { nickname: author, monster: label + mon.name, targetMonster: label + target.name })), 500)
 }
 
 function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
@@ -3950,14 +3988,16 @@ function handleMonsterCatchShopTrigger(djId, settings, author, tag, amount, comb
       for (let i = 0; i < totalGrant; i++) {
         const picked = mcPickMonster(mc)
         if (!picked) continue
-        // ✨ 희귀상자에서만 일정 확률로 "이로치"(색다른 개체) 몬스터가 나온다. 이로치는 같은
-        // 몬스터의 일반 개체보다 공격력이 10% 더 강하고, 도감에는 별도 항목(✨이로치 OOO)으로 쌓인다.
-        const isShiny = Math.random() < MC_SHINY_CHANCE
-        const grantId = isShiny ? MC_SHINY_PREFIX + picked.id : picked.id
-        const displayName = isShiny ? `🌈이로치 ${picked.name}` : picked.name
+        // ✨🌟 희귀상자에서만 일정 확률로 "이로치"/"거다이맥스"(색다른 개체) 몬스터가 나온다. 거다이맥스는
+        // MC_GMAX_ELIGIBLE_IDS에 있는 종만 대상이고, 더 희귀하며 공격력 보너스도 더 크다. 도감에는 각각
+        // 별도 항목(🌈이로치/🌟거다이맥스 OOO)으로 쌓인다.
+        const isGmax = mcIsGmaxEligible(picked.id) && Math.random() < MC_GMAX_CHANCE
+        const isShiny = !isGmax && Math.random() < MC_SHINY_CHANCE
+        const grantId = isGmax ? MC_GMAX_PREFIX + picked.id : (isShiny ? MC_SHINY_PREFIX + picked.id : picked.id)
+        const displayName = isGmax ? `🌟거다이맥스 ${picked.name}` : (isShiny ? `🌈이로치 ${picked.name}` : picked.name)
         mc.collections[key][grantId] = (mc.collections[key][grantId] || 0) + 1
         sendChatToRoom(djId, mcFormat(mc.shop.msgBuyBox, { nickname: author, monster: displayName }))
-        if (!isShiny) mcCheckAutoEvolve(djId, mc, key, picked.id, author) // 이로치는 별도 id라 진화 체인 대상에서는 일단 제외
+        if (!isShiny) mcCheckAutoEvolve(djId, mc, key, grantId, author) // 이로치는 별도 개체로 취급해 진화 대상에서 제외(거다이맥스는 진화 가능)
       }
       mcSaveUserData()
     } else {
@@ -17883,6 +17923,29 @@ app.post('/admin/users/:djId/expiry', auth.requireAuth, (req, res) => {
   res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 설정했어요` })
 })
 
+// 관리자(sum) 전용 — 체크박스로 선택한 여러 디제이에게 같은 이용 만료일을 한 번에 설정한다.
+app.post('/admin/users/bulk-expiry', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const djIds = Array.isArray((req.body || {}).djIds) ? [...new Set(req.body.djIds.map(String))] : []
+  if (!djIds.length) return res.json({ success: false, error: '선택된 디제이가 없어요' })
+  const raw = (req.body || {}).expiresAt
+  if (!raw) return res.json({ success: false, error: '만료 일시를 선택해주세요' })
+  const parsed = new Date(raw)
+  if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  const isoExpiresAt = parsed.toISOString()
+  const isoStartAt = new Date().toISOString()
+  const notFound = []
+  let okCount = 0
+  for (const targetId of djIds) {
+    if (!store.exists(targetId)) { notFound.push(targetId); continue }
+    store.saveSettings(targetId, { expiresAt: isoExpiresAt, expiryStartAt: isoStartAt })
+    okCount++
+  }
+  res.json({ success: true, okCount, notFound })
+})
+
 // 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
 app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -20682,25 +20745,33 @@ app.get('/monsterdex/:djId/data', (req, res) => {
   const owned = collection || {}
   const dex = catalog.map(m => {
     const shinyId = MC_SHINY_PREFIX + m.id
+    const gmaxId = MC_GMAX_PREFIX + m.id
     const count = owned[m.id] || 0
     const shinyCount = owned[shinyId] || 0
+    const gmaxCount = owned[gmaxId] || 0
     // 🐾 "지금 몇 마리 있는지"(count)와 "한 번이라도 잡아본 적 있는지"(discovered)는 다르다.
     // 분해해서 0마리가 돼도 discovered는 계속 true로 남아있어서 도감 이미지가 안 사라진다.
     const discovered = Object.prototype.hasOwnProperty.call(owned, m.id)
     const shinyDiscovered = Object.prototype.hasOwnProperty.call(owned, shinyId)
+    const gmaxDiscovered = Object.prototype.hasOwnProperty.call(owned, gmaxId)
     const level = mcMonsterLevel(tag, m.id)
     const shinyLevel = mcMonsterLevel(tag, shinyId)
+    const gmaxLevel = mcMonsterLevel(tag, gmaxId)
     const resolved = discovered ? mcResolveMonster(m.id, catalog, tag) : null
     const shinyResolved = shinyDiscovered ? mcResolveMonster(shinyId, catalog, tag) : null
+    const gmaxResolved = gmaxDiscovered ? mcResolveMonster(gmaxId, catalog, tag) : null
     const basePower = Number(m.power) || 10
     return {
       id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
       count, level, power: resolved ? resolved.power : null, discovered,
       shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null, shinyDiscovered,
+      gmaxCount, gmaxLevel, gmaxPower: gmaxResolved ? gmaxResolved.power : null, gmaxDiscovered,
       selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
       shinySelected: d.selected[tag] === shinyId,
-      dismantlePoints: mcDismantlePoints(basePower, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
-      shinyDismantlePoints: mcDismantlePoints(basePower, true),
+      gmaxSelected: d.selected[tag] === gmaxId,
+      dismantlePoints: mcDismantlePoints(basePower, false, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
+      shinyDismantlePoints: mcDismantlePoints(basePower, true, false),
+      gmaxDismantlePoints: mcDismantlePoints(basePower, false, true),
     }
   })
   res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
@@ -20758,7 +20829,7 @@ app.post('/monsterdex/:djId/dismantle', (req, res) => {
   const resolved = mcResolveMonster(monsterId, catalog, tag)
   if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
   const basePower = Number(resolved.monster.power) || 10
-  const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+  const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
   // 🐾 0마리가 돼도 도감 항목 자체는 지우지 않는다(0으로만 남겨둔다) — 그래야 "한 번이라도
   // 잡았던 기록"이 도감에 계속 남아서, 이미지가 다시 안 사라지고 "분해 불가"로만 표시된다.
   collection[monsterId] = owned - count
@@ -20798,7 +20869,7 @@ app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
     const resolved = mcResolveMonster(monsterId, catalog, tag)
     if (!resolved) return res.json({ success: false, error: `알 수 없는 몬스터예요. (${monsterId})` })
     const basePower = Number(resolved.monster.power) || 10
-    const gained = mcDismantlePoints(basePower, resolved.shiny) * count
+    const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
     plan.push({ monsterId, count, gained, name: resolved.name })
   }
 
