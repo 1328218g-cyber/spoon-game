@@ -4258,12 +4258,57 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
               <label style="margin-top:0">병 용량 (개)</label>
               <input type="number" id="sjCapacity" value="60" min="10" max="300" step="5">
             </div>
-            <div style="flex:1">
-              <label style="margin-top:0">스티커 크기 (px)</label>
-              <input type="number" id="sjStickerSize" value="38" min="16" max="90" step="2">
-            </div>
           </div>
           <p class="hint">용량만큼 스티커가 쌓이면 잠깐 보여준 뒤 자동으로 비우고 다시 쌓기 시작해요. 스티커가 작게 보였다면 스티커 크기를 키워보세요 — 원본 이미지가 고화질이라 크게 키울수록 더 선명하게 보여요.</p>
+          <label>선물 표시 위치</label>
+          <select id="sjGiftPosition">
+            <option value="front">병 앞</option>
+            <option value="back">병 뒤</option>
+          </select>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⚙️ 동작 조건</span></div>
+          <label style="margin-top:0">최소 다이아 (다이아 × 콤보수 기준)</label>
+          <input type="number" id="sjMinDiamond" value="0" min="0" max="10000" step="1">
+          <p class="hint">0이면 제한 없음 — 이 값보다 작은 선물은 병에 안 들어가요.</p>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="sjComboSingleApply" style="width:auto">
+            <span>콤보 선물 단일 적용 (콤보 전체를 1개로 합쳐서 떨어뜨려요)</span>
+          </label>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📏 선물 크기</span></div>
+          <label style="margin-top:0">크기 모드</label>
+          <select id="sjSizeMode" onchange="toggleSjSizeModeFields()">
+            <option value="fixed">고정</option>
+            <option value="dynamic">동적 (다이아 값에 비례)</option>
+          </select>
+          <div id="sjFixedSizeWrap">
+            <label>스티커 크기 (px)</label>
+            <input type="number" id="sjStickerSize" value="38" min="16" max="90" step="2">
+          </div>
+          <div id="sjDynamicSizeWrap" style="display:none">
+            <div class="row" style="display:flex;gap:12px">
+              <div style="flex:1">
+                <label>동적 기본 크기(px)</label>
+                <input type="number" id="sjDynamicBaseSize" value="30" min="10" max="200" step="2">
+              </div>
+              <div style="flex:1">
+                <label>다이아 × 배율</label>
+                <input type="number" id="sjDynamicMultiplier" value="0.5" min="0" max="10" step="0.1">
+              </div>
+              <div style="flex:1">
+                <label>최대 크기(px)</label>
+                <input type="number" id="sjDynamicMaxSize" value="90" min="20" max="300" step="5">
+              </div>
+            </div>
+            <p class="hint">스티커 크기 = 동적 기본 크기 + (다이아 × 배율), 최대 크기를 넘지는 않아요.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔄 병 비우기</span></div>
+          <p class="hint" style="margin-bottom:12px">지금 쌓여있는 스티커를 바로 비워요. 지금 열려있는 모든 시청자 화면에도 동시에 반영돼요.</p>
+          <button class="btn-gray" onclick="resetStickerJar()">🔄 지금 병 비우기</button>
         </div>
         <div class="card">
           <div class="card-title"><span>🔗 오버레이 링크</span></div>
@@ -11495,7 +11540,20 @@ async function loadStickerJarSettings(){
     document.getElementById('sjScale').value=d.scale||1;
     document.getElementById('sjCapacity').value=d.capacity||60;
     document.getElementById('sjStickerSize').value=d.stickerSize||38;
+    document.getElementById('sjGiftPosition').value=d.giftPosition||'front';
+    document.getElementById('sjMinDiamond').value=d.minDiamond||0;
+    document.getElementById('sjComboSingleApply').checked=!!d.comboSingleApply;
+    document.getElementById('sjSizeMode').value=d.sizeMode||'fixed';
+    document.getElementById('sjDynamicBaseSize').value=d.dynamicBaseSize||30;
+    document.getElementById('sjDynamicMultiplier').value=d.dynamicMultiplier!=null?d.dynamicMultiplier:0.5;
+    document.getElementById('sjDynamicMaxSize').value=d.dynamicMaxSize||90;
+    toggleSjSizeModeFields();
   }catch(e){ showToast('불러오기 실패: '+e.message); }
+}
+function toggleSjSizeModeFields(){
+  const dynamic=document.getElementById('sjSizeMode').value==='dynamic';
+  document.getElementById('sjFixedSizeWrap').style.display=dynamic?'none':'block';
+  document.getElementById('sjDynamicSizeWrap').style.display=dynamic?'block':'none';
 }
 async function saveStickerJarSettings(){
   const body={
@@ -11503,12 +11561,27 @@ async function saveStickerJarSettings(){
     scale:parseFloat(document.getElementById('sjScale').value)||1,
     capacity:parseInt(document.getElementById('sjCapacity').value)||60,
     stickerSize:parseInt(document.getElementById('sjStickerSize').value)||38,
+    giftPosition:document.getElementById('sjGiftPosition').value,
+    minDiamond:parseInt(document.getElementById('sjMinDiamond').value)||0,
+    comboSingleApply:document.getElementById('sjComboSingleApply').checked,
+    sizeMode:document.getElementById('sjSizeMode').value,
+    dynamicBaseSize:parseInt(document.getElementById('sjDynamicBaseSize').value)||30,
+    dynamicMultiplier:parseFloat(document.getElementById('sjDynamicMultiplier').value)||0,
+    dynamicMaxSize:parseInt(document.getElementById('sjDynamicMaxSize').value)||90,
   };
   try{
     const res=await fetch(SERVER+'/stickerjar-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
     if(!d.success){ showToast(d.error||'저장 실패'); return; }
     showToast('저장 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function resetStickerJar(){
+  try{
+    const res=await fetch(SERVER+'/stickerjar-admin/reset',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'비우기 실패'); return; }
+    showToast('병을 비웠어요 ✓');
   }catch(e){ showToast('오류: '+e.message); }
 }
 

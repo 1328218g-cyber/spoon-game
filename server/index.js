@@ -16458,7 +16458,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
-        handleStickerJarDonation(djId, settings, author, sticker, stickerImage, comboCount)
+        handleStickerJarDonation(djId, settings, author, sticker, stickerImage, comboCount, amount)
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
@@ -23027,7 +23027,16 @@ app.get('/events', (req, res) => {
 // 열어도 똑같이 보이는 방식으로 바꿈).
 function getStickerJarSettings(djId, settings) {
   if (!settings.stickerJar) {
-    settings.stickerJar = { shape: 'classic', scale: 1, capacity: 60, stickerSize: 38 }
+    settings.stickerJar = {
+      shape: 'classic', scale: 1, capacity: 60, stickerSize: 38,
+      minDiamond: 0,           // 이 값(다이아 × 콤보수) 미만 선물은 병에 안 들어감. 0이면 제한 없음
+      comboSingleApply: false, // 켜면 콤보 선물도 1개로 합쳐서 딱 1번만 떨어짐
+      sizeMode: 'fixed',       // 'fixed' = stickerSize 고정 / 'dynamic' = 다이아 값에 비례해서 커짐
+      dynamicBaseSize: 30,     // 동적 모드일 때 기본 크기(px)
+      dynamicMultiplier: 0.5,  // 동적 모드일 때 (다이아 × 이 값)만큼 기본 크기에 더해짐
+      dynamicMaxSize: 90,      // 동적 모드일 때 아무리 커져도 이 크기를 안 넘음
+      giftPosition: 'front',   // 'front' = 병 그림 앞에 스티커 표시 / 'back' = 병 그림 뒤에 표시
+    }
     store.saveSettings(djId, { stickerJar: settings.stickerJar })
   }
   return settings.stickerJar
@@ -23036,15 +23045,22 @@ function getStickerJarSettings(djId, settings) {
 // 받아서 시작하기 때문에, 누가 언제 열어도 "지금까지 그 방에 쌓인 병"을 그대로 보게 된다.
 // 서버 메모리에만 있는 값이라(리버시 대국방 등과 같은 방식) 서버가 재시작되면 비워진다.
 const stickerJarState = new Map() // djId -> { items: [{sticker, stickerImage, nick}] }
-function handleStickerJarDonation(djId, settings, author, sticker, stickerImage, comboCount) {
+function handleStickerJarDonation(djId, settings, author, sticker, stickerImage, comboCount, amount) {
   if (!isModuleOn(settings, 'stickerjar', djId)) return
   const sj = getStickerJarSettings(djId, settings)
   const capacity = sj.capacity || 60
+  const unitAmount = Number(amount) || 0
+  const times = Math.max(1, comboCount || 1)
+  // 💰 최소 다이아 기준 — 다이아 × 콤보수 합계가 이 값보다 작으면 병에 안 들어간다 (0이면 제한 없음)
+  const minDiamond = sj.minDiamond || 0
+  if (minDiamond > 0 && unitAmount * times < minDiamond) return
   let state = stickerJarState.get(djId)
   if (!state) { state = { items: [] }; stickerJarState.set(djId, state) }
-  const times = Math.max(1, comboCount || 1)
-  for (let i = 0; i < times; i++) {
-    state.items.push({ sticker, stickerImage, nick: author })
+  // 🔗 콤보선물 단일 적용 — 켜져있으면 콤보 전체를 하나로 합쳐서 딱 1개만 떨어뜨리고,
+  // 그 1개의 크기는(동적 모드일 때) 콤보 합산 다이아 값 기준으로 커진다.
+  const pushes = sj.comboSingleApply ? [{ n: 1, amt: unitAmount * times }] : Array.from({ length: times }, () => ({ n: 1, amt: unitAmount }))
+  for (const p of pushes) {
+    state.items.push({ sticker, stickerImage, nick: author, amount: p.amt })
     if (state.items.length >= capacity) {
       // 병이 꽉 찼다 — 지금 열려있는 모든 화면에 "비우기" 신호를 동시에 보내서 다 같이 쏟아지는
       // 걸 보게 한 다음, 서버 쪽 목록도 같이 비운다.
@@ -23056,19 +23072,26 @@ function handleStickerJarDonation(djId, settings, author, sticker, stickerImage,
 app.get('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const sj = getStickerJarSettings(req.djId, settings)
-  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity, stickerSize: sj.stickerSize || 38 })
+  res.json({ success: true, ...sj })
 })
 app.post('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const sj = getStickerJarSettings(req.djId, settings)
-  const { shape, scale, capacity, stickerSize } = req.body || {}
+  const { shape, scale, capacity, stickerSize, minDiamond, comboSingleApply, sizeMode, dynamicBaseSize, dynamicMultiplier, dynamicMaxSize, giftPosition } = req.body || {}
   const VALID_SHAPES = ['classic', 'round', 'heart', 'star', 'diamond', 'cloud', 'custom']
   if (VALID_SHAPES.includes(shape)) sj.shape = shape
   if (scale != null) sj.scale = Math.max(0.3, Math.min(3, Number(scale) || 1))
   if (capacity != null) sj.capacity = Math.max(10, Math.min(300, parseInt(capacity) || 60))
   if (stickerSize != null) sj.stickerSize = Math.max(16, Math.min(90, parseInt(stickerSize) || 38))
+  if (minDiamond != null) sj.minDiamond = Math.max(0, Math.min(10000, parseInt(minDiamond) || 0))
+  if (comboSingleApply != null) sj.comboSingleApply = !!comboSingleApply
+  if (['fixed', 'dynamic'].includes(sizeMode)) sj.sizeMode = sizeMode
+  if (dynamicBaseSize != null) sj.dynamicBaseSize = Math.max(10, Math.min(200, parseInt(dynamicBaseSize) || 30))
+  if (dynamicMultiplier != null) sj.dynamicMultiplier = Math.max(0, Math.min(10, Number(dynamicMultiplier) || 0))
+  if (dynamicMaxSize != null) sj.dynamicMaxSize = Math.max(20, Math.min(300, parseInt(dynamicMaxSize) || 90))
+  if (['front', 'back'].includes(giftPosition)) sj.giftPosition = giftPosition
   store.saveSettings(req.djId, { stickerJar: sj })
-  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity, stickerSize: sj.stickerSize })
+  res.json({ success: true, ...sj })
 })
 // 오버레이 페이지 쪽에서 부르는 공개(로그인 불필요) 버전 — 위 관리자용이랑 값은 같지만, 이건
 // 누구나(시청자 브라우저, OBS 등) 열람만 가능하고 저장은 못 하게 별도 경로로 뒀다.
@@ -23076,7 +23099,7 @@ app.get('/stickerjar/:djId/settings', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
   const sj = getStickerJarSettings(djId, settings)
-  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity, stickerSize: sj.stickerSize || 38 })
+  res.json({ success: true, ...sj })
 })
 // 🫙 지금까지 그 방에 쌓인 스티커 목록 — 오버레이 페이지가 열릴 때 이걸 먼저 불러다가 자기
 // 화면에 그대로 재현해서, 방금 접속한 사람도 이미 쌓여있던 걸 보게 한다.
@@ -23084,26 +23107,17 @@ app.get('/stickerjar/:djId/state', (req, res) => {
   const state = stickerJarState.get(req.params.djId)
   res.json({ success: true, items: (state && state.items) || [] })
 })
+// 🔄 관리자가 대시보드에서 바로 병을 비울 수 있는 기능 — 지금 열려있는 모든 오버레이 화면에
+// "비우라"는 신호를 동시에 보내고, 서버 쪽에 쌓아둔 목록도 같이 지운다.
+app.post('/stickerjar-admin/reset', auth.requireAuth, (req, res) => {
+  stickerJarState.delete(req.djId)
+  broadcast({ type: 'stickerjar_reset', djId: req.djId })
+  res.json({ success: true })
+})
 
 // 🍯 스티커 유리병 오버레이 — 방송 중 들어오는 선물(스티커)을 실시간으로 유리병에 떨어뜨려서
 // 쌓아 보여주는 OBS 브라우저 소스용 페이지. 새 데이터 저장 없이, 이미 있는 실시간 선물 이벤트
 // (broadcast type:'donation')를 그대로 화면에 옮겨 그리기만 한다 — 그래서 로그인/인증도 필요 없다.
-// 🧪 관리자(sum) 전용 — 실제 선물 없이도 유리병을 테스트할 수 있게, 골라둔 스티커를 방금 받은
-// 선물인 것처럼 흉내낸다. 실제 선물이랑 완전히 같은 broadcast(type:'donation')를 그대로 쏘기 때문에
-// 열려있는 /stickerjar/:djId 페이지 입장에선 진짜 선물이 들어온 것과 구분이 안 된다 — 그래서 이
-// 오버레이 쪽 코드는 하나도 안 건드려도 된다.
-app.post('/stickerjar/:djId/test-gift', auth.requireAuth, async (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const djId = req.params.djId
-  const sticker = String((req.body || {}).sticker || '').trim()
-  if (!sticker) return res.json({ success: false, error: '스티커를 선택해주세요.' })
-  const comboCount = Math.max(1, parseInt((req.body || {}).comboCount) || 1)
-  const stickerImage = await findStickerImage(sticker)
-  broadcast({ type: 'donation', djId, nick: '관리자 테스트', amount: 1, comboCount, sticker, stickerImage, profileUrl: '' })
-  const settings = store.getSettings(djId) || {}
-  handleStickerJarDonation(djId, settings, '관리자 테스트', sticker, stickerImage, comboCount)
-  res.json({ success: true })
-})
 app.get('/stickerjar/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/stickerjar.html')
 })

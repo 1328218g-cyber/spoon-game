@@ -22,25 +22,6 @@
     transition:opacity .25s;pointer-events:none;display:flex;align-items:center;gap:8px}
   #latestToast.show{opacity:1}
   #latestToast img{width:22px;height:22px;border-radius:50%}
-
-  /* 🧪 관리자 전용 테스트 피커 — sum 계정으로 열었을 때만 보인다 */
-  #testBtn{position:fixed;left:14px;bottom:14px;background:rgba(30,24,38,.85);color:#f2eefb;
-    border:1px solid #382e46;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:700;cursor:pointer;z-index:20}
-  #testBtn:hover{background:#2c2438}
-  #testModalOverlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;
-    justify-content:center;z-index:30;padding:20px}
-  #testModalOverlay.show{display:flex}
-  #testModalBox{background:#1e1826;border:1px solid #382e46;border-radius:16px;padding:16px;
-    width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;gap:10px;color:#f2eefb}
-  #testModalBox h3{margin:0;font-size:15px;display:flex;justify-content:space-between;align-items:center}
-  #testModalBox h3 span.x{cursor:pointer;color:#a99cc2;font-weight:400}
-  #testStickerSearch{width:100%;background:#241d30;border:1px solid #382e46;border-radius:8px;
-    color:#f2eefb;padding:9px 12px;font-size:13px}
-  #testStickerGrid{overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:2px}
-  .testStickerCard{background:#241d30;border:1px solid #382e46;border-radius:10px;padding:8px;
-    text-align:center;cursor:pointer;font-size:10.5px}
-  .testStickerCard:hover{background:#2c2438}
-  .testStickerCard img{width:36px;height:36px;object-fit:contain;margin-bottom:4px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 </head>
@@ -53,16 +34,6 @@
   </div>
 </div>
 <div id="latestToast"></div>
-
-<!-- 🧪 관리자(sum) 전용 테스트 UI — JS에서 djId==='sum'일 때만 화면에 붙인다 -->
-<button id="testBtn" style="display:none" onclick="openTestPicker()">🧪 테스트 선물 보내기</button>
-<div id="testModalOverlay" onclick="if(event.target===this)closeTestPicker()">
-  <div id="testModalBox">
-    <h3>🧪 테스트할 선물 선택 <span class="x" onclick="closeTestPicker()">✕</span></h3>
-    <input type="text" id="testStickerSearch" placeholder="스티커 이름 검색" oninput="renderTestStickerGrid()">
-    <div id="testStickerGrid"></div>
-  </div>
-</div>
 
 <script>
 const djId = location.pathname.split('/').filter(Boolean)[1] || '';
@@ -154,6 +125,13 @@ function setupWalls(bounds){
   Composite.add(engine.world, [floorBody, leftWallBody, rightWallBody]);
 }
 
+function applyGiftPosition(pos){
+  // 병 앞(front)이면 캔버스가 병 그림보다 위(나중에 그려짐), 병 뒤(back)면 그 반대
+  canvas.style.zIndex = pos === 'back' ? '0' : '2';
+  svg.style.zIndex = pos === 'back' ? '2' : '0';
+  const imgEl = document.getElementById('customJarImg');
+  if(imgEl) imgEl.style.zIndex = pos === 'back' ? '2' : '0';
+}
 function applyShape(key){
   const shape = JAR_SHAPES[key] || JAR_SHAPES.classic;
   currentShape = shape;
@@ -192,6 +170,10 @@ function applyScale(scale){
   const final = (urlScaleOverride && urlScaleOverride > 0) ? urlScaleOverride : scale;
   if(final && final > 0) document.documentElement.style.setProperty('--jarScale', final);
 }
+let SIZE_MODE = 'fixed';
+let DYNAMIC_BASE = 30, DYNAMIC_MULT = 0.5, DYNAMIC_MAX = 90;
+let COMBO_SINGLE = false;
+let MIN_DIAMOND = 0;
 // 🍯 병 모양·크기·용량은 관리자 대시보드에서 설정한 값을 그대로 불러다 쓴다 (DJ가 한 곳에서
 // 정하면 어디서 열어도 똑같이 보이도록 서버 설정으로 관리한다).
 async function loadServerSettings(){
@@ -201,13 +183,21 @@ async function loadServerSettings(){
     if(d.success){
       applyShape(d.shape || 'classic');
       applyScale(d.scale || 1);
+      applyGiftPosition(d.giftPosition || 'front');
       CAPACITY = d.capacity || 60;
       STICKER_RADIUS = (d.stickerSize || 38) / 2;
+      SIZE_MODE = d.sizeMode || 'fixed';
+      DYNAMIC_BASE = d.dynamicBaseSize || 30;
+      DYNAMIC_MULT = d.dynamicMultiplier != null ? d.dynamicMultiplier : 0.5;
+      DYNAMIC_MAX = d.dynamicMaxSize || 90;
+      COMBO_SINGLE = !!d.comboSingleApply;
+      MIN_DIAMOND = d.minDiamond || 0;
       return;
     }
   }catch(e){ /* 불러오기 실패하면 기본값(클래식 병, 배율 1, 60개)으로 그냥 진행 */ }
   applyShape('classic');
   applyScale(1);
+  applyGiftPosition('front');
 }
 
 function showToast(nick, imgUrl){
@@ -245,12 +235,17 @@ function emptyJarSpill(){
   }, 900);
 }
 
-function dropOne(nick, imgUrl){
+function computeRadius(amount){
+  if(SIZE_MODE !== 'dynamic') return STICKER_RADIUS;
+  const size = Math.min(DYNAMIC_MAX, DYNAMIC_BASE + (Number(amount)||0) * DYNAMIC_MULT);
+  return Math.max(8, size) / 2;
+}
+function dropOne(nick, imgUrl, amount){
   count++;
   updateCountBadge();
   const b = currentShape.bounds;
   const x = b.left + 20 + Math.random()*Math.max(10, b.right-b.left-40);
-  const radius = STICKER_RADIUS;
+  const radius = computeRadius(amount);
   const spawn = (texture, natW, natH) => {
     const opts = { restitution:0.22, friction:0.55, frictionAir:0.018, density:0.0025 };
     opts.render = texture
@@ -284,8 +279,14 @@ function connect(){
     }
     if(d.type !== 'donation') return;
     const times = Math.max(1, Number(d.comboCount)||1);
+    const unitAmount = Number(d.amount) || 0;
+    if(MIN_DIAMOND > 0 && unitAmount * times < MIN_DIAMOND) return; // 관리자가 정한 최소 다이아 기준 미달 — 병에 안 들어감
     showToast(d.nick || '시청자', d.stickerImage);
-    for(let i=0;i<times;i++) setTimeout(()=>dropOne(d.nick || '시청자', d.stickerImage), i*90);
+    if(COMBO_SINGLE){
+      dropOne(d.nick || '시청자', d.stickerImage, unitAmount * times);
+    } else {
+      for(let i=0;i<times;i++) setTimeout(()=>dropOne(d.nick || '시청자', d.stickerImage, unitAmount), i*90);
+    }
   };
   es.onerror = () => { /* 브라우저가 자동으로 재연결 시도함 — 별도 처리 불필요 */ };
 }
@@ -296,7 +297,7 @@ async function loadCatchUpState(){
     const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/state');
     const d = await res.json();
     if(d.success && Array.isArray(d.items)){
-      d.items.forEach((it, i) => setTimeout(()=>dropOne(it.nick||'시청자', it.stickerImage), i*35));
+      d.items.forEach((it, i) => setTimeout(()=>dropOne(it.nick||'시청자', it.stickerImage, it.amount||0), i*35));
     }
   }catch(e){ /* 실패해도 그냥 빈 병에서부터 시작 */ }
 }
@@ -309,61 +310,6 @@ if(!djId){
     await loadCatchUpState();
     connect();
   })();
-  if(djId === 'sum') document.getElementById('testBtn').style.display = 'block';
-}
-
-/* ── 🧪 관리자 전용 테스트 선물 피커 ── */
-let testStickerData = [];
-async function loadTestStickerData(){
-  if(testStickerData.length) return testStickerData;
-  try{
-    const res = await fetch('/stickers');
-    const d = await res.json();
-    if(d.success && Array.isArray(d.stickers)) testStickerData = d.stickers;
-  }catch(e){ /* 실패하면 빈 목록으로 안내 문구만 뜸 */ }
-  return testStickerData;
-}
-async function openTestPicker(){
-  document.getElementById('testModalOverlay').classList.add('show');
-  document.getElementById('testStickerSearch').value = '';
-  await loadTestStickerData();
-  renderTestStickerGrid();
-}
-function closeTestPicker(){
-  document.getElementById('testModalOverlay').classList.remove('show');
-}
-function renderTestStickerGrid(){
-  const grid = document.getElementById('testStickerGrid');
-  const keyword = (document.getElementById('testStickerSearch').value||'').toLowerCase().trim();
-  let list = testStickerData;
-  if(keyword) list = list.filter(s => (s.name||'').toLowerCase().includes(keyword) || (s.title||'').toLowerCase().includes(keyword));
-  if(!list.length){ grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:#a99cc2;font-size:12px">스티커가 없어요.</div>'; return; }
-  grid.innerHTML = '';
-  list.slice(0, 120).forEach(s => {
-    const card = document.createElement('div');
-    card.className = 'testStickerCard';
-    card.innerHTML = `<img src="${s.image||''}" onerror="this.style.visibility='hidden'"><div>${escapeHtml(s.title||s.name)}</div>`;
-    card.onclick = () => sendTestGift(s.name);
-    grid.appendChild(card);
-  });
-}
-async function sendTestGift(stickerName){
-  closeTestPicker();
-  try{
-    const token = localStorage.getItem('djToken') || sessionStorage.getItem('djToken') || '';
-    const headers = {'Content-Type':'application/json'};
-    if(token) headers['Authorization'] = 'Bearer '+token;
-    const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/test-gift', {
-      method:'POST', headers, body:JSON.stringify({sticker: stickerName})
-    });
-    if(res.status === 401 || res.status === 403){
-      showPlainToast('⚠️ 관리자 로그인이 필요해요 (같은 브라우저에서 관리자 대시보드에 먼저 로그인해주세요)');
-      return;
-    }
-    if(!res.ok){ showPlainToast('⚠️ 테스트 요청 실패 (서버 오류 '+res.status+')'); return; }
-    const d = await res.json();
-    if(!d.success) showPlainToast('⚠️ '+(d.error||'테스트 실패'));
-  }catch(e){ showPlainToast('⚠️ 요청 중 오류: '+e.message); }
 }
 </script>
 </body>
