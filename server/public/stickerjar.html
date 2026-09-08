@@ -106,7 +106,7 @@ const JAR_SHAPES = {
   },
   custom: {
     label: '🖼️ 커스텀(내 이미지)',
-    image: '/images/stickerjar/custom.png',
+    // image URL은 관리자 설정에서 업로드한 걸 그때그때 넘겨받는다 (applyShape의 두 번째 인자)
     // 🎯 그림마다 윤곽이 다 달라서 자동으로 정확히 안 맞는다 — 아래 4개 숫자를 실제 이미지 안에서
     // "스티커가 쌓여도 되는 네모 영역"에 맞게 직접 조정하면 된다 (0~280이 가로, 0~360이 세로 기준).
     bounds:{left:60,right:220,bottom:330,fullTop:100},
@@ -132,12 +132,12 @@ function applyGiftPosition(pos){
   const imgEl = document.getElementById('customJarImg');
   if(imgEl) imgEl.style.zIndex = pos === 'back' ? '2' : '0';
 }
-function applyShape(key){
+function applyShape(key, customImageUrl){
   const shape = JAR_SHAPES[key] || JAR_SHAPES.classic;
   currentShape = shape;
-  if(shape.image){
-    // 🖼️ 커스텀 이미지 모드 — SVG 대신 그림 파일을 그대로 보여준다. 정확한 윤곽으로 캔버스를
-    // 자르는(clip) 건 안 하고, 위에서 정한 사각형 영역(bounds) 안에서만 물리적으로 쌓이게 한다.
+  if(key === 'custom'){
+    // 🖼️ 커스텀 이미지 모드 — SVG 대신 관리자가 업로드한 그림을 그대로 보여준다. 정확한 윤곽으로
+    // 캔버스를 자르는(clip) 건 안 하고, 위에서 정한 사각형 영역(bounds) 안에서만 물리적으로 쌓이게 한다.
     svg.innerHTML = '';
     svg.style.display = 'none';
     let imgEl = document.getElementById('customJarImg');
@@ -147,9 +147,14 @@ function applyShape(key){
       imgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:0';
       document.getElementById('jarWrap').insertBefore(imgEl, canvas);
     }
-    imgEl.style.display = 'block';
-    imgEl.src = shape.image;
-    imgEl.onerror = () => { imgEl.style.display = 'none'; showPlainToast('⚠️ /images/stickerjar/custom.png 파일이 없어요'); };
+    if(customImageUrl){
+      imgEl.style.display = 'block';
+      imgEl.src = customImageUrl;
+      imgEl.onerror = () => { imgEl.style.display = 'none'; showPlainToast('⚠️ 관리자 설정에서 병 이미지를 먼저 업로드해주세요'); };
+    } else {
+      imgEl.style.display = 'none';
+      showPlainToast('⚠️ 관리자 설정에서 병 이미지를 먼저 업로드해주세요');
+    }
     canvas.style.clipPath = 'none';
   } else {
     svg.style.display = 'block';
@@ -181,7 +186,7 @@ async function loadServerSettings(){
     const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/settings');
     const d = await res.json();
     if(d.success){
-      applyShape(d.shape || 'classic');
+      applyShape(d.shape || 'classic', d.customImageUrl || '');
       applyScale(d.scale || 1);
       applyGiftPosition(d.giftPosition || 'front');
       CAPACITY = d.capacity || 60;

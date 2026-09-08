@@ -4239,7 +4239,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title"><span>🍯 스티커 유리병 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveStickerJarSettings()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:12px">방송 중 들어오는 선물이 실시간으로 유리병에 쌓이는 걸 보여주는 OBS 브라우저 소스용 오버레이예요. 아래에서 정한 값이 오버레이에 그대로 적용돼요 (브라우저마다 따로 설정할 필요 없음).</p>
           <label style="margin-top:0">병 모양</label>
-          <select id="sjShape">
+          <select id="sjShape" onchange="toggleSjCustomImageWrap()">
             <option value="classic">🫙 클래식 병</option>
             <option value="round">🍯 동그란 단지</option>
             <option value="heart">💜 하트 유리병</option>
@@ -4248,7 +4248,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <option value="cloud">☁️ 구름 유리병</option>
             <option value="custom">🖼️ 커스텀(내 이미지)</option>
           </select>
-          <p class="hint">커스텀을 고르면 <code>public/images/stickerjar/custom.png</code> 경로에 올려둔 이미지를 그대로 써요.</p>
+          <div id="sjCustomImageWrap" style="display:none;margin-top:10px">
+            <label>병 이미지 업로드</label>
+            <div id="sjCustomImagePreviewWrap" style="margin-bottom:8px"></div>
+            <input type="file" id="sjCustomImageFile" accept="image/*" onchange="uploadSjCustomImage(this.files[0])">
+            <p class="hint">배경이 투명한 PNG를 권장해요. 스티커가 정확히 그림 윤곽 안에만 쌓이도록 자동으로 잘라주지는 못해서, 대략 사각형 영역 안에 쌓여요.</p>
+          </div>
           <div class="row" style="display:flex;gap:12px;margin-top:10px">
             <div style="flex:1">
               <label style="margin-top:0">병 크기 배율</label>
@@ -11547,13 +11552,44 @@ async function loadStickerJarSettings(){
     document.getElementById('sjDynamicBaseSize').value=d.dynamicBaseSize||30;
     document.getElementById('sjDynamicMultiplier').value=d.dynamicMultiplier!=null?d.dynamicMultiplier:0.5;
     document.getElementById('sjDynamicMaxSize').value=d.dynamicMaxSize||90;
+    sjCustomImageUrl=d.customImageUrl||'';
+    renderSjCustomImagePreview();
     toggleSjSizeModeFields();
+    toggleSjCustomImageWrap();
   }catch(e){ showToast('불러오기 실패: '+e.message); }
 }
 function toggleSjSizeModeFields(){
   const dynamic=document.getElementById('sjSizeMode').value==='dynamic';
   document.getElementById('sjFixedSizeWrap').style.display=dynamic?'none':'block';
   document.getElementById('sjDynamicSizeWrap').style.display=dynamic?'block':'none';
+}
+function toggleSjCustomImageWrap(){
+  document.getElementById('sjCustomImageWrap').style.display=document.getElementById('sjShape').value==='custom'?'block':'none';
+}
+let sjCustomImageUrl='';
+function renderSjCustomImagePreview(){
+  const wrap=document.getElementById('sjCustomImagePreviewWrap');
+  wrap.innerHTML=sjCustomImageUrl
+    ? `<img src="${sjCustomImageUrl}" style="max-width:120px;max-height:160px;border-radius:8px;border:1px solid var(--border)">`
+    : '<p class="hint" style="margin:0">아직 업로드한 이미지가 없어요.</p>';
+}
+async function uploadSjCustomImage(file){
+  if(!file)return;
+  if(file.size>60*1024*1024){ showToast('60MB 이하 이미지만 업로드할 수 있어요'); return; }
+  try{
+    const dataUrl=await new Promise((resolve,reject)=>{
+      const r=new FileReader();
+      r.onload=()=>resolve(r.result);
+      r.onerror=reject;
+      r.readAsDataURL(file);
+    });
+    const res=await fetch(SERVER+'/images/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({dataUrl,filename:file.name})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'업로드 실패'); return; }
+    sjCustomImageUrl=d.url;
+    renderSjCustomImagePreview();
+    showToast('이미지 업로드 완료 ✓ 저장을 눌러야 반영돼요');
+  }catch(e){ showToast('업로드 오류: '+e.message); }
 }
 async function saveStickerJarSettings(){
   const body={
@@ -11568,6 +11604,7 @@ async function saveStickerJarSettings(){
     dynamicBaseSize:parseInt(document.getElementById('sjDynamicBaseSize').value)||30,
     dynamicMultiplier:parseFloat(document.getElementById('sjDynamicMultiplier').value)||0,
     dynamicMaxSize:parseInt(document.getElementById('sjDynamicMaxSize').value)||90,
+    customImageUrl:sjCustomImageUrl,
   };
   try{
     const res=await fetch(SERVER+'/stickerjar-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});

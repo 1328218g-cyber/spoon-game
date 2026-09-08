@@ -7525,10 +7525,13 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     return
   }
 
-  // !추석1 / !추석2 / !추석3 (커맨드 앞부분은 ev.cmdRoundPrefix로 커스텀 가능 — 기본값 "추석")
+  // !추석1 / !추석2 / !추석3 / ... (커맨드 앞부분은 ev.cmdRoundPrefix로 커스텀 가능 — 기본값 "추석")
+  // 🆕 라운드 개수가 3개로 고정이 아니게 됐는데 이 정규식이 [123]으로 박혀있어서 4라운드부터는
+  // 명령어 자체가 안 먹혔다 — 실제 등록된 라운드 개수(ev.rounds.length)까지는 몇 자리 숫자든 인식하게 고침.
   const roundPrefix = ev.cmdRoundPrefix || '추석'
-  if (cmd.startsWith(roundPrefix) && /^[123]$/.test(cmd.slice(roundPrefix.length))) {
+  if (cmd.startsWith(roundPrefix) && /^\d+$/.test(cmd.slice(roundPrefix.length))) {
     const roundNum = Number(cmd.slice(roundPrefix.length))
+    if (roundNum < 1 || roundNum > ev.rounds.length) return // 등록 안 된 라운드 번호면 무시
     const r = ev.rounds[roundNum - 1]
     const scoreA = chuseokTeamMembers(ev, roundNum, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
     const scoreB = chuseokTeamMembers(ev, roundNum, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
@@ -23036,6 +23039,7 @@ function getStickerJarSettings(djId, settings) {
       dynamicMultiplier: 0.5,  // 동적 모드일 때 (다이아 × 이 값)만큼 기본 크기에 더해짐
       dynamicMaxSize: 90,      // 동적 모드일 때 아무리 커져도 이 크기를 안 넘음
       giftPosition: 'front',   // 'front' = 병 그림 앞에 스티커 표시 / 'back' = 병 그림 뒤에 표시
+      customImageUrl: '',      // 커스텀 병 모양 — 관리자 화면에서 업로드한 이미지 URL(/images/...)
     }
     store.saveSettings(djId, { stickerJar: settings.stickerJar })
   }
@@ -23077,7 +23081,7 @@ app.get('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
 app.post('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const sj = getStickerJarSettings(req.djId, settings)
-  const { shape, scale, capacity, stickerSize, minDiamond, comboSingleApply, sizeMode, dynamicBaseSize, dynamicMultiplier, dynamicMaxSize, giftPosition } = req.body || {}
+  const { shape, scale, capacity, stickerSize, minDiamond, comboSingleApply, sizeMode, dynamicBaseSize, dynamicMultiplier, dynamicMaxSize, giftPosition, customImageUrl } = req.body || {}
   const VALID_SHAPES = ['classic', 'round', 'heart', 'star', 'diamond', 'cloud', 'custom']
   if (VALID_SHAPES.includes(shape)) sj.shape = shape
   if (scale != null) sj.scale = Math.max(0.3, Math.min(3, Number(scale) || 1))
@@ -23090,6 +23094,7 @@ app.post('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
   if (dynamicMultiplier != null) sj.dynamicMultiplier = Math.max(0, Math.min(10, Number(dynamicMultiplier) || 0))
   if (dynamicMaxSize != null) sj.dynamicMaxSize = Math.max(20, Math.min(300, parseInt(dynamicMaxSize) || 90))
   if (['front', 'back'].includes(giftPosition)) sj.giftPosition = giftPosition
+  if (typeof customImageUrl === 'string') sj.customImageUrl = customImageUrl.slice(0, 300)
   store.saveSettings(req.djId, { stickerJar: sj })
   res.json({ success: true, ...sj })
 })
