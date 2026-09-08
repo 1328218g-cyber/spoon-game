@@ -211,6 +211,9 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
   <button class="menuBtn" id="btnTabBoard" onclick="switchTab('board')">
     <span class="mIcon">🏆</span><span>박제판</span>
   </button>
+  <button class="menuBtn" id="btnTabJar" onclick="switchTab('jar')">
+    <span class="mIcon">🍯</span><span>유리병</span>
+  </button>
 </div>
 
 <div class="wrap">
@@ -322,6 +325,13 @@ h1,h2,h3,.card-title,.calMonthLabel,.top .title,.nick{font-family:'Jua','Noto Sa
     <div class="card hidden" id="tabBoardPanel">
       <div class="card-title">🏆 박제판</div>
       <div id="boardLinkBox"><div class="emptyList">불러오는 중...</div></div>
+    </div>
+
+    <!-- 🍯 유리병 탭: 방송 중 들어오는 선물이 실시간으로 쌓이는 오버레이 화면을 그대로 iframe으로 보여준다
+         (stickerjar.html이 이미 SSE로 실시간 처리하는 독립 페이지라 새로 안 만들고 그대로 재사용) -->
+    <div class="card hidden" id="tabJarPanel">
+      <div class="card-title">🍯 스티커 유리병</div>
+      <iframe id="jarFrame" src="" style="width:100%;height:420px;border:0;border-radius:12px;background:#0d0f14"></iframe>
     </div>
 
     <div class="footNote">15초마다 자동으로 최신 정보를 불러와요</div>
@@ -566,7 +576,7 @@ function fallbackCopy(text, cb){
 }
 
 // 킵목록 / 포스트 / 게임 / 룰렛정보 / 캘린더 / 박제판 탭 전환 — 포스트·게임·룰렛정보·캘린더·박제판은 처음 열 때 한 번만 불러온다
-let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, boardLoaded = false, initialTabSet = false;
+let gamesLoaded = false, roulettesLoaded = false, postsLoaded = false, calLoaded = false, boardLoaded = false, jarLoaded = false, initialTabSet = false;
 function switchTab(name){
   document.getElementById('btnTabKeep').classList.toggle('active', name === 'keep');
   document.getElementById('btnTabPost').classList.toggle('active', name === 'post');
@@ -574,6 +584,7 @@ function switchTab(name){
   document.getElementById('btnTabRoulette').classList.toggle('active', name === 'roulette');
   document.getElementById('btnTabCal').classList.toggle('active', name === 'cal');
   document.getElementById('btnTabBoard').classList.toggle('active', name === 'board');
+  document.getElementById('btnTabJar').classList.toggle('active', name === 'jar');
   document.getElementById('profileCard').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabKeepPanel').classList.toggle('hidden', name !== 'keep');
   document.getElementById('tabPostPanel').classList.toggle('hidden', name !== 'post');
@@ -581,11 +592,13 @@ function switchTab(name){
   document.getElementById('tabRoulettePanel').classList.toggle('hidden', name !== 'roulette');
   document.getElementById('tabCalPanel').classList.toggle('hidden', name !== 'cal');
   document.getElementById('tabBoardPanel').classList.toggle('hidden', name !== 'board');
+  document.getElementById('tabJarPanel').classList.toggle('hidden', name !== 'jar');
   if(name === 'post' && !postsLoaded){ postsLoaded = true; loadPosts(); initDjWrite(); }
   if(name === 'game' && !gamesLoaded){ gamesLoaded = true; loadGames(); }
   if(name === 'roulette' && !roulettesLoaded){ roulettesLoaded = true; loadRoulettes(); }
   if(name === 'cal' && !calLoaded){ calLoaded = true; loadCalendar(); }
   if(name === 'board' && !boardLoaded){ boardLoaded = true; loadBoardLink(); }
+  if(name === 'jar' && !jarLoaded){ jarLoaded = true; document.getElementById('jarFrame').src = location.origin + '/stickerjar/' + encodeURIComponent(DJ_ID); }
 }
 
 // 🏆 박제판 바로가기 카드 — 그 방에 박제판이 켜져있고 공개된 상태일 때만 링크를 보여준다.

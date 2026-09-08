@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스티커 유리병</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{ --glassEdge:#eaf6ff; }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:transparent;min-height:100%;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  #stage{position:relative;width:100%;height:100vh;display:flex;align-items:flex-end;justify-content:center;padding-bottom:24px}
+
+  #jarWrap{position:relative;width:280px;height:360px}
+  #jarSvg{position:absolute;inset:0;width:100%;height:100%}
+  #stickerLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+    clip-path:path('M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z')}
+  .sticker{position:absolute;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:20px;background:radial-gradient(circle at 32% 28%,#fff,#ffd873 70%);
+    box-shadow:0 2px 4px rgba(0,0,0,.35);overflow:hidden;will-change:transform,top}
+  .sticker img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+  #countBadge{position:absolute;top:-34px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);
+    color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}
+  #latestToast{position:fixed;top:24px;left:50%;transform:translateX(-50%);background:rgba(20,16,24,.85);
+    color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;
+    transition:opacity .25s;pointer-events:none;display:flex;align-items:center;gap:8px}
+  #latestToast.show{opacity:1}
+  #latestToast img{width:22px;height:22px;border-radius:50%}
+
+  /* 🧪 관리자 전용 테스트 피커 — sum 계정으로 열었을 때만 보인다 */
+  #testBtn{position:fixed;left:14px;bottom:14px;background:rgba(30,24,38,.85);color:#f2eefb;
+    border:1px solid #382e46;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:700;cursor:pointer;z-index:20}
+  #testBtn:hover{background:#2c2438}
+  #testModalOverlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;
+    justify-content:center;z-index:30;padding:20px}
+  #testModalOverlay.show{display:flex}
+  #testModalBox{background:#1e1826;border:1px solid #382e46;border-radius:16px;padding:16px;
+    width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;gap:10px;color:#f2eefb}
+  #testModalBox h3{margin:0;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+  #testModalBox h3 span.x{cursor:pointer;color:#a99cc2;font-weight:400}
+  #testStickerSearch{width:100%;background:#241d30;border:1px solid #382e46;border-radius:8px;
+    color:#f2eefb;padding:9px 12px;font-size:13px}
+  #testStickerGrid{overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:2px}
+  .testStickerCard{background:#241d30;border:1px solid #382e46;border-radius:10px;padding:8px;
+    text-align:center;cursor:pointer;font-size:10.5px}
+  .testStickerCard:hover{background:#2c2438}
+  .testStickerCard img{width:36px;height:36px;object-fit:contain;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="jarWrap">
+    <div id="countBadge">🍬 0개 모음</div>
+    <svg id="jarSvg" viewBox="0 0 280 360">
+      <path d="M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z"
+            fill="rgba(191,227,255,0.10)" stroke="var(--glassEdge)" stroke-width="3"/>
+      <rect x="95" y="4" width="90" height="20" rx="8" fill="rgba(191,227,255,0.14)" stroke="var(--glassEdge)" stroke-width="3"/>
+      <path d="M50,90 Q45,180 50,300" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="8" stroke-linecap="round"/>
+    </svg>
+    <div id="stickerLayer"></div>
+  </div>
+</div>
+<div id="latestToast"></div>
+
+<!-- 🧪 관리자(sum) 전용 테스트 UI — JS에서 djId==='sum'일 때만 화면에 붙인다 -->
+<button id="testBtn" style="display:none" onclick="openTestPicker()">🧪 테스트 선물 보내기</button>
+<div id="testModalOverlay" onclick="if(event.target===this)closeTestPicker()">
+  <div id="testModalBox">
+    <h3>🧪 테스트할 선물 선택 <span class="x" onclick="closeTestPicker()">✕</span></h3>
+    <input type="text" id="testStickerSearch" placeholder="스티커 이름 검색" oninput="renderTestStickerGrid()">
+    <div id="testStickerGrid"></div>
+  </div>
+</div>
+
+<script>
+const djId = location.pathname.split('/').filter(Boolean)[1] || '';
+const FALLBACK_EMOJIS = ['🍬','🍭','🍫','🧁','🍩','🍪','🎀','⭐'];
+const CAPACITY = 60; // 이 개수만큼 쌓이면 병이 꽉 참 — 꽉 차면 자동으로 비우고 다시 쌓기 시작
+let count = 0;
+const layer = document.getElementById('stickerLayer');
+const jarInnerTop = 40, jarInnerBottom = 335, jarWidth = 220, jarLeft = 30;
+
+function showToast(nick, imgUrl){
+  const t = document.getElementById('latestToast');
+  t.innerHTML = imgUrl
+    ? `<img src="${imgUrl}" onerror="this.style.display='none'"> <b>${escapeHtml(nick)}</b>님이 스티커를 보냈어요!`
+    : `<span style="font-size:16px">🎁</span> <b>${escapeHtml(nick)}</b>님이 스티커를 보냈어요!`;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function emptyJar(){
+  count = 0;
+  document.getElementById('countBadge').textContent = '🍬 0개 모음';
+  layer.innerHTML = '';
+}
+
+function dropOne(nick, imgUrl){
+  count++;
+  document.getElementById('countBadge').textContent = `🍬 ${count}개 모음`;
+
+  const el = document.createElement('div');
+  el.className = 'sticker';
+  if(imgUrl){
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    img.onerror = () => { el.innerHTML = ''; el.textContent = FALLBACK_EMOJIS[Math.floor(Math.random()*FALLBACK_EMOJIS.length)]; };
+    el.appendChild(img);
+  } else {
+    el.textContent = FALLBACK_EMOJIS[Math.floor(Math.random()*FALLBACK_EMOJIS.length)];
+  }
+  const settleX = jarLeft + 20 + Math.random()*(jarWidth-40);
+  const fillRatio = Math.min(1, count / CAPACITY);
+  const pileTop = jarInnerBottom - fillRatio*260 - Math.random()*14;
+  el.style.left = settleX+'px';
+  el.style.top = '-40px';
+  el.style.transform = 'rotate('+(Math.random()*360)+'deg)';
+  layer.appendChild(el);
+
+  requestAnimationFrame(()=>{
+    el.style.transition = 'top .62s cubic-bezier(.4,0,.2,1), transform .62s ease-out';
+    el.style.top = pileTop+'px';
+  });
+  setTimeout(()=>{
+    el.style.transition = 'top .18s ease-out';
+    el.style.top = (pileTop+6)+'px';
+    setTimeout(()=>{ el.style.transition='top .15s ease-out'; el.style.top = pileTop+'px'; }, 190);
+  }, 640);
+
+  // 병이 꽉 차면 잠깐 보여주고 자동으로 비운 다음 다시 쌓기 시작
+  if(count >= CAPACITY){
+    setTimeout(()=>{
+      Array.from(layer.children).forEach((child, i)=>{
+        setTimeout(()=>{ child.style.transition='top .35s ease-in, opacity .35s'; child.style.top='400px'; child.style.opacity='0'; }, i*12);
+      });
+      setTimeout(emptyJar, 900);
+    }, 1200);
+  }
+}
+
+function connect(){
+  const es = new EventSource('/events');
+  es.onmessage = (e) => {
+    let d;
+    try { d = JSON.parse(e.data); } catch(err) { return; }
+    if(d.type !== 'donation' || d.djId !== djId) return;
+    const times = Math.max(1, Number(d.comboCount)||1);
+    showToast(d.nick || '시청자', d.stickerImage);
+    for(let i=0;i<times;i++) setTimeout(()=>dropOne(d.nick || '시청자', d.stickerImage), i*90);
+  };
+  es.onerror = () => { /* 브라우저가 자동으로 재연결 시도함 — 별도 처리 불필요 */ };
+}
+
+if(!djId){
+  document.body.innerHTML = '<p style="color:#fff;text-align:center;margin-top:40px">잘못된 주소예요.</p>';
+} else {
+  connect();
+  if(djId === 'sum') document.getElementById('testBtn').style.display = 'block';
+}
+
+/* ── 🧪 관리자 전용 테스트 선물 피커 ── */
+let testStickerData = [];
+async function loadTestStickerData(){
+  if(testStickerData.length) return testStickerData;
+  try{
+    const res = await fetch('/stickers');
+    const d = await res.json();
+    if(d.success && Array.isArray(d.stickers)) testStickerData = d.stickers;
+  }catch(e){ /* 실패하면 빈 목록으로 안내 문구만 뜸 */ }
+  return testStickerData;
+}
+async function openTestPicker(){
+  document.getElementById('testModalOverlay').classList.add('show');
+  document.getElementById('testStickerSearch').value = '';
+  await loadTestStickerData();
+  renderTestStickerGrid();
+}
+function closeTestPicker(){
+  document.getElementById('testModalOverlay').classList.remove('show');
+}
+function renderTestStickerGrid(){
+  const grid = document.getElementById('testStickerGrid');
+  const keyword = (document.getElementById('testStickerSearch').value||'').toLowerCase().trim();
+  let list = testStickerData;
+  if(keyword) list = list.filter(s => (s.name||'').toLowerCase().includes(keyword) || (s.title||'').toLowerCase().includes(keyword));
+  if(!list.length){ grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:#a99cc2;font-size:12px">스티커가 없어요.</div>'; return; }
+  grid.innerHTML = '';
+  list.slice(0, 120).forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'testStickerCard';
+    card.innerHTML = `<img src="${s.image||''}" onerror="this.style.visibility='hidden'"><div>${escapeHtml(s.title||s.name)}</div>`;
+    card.onclick = () => sendTestGift(s.name);
+    grid.appendChild(card);
+  });
+}
+async function sendTestGift(stickerName){
+  closeTestPicker();
+  try{
+    const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/test-gift', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sticker: stickerName})
+    });
+    const d = await res.json();
+    if(!d.success) showToast('테스트 실패', '');
+  }catch(e){ /* 무시 — 테스트 버튼이라 실패해도 화면 흐름을 막지 않는다 */ }
+}
+</script>
+</body>
+</html>

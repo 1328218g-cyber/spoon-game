@@ -6711,6 +6711,429 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
 
 
 // ══════════════════════════════════════════════════════
+// 🌾 농장 키우기 — 방치형 미니게임. 씨앗을 심어두면 시간이 지나서 자동으로 자라고,
+// 나중에 채팅으로 수확만 하면 되는, 낚시 게임과 결이 비슷한 경제 게임이다. 실시간 조작이
+// 전혀 필요 없어서(그냥 시간 지나면 상태만 바뀜) 서버 부담이 제일 적다.
+// ══════════════════════════════════════════════════════
+
+const FARM_DEFAULT_CROPS = '상추,5,50,20,3,6\n당근,15,150,60,2,5\n감자,30,300,140,2,4\n토마토,60,600,320,1,3\n수박,180,1500,1000,1,2'
+// 형식: 이름,성장시간(분),씨앗가격,판매가(개당),최소수확개수,최대수확개수
+
+function getFarmSettings(djId, settings) {
+  if (!settings.farm) {
+    settings.farm = {
+      config: {
+        enabled: true,
+        plotCount: 4,
+        startMoney: 1000,
+        cropList: FARM_DEFAULT_CROPS,
+        cmdFarm: '!농장', cmdShop: '!작물상점', cmdPlant: '!심기', cmdHarvest: '!수확', cmdHelp: '!농장도움말',
+      },
+      users: {}, // { tag: {...} }
+    }
+    store.saveSettings(djId, { farm: settings.farm })
+  }
+  if (!settings.farm.config) settings.farm.config = {}
+  if (!settings.farm.users) settings.farm.users = {}
+  return settings.farm
+}
+
+function _farmSplitLines(text) {
+  if (!text || typeof text !== 'string') return []
+  return text.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
+}
+function _farmParseCrops(text) {
+  return _farmSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 6 || !p[0]) return null
+    return {
+      name: p[0],
+      growMinutes: Math.max(1, parseInt(p[1]) || 1),
+      seedPrice: Math.max(0, parseInt(p[2]) || 0),
+      sellPrice: Math.max(0, parseInt(p[3]) || 0),
+      minYield: Math.max(1, parseInt(p[4]) || 1),
+      maxYield: Math.max(1, parseInt(p[5]) || 1),
+    }
+  }).filter(Boolean)
+}
+function _farmNewUser(tag, nickname, startMoney) {
+  return { tag, nickname: nickname || tag, money: startMoney || 0, plots: [], totalHarvests: 0 }
+}
+function getFarmUser(farm, tag, nickname) {
+  if (!tag) return null
+  const plotCount = Math.max(1, farm.config.plotCount || 4)
+  if (!farm.users[tag]) {
+    const user = _farmNewUser(tag, nickname, farm.config.startMoney)
+    user.plots = Array.from({ length: plotCount }, () => null)
+    farm.users[tag] = user
+  } else {
+    const user = farm.users[tag]
+    if (nickname && user.nickname !== nickname) user.nickname = nickname
+    // 관리자가 나중에 칸 수를 늘리면 기존 유저 칸도 자동으로 늘어난다 (줄이는 건 심어놓은 게
+    // 있을 수 있어서 안 건드림 — 넘치는 칸은 그냥 화면에 계속 보여준다)
+    while (user.plots.length < plotCount) user.plots.push(null)
+  }
+  return farm.users[tag]
+}
+function saveFarmUser(djId, farm) {
+  store.saveSettings(djId, { farm })
+}
+function farmReply(djId, msg) {
+  sendChatSplit(djId, msg, 150, 500)
+}
+function farmFmtRemain(ms) {
+  const totalSec = Math.ceil(ms / 1000)
+  const m = Math.floor(totalSec / 60), s = totalSec % 60
+  return m > 0 ? `${m}분 ${s}초` : `${s}초`
+}
+function farmPlotStatus(plot, crops, now) {
+  if (!plot) return { state: 'empty' }
+  const crop = crops.find(c => c.name === plot.crop)
+  if (!crop) return { state: 'empty' } // 관리자가 작물을 목록에서 지워버린 경우 — 심어놓은 게 있어도 알 수 없으니 빈 칸 취급
+  const elapsed = now - new Date(plot.plantedAt).getTime()
+  const remain = crop.growMinutes * 60000 - elapsed
+  if (remain <= 0) return { state: 'ready', crop }
+  return { state: 'growing', crop, remainMs: remain }
+}
+
+async function handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  const farm = getFarmSettings(djId, settings)
+  if (!farm.config.enabled) return
+  if (!isModuleOn(settings, 'farm', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+  const cfg = farm.config
+  const CMDS = [cfg.cmdFarm, cfg.cmdShop, cfg.cmdPlant, cfg.cmdHarvest, cfg.cmdHelp]
+  if (!CMDS.includes(cmd)) return
+
+  if (cmd === cfg.cmdHelp) {
+    farmReply(djId, `🌾 농장 명령어\n${cfg.cmdFarm} — 내 농장 상태 보기\n${cfg.cmdShop} — 작물 목록/가격 보기\n${cfg.cmdPlant} [작물] [칸번호] — 씨앗 심기\n${cfg.cmdHarvest} [칸번호(생략시 전체)] — 수확하기`)
+    return
+  }
+  if (!actTag) { farmReply(djId, '❌ 고유닉이 있어야 농장을 이용할 수 있어요.'); return }
+
+  const crops = _farmParseCrops(cfg.cropList)
+  const user = getFarmUser(farm, actTag, author)
+
+  if (cmd === cfg.cmdShop) {
+    if (!crops.length) { farmReply(djId, '❌ 등록된 작물이 없어요.'); return }
+    let out = '🌱 작물 상점\n'
+    crops.forEach(c => { out += `• ${c.name} — 씨앗 ₩${c.seedPrice.toLocaleString()} / 성장 ${c.growMinutes}분 / 수확당 ₩${c.sellPrice.toLocaleString()} (${c.minYield}~${c.maxYield}개)\n` })
+    farmReply(djId, out.trim())
+    return
+  }
+
+  if (cmd === cfg.cmdFarm) {
+    const now = Date.now()
+    let out = `👤 ${author}님의 농장\n💰 보유금: ₩${user.money.toLocaleString()}\n`
+    user.plots.forEach((plot, i) => {
+      const st = farmPlotStatus(plot, crops, now)
+      if (st.state === 'empty') out += `${i + 1}번 칸: 비어있음\n`
+      else if (st.state === 'growing') out += `${i + 1}번 칸: ${st.crop.name} 재배중 (${farmFmtRemain(st.remainMs)} 남음)\n`
+      else out += `${i + 1}번 칸: ${st.crop.name} 수확 가능! 🌾\n`
+    })
+    saveFarmUser(djId, farm)
+    farmReply(djId, out.trim())
+    return
+  }
+
+  if (cmd === cfg.cmdPlant) {
+    const cropName = parts[1]
+    const plotNum = parseInt(parts[2])
+    if (!cropName || !plotNum) { farmReply(djId, `사용법: ${cfg.cmdPlant} [작물이름] [칸번호]`); return }
+    const crop = crops.find(c => c.name === cropName)
+    if (!crop) { farmReply(djId, `❌ '${cropName}' 작물을 찾을 수 없어요. ${cfg.cmdShop}으로 확인해보세요.`); return }
+    const idx = plotNum - 1
+    if (idx < 0 || idx >= user.plots.length) { farmReply(djId, `❌ 칸 번호는 1~${user.plots.length} 사이여야 해요.`); return }
+    const st = farmPlotStatus(user.plots[idx], crops, Date.now())
+    if (st.state !== 'empty') { farmReply(djId, `❌ ${plotNum}번 칸엔 이미 뭔가 심어져 있어요.`); return }
+    if (user.money < crop.seedPrice) { farmReply(djId, `❌ 씨앗값이 부족해요. (필요 ₩${crop.seedPrice.toLocaleString()} / 보유 ₩${user.money.toLocaleString()})`); return }
+    user.money -= crop.seedPrice
+    user.plots[idx] = { crop: crop.name, plantedAt: new Date().toISOString() }
+    saveFarmUser(djId, farm)
+    farmReply(djId, `🌱 ${plotNum}번 칸에 ${crop.name}을(를) 심었어요! ${crop.growMinutes}분 후에 수확할 수 있어요.`)
+    return
+  }
+
+  if (cmd === cfg.cmdHarvest) {
+    const now = Date.now()
+    const targetIdx = parts[1] ? parseInt(parts[1]) - 1 : null
+    if (targetIdx != null && (isNaN(targetIdx) || targetIdx < 0 || targetIdx >= user.plots.length)) {
+      farmReply(djId, `❌ 칸 번호는 1~${user.plots.length} 사이여야 해요.`); return
+    }
+    const indexes = targetIdx != null ? [targetIdx] : user.plots.map((_, i) => i)
+    let totalMoney = 0
+    const harvested = []
+    for (const i of indexes) {
+      const st = farmPlotStatus(user.plots[i], crops, now)
+      if (st.state !== 'ready') continue
+      const yieldCount = Math.floor(Math.random() * (st.crop.maxYield - st.crop.minYield + 1)) + st.crop.minYield
+      const earned = yieldCount * st.crop.sellPrice
+      totalMoney += earned
+      user.money += earned
+      user.totalHarvests = (user.totalHarvests || 0) + 1
+      user.plots[i] = null
+      harvested.push(`${st.crop.name} ${yieldCount}개 (₩${earned.toLocaleString()})`)
+    }
+    if (!harvested.length) { farmReply(djId, targetIdx != null ? '❌ 아직 수확할 수 없어요.' : '❌ 지금 수확할 수 있는 칸이 없어요.'); return }
+    saveFarmUser(djId, farm)
+    farmReply(djId, `🌾 수확 완료!\n${harvested.join('\n')}\n💰 총 ₩${totalMoney.toLocaleString()} 획득 (잔액: ₩${user.money.toLocaleString()})`)
+    return
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
+// 🗼 무한의 탑 — 진짜 방치형 등반 게임. 층마다 클리어에 걸리는 시간이 정해져 있고, 채팅을 안 쳐도
+// 그 시간이 지나면 서버가 알아서 그 층을 클리어된 걸로 계산해둔다. !탑을 치는 순간 "마지막으로
+// 확인한 뒤로 흐른 시간"을 몰아서 계산해 그동안 오른 층수를 한 번에 반영한다(며칠 만에 들어와도
+// 문제없음). 대신 층마다 필요한 전투력이 있어서, 전투력이 부족한 층에서는 멈추고 골드 모아
+// !탑강화로 뚫어야 한다 — 멈춰있는 동안 흐른 시간은 사라지지 않고 그대로 쌓여있다가, 강화해서
+// 전투력이 그 층을 넘는 순간 곧바로 다음 층 진행에 반영된다.
+// 층을 클리어할 때마다 확률로 장비(무기/방어구/장신구)가 드롭되고, 장착하면 기본 전투력에
+// 보너스가 더해진다 — 그래서 실제 전투력은 항상 "기본 전투력 + 장착 장비 보너스 합"으로 계산한다.
+// ══════════════════════════════════════════════════════
+
+const TOWER_DEFAULT_ITEMS = '낡은 검,weapon,5,common,50\n강철검,weapon,15,rare,15\n미스릴검,weapon,40,epic,4\n전설의 검,weapon,100,legendary,1\n가죽갑옷,armor,5,common,50\n사슬갑옷,armor,15,rare,15\n판금갑옷,armor,40,epic,4\n용비늘갑옷,armor,100,legendary,1\n낡은 반지,accessory,5,common,50\n마력 반지,accessory,15,rare,15\n현자의 목걸이,accessory,40,epic,4\n왕의 인장,accessory,100,legendary,1'
+// 형식: 이름,부위(weapon/armor/accessory),전투력보너스,등급,드롭가중치
+const TOWER_RARITY_EMOJI = { common: '⚪', rare: '🔵', epic: '🟣', legendary: '🟡' }
+const TOWER_SLOT_LABEL = { weapon: '무기', armor: '방어구', accessory: '장신구' }
+
+function getTowerSettings(djId, settings) {
+  if (!settings.tower) {
+    settings.tower = {
+      config: {
+        enabled: true,
+        baseSeconds: 60,          // 1층 클리어 기본 소요시간(초)
+        perFloorSeconds: 10,      // 층마다 추가되는 소요시간(초) — 올라갈수록 오래 걸림
+        startPower: 10,
+        powerPerFloor: 8,         // 그 층 돌파에 필요한 전투력 = floor * powerPerFloor
+        goldPerFloor: 50,         // 층 클리어 보상 골드 = floor * goldPerFloor
+        upgradeBaseCost: 100,
+        upgradeCostGrowth: 1.15,  // 강화할수록 비용이 이 배율만큼 증가
+        upgradePowerGain: 5,
+        maxCatchUpFloors: 500,    // 한 번에 몰아서 계산할 최대 층 수 (안전장치)
+        itemDropChance: 20,       // 층 클리어 시 아이템이 나올 확률(%)
+        itemList: TOWER_DEFAULT_ITEMS,
+        cmdTower: '!탑', cmdUpgrade: '!탑강화', cmdHelp: '!탑도움말',
+        cmdInfo: '!탑정보', cmdItems: '!탑아이템', cmdEquip: '!탑장착',
+      },
+      users: {}, // { tag: {...} }
+    }
+    store.saveSettings(djId, { tower: settings.tower })
+  }
+  if (!settings.tower.config) settings.tower.config = {}
+  if (!settings.tower.users) settings.tower.users = {}
+  return settings.tower
+}
+function _towerSplitLines(text) {
+  if (!text || typeof text !== 'string') return []
+  return text.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'))
+}
+function _towerParseItems(text) {
+  return _towerSplitLines(text).map(line => {
+    const p = line.split(',').map(s => s.trim())
+    if (p.length < 5 || !p[0]) return null
+    const slot = ['weapon', 'armor', 'accessory'].includes(p[1]) ? p[1] : 'weapon'
+    return { name: p[0], slot, powerBonus: Math.max(0, parseInt(p[2]) || 0), rarity: p[3] || 'common', weight: Math.max(0, parseFloat(p[4]) || 0) }
+  }).filter(Boolean)
+}
+function _towerNewUser(tag, nickname, startPower) {
+  return {
+    tag, nickname: nickname || tag, floor: 1, power: startPower || 10, gold: 0, upgradeCount: 0,
+    lastCheckAt: new Date().toISOString(), totalGoldEarned: 0, totalItemsFound: 0,
+    items: [], equipped: { weapon: null, armor: null, accessory: null },
+  }
+}
+function getTowerUser(tower, tag, nickname) {
+  if (!tag) return null
+  if (!tower.users[tag]) {
+    tower.users[tag] = _towerNewUser(tag, nickname, tower.config.startPower)
+  } else {
+    const user = tower.users[tag]
+    if (nickname && user.nickname !== nickname) user.nickname = nickname
+    // 이 기능들이 추가되기 전부터 있던 유저는 필드가 없을 수 있어서 처음 불러올 때 채워준다
+    if (!Array.isArray(user.items)) user.items = []
+    if (!user.equipped) user.equipped = { weapon: null, armor: null, accessory: null }
+    if (user.totalGoldEarned == null) user.totalGoldEarned = user.gold || 0
+    if (user.totalItemsFound == null) user.totalItemsFound = user.items.length
+  }
+  return tower.users[tag]
+}
+function saveTowerUser(djId, tower) {
+  store.saveSettings(djId, { tower })
+}
+function towerFmtRemain(sec) {
+  sec = Math.max(0, Math.ceil(sec))
+  const m = Math.floor(sec / 60), s = sec % 60
+  return m > 0 ? `${m}분 ${s}초` : `${s}초`
+}
+function towerUpgradeCost(cfg, upgradeCount) {
+  return Math.round((cfg.upgradeBaseCost || 100) * Math.pow(cfg.upgradeCostGrowth || 1.15, upgradeCount || 0))
+}
+function towerEquipmentBonus(user) {
+  let bonus = 0
+  for (const slot of ['weapon', 'armor', 'accessory']) {
+    const itemId = user.equipped && user.equipped[slot]
+    if (!itemId) continue
+    const item = (user.items || []).find(i => i.id === itemId)
+    if (item) bonus += item.powerBonus
+  }
+  return bonus
+}
+function towerEffectivePower(user) {
+  return user.power + towerEquipmentBonus(user)
+}
+function towerRollItemDrop(cfg) {
+  const chance = cfg.itemDropChance != null ? cfg.itemDropChance : 20
+  if (Math.random() * 100 >= chance) return null
+  const items = _towerParseItems(cfg.itemList)
+  if (!items.length) return null
+  const total = items.reduce((s, i) => s + i.weight, 0)
+  if (total <= 0) return null
+  let roll = Math.random() * total
+  for (const it of items) { roll -= it.weight; if (roll <= 0) return it }
+  return items[items.length - 1]
+}
+// 🧮 마지막 확인 이후 흐른 시간을 몰아서 계산 — 클리어할 수 있는 층은 전부 클리어 처리하고,
+// 전투력(장비 보너스 포함)이 부족한 층에서 막히면 그 자리에서 멈춘다(시간은 안 버리고 그대로 들고 있음).
+// 층을 클리어할 때마다 확률로 장비도 같이 드롭된다.
+function towerResolveProgress(user, cfg, now) {
+  const maxFloors = cfg.maxCatchUpFloors || 500
+  let cursor = new Date(user.lastCheckAt).getTime()
+  let floorsClimbed = 0, goldEarned = 0, stuck = false
+  const itemsDropped = []
+  for (let i = 0; i < maxFloors; i++) {
+    const clearMs = ((cfg.baseSeconds || 60) + (user.floor - 1) * (cfg.perFloorSeconds || 10)) * 1000
+    if (now - cursor < clearMs) break // 아직 이 층을 클리어할 만큼 시간이 안 지남
+    const requiredPower = user.floor * (cfg.powerPerFloor || 8)
+    if (towerEffectivePower(user) < requiredPower) { stuck = true; break } // 전투력 부족 — 시간은 그대로 쌓아둔 채 멈춤
+    const gold = user.floor * (cfg.goldPerFloor || 50)
+    user.gold += gold
+    user.totalGoldEarned = (user.totalGoldEarned || 0) + gold
+    goldEarned += gold
+    user.floor += 1
+    cursor += clearMs // 남는 시간은 다음 층으로 이월
+    floorsClimbed++
+    const dropped = towerRollItemDrop(cfg)
+    if (dropped) {
+      const item = {
+        id: 'it_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: dropped.name, slot: dropped.slot, powerBonus: dropped.powerBonus, rarity: dropped.rarity,
+        obtainedAt: new Date().toISOString(),
+      }
+      user.items.push(item)
+      user.totalItemsFound = (user.totalItemsFound || 0) + 1
+      itemsDropped.push(item)
+    }
+  }
+  if (!stuck) user.lastCheckAt = new Date(cursor).toISOString() // 막히지 않았으면 계산이 끝난 지점까지 시계를 당겨둔다
+  return { floorsClimbed, goldEarned, stuck, itemsDropped }
+}
+
+async function handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  const tower = getTowerSettings(djId, settings)
+  if (!tower.config.enabled) return
+  if (!isModuleOn(settings, 'tower', djId)) return
+  const msg = String(text || '').trim()
+  if (!msg.startsWith('!')) return
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+  const cfg = tower.config
+  const CMDS = [cfg.cmdTower, cfg.cmdUpgrade, cfg.cmdHelp, cfg.cmdInfo, cfg.cmdItems, cfg.cmdEquip]
+  if (!CMDS.includes(cmd)) return
+
+  if (cmd === cfg.cmdHelp) {
+    farmReply(djId, `🗼 무한의 탑 명령어\n${cfg.cmdTower} — 진행상황 확인 (안 쳐도 시간 지나면 알아서 올라가 있어요)\n${cfg.cmdUpgrade} — 골드로 전투력 강화\n${cfg.cmdInfo} — 캐릭터 정보(누적 기록 + 장착 장비)\n${cfg.cmdItems} — 보유 아이템 목록\n${cfg.cmdEquip} [번호] — 아이템 장착`)
+    return
+  }
+  if (!actTag) { farmReply(djId, '❌ 고유닉이 있어야 탑에 도전할 수 있어요.'); return }
+
+  const user = getTowerUser(tower, actTag, author)
+  const now = Date.now()
+  const result = towerResolveProgress(user, cfg, now)
+
+  if (cmd === cfg.cmdTower) {
+    const totalPower = towerEffectivePower(user)
+    let out = `🗼 ${author}님의 탑 진행상황\n📍 현재 ${user.floor}층 · ⚔️ 전투력 ${totalPower} · 💰 골드 ${user.gold.toLocaleString()}\n`
+    if (result.floorsClimbed > 0) {
+      out += `\n✨ 그동안 ${result.floorsClimbed}층 올랐어요! (+₩${result.goldEarned.toLocaleString()})\n`
+      if (result.itemsDropped.length) out += `🎁 아이템 획득: ${result.itemsDropped.map(it => `${TOWER_RARITY_EMOJI[it.rarity] || ''}${it.name}`).join(', ')}\n`
+    }
+    if (result.stuck) {
+      const requiredPower = user.floor * (cfg.powerPerFloor || 8)
+      out += `\n🚧 ${user.floor}층에서 막혔어요 (필요 전투력 ${requiredPower} / 보유 ${totalPower})\n${cfg.cmdUpgrade}로 강화하거나 ${cfg.cmdItems}로 장비를 확인해보세요.`
+    } else {
+      const clearSec = ((cfg.baseSeconds || 60) + (user.floor - 1) * (cfg.perFloorSeconds || 10))
+      const elapsedSec = (now - new Date(user.lastCheckAt).getTime()) / 1000
+      out += `\n⏳ 다음 층까지 ${towerFmtRemain(clearSec - elapsedSec)} 남음 (자동 진행 중)`
+    }
+    saveTowerUser(djId, tower)
+    farmReply(djId, out.trim())
+    return
+  }
+
+  if (cmd === cfg.cmdUpgrade) {
+    const cost = towerUpgradeCost(cfg, user.upgradeCount)
+    if (user.gold < cost) { saveTowerUser(djId, tower); farmReply(djId, `❌ 골드가 부족해요. (필요 ₩${cost.toLocaleString()} / 보유 ₩${user.gold.toLocaleString()})`); return }
+    user.gold -= cost
+    user.power += (cfg.upgradePowerGain || 5)
+    user.upgradeCount++
+    // 강화 직후 다시 한번 진행 계산 — 방금 뚫린 층이 있으면 바로 반영해서 보여준다
+    const after = towerResolveProgress(user, cfg, now)
+    saveTowerUser(djId, tower)
+    let out = `⚔️ 강화 완료! 전투력 ${towerEffectivePower(user)} (₩${cost.toLocaleString()} 사용)`
+    if (after.floorsClimbed > 0) {
+      out += `\n✨ 막혔던 층이 뚫려서 ${after.floorsClimbed}층 더 올랐어요! (+₩${after.goldEarned.toLocaleString()})`
+      if (after.itemsDropped.length) out += `\n🎁 아이템 획득: ${after.itemsDropped.map(it => `${TOWER_RARITY_EMOJI[it.rarity] || ''}${it.name}`).join(', ')}`
+    }
+    farmReply(djId, out)
+    return
+  }
+
+  if (cmd === cfg.cmdInfo) {
+    const bonus = towerEquipmentBonus(user)
+    const total = user.power + bonus
+    let out = `📋 ${author}님의 탑 캐릭터 정보\n📍 현재 층: ${user.floor}층\n⚔️ 전투력: ${total} (기본 ${user.power} + 장비 ${bonus})\n`
+    out += `💰 누적 획득 골드: ₩${(user.totalGoldEarned || 0).toLocaleString()}\n🛠️ 강화 횟수: ${user.upgradeCount || 0}회\n`
+    out += `🎒 보유 아이템: ${(user.items || []).length}개 (누적 발견 ${user.totalItemsFound || 0}개)\n\n장착 중인 장비:\n`
+    for (const slot of ['weapon', 'armor', 'accessory']) {
+      const itemId = user.equipped[slot]
+      const item = itemId ? (user.items || []).find(i => i.id === itemId) : null
+      out += `${TOWER_SLOT_LABEL[slot]}: ${item ? `${TOWER_RARITY_EMOJI[item.rarity] || ''}${item.name} (+${item.powerBonus})` : '없음'}\n`
+    }
+    saveTowerUser(djId, tower)
+    farmReply(djId, out.trim())
+    return
+  }
+
+  if (cmd === cfg.cmdItems) {
+    if (!(user.items || []).length) { saveTowerUser(djId, tower); farmReply(djId, `🎒 보유한 아이템이 없어요. 층을 클리어하면 확률로 나와요.`); return }
+    let out = `🎒 ${author}님의 아이템 (${cfg.cmdEquip} [번호]로 장착)\n`
+    user.items.forEach((it, i) => {
+      const equipped = user.equipped[it.slot] === it.id
+      out += `${i + 1}. ${TOWER_RARITY_EMOJI[it.rarity] || ''}${it.name} [${TOWER_SLOT_LABEL[it.slot]}] +${it.powerBonus}${equipped ? ' (장착중)' : ''}\n`
+    })
+    saveTowerUser(djId, tower)
+    farmReply(djId, out.trim())
+    return
+  }
+
+  if (cmd === cfg.cmdEquip) {
+    const num = parseInt(parts[1])
+    if (!num || num < 1 || num > (user.items || []).length) { saveTowerUser(djId, tower); farmReply(djId, `사용법: ${cfg.cmdEquip} [번호] (${cfg.cmdItems}으로 번호 확인)`); return }
+    const item = user.items[num - 1]
+    user.equipped[item.slot] = item.id
+    saveTowerUser(djId, tower)
+    farmReply(djId, `⚔️ ${TOWER_RARITY_EMOJI[item.rarity] || ''}${item.name} 장착했어요! (${TOWER_SLOT_LABEL[item.slot]}, +${item.powerBonus})`)
+    return
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
 // 🎁 뽑기판 — 하트/스푼/채팅/퀴즈로 포인트를 모아 "뽑기권"을 얻고,
 // 뽑기판의 번호를 골라 상품을 뽑는 미니게임. 원래 에디봇 데스크탑(Electron)의
 // 외부 모듈로 만들어졌던 걸 그대로 웹 버전으로 이식했다.
@@ -15632,7 +16055,15 @@ function startLeavePolling(djId, liveId) {
           if (room._lastLiveMembers.has(key)) continue // 이미 있던 사람
           const settings = store.getSettings(djId) || {}
           const nickname = u.nickname || u.tag || key
-          sendJoinMessage(djId, settings, nickname, u.tag || null, null)
+          let tag = u.tag || null
+          if (!tag && u.id != null) {
+            // 방금 명단 폴링에 새로 잡힌 시청자는 명단 응답 자체에 태그 필드가 아직 안 채워져
+            // 있을 때가 있다 (RoomJoin 웹소켓 경로에서 겪는 것과 같은 원인). "지정 인사"가 태그
+            // 매칭 실패로 조용히 기본 입장멘트로 새는 걸 막기 위해, 단건 프로필 조회(내부 재시도
+            // 포함)로 한 번 더 확보를 시도한다.
+            tag = await getCachedUserTag(room, liveId, u.id, accessToken)
+          }
+          sendJoinMessage(djId, settings, nickname, tag, null)
         }
       }
       room._joinPollBaseline = true
@@ -15890,6 +16321,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleStockCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleAuctionCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -21485,15 +21918,364 @@ app.post('/monsterdex/:djId/reversi/leave', (req, res) => {
   res.json({ success: true })
 })
 
+// 🎮 오목 — 리버시랑 완전히 같은 구조(웹 도감 인증 재사용, 코드로 초대, 관전 지원)를 그대로
+// 복사해서 규칙만 오목으로 바꿨다. 15x15 보드에 번갈아 돌을 놓고, 가로/세로/대각선 어느 방향으로든
+// 같은 색이 5개 이상 이어지면 승리한다(장목도 승리로 인정하는 자유규칙 — 렌주룰 금수는 적용 안 함).
+const OMOK_SIZE = 15
+function omokEmptyBoard() {
+  return Array.from({ length: OMOK_SIZE }, () => Array(OMOK_SIZE).fill(0))
+}
+const OMOK_WIN_DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]]
+function omokCheckWin(board, row, col, color) {
+  for (const [dr, dc] of OMOK_WIN_DIRS) {
+    let count = 1
+    let r = row + dr, c = col + dc
+    while (r >= 0 && r < OMOK_SIZE && c >= 0 && c < OMOK_SIZE && board[r][c] === color) { count++; r += dr; c += dc }
+    r = row - dr; c = col - dc
+    while (r >= 0 && r < OMOK_SIZE && c >= 0 && c < OMOK_SIZE && board[r][c] === color) { count++; r -= dr; c -= dc }
+    if (count >= 5) return true
+  }
+  return false
+}
+function omokBoardFull(board) {
+  return board.every(row => row.every(cell => cell !== 0))
+}
+function omokApplyMove(board, color, row, col) {
+  if (row < 0 || row >= OMOK_SIZE || col < 0 || col >= OMOK_SIZE || board[row][col] !== 0) return null
+  const next = board.map(r => r.slice())
+  next[row][col] = color
+  return next
+}
+function omokCount(board) {
+  let black = 0, white = 0
+  for (const row of board) for (const cell of row) { if (cell === 1) black++; else if (cell === 2) white++ }
+  return { black, white }
+}
+
+const mcOmokRooms = new Map() // code -> { code, djId, players:[{webUserId,tag,nickname,color}], board, turn, status, winner, statsRecorded, createdAt, lastMoveAt, turnStartedAt, lastMove, spectators }
+const MC_OMOK_ROOM_TTL_MS = 30 * 60 * 1000 // 30분 넘게 움직임 없는 방은 정리
+const OMOK_TURN_LIMIT_MS = 30 * 1000 // ⏱️ 30초 안에 안 두면 자동으로 그 사람이 진 걸로 처리 (오목은 리버시와 달리 "패스"가 없어서, 턴 넘기는 대신 기권패로 처리한다)
+function mcGenOmokCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcOmokRooms.has(code))
+  return code
+}
+function mcCleanOmokRooms() {
+  const now = Date.now()
+  for (const [code, r] of mcOmokRooms.entries()) {
+    if (now - (r.lastMoveAt || r.createdAt) > MC_OMOK_ROOM_TTL_MS) mcOmokRooms.delete(code)
+  }
+}
+function omokCheckTimeout(room) {
+  if (room.status !== 'playing') return
+  if (!room.turnStartedAt) { room.turnStartedAt = Date.now(); return }
+  if (Date.now() - room.turnStartedAt < OMOK_TURN_LIMIT_MS) return
+  const opp = room.turn === 1 ? 2 : 1
+  omokEndRoom(room, opp) // 시간 초과 = 기권패
+}
+function omokEndRoom(room, winner) {
+  room.status = 'ended'
+  room.winner = winner
+  if (room.statsRecorded) return
+  room.statsRecorded = true
+  if (winner == null || room.players.length < 2) return // 참가자 1명뿐이면(대결 성립 전 나감) 전적 기록 안 함
+  const d = mcGetWebData()
+  if (!d.omokStats) d.omokStats = {}
+  for (const p of room.players) {
+    if (!d.omokStats[p.tag]) d.omokStats[p.tag] = { wins: 0, losses: 0, draws: 0 }
+    const stat = d.omokStats[p.tag]
+    if (winner === 'draw') stat.draws++
+    else if (winner === p.color) stat.wins++
+    else stat.losses++
+  }
+  mcSaveWebData()
+}
+function mcSerializeOmokRoom(room, forWebUserId) {
+  const me = room.players.find(p => p.webUserId === forWebUserId)
+  const isSpectator = !me && (room.spectators || []).some(s => s.webUserId === forWebUserId)
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  const stats = d.omokStats || {}
+  const turnRemainSec = room.status === 'playing' && room.turnStartedAt
+    ? Math.max(0, Math.ceil((room.turnStartedAt + OMOK_TURN_LIMIT_MS - Date.now()) / 1000))
+    : OMOK_TURN_LIMIT_MS / 1000
+  return {
+    success: true,
+    code: room.code,
+    size: OMOK_SIZE,
+    status: room.status, // waiting(상대 기다림) | playing | ended
+    board: room.board,
+    turn: room.turn,
+    turnRemainSec,
+    turnLimitSec: OMOK_TURN_LIMIT_MS / 1000,
+    players: room.players.map(p => ({
+      nickname: p.nickname, color: p.color, isMe: p.webUserId === forWebUserId, profileUrl: profiles[p.tag] || '',
+      record: stats[p.tag] || { wins: 0, losses: 0, draws: 0 },
+    })),
+    myColor: me ? me.color : null,
+    isSpectator,
+    spectatorCount: (room.spectators || []).length,
+    canMove: room.status === 'playing' && !!me && me.color === room.turn,
+    lastMove: room.lastMove || null, // {row,col} — 클라이언트에서 직전 수를 강조 표시하는 용도
+    counts: omokCount(room.board),
+    winner: room.winner || null, // 1 | 2 | 'draw' | null
+  }
+}
+// 🧪 관리자(sum) 전용 테스트 인증 — 실제 시청자는 채팅으로 !도감인증 코드를 쳐야 하지만,
+// 개발/테스트할 땐 그 절차 없이 바로 웹유저를 발급받을 수 있게 관리자 로그인 세션(auth.requireAuth)
+// 으로만 게이트를 건 우회 경로를 하나 둔다. mcGetWebData().webUsers를 그대로 같이 쓰기 때문에
+// 실제 인증 흐름과 완전히 동일하게 취급된다 — 게임 진행 로직 쪽엔 아무 차이가 없다.
+app.post('/monsterdex/:djId/omok/test-auth', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.json({ success: false, error: '관리자 계정에서만 쓸 수 있어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim() || ('test_' + Math.random().toString(36).slice(2, 10))
+  const tag = String((req.body || {}).tag || '').trim() || ('테스트' + Math.floor(1000 + Math.random() * 9000))
+  const d = mcGetWebData()
+  d.webUsers[webUserId] = tag
+  mcSaveWebData()
+  res.json({ success: true, webUserId, tag })
+})
+app.post('/monsterdex/:djId/omok/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanOmokRooms()
+  const code = mcGenOmokCode()
+  const room = {
+    code, djId,
+    players: [{ webUserId, tag, nickname: tag, color: 1 }],
+    board: omokEmptyBoard(),
+    turn: 1,
+    status: 'waiting',
+    winner: null,
+    statsRecorded: false,
+    createdAt: Date.now(),
+    lastMoveAt: Date.now(),
+    turnStartedAt: Date.now(),
+    lastMove: null,
+  }
+  mcOmokRooms.set(code, room)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/omok/rooms', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  mcCleanOmokRooms()
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  // 🌐 방은 특정 디제이 방송에 안 갇혀있다 — 리버시와 마찬가지로 어느 디제이 방에서 만들었든
+  // 전체 목록에 다 뜨고, 다른 방송을 보고 있는 시청자도 그 방에 참가/관전할 수 있다.
+  const rooms = Array.from(mcOmokRooms.values())
+    .filter(r => r.status !== 'ended')
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(r => ({
+      code: r.code,
+      originDjId: r.djId,
+      status: r.status, // waiting | playing
+      players: r.players.map(p => ({ nickname: p.nickname, color: p.color, profileUrl: profiles[p.tag] || '' })),
+      spectatorCount: (r.spectators || []).length,
+    }))
+  res.json({ success: true, rooms })
+})
+app.post('/monsterdex/:djId/omok/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanOmokRooms()
+  const room = mcOmokRooms.get(code) // 🌐 방이 어느 디제이 방송에서 만들어졌는지는 안 따진다 — 코드만 맞으면 참가 가능
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  const already = room.players.find(p => p.webUserId === webUserId)
+  if (already) return res.json(mcSerializeOmokRoom(room, webUserId)) // 새로고침 등으로 재접속
+  if (room.players.length >= 2) return res.json({ success: false, error: '이미 두 명이 꽉 찬 방이에요. 관전은 가능해요.' })
+  if (room.players.some(p => p.tag === tag)) return res.json({ success: false, error: '본인이 만든 방에는 참가할 수 없어요.' })
+  room.players.push({ webUserId, tag, nickname: tag, color: 2 })
+  room.status = 'playing'
+  room.lastMoveAt = Date.now()
+  room.turnStartedAt = Date.now()
+  // 참가자가 됐으면 관전자 목록에는 안 남아있게 정리
+  if (room.spectators) room.spectators = room.spectators.filter(s => s.webUserId !== webUserId)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+// 👀 관전 — 정원(2명) 다 찬 방이든 대기 중인 방이든, 누구나 인증만 돼있으면 구경할 수 있다.
+// 관전자는 players 배열에 안 들어가서 대국 자체엔 관여 못 하고, 보드 상태만 그대로 받아본다.
+app.post('/monsterdex/:djId/omok/spectate', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (room.players.some(p => p.webUserId === webUserId)) return res.json(mcSerializeOmokRoom(room, webUserId)) // 이미 참가자면 그대로 대국 화면
+  if (!room.spectators) room.spectators = []
+  if (!room.spectators.some(s => s.webUserId === webUserId)) room.spectators.push({ webUserId, tag, nickname: tag })
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/omok/state', (req, res) => {
+  const webUserId = String(req.query.webUserId || '').trim()
+  const code = String(req.query.code || '').trim().toUpperCase()
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  omokCheckTimeout(room)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/omok/move', (req, res) => {
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const row = Number((req.body || {}).row)
+  const col = Number((req.body || {}).col)
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  omokCheckTimeout(room)
+  if (room.status !== 'playing') return res.json({ success: false, error: '아직 시작 전이거나 이미 끝난 게임이에요.' })
+  const me = room.players.find(p => p.webUserId === webUserId)
+  if (!me) return res.json({ success: false, error: '이 방의 참가자가 아니에요.' })
+  if (me.color !== room.turn) return res.json({ success: false, error: '상대 차례예요.' })
+  const next = omokApplyMove(room.board, me.color, row, col)
+  if (!next) return res.json({ success: false, error: '둘 수 없는 자리예요.' })
+  room.board = next
+  room.lastMove = { row, col }
+  room.lastMoveAt = Date.now()
+  if (omokCheckWin(next, row, col, me.color)) {
+    omokEndRoom(room, me.color)
+  } else if (omokBoardFull(next)) {
+    omokEndRoom(room, 'draw')
+  } else {
+    room.turn = me.color === 1 ? 2 : 1
+    room.turnStartedAt = Date.now()
+  }
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/omok/leave', (req, res) => {
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const room = mcOmokRooms.get(code)
+  if (room) {
+    const isPlayer = room.players.some(p => p.webUserId === webUserId)
+    if (isPlayer && room.status !== 'ended') {
+      const other = room.players.find(p => p.webUserId !== webUserId)
+      omokEndRoom(room, other ? other.color : null) // 상대가 나가면 남은 사람 승리 처리
+    } else if (room.spectators) {
+      room.spectators = room.spectators.filter(s => s.webUserId !== webUserId) // 관전자는 그냥 관전 목록에서만 빠짐
+    }
+  }
+  res.json({ success: true })
+})
+
 // 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
 // register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.
 app.get('/monsterdex/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/monsterdex.html')
 })
+// 🗼 무한의 탑 — 웹페이지용 API. 리버시/오목처럼 몬스터 웹 도감 인증(webUserId ↔ 고유닉)을
+// 그대로 재사용한다. 채팅 명령어(!탑/!탑강화)랑 진행 데이터(settings.tower.users)를 완전히
+// 같이 쓰기 때문에, 채팅으로 확인하다가 웹으로 봐도, 그 반대로 해도 항상 같은 진행상황이다.
+// 🗼 웹페이지 응답 공용 직렬화 — 진행상황(state/upgrade/equip)이 다 같은 모양을 내려주게 통일
+function towerSerializeState(user, cfg, result, now) {
+  const totalPower = towerEffectivePower(user)
+  const requiredPower = user.floor * (cfg.powerPerFloor || 8)
+  const clearSec = (cfg.baseSeconds || 60) + (user.floor - 1) * (cfg.perFloorSeconds || 10)
+  const elapsedSec = (now - new Date(user.lastCheckAt).getTime()) / 1000
+  return {
+    success: true,
+    floor: user.floor, basePower: user.power, equipmentBonus: towerEquipmentBonus(user), power: totalPower,
+    gold: user.gold, totalGoldEarned: user.totalGoldEarned || 0, upgradeCount: user.upgradeCount || 0,
+    stuck: result.stuck, requiredPower,
+    remainSec: result.stuck ? null : Math.max(0, Math.ceil(clearSec - elapsedSec)),
+    clearSec,
+    upgradeCost: towerUpgradeCost(cfg, user.upgradeCount),
+    upgradePowerGain: cfg.upgradePowerGain || 5,
+    justClimbed: result.floorsClimbed, justEarned: result.goldEarned,
+    justItems: (result.itemsDropped || []).map(it => ({ name: it.name, slot: it.slot, powerBonus: it.powerBonus, rarity: it.rarity })),
+    items: (user.items || []).map(it => ({ id: it.id, name: it.name, slot: it.slot, powerBonus: it.powerBonus, rarity: it.rarity, equipped: user.equipped[it.slot] === it.id })),
+    equipped: user.equipped,
+  }
+}
+app.get('/monsterdex/:djId/tower/state', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  const result = towerResolveProgress(user, cfg, now)
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, result, now))
+})
+app.post('/monsterdex/:djId/tower/upgrade', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  towerResolveProgress(user, cfg, now)
+  const cost = towerUpgradeCost(cfg, user.upgradeCount)
+  if (user.gold < cost) { saveTowerUser(djId, tower); return res.json({ success: false, error: '골드가 부족해요.' }) }
+  user.gold -= cost
+  user.power += (cfg.upgradePowerGain || 5)
+  user.upgradeCount++
+  const after = towerResolveProgress(user, cfg, now)
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, after, now))
+})
+// 🎒 아이템 장착 — 인벤토리 화면에서 번호가 아니라 itemId로 지정한다(웹은 목록이 실시간으로 안 바뀌니
+// 채팅 명령어의 "번호"보다 id가 더 안전하다).
+app.post('/monsterdex/:djId/tower/equip', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const itemId = String((req.body || {}).itemId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  const result = towerResolveProgress(user, cfg, now)
+  const item = (user.items || []).find(i => i.id === itemId)
+  if (!item) { saveTowerUser(djId, tower); return res.json({ success: false, error: '존재하지 않는 아이템이에요.' }) }
+  user.equipped[item.slot] = item.id
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, result, now))
+})
+app.get('/tower/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/tower.html')
+})
+
 // 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
 // /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
 app.get('/reversi/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/reversi.html')
+})
+// 🎮 오목 게임 페이지 (로그인 불필요) — 리버시와 똑같이 몬스터 웹 도감의 인증을 재사용하고,
+// 실제 대국 API만 /monsterdex/:djId/omok/*로 따로 둔다.
+app.get('/omok/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/omok.html')
 })
 
 // ══════════════════════════════════════════════════════
@@ -21506,6 +22288,9 @@ const WEB_HUB_FEATURES = [
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
+  { key: 'omok', path: 'omok', icon: '⚪⚫', title: '오목 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 오목 게임이에요. 관전도 가능해요' },
+  { key: 'tower', path: 'tower', icon: '🗼', title: '무한의 탑', desc: '시간이 지나면 자동으로 층이 올라가는 방치형 등반 게임이에요. 막히면 강화해서 뚫어보세요' },
+  { key: 'stickerjar', path: 'stickerjar', icon: '🍯', title: '스티커 유리병', desc: '방송 중 들어오는 선물이 실시간으로 유리병에 쌓이는 걸 구경할 수 있어요' },
   { key: 'trophyboard', path: 'board', icon: '🏆', title: '박제판', desc: '정해진 선물을 보내면 그 칸에 내 닉네임이 새겨지는 전시판이에요' },
   { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
 ]
@@ -22236,6 +23021,27 @@ app.get('/events', (req, res) => {
   res.flushHeaders()
   sseClients.push(res)
   req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
+})
+
+// 🍯 스티커 유리병 오버레이 — 방송 중 들어오는 선물(스티커)을 실시간으로 유리병에 떨어뜨려서
+// 쌓아 보여주는 OBS 브라우저 소스용 페이지. 새 데이터 저장 없이, 이미 있는 실시간 선물 이벤트
+// (broadcast type:'donation')를 그대로 화면에 옮겨 그리기만 한다 — 그래서 로그인/인증도 필요 없다.
+// 🧪 관리자(sum) 전용 — 실제 선물 없이도 유리병을 테스트할 수 있게, 골라둔 스티커를 방금 받은
+// 선물인 것처럼 흉내낸다. 실제 선물이랑 완전히 같은 broadcast(type:'donation')를 그대로 쏘기 때문에
+// 열려있는 /stickerjar/:djId 페이지 입장에선 진짜 선물이 들어온 것과 구분이 안 된다 — 그래서 이
+// 오버레이 쪽 코드는 하나도 안 건드려도 된다.
+app.post('/stickerjar/:djId/test-gift', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const djId = req.params.djId
+  const sticker = String((req.body || {}).sticker || '').trim()
+  if (!sticker) return res.json({ success: false, error: '스티커를 선택해주세요.' })
+  const comboCount = Math.max(1, parseInt((req.body || {}).comboCount) || 1)
+  const stickerImage = await findStickerImage(sticker)
+  broadcast({ type: 'donation', djId, nick: '관리자 테스트', amount: 1, comboCount, sticker, stickerImage, profileUrl: '' })
+  res.json({ success: true })
+})
+app.get('/stickerjar/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/stickerjar.html')
 })
 
 app.get('/', (req, res) => {
