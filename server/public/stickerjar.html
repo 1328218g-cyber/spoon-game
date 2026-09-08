@@ -13,12 +13,10 @@
 
   #jarWrap{position:relative;width:280px;height:360px}
   #jarSvg{position:absolute;inset:0;width:100%;height:100%}
-  #stickerLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
-    clip-path:path('M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z')}
-  .sticker{position:absolute;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
-    justify-content:center;font-size:20px;background:radial-gradient(circle at 32% 28%,#fff,#ffd873 70%);
-    box-shadow:0 2px 4px rgba(0,0,0,.35);overflow:hidden;will-change:transform,top}
-  .sticker img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+  #stickerLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .sticker{position:absolute;width:38px;height:38px;display:flex;align-items:center;
+    justify-content:center;font-size:22px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));will-change:transform,top}
+  .sticker img{width:100%;height:100%;object-fit:contain}
 
   #countBadge{position:absolute;top:-34px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);
     color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}
@@ -27,6 +25,12 @@
     transition:opacity .25s;pointer-events:none;display:flex;align-items:center;gap:8px}
   #latestToast.show{opacity:1}
   #latestToast img{width:22px;height:22px;border-radius:50%}
+
+  /* 🍯 병 모양 선택 — 누구나 볼 수 있게(관리자 전용 아님), 고른 값은 이 브라우저에 저장돼서
+     새로고침해도 유지된다 */
+  #shapePicker{position:fixed;right:14px;top:14px;background:rgba(30,24,38,.85);color:#f2eefb;
+    border:1px solid #382e46;border-radius:10px;padding:7px 10px;font-size:12px;font-weight:700;
+    cursor:pointer;z-index:20}
 
   /* 🧪 관리자 전용 테스트 피커 — sum 계정으로 열었을 때만 보인다 */
   #testBtn{position:fixed;left:14px;bottom:14px;background:rgba(30,24,38,.85);color:#f2eefb;
@@ -49,15 +53,18 @@
 </style>
 </head>
 <body>
+<select id="shapePicker" onchange="onShapeChange(this.value)">
+  <option value="classic">🫙 클래식 병</option>
+  <option value="round">🍯 동그란 단지</option>
+  <option value="heart">💜 하트 유리병</option>
+  <option value="star">⭐ 별사탕 병</option>
+  <option value="diamond">💎 다이아몬드 병</option>
+  <option value="cloud">☁️ 구름 유리병</option>
+</select>
 <div id="stage">
   <div id="jarWrap">
     <div id="countBadge">🍬 0개 모음</div>
-    <svg id="jarSvg" viewBox="0 0 280 360">
-      <path d="M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z"
-            fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>
-      <rect x="95" y="4" width="90" height="20" rx="8" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>
-      <path d="M50,90 Q45,180 50,300" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="8" stroke-linecap="round"/>
-    </svg>
+    <svg id="jarSvg" viewBox="0 0 280 360"></svg>
     <div id="stickerLayer"></div>
   </div>
 </div>
@@ -79,7 +86,75 @@ const FALLBACK_EMOJIS = ['🍬','🍭','🍫','🧁','🍩','🍪','🎀','⭐']
 const CAPACITY = 60; // 이 개수만큼 쌓이면 병이 꽉 참 — 꽉 차면 자동으로 비우고 다시 쌓기 시작
 let count = 0;
 const layer = document.getElementById('stickerLayer');
-const jarInnerTop = 40, jarInnerBottom = 335, jarWidth = 220, jarLeft = 30;
+const svg = document.getElementById('jarSvg');
+
+// 🏺 병 모양 — 모양마다 SVG 그림(path)이랑, 스티커가 쌓일 수 있는 영역(left/right/bottom/fullTop)이
+// 따로 있다. clipPath는 stickerLayer를 이 모양 안쪽으로만 잘라 보여주는 용도라 path와 똑같은 좌표를 쓴다.
+const JAR_SHAPES = {
+  classic: {
+    label: '🫙 클래식 병',
+    body: 'M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z',
+    lid: {x:95,y:4,w:90,h:20,rx:8},
+    highlight: 'M50,90 Q45,180 50,300',
+    bounds:{left:50,right:230,bottom:335,fullTop:80},
+  },
+  round: {
+    label: '🍯 동그란 단지',
+    body: 'M60,90 Q60,25 140,25 Q220,25 220,90 Q255,150 255,240 Q255,340 140,340 Q25,340 25,240 Q25,150 60,90 Z',
+    lid: {x:110,y:6,w:60,h:20,rx:8},
+    highlight: 'M55,130 Q40,220 55,310',
+    bounds:{left:35,right:245,bottom:335,fullTop:100},
+  },
+  heart: {
+    label: '💜 하트 유리병',
+    body: 'M140,325 C50,265 15,195 15,130 C15,70 65,25 105,25 C125,25 138,40 140,60 C142,40 155,25 175,25 C215,25 265,70 265,130 C265,195 230,265 140,325 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:45,right:235,bottom:290,fullTop:110},
+  },
+  star: {
+    label: '⭐ 별사탕 병',
+    body: 'M140,50 L172,136 L264,140 L192,197 L216,285 L140,235 L64,285 L88,197 L16,140 L108,136 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:75,right:205,bottom:255,fullTop:135},
+  },
+  diamond: {
+    label: '💎 다이아몬드 병',
+    body: 'M100,40 L180,40 L220,110 L140,340 L60,110 Z',
+    lid: null,
+    highlight: 'M85,80 L140,120',
+    bounds:{left:70,right:210,bottom:315,fullTop:140},
+  },
+  cloud: {
+    label: '☁️ 구름 유리병',
+    body: 'M60,220 Q40,220 40,190 Q40,160 70,160 Q70,120 110,120 Q120,90 160,90 Q210,90 220,130 Q260,130 260,170 Q260,220 220,220 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:55,right:245,bottom:213,fullTop:150},
+  },
+};
+const SHAPE_KEY_PREFIX = 'stickerjar_shape_';
+let currentShape = JAR_SHAPES.classic;
+
+function applyShape(key){
+  const shape = JAR_SHAPES[key] || JAR_SHAPES.classic;
+  currentShape = shape;
+  let svgHtml = `<path d="${shape.body}" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>`;
+  if(shape.lid) svgHtml += `<rect x="${shape.lid.x}" y="${shape.lid.y}" width="${shape.lid.w}" height="${shape.lid.h}" rx="${shape.lid.rx}" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>`;
+  if(shape.highlight) svgHtml += `<path d="${shape.highlight}" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="8" stroke-linecap="round"/>`;
+  svg.innerHTML = svgHtml;
+  layer.style.clipPath = `path('${shape.body}')`;
+}
+function onShapeChange(key){
+  localStorage.setItem(SHAPE_KEY_PREFIX+djId, key);
+  applyShape(key);
+}
+(function initShape(){
+  const saved = localStorage.getItem(SHAPE_KEY_PREFIX+djId) || 'classic';
+  document.getElementById('shapePicker').value = saved;
+  applyShape(saved);
+})();
 
 function showToast(nick, imgUrl){
   const t = document.getElementById('latestToast');
@@ -120,9 +195,10 @@ function dropOne(nick, imgUrl){
   } else {
     el.textContent = FALLBACK_EMOJIS[Math.floor(Math.random()*FALLBACK_EMOJIS.length)];
   }
-  const settleX = jarLeft + 20 + Math.random()*(jarWidth-40);
+  const b = currentShape.bounds;
+  const settleX = b.left + 20 + Math.random()*(b.right-b.left-40);
   const fillRatio = Math.min(1, count / CAPACITY);
-  const pileTop = jarInnerBottom - fillRatio*260 - Math.random()*14;
+  const pileTop = b.bottom - fillRatio*(b.bottom-b.fullTop) - Math.random()*14;
   el.style.left = settleX+'px';
   el.style.top = '-40px';
   el.style.transform = 'rotate('+(Math.random()*360)+'deg)';
