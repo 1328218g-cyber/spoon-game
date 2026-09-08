@@ -4251,15 +4251,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint">커스텀을 고르면 <code>public/images/stickerjar/custom.png</code> 경로에 올려둔 이미지를 그대로 써요.</p>
           <div class="row" style="display:flex;gap:12px;margin-top:10px">
             <div style="flex:1">
-              <label style="margin-top:0">크기 배율</label>
+              <label style="margin-top:0">병 크기 배율</label>
               <input type="number" id="sjScale" value="1" min="0.3" max="3" step="0.1">
             </div>
             <div style="flex:1">
               <label style="margin-top:0">병 용량 (개)</label>
               <input type="number" id="sjCapacity" value="60" min="10" max="300" step="5">
             </div>
+            <div style="flex:1">
+              <label style="margin-top:0">스티커 크기 (px)</label>
+              <input type="number" id="sjStickerSize" value="38" min="16" max="90" step="2">
+            </div>
           </div>
-          <p class="hint">용량만큼 스티커가 쌓이면 잠깐 보여준 뒤 자동으로 비우고 다시 쌓기 시작해요.</p>
+          <p class="hint">용량만큼 스티커가 쌓이면 잠깐 보여준 뒤 자동으로 비우고 다시 쌓기 시작해요. 스티커가 작게 보였다면 스티커 크기를 키워보세요 — 원본 이미지가 고화질이라 크게 키울수록 더 선명하게 보여요.</p>
         </div>
         <div class="card">
           <div class="card-title"><span>🔗 오버레이 링크</span></div>
@@ -11490,6 +11494,7 @@ async function loadStickerJarSettings(){
     document.getElementById('sjShape').value=d.shape||'classic';
     document.getElementById('sjScale').value=d.scale||1;
     document.getElementById('sjCapacity').value=d.capacity||60;
+    document.getElementById('sjStickerSize').value=d.stickerSize||38;
   }catch(e){ showToast('불러오기 실패: '+e.message); }
 }
 async function saveStickerJarSettings(){
@@ -11497,6 +11502,7 @@ async function saveStickerJarSettings(){
     shape:document.getElementById('sjShape').value,
     scale:parseFloat(document.getElementById('sjScale').value)||1,
     capacity:parseInt(document.getElementById('sjCapacity').value)||60,
+    stickerSize:parseInt(document.getElementById('sjStickerSize').value)||38,
   };
   try{
     const res=await fetch(SERVER+'/stickerjar-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});

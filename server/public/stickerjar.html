@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스티커 유리병</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{ --glassEdge:#8b5cf6; --glassFill:rgba(139,92,246,0.10); }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:transparent;min-height:100%;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  #stage{position:relative;width:100%;height:100vh;display:flex;align-items:flex-end;justify-content:center;padding-bottom:24px}
+
+  #jarWrap{position:relative;width:280px;height:360px;transform:scale(var(--jarScale,1));transform-origin:center bottom}
+  #jarSvg{position:absolute;inset:0;width:100%;height:100%}
+  #physicsCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+  #countBadge{position:absolute;top:-34px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);
+    color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}
+  #latestToast{position:fixed;top:24px;left:50%;transform:translateX(-50%);background:rgba(20,16,24,.85);
+    color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;
+    transition:opacity .25s;pointer-events:none;display:flex;align-items:center;gap:8px}
+  #latestToast.show{opacity:1}
+  #latestToast img{width:22px;height:22px;border-radius:50%}
+
+  /* 🧪 관리자 전용 테스트 피커 — sum 계정으로 열었을 때만 보인다 */
+  #testBtn{position:fixed;left:14px;bottom:14px;background:rgba(30,24,38,.85);color:#f2eefb;
+    border:1px solid #382e46;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:700;cursor:pointer;z-index:20}
+  #testBtn:hover{background:#2c2438}
+  #testModalOverlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;
+    justify-content:center;z-index:30;padding:20px}
+  #testModalOverlay.show{display:flex}
+  #testModalBox{background:#1e1826;border:1px solid #382e46;border-radius:16px;padding:16px;
+    width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;gap:10px;color:#f2eefb}
+  #testModalBox h3{margin:0;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+  #testModalBox h3 span.x{cursor:pointer;color:#a99cc2;font-weight:400}
+  #testStickerSearch{width:100%;background:#241d30;border:1px solid #382e46;border-radius:8px;
+    color:#f2eefb;padding:9px 12px;font-size:13px}
+  #testStickerGrid{overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:2px}
+  .testStickerCard{background:#241d30;border:1px solid #382e46;border-radius:10px;padding:8px;
+    text-align:center;cursor:pointer;font-size:10.5px}
+  .testStickerCard:hover{background:#2c2438}
+  .testStickerCard img{width:36px;height:36px;object-fit:contain;margin-bottom:4px}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+</head>
+<body>
+<div id="stage">
+  <div id="jarWrap">
+    <div id="countBadge">🍬 0개 모음</div>
+    <svg id="jarSvg" viewBox="0 0 280 360"></svg>
+    <canvas id="physicsCanvas" width="280" height="360"></canvas>
+  </div>
+</div>
+<div id="latestToast"></div>
+
+<!-- 🧪 관리자(sum) 전용 테스트 UI — JS에서 djId==='sum'일 때만 화면에 붙인다 -->
+<button id="testBtn" style="display:none" onclick="openTestPicker()">🧪 테스트 선물 보내기</button>
+<div id="testModalOverlay" onclick="if(event.target===this)closeTestPicker()">
+  <div id="testModalBox">
+    <h3>🧪 테스트할 선물 선택 <span class="x" onclick="closeTestPicker()">✕</span></h3>
+    <input type="text" id="testStickerSearch" placeholder="스티커 이름 검색" oninput="renderTestStickerGrid()">
+    <div id="testStickerGrid"></div>
+  </div>
+</div>
+
+<script>
+const djId = location.pathname.split('/').filter(Boolean)[1] || '';
+let CAPACITY = 60; // 관리자 설정에서 불러온 값으로 아래 loadServerSettings()가 덮어쓴다
+let STICKER_RADIUS = 19; // 스티커 크기(px)의 절반 — 관리자 설정의 stickerSize로 덮어쓴다
+let count = 0;
+const svg = document.getElementById('jarSvg');
+
+// 🧲 물리 엔진(Matter.js) 셋업 — 스티커가 실제로 중력을 받아 떨어지고, 서로 부딪히면서
+// 자연스럽게 쌓이거나 무너지게 만든다. 캔버스 좌표는 SVG viewBox랑 똑같이 0~280×0~360을 쓴다.
+const { Engine, World, Bodies, Composite, Runner, Render, Body } = Matter;
+const engine = Engine.create();
+engine.gravity.y = 1.1;
+const canvas = document.getElementById('physicsCanvas');
+const render = Render.create({
+  canvas, engine,
+  options: { width:280, height:360, wireframes:false, background:'transparent', pixelRatio:Math.min(2, window.devicePixelRatio||1) }
+});
+Render.run(render);
+Runner.run(Runner.create(), engine);
+
+const FALLBACK_COLORS = ['#f472b6','#facc15','#4ade80','#60a5fa','#c084fc','#fb923c'];
+let floorBody = null, leftWallBody = null, rightWallBody = null;
+
+// 🏺 병 모양 — 모양마다 SVG 그림(path)이랑, 스티커가 실제로 떨어져 쌓이는 물리 영역
+// (left/right/bottom/fullTop)이 따로 있다. 시각적으로는 SVG path 모양 그대로 잘려 보이도록
+// 캔버스에 clip-path를 씌우고, 물리 충돌은 그 안에 들어가는 간단한 사각 벽(바닥+양옆)으로 처리한다.
+const JAR_SHAPES = {
+  classic: {
+    label: '🫙 클래식 병',
+    body: 'M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z',
+    lid: {x:95,y:4,w:90,h:20,rx:8},
+    highlight: 'M50,90 Q45,180 50,300',
+    bounds:{left:50,right:230,bottom:335,fullTop:80},
+  },
+  round: {
+    label: '🍯 동그란 단지',
+    body: 'M60,90 Q60,25 140,25 Q220,25 220,90 Q255,150 255,240 Q255,340 140,340 Q25,340 25,240 Q25,150 60,90 Z',
+    lid: {x:110,y:6,w:60,h:20,rx:8},
+    highlight: 'M55,130 Q40,220 55,310',
+    bounds:{left:35,right:245,bottom:335,fullTop:100},
+  },
+  heart: {
+    label: '💜 하트 유리병',
+    body: 'M140,325 C50,265 15,195 15,130 C15,70 65,25 105,25 C125,25 138,40 140,60 C142,40 155,25 175,25 C215,25 265,70 265,130 C265,195 230,265 140,325 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:45,right:235,bottom:290,fullTop:110},
+  },
+  star: {
+    label: '⭐ 별사탕 병',
+    body: 'M140,50 L172,136 L264,140 L192,197 L216,285 L140,235 L64,285 L88,197 L16,140 L108,136 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:75,right:205,bottom:255,fullTop:135},
+  },
+  diamond: {
+    label: '💎 다이아몬드 병',
+    body: 'M100,40 L180,40 L220,110 L140,340 L60,110 Z',
+    lid: null,
+    highlight: 'M85,80 L140,120',
+    bounds:{left:70,right:210,bottom:315,fullTop:140},
+  },
+  cloud: {
+    label: '☁️ 구름 유리병',
+    body: 'M60,220 Q40,220 40,190 Q40,160 70,160 Q70,120 110,120 Q120,90 160,90 Q210,90 220,130 Q260,130 260,170 Q260,220 220,220 Z',
+    lid: null,
+    highlight: null,
+    bounds:{left:55,right:245,bottom:213,fullTop:150},
+  },
+  custom: {
+    label: '🖼️ 커스텀(내 이미지)',
+    image: '/images/stickerjar/custom.png',
+    // 🎯 그림마다 윤곽이 다 달라서 자동으로 정확히 안 맞는다 — 아래 4개 숫자를 실제 이미지 안에서
+    // "스티커가 쌓여도 되는 네모 영역"에 맞게 직접 조정하면 된다 (0~280이 가로, 0~360이 세로 기준).
+    bounds:{left:60,right:220,bottom:330,fullTop:100},
+  },
+};
+let currentShape = JAR_SHAPES.classic;
+
+function setupWalls(bounds){
+  const toRemove = [floorBody, leftWallBody, rightWallBody].filter(Boolean);
+  if(toRemove.length) Composite.remove(engine.world, toRemove);
+  const midY = (bounds.fullTop + bounds.bottom) / 2;
+  const wallH = (bounds.bottom - bounds.fullTop) + 60;
+  floorBody = Bodies.rectangle((bounds.left+bounds.right)/2, bounds.bottom+10, (bounds.right-bounds.left)+20, 20, { isStatic:true, render:{visible:false} });
+  leftWallBody = Bodies.rectangle(bounds.left-8, midY, 16, wallH, { isStatic:true, render:{visible:false} });
+  rightWallBody = Bodies.rectangle(bounds.right+8, midY, 16, wallH, { isStatic:true, render:{visible:false} });
+  Composite.add(engine.world, [floorBody, leftWallBody, rightWallBody]);
+}
+
+function applyShape(key){
+  const shape = JAR_SHAPES[key] || JAR_SHAPES.classic;
+  currentShape = shape;
+  if(shape.image){
+    // 🖼️ 커스텀 이미지 모드 — SVG 대신 그림 파일을 그대로 보여준다. 정확한 윤곽으로 캔버스를
+    // 자르는(clip) 건 안 하고, 위에서 정한 사각형 영역(bounds) 안에서만 물리적으로 쌓이게 한다.
+    svg.innerHTML = '';
+    svg.style.display = 'none';
+    let imgEl = document.getElementById('customJarImg');
+    if(!imgEl){
+      imgEl = document.createElement('img');
+      imgEl.id = 'customJarImg';
+      imgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:0';
+      document.getElementById('jarWrap').insertBefore(imgEl, canvas);
+    }
+    imgEl.style.display = 'block';
+    imgEl.src = shape.image;
+    imgEl.onerror = () => { imgEl.style.display = 'none'; showPlainToast('⚠️ /images/stickerjar/custom.png 파일이 없어요'); };
+    canvas.style.clipPath = 'none';
+  } else {
+    svg.style.display = 'block';
+    const imgEl = document.getElementById('customJarImg');
+    if(imgEl) imgEl.style.display = 'none';
+    let svgHtml = `<path d="${shape.body}" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>`;
+    if(shape.lid) svgHtml += `<rect x="${shape.lid.x}" y="${shape.lid.y}" width="${shape.lid.w}" height="${shape.lid.h}" rx="${shape.lid.rx}" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>`;
+    if(shape.highlight) svgHtml += `<path d="${shape.highlight}" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="8" stroke-linecap="round"/>`;
+    svg.innerHTML = svgHtml;
+    canvas.style.clipPath = `path('${shape.body}')`;
+  }
+  setupWalls(shape.bounds);
+}
+// 📏 크기 조절 — 관리자 설정의 배율이 기본이고, 주소 끝에 ?scale=1.4 처럼 붙이면 그 배율로
+// 이 브라우저에서만 덮어쓸 수 있다 (OBS에서 설정 저장 없이 바로 조절하고 싶을 때 씀).
+const urlScaleOverride = parseFloat(new URLSearchParams(location.search).get('scale'));
+function applyScale(scale){
+  const final = (urlScaleOverride && urlScaleOverride > 0) ? urlScaleOverride : scale;
+  if(final && final > 0) document.documentElement.style.setProperty('--jarScale', final);
+}
+// 🍯 병 모양·크기·용량은 관리자 대시보드에서 설정한 값을 그대로 불러다 쓴다 (DJ가 한 곳에서
+// 정하면 어디서 열어도 똑같이 보이도록 서버 설정으로 관리한다).
+async function loadServerSettings(){
+  try{
+    const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/settings');
+    const d = await res.json();
+    if(d.success){
+      applyShape(d.shape || 'classic');
+      applyScale(d.scale || 1);
+      CAPACITY = d.capacity || 60;
+      STICKER_RADIUS = (d.stickerSize || 38) / 2;
+      return;
+    }
+  }catch(e){ /* 불러오기 실패하면 기본값(클래식 병, 배율 1, 60개)으로 그냥 진행 */ }
+  applyShape('classic');
+  applyScale(1);
+}
+
+function showToast(nick, imgUrl){
+  const t = document.getElementById('latestToast');
+  t.innerHTML = imgUrl
+    ? `<img src="${imgUrl}" onerror="this.style.display='none'"> <b>${escapeHtml(nick)}</b>님이 스티커를 보냈어요!`
+    : `<span style="font-size:16px">🎁</span> <b>${escapeHtml(nick)}</b>님이 스티커를 보냈어요!`;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function showPlainToast(msg){
+  const t = document.getElementById('latestToast');
+  t.innerHTML = `<span>${escapeHtml(msg)}</span>`;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function updateCountBadge(){
+  document.getElementById('countBadge').textContent = `🍬 ${count}개 모음`;
+}
+// 🫗 병이 꽉 차면 바닥을 잠깐 없애서 쌓여있던 스티커들이 한꺼번에 쏟아지듯 떨어져 사라지고,
+// 다 떨어지고 나면 바닥을 되돌려놓고 다시 빈 병부터 쌓기 시작한다.
+function emptyJarSpill(){
+  if(floorBody) Composite.remove(engine.world, floorBody);
+  setTimeout(()=>{
+    const bodies = Composite.allBodies(engine.world).filter(b => !b.isStatic);
+    if(bodies.length) Composite.remove(engine.world, bodies);
+    setupWalls(currentShape.bounds);
+    count = 0;
+    updateCountBadge();
+  }, 900);
+}
+
+function dropOne(nick, imgUrl){
+  count++;
+  updateCountBadge();
+  const b = currentShape.bounds;
+  const x = b.left + 20 + Math.random()*Math.max(10, b.right-b.left-40);
+  const radius = STICKER_RADIUS;
+  const spawn = (texture, natW, natH) => {
+    const opts = { restitution:0.22, friction:0.55, frictionAir:0.018, density:0.0025 };
+    opts.render = texture
+      ? { sprite:{ texture, xScale:(radius*2)/(natW||64), yScale:(radius*2)/(natH||64) } }
+      : { fillStyle: FALLBACK_COLORS[Math.floor(Math.random()*FALLBACK_COLORS.length)] };
+    const body = Bodies.circle(x, -30, radius, opts);
+    Body.setAngularVelocity(body, (Math.random()-0.5)*0.18);
+    Composite.add(engine.world, body);
+  };
+  if(imgUrl){
+    const img = new Image();
+    img.onload = () => spawn(imgUrl, img.naturalWidth, img.naturalHeight);
+    img.onerror = () => spawn(null);
+    img.src = imgUrl;
+  } else {
+    spawn(null);
+  }
+  if(count >= CAPACITY) setTimeout(emptyJarSpill, 1000);
+}
+
+function connect(){
+  const es = new EventSource('/events');
+  es.onmessage = (e) => {
+    let d;
+    try { d = JSON.parse(e.data); } catch(err) { return; }
+    if(d.djId !== djId) return;
+    if(d.type === 'stickerjar_reset'){
+      // 병이 꽉 차서 서버가 모두에게 동시에 비우라는 신호를 보낸 것 — 이 화면도 같이 쏟아내고 비운다
+      emptyJarSpill();
+      return;
+    }
+    if(d.type !== 'donation') return;
+    const times = Math.max(1, Number(d.comboCount)||1);
+    showToast(d.nick || '시청자', d.stickerImage);
+    for(let i=0;i<times;i++) setTimeout(()=>dropOne(d.nick || '시청자', d.stickerImage), i*90);
+  };
+  es.onerror = () => { /* 브라우저가 자동으로 재연결 시도함 — 별도 처리 불필요 */ };
+}
+// 🫙 이 방에 이미 쌓여있던 스티커들을 불러와서 그대로 재현한다 — 그래야 방금 접속한 사람도
+// 다른 사람들이랑 똑같은(공용) 병을 보게 된다. 토스트 알림 없이 조용히, 살짝 텀을 두고 떨어뜨린다.
+async function loadCatchUpState(){
+  try{
+    const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/state');
+    const d = await res.json();
+    if(d.success && Array.isArray(d.items)){
+      d.items.forEach((it, i) => setTimeout(()=>dropOne(it.nick||'시청자', it.stickerImage), i*35));
+    }
+  }catch(e){ /* 실패해도 그냥 빈 병에서부터 시작 */ }
+}
+
+if(!djId){
+  document.body.innerHTML = '<p style="color:#fff;text-align:center;margin-top:40px">잘못된 주소예요.</p>';
+} else {
+  (async function init(){
+    await loadServerSettings();
+    await loadCatchUpState();
+    connect();
+  })();
+  if(djId === 'sum') document.getElementById('testBtn').style.display = 'block';
+}
+
+/* ── 🧪 관리자 전용 테스트 선물 피커 ── */
+let testStickerData = [];
+async function loadTestStickerData(){
+  if(testStickerData.length) return testStickerData;
+  try{
+    const res = await fetch('/stickers');
+    const d = await res.json();
+    if(d.success && Array.isArray(d.stickers)) testStickerData = d.stickers;
+  }catch(e){ /* 실패하면 빈 목록으로 안내 문구만 뜸 */ }
+  return testStickerData;
+}
+async function openTestPicker(){
+  document.getElementById('testModalOverlay').classList.add('show');
+  document.getElementById('testStickerSearch').value = '';
+  await loadTestStickerData();
+  renderTestStickerGrid();
+}
+function closeTestPicker(){
+  document.getElementById('testModalOverlay').classList.remove('show');
+}
+function renderTestStickerGrid(){
+  const grid = document.getElementById('testStickerGrid');
+  const keyword = (document.getElementById('testStickerSearch').value||'').toLowerCase().trim();
+  let list = testStickerData;
+  if(keyword) list = list.filter(s => (s.name||'').toLowerCase().includes(keyword) || (s.title||'').toLowerCase().includes(keyword));
+  if(!list.length){ grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:#a99cc2;font-size:12px">스티커가 없어요.</div>'; return; }
+  grid.innerHTML = '';
+  list.slice(0, 120).forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'testStickerCard';
+    card.innerHTML = `<img src="${s.image||''}" onerror="this.style.visibility='hidden'"><div>${escapeHtml(s.title||s.name)}</div>`;
+    card.onclick = () => sendTestGift(s.name);
+    grid.appendChild(card);
+  });
+}
+async function sendTestGift(stickerName){
+  closeTestPicker();
+  try{
+    const token = localStorage.getItem('djToken') || sessionStorage.getItem('djToken') || '';
+    const headers = {'Content-Type':'application/json'};
+    if(token) headers['Authorization'] = 'Bearer '+token;
+    const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/test-gift', {
+      method:'POST', headers, body:JSON.stringify({sticker: stickerName})
+    });
+    if(res.status === 401 || res.status === 403){
+      showPlainToast('⚠️ 관리자 로그인이 필요해요 (같은 브라우저에서 관리자 대시보드에 먼저 로그인해주세요)');
+      return;
+    }
+    if(!res.ok){ showPlainToast('⚠️ 테스트 요청 실패 (서버 오류 '+res.status+')'); return; }
+    const d = await res.json();
+    if(!d.success) showPlainToast('⚠️ '+(d.error||'테스트 실패'));
+  }catch(e){ showPlainToast('⚠️ 요청 중 오류: '+e.message); }
+}
+</script>
+</body>
+</html>
