@@ -694,6 +694,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="stickerjar"><span class="ic ic-img"><img src="/icons/stickerjar.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">스티커 유리병</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -922,6 +923,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title"><span>📊 전체 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadAdminStats()">🔄 새로고침</button></div>
           <div id="adminStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:10px">
+            <p class="hint">불러오는 중...</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔀 공용 계정 접속 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadTokenPoolStatus()">🔄 새로고침</button></div>
+          <p class="hint" style="margin-bottom:12px">공용 계정(sum/sum2/sum3...)마다 지금 몇 명이 붙어서 쓰고 있는지 확인할 수 있어요. 한 계정이 정원에 가까워지면 새 DJ는 자동으로 다음 계정에 배정돼요.</p>
+          <div id="tokenPoolStatusWrap" style="display:flex;flex-direction:column;gap:10px">
             <p class="hint">불러오는 중...</p>
           </div>
         </div>
@@ -4225,6 +4233,42 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🍯 스티커 유리병 -->
+      <div class="panel" data-panel="stickerjar">
+        <div class="card">
+          <div class="card-title"><span>🍯 스티커 유리병 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveStickerJarSettings()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:12px">방송 중 들어오는 선물이 실시간으로 유리병에 쌓이는 걸 보여주는 OBS 브라우저 소스용 오버레이예요. 아래에서 정한 값이 오버레이에 그대로 적용돼요 (브라우저마다 따로 설정할 필요 없음).</p>
+          <label style="margin-top:0">병 모양</label>
+          <select id="sjShape">
+            <option value="classic">🫙 클래식 병</option>
+            <option value="round">🍯 동그란 단지</option>
+            <option value="heart">💜 하트 유리병</option>
+            <option value="star">⭐ 별사탕 병</option>
+            <option value="diamond">💎 다이아몬드 병</option>
+            <option value="cloud">☁️ 구름 유리병</option>
+            <option value="custom">🖼️ 커스텀(내 이미지)</option>
+          </select>
+          <p class="hint">커스텀을 고르면 <code>public/images/stickerjar/custom.png</code> 경로에 올려둔 이미지를 그대로 써요.</p>
+          <div class="row" style="display:flex;gap:12px;margin-top:10px">
+            <div style="flex:1">
+              <label style="margin-top:0">크기 배율</label>
+              <input type="number" id="sjScale" value="1" min="0.3" max="3" step="0.1">
+            </div>
+            <div style="flex:1">
+              <label style="margin-top:0">병 용량 (개)</label>
+              <input type="number" id="sjCapacity" value="60" min="10" max="300" step="5">
+            </div>
+          </div>
+          <p class="hint">용량만큼 스티커가 쌓이면 잠깐 보여준 뒤 자동으로 비우고 다시 쌓기 시작해요.</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔗 오버레이 링크</span></div>
+          <p class="hint" style="margin-bottom:12px">이 링크를 OBS 브라우저 소스로 추가하거나, 창으로 띄워두면 돼요. 배경이 투명이라 방송 화면에 그대로 얹혀요.</p>
+          <input type="text" id="stickerjarLinkBox" readonly style="text-align:left;letter-spacing:0;font-weight:400">
+          <button class="btn-gray" style="margin-top:8px" onclick="copyStickerjarLink()">🔗 링크 복사</button>
+        </div>
+      </div>
+
       <!-- 스티커 선택 모달 (선물캡처판 테스트 전용) -->
       <div id="gcTestStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGcTestStickerPicker()">
         <div class="sticker-modal-box">
@@ -5449,7 +5493,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -5589,6 +5633,7 @@ const PANEL_META={
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
+  stickerjar:['🍯 스티커 유리병','방송 중 들어오는 선물이 실시간으로 유리병에 쌓이는 걸 보여주는 OBS 오버레이입니다. 병 모양·크기·용량을 여기서 설정할 수 있어요'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
 
@@ -5613,8 +5658,12 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
+  if(name==='stickerjar'){
+    if(document.getElementById('stickerjarLinkBox'))document.getElementById('stickerjarLinkBox').value=window.location.origin+'/stickerjar/'+encodeURIComponent(djId);
+    loadStickerJarSettings();
+  }
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
+  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
@@ -5704,7 +5753,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','stickerjar','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -5719,7 +5768,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',stickerjar:'stickerjar.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -5735,7 +5784,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','stickerjar','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -7409,6 +7458,35 @@ async function loadAdminStats(){
       </div>`;
     }).join('');
   }catch(e){ grid.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+
+async function loadTokenPoolStatus(){
+  const wrap=document.getElementById('tokenPoolStatusWrap');
+  if(!wrap)return;
+  try{
+    const res=await fetch(SERVER+'/admin/token-pool-status',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ wrap.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    if(!d.pool||!d.pool.length){ wrap.innerHTML='<p class="hint">등록된 공용 계정이 없어요.</p>'; return; }
+    wrap.innerHTML=d.pool.map(p=>{
+      const pct=p.capacity?Math.min(100,Math.round(p.connected/p.capacity*100)):0;
+      const barColor=pct>=100?'#e5484d':(pct>=70?'#fb923c':'#4ade80');
+      const sessionBadge=p.hasSession?'<span class="status-pill ongoing">세션 연결됨</span>':'<span class="status-pill ended">세션 없음</span>';
+      const tokenBadge=p.hasSession&&!p.hasToken?'<span class="status-pill dday">토큰 없음/만료</span>':'';
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <b>${escapeHtml(p.djId)}</b>
+          <div style="display:flex;flex-wrap:wrap">${sessionBadge}${tokenBadge}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <div style="flex:1;height:8px;border-radius:4px;background:var(--border);overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${barColor}"></div>
+          </div>
+          <div class="hint" style="margin:0;white-space:nowrap">${p.connected} / ${p.capacity}명</div>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
 }
 
 function renderAdminUserSearch(){
@@ -11396,6 +11474,36 @@ function copyReversiLink(){
   navigator.clipboard?.writeText(input.value).then(()=>showToast('링크 복사 완료 ✓')).catch(()=>{
     document.execCommand('copy'); showToast('링크 복사 완료 ✓');
   });
+}
+function copyStickerjarLink(){
+  const input=document.getElementById('stickerjarLinkBox');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=>showToast('링크 복사 완료 ✓')).catch(()=>{
+    document.execCommand('copy'); showToast('링크 복사 완료 ✓');
+  });
+}
+async function loadStickerJarSettings(){
+  try{
+    const res=await fetch(SERVER+'/stickerjar-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('sjShape').value=d.shape||'classic';
+    document.getElementById('sjScale').value=d.scale||1;
+    document.getElementById('sjCapacity').value=d.capacity||60;
+  }catch(e){ showToast('불러오기 실패: '+e.message); }
+}
+async function saveStickerJarSettings(){
+  const body={
+    shape:document.getElementById('sjShape').value,
+    scale:parseFloat(document.getElementById('sjScale').value)||1,
+    capacity:parseInt(document.getElementById('sjCapacity').value)||60,
+  };
+  try{
+    const res=await fetch(SERVER+'/stickerjar-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'저장 실패'); return; }
+    showToast('저장 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 async function saveTrophyBoard(){

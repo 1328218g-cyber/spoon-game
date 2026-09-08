@@ -23023,6 +23023,41 @@ app.get('/events', (req, res) => {
   req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
 })
 
+// 🍯 스티커 유리병 — 관리자 대시보드에서 병 모양/크기/용량을 설정해두면, 오버레이 페이지가
+// 그 값을 그대로 불러다 쓴다(브라우저마다 따로 저장하던 방식에서 DJ가 한 번 설정하면 어디서
+// 열어도 똑같이 보이는 방식으로 바꿈).
+function getStickerJarSettings(djId, settings) {
+  if (!settings.stickerJar) {
+    settings.stickerJar = { shape: 'classic', scale: 1, capacity: 60 }
+    store.saveSettings(djId, { stickerJar: settings.stickerJar })
+  }
+  return settings.stickerJar
+}
+app.get('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const sj = getStickerJarSettings(req.djId, settings)
+  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity })
+})
+app.post('/stickerjar-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const sj = getStickerJarSettings(req.djId, settings)
+  const { shape, scale, capacity } = req.body || {}
+  const VALID_SHAPES = ['classic', 'round', 'heart', 'star', 'diamond', 'cloud', 'custom']
+  if (VALID_SHAPES.includes(shape)) sj.shape = shape
+  if (scale != null) sj.scale = Math.max(0.3, Math.min(3, Number(scale) || 1))
+  if (capacity != null) sj.capacity = Math.max(10, Math.min(300, parseInt(capacity) || 60))
+  store.saveSettings(req.djId, { stickerJar: sj })
+  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity })
+})
+// 오버레이 페이지 쪽에서 부르는 공개(로그인 불필요) 버전 — 위 관리자용이랑 값은 같지만, 이건
+// 누구나(시청자 브라우저, OBS 등) 열람만 가능하고 저장은 못 하게 별도 경로로 뒀다.
+app.get('/stickerjar/:djId/settings', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const sj = getStickerJarSettings(djId, settings)
+  res.json({ success: true, shape: sj.shape, scale: sj.scale, capacity: sj.capacity })
+})
+
 // 🍯 스티커 유리병 오버레이 — 방송 중 들어오는 선물(스티커)을 실시간으로 유리병에 떨어뜨려서
 // 쌓아 보여주는 OBS 브라우저 소스용 페이지. 새 데이터 저장 없이, 이미 있는 실시간 선물 이벤트
 // (broadcast type:'donation')를 그대로 화면에 옮겨 그리기만 한다 — 그래서 로그인/인증도 필요 없다.
