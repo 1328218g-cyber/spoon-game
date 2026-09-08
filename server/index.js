@@ -761,7 +761,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -22290,8 +22290,6 @@ const WEB_HUB_FEATURES = [
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
   { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
   { key: 'omok', path: 'omok', icon: '⚪⚫', title: '오목 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 오목 게임이에요. 관전도 가능해요' },
-  { key: 'tower', path: 'tower', icon: '🗼', title: '무한의 탑', desc: '시간이 지나면 자동으로 층이 올라가는 방치형 등반 게임이에요. 막히면 강화해서 뚫어보세요' },
-  { key: 'stickerjar', path: 'stickerjar', icon: '🍯', title: '스티커 유리병', desc: '방송 중 들어오는 선물이 실시간으로 유리병에 쌓이는 걸 구경할 수 있어요' },
   { key: 'trophyboard', path: 'board', icon: '🏆', title: '박제판', desc: '정해진 선물을 보내면 그 칸에 내 닉네임이 새겨지는 전시판이에요' },
   { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
 ]
