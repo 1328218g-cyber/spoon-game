@@ -23119,6 +23119,20 @@ app.post('/stickerjar-admin/reset', auth.requireAuth, (req, res) => {
   broadcast({ type: 'stickerjar_reset', djId: req.djId })
   res.json({ success: true })
 })
+// 🧪 관리자 대시보드에서 바로 테스트 선물을 보내는 기능 — 실제 선물이랑 완전히 같은
+// broadcast(type:'donation')를 그대로 쏘기 때문에, 유리병 오버레이 쪽 코드는 하나도 안 건드려도 된다.
+app.post('/stickerjar-admin/test-gift', auth.requireAuth, async (req, res) => {
+  const djId = req.djId
+  const sticker = String((req.body || {}).sticker || '').trim()
+  if (!sticker) return res.json({ success: false, error: '스티커를 선택해주세요.' })
+  const amount = Math.max(0, parseInt((req.body || {}).amount) || 0)
+  const comboCount = Math.max(1, parseInt((req.body || {}).comboCount) || 1)
+  const stickerImage = await findStickerImage(sticker)
+  broadcast({ type: 'donation', djId, nick: '관리자 테스트', amount, comboCount, sticker, stickerImage, profileUrl: '' })
+  const settings = store.getSettings(djId) || {}
+  handleStickerJarDonation(djId, settings, '관리자 테스트', sticker, stickerImage, comboCount, amount)
+  res.json({ success: true })
+})
 
 // 🍯 스티커 유리병 오버레이 — 방송 중 들어오는 선물(스티커)을 실시간으로 유리병에 떨어뜨려서
 // 쌓아 보여주는 OBS 브라우저 소스용 페이지. 새 데이터 저장 없이, 이미 있는 실시간 선물 이벤트

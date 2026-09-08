@@ -4311,6 +4311,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🧪 테스트 선물 보내기</span></div>
+          <p class="hint" style="margin-bottom:12px">실제 선물 없이도 병에 스티커가 떨어지는 걸 미리 볼 수 있어요. 실제 선물과 똑같이 처리돼요(최소 다이아·콤보합치기·크기 설정 다 적용).</p>
+          <button class="btn-gray" onclick="openSjTestStickerPicker()">🔍 선물 목록에서 선택해서 테스트</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🔄 병 비우기</span></div>
           <p class="hint" style="margin-bottom:12px">지금 쌓여있는 스티커를 바로 비워요. 지금 열려있는 모든 시청자 화면에도 동시에 반영돼요.</p>
           <button class="btn-gray" onclick="resetStickerJar()">🔄 지금 병 비우기</button>
@@ -4320,6 +4325,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">이 링크를 OBS 브라우저 소스로 추가하거나, 창으로 띄워두면 돼요. 배경이 투명이라 방송 화면에 그대로 얹혀요.</p>
           <input type="text" id="stickerjarLinkBox" readonly style="text-align:left;letter-spacing:0;font-weight:400">
           <button class="btn-gray" style="margin-top:8px" onclick="copyStickerjarLink()">🔗 링크 복사</button>
+        </div>
+      </div>
+
+      <div id="sjTestStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeSjTestStickerPicker()">
+        <div class="sticker-modal-box">
+          <div class="modal-title"><span>🖼️ 테스트할 선물 선택</span><button class="icon-btn" onclick="closeSjTestStickerPicker()">✕</button></div>
+          <div class="sticker-toolbar">
+            <input type="text" id="sjTestStickerPickerSearch" placeholder="스티커 이름 검색" oninput="renderSjTestStickerPicker()" style="flex:1">
+            <select id="sjTestStickerPickerCategory" onchange="renderSjTestStickerPicker()">
+              <option value="">전체 카테고리</option>
+            </select>
+          </div>
+          <div class="hint" style="margin:8px 0"><span id="sjTestStickerPickerCount">0</span>개 — 클릭하면 바로 테스트 선물이 전송돼요</div>
+          <div id="sjTestStickerPickerGrid" class="sticker-grid"></div>
         </div>
       </div>
 
@@ -11620,6 +11639,65 @@ async function resetStickerJar(){
     if(!d.success){ showToast(d.error||'비우기 실패'); return; }
     showToast('병을 비웠어요 ✓');
   }catch(e){ showToast('오류: '+e.message); }
+}
+
+async function sendSjTestGift(sticker, amount){
+  try{
+    const res=await fetch(SERVER+'/stickerjar-admin/test-gift',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({sticker,amount})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'테스트 실패'); return; }
+    showToast(`테스트 선물(${sticker}) 전송 완료 ✓`);
+  }catch(e){ showToast('오류: '+e.message); }
+}
+/* 🔍 스티커 유리병 테스트용 선물 선택 모달 — 룰렛/박제판/선물캡처판과 같은 스티커 데이터(rlStickerData) 재사용 */
+async function openSjTestStickerPicker(){
+  document.getElementById('sjTestStickerModalOverlay').style.display='flex';
+  document.getElementById('sjTestStickerPickerSearch').value='';
+  await loadRlStickerData();
+  if(!rlStickerData.length){
+    showToast('스티커 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요');
+  }
+  const catSelect=document.getElementById('sjTestStickerPickerCategory');
+  const cats=[...new Set(rlStickerData.map(s=>s.category).filter(Boolean))].sort();
+  catSelect.innerHTML='<option value="">전체 카테고리</option>'+cats.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  renderSjTestStickerPicker();
+}
+function closeSjTestStickerPicker(){
+  document.getElementById('sjTestStickerModalOverlay').style.display='none';
+}
+function getFilteredSjTestStickers(){
+  const keyword=(document.getElementById('sjTestStickerPickerSearch').value||'').toLowerCase().trim();
+  const catFilter=document.getElementById('sjTestStickerPickerCategory').value;
+  let list=rlStickerData.slice();
+  if(catFilter) list=list.filter(s=>s.category===catFilter);
+  if(keyword) list=list.filter(s=>(s.name||'').toLowerCase().includes(keyword)||(s.title||'').toLowerCase().includes(keyword)||(s.category||'').toLowerCase().includes(keyword));
+  list.sort((a,b)=>(Number(a.price)||0)-(Number(b.price)||0));
+  return list;
+}
+function renderSjTestStickerPicker(){
+  const grid=document.getElementById('sjTestStickerPickerGrid');
+  const countEl=document.getElementById('sjTestStickerPickerCount');
+  const list=getFilteredSjTestStickers();
+  countEl.textContent=list.length+'개';
+  if(!list.length){
+    grid.innerHTML='<div style="grid-column:1 / -1;text-align:center;padding:40px;color:var(--muted);font-size:13px">조건에 맞는 스티커가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML='';
+  list.forEach(s=>{
+    const card=document.createElement('div');
+    card.className='sticker-card';
+    card.innerHTML=`
+      <img src="${escapeAttr(s.image||'')}" onerror="this.style.visibility='hidden'">
+      <div class="sname">${escapeHtml(s.title||s.name)}</div>
+      <div class="sprice">💰 ${Number(s.price)||0}</div>
+    `;
+    card.addEventListener('click',()=>{
+      sendSjTestGift(s.name, Number(s.price)||0);
+      closeSjTestStickerPicker();
+    });
+    grid.appendChild(card);
+  });
 }
 
 async function saveTrophyBoard(){

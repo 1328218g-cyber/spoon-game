@@ -168,13 +168,29 @@ function applyShape(key, customImageUrl){
   }
   setupWalls(shape.bounds);
 }
-// 📏 크기 조절 — 관리자 설정의 배율이 기본이고, 주소 끝에 ?scale=1.4 처럼 붙이면 그 배율로
-// 이 브라우저에서만 덮어쓸 수 있다 (OBS에서 설정 저장 없이 바로 조절하고 싶을 때 씀).
+// 📏 크기 조절 — 화면(또는 iframe) 크기에 맞춰 병이 항상 화면 안에 딱 맞게 자동으로 배율을
+// 계산하고, 관리자 설정의 "병 크기 배율"은 그 자동 크기 위에 추가로 곱해지는 배율로 쓴다.
+// 이렇게 하면 모바일처럼 화면이 좁을 때 병이 너무 작게 나오거나, 배율을 키웠을 때 화면 밖으로
+// 삐져나오는 문제가 둘 다 안 생긴다 — 마지막에 한 번 더 화면 크기로 상한을 걸어서 안전하게 자른다.
 const urlScaleOverride = parseFloat(new URLSearchParams(location.search).get('scale'));
-function applyScale(scale){
-  const final = (urlScaleOverride && urlScaleOverride > 0) ? urlScaleOverride : scale;
-  if(final && final > 0) document.documentElement.style.setProperty('--jarScale', final);
+let adminScaleValue = 1;
+function computeFitScale(){
+  const availW = window.innerWidth || 280;
+  const availH = window.innerHeight || 360;
+  return Math.min((availW * 0.92) / 280, (availH * 0.85) / 360);
 }
+function updateJarScale(){
+  const fit = computeFitScale();
+  const wanted = (urlScaleOverride && urlScaleOverride > 0) ? urlScaleOverride : (fit * adminScaleValue);
+  // 화면을 절대 벗어나지 않도록 최종적으로 한 번 더 상한을 건다
+  const safe = Math.min(wanted, (window.innerWidth * 0.98) / 280, (window.innerHeight * 0.98) / 360);
+  document.documentElement.style.setProperty('--jarScale', Math.max(0.2, safe));
+}
+function applyScale(scale){
+  adminScaleValue = scale && scale > 0 ? scale : 1;
+  updateJarScale();
+}
+window.addEventListener('resize', updateJarScale);
 let SIZE_MODE = 'fixed';
 let DYNAMIC_BASE = 30, DYNAMIC_MULT = 0.5, DYNAMIC_MAX = 90;
 let COMBO_SINGLE = false;
