@@ -5,7 +5,7 @@
 <title>스티커 유리병</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root{ --glassEdge:#eaf6ff; }
+  :root{ --glassEdge:#8b5cf6; --glassFill:rgba(139,92,246,0.10); }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:transparent;min-height:100%;overflow:hidden;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -54,9 +54,9 @@
     <div id="countBadge">🍬 0개 모음</div>
     <svg id="jarSvg" viewBox="0 0 280 360">
       <path d="M70,40 Q70,20 90,20 L190,20 Q210,20 210,40 L210,60 Q245,70 250,120 L250,300 Q250,340 210,340 L70,340 Q30,340 30,300 L30,120 Q35,70 70,60 Z"
-            fill="rgba(191,227,255,0.10)" stroke="var(--glassEdge)" stroke-width="3"/>
-      <rect x="95" y="4" width="90" height="20" rx="8" fill="rgba(191,227,255,0.14)" stroke="var(--glassEdge)" stroke-width="3"/>
-      <path d="M50,90 Q45,180 50,300" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="8" stroke-linecap="round"/>
+            fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>
+      <rect x="95" y="4" width="90" height="20" rx="8" fill="var(--glassFill)" stroke="var(--glassEdge)" stroke-width="3"/>
+      <path d="M50,90 Q45,180 50,300" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="8" stroke-linecap="round"/>
     </svg>
     <div id="stickerLayer"></div>
   </div>
@@ -89,6 +89,13 @@ function showToast(nick, imgUrl){
   t.classList.add('show');
   clearTimeout(t._h);
   t._h = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function showPlainToast(msg){
+  const t = document.getElementById('latestToast');
+  t.innerHTML = `<span>${escapeHtml(msg)}</span>`;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2400);
 }
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -203,9 +210,14 @@ async function sendTestGift(stickerName){
     const res = await fetch('/stickerjar/'+encodeURIComponent(djId)+'/test-gift', {
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sticker: stickerName})
     });
+    if(res.status === 401 || res.status === 403){
+      showPlainToast('⚠️ 관리자 로그인이 필요해요 (같은 브라우저에서 관리자 대시보드에 먼저 로그인해주세요)');
+      return;
+    }
+    if(!res.ok){ showPlainToast('⚠️ 테스트 요청 실패 (서버 오류 '+res.status+')'); return; }
     const d = await res.json();
-    if(!d.success) showToast('테스트 실패', '');
-  }catch(e){ /* 무시 — 테스트 버튼이라 실패해도 화면 흐름을 막지 않는다 */ }
+    if(!d.success) showPlainToast('⚠️ '+(d.error||'테스트 실패'));
+  }catch(e){ showPlainToast('⚠️ 요청 중 오류: '+e.message); }
 }
 </script>
 </body>
