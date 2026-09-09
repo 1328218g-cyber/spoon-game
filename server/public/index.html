@@ -561,7 +561,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <label>이메일 <span class="hint-inline">(비밀번호 찾기에 사용돼요)</span></label>
       <input type="email" id="authEmail" placeholder="예: edibot@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
       <label>디제이 고유닉 <span class="hint-inline">(필수)</span></label>
-      <input type="text" id="authDjTag" placeholder="고유닉 입력 (예: sum)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <input type="text" id="authDjTag" placeholder="고유닉 입력 (예: sum)" oninput="filterDjTagInput(this)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <p class="hint" id="authDjTagHint" style="display:none;color:#ef4444;margin-top:4px">고유닉엔 한글을 쓸 수 없어요. 스푼 프로필의 "@" 뒤에 오는 고유닉을 입력해주세요.</p>
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
@@ -5042,6 +5043,16 @@ function getOrCreateDeviceId(){
   }catch(e){ return null; } // localStorage 접근 불가(시크릿모드 일부 브라우저 등)면 그냥 null
 }
 
+const HANGUL_REGEX=/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]/;
+function filterDjTagInput(el){
+  const hint=document.getElementById('authDjTagHint');
+  if(HANGUL_REGEX.test(el.value)){
+    el.value=el.value.replace(HANGUL_REGEX,'');
+    if(hint) hint.style.display='block';
+  } else if(hint){
+    hint.style.display='none';
+  }
+}
 async function submitAuth(){
   const id=document.getElementById('authDjId').value.trim();
   const pw=document.getElementById('authPassword').value;
@@ -5057,6 +5068,7 @@ async function submitAuth(){
     if(!email){errEl.textContent='비밀번호 찾기에 사용할 이메일을 입력해주세요';return;}
     const djTag=document.getElementById('authDjTag').value.trim();
     if(!djTag){errEl.textContent='디제이 고유닉을 입력해주세요';return;}
+    if(HANGUL_REGEX.test(djTag)){errEl.textContent='고유닉엔 한글을 쓸 수 없어요. 스푼 프로필의 "@" 뒤에 오는 고유닉을 입력해주세요.';return;}
     try{
       const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email,deviceId:getOrCreateDeviceId()})});
       const d=await res.json();
