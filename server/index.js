@@ -727,7 +727,7 @@ async function sendChatToRoom(djId, message) {
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
     console.log(`[채팅전송 실패][${djId}] streamName=${room.streamName || '없음'}, accessToken=${accessToken ? '있음' : '없음'} — 메시지가 전송되지 않았어요:`, message)
-    return
+    return false
   }
   try {
     const headers = {
@@ -743,9 +743,16 @@ async function sendChatToRoom(djId, message) {
       headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, body.slice(0, 300), '— 메시지:', message)
+      return false
+    }
     console.log(`[채팅:${djId}]`, message, '응답:', res.status)
+    return true
   } catch (e) {
     console.log(`[채팅:${djId} 오류]`, e.message)
+    return false
   }
 }
 
@@ -760,7 +767,7 @@ function escapeRegExp(s) {
 // 이용 만료일(expiresAt)이 지난 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 강제로 꺼진다.
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
-const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
+const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
 const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
@@ -2793,6 +2800,18 @@ function mcPickMonster(mc) {
   }
   return list[list.length - 1]
 }
+// 🌟 거다이맥스 보상용 — 거다이맥스 폼이 있는 화이트리스트(MC_GMAX_ELIGIBLE_IDS) 안에서만 랜덤으로 고른다.
+function mcPickGmaxMonster(mc) {
+  const list = (mc.monsters || []).filter(m => m.name && Number(m.weight) > 0 && mcIsGmaxEligible(m.id))
+  if (!list.length) return null
+  const total = list.reduce((s, m) => s + Number(m.weight), 0)
+  let r = Math.random() * total
+  for (const m of list) {
+    r -= Number(m.weight)
+    if (r <= 0) return m
+  }
+  return list[list.length - 1]
+}
 
 // ══════════════════════════════════════════════════════
 // 🔥 타입(속성) 상성표 — 포켓몬 세대1 상성 그대로. 값은 데미지 배율(2=효과 굉장함, 0.5=별로,
@@ -3698,7 +3717,7 @@ function getWorldBossSettings() {
       joinWindowSec: 90,
       spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
       // 🏆 처치 성공 시 MVP(1등, 총 공격력 가장 많이 기여한 사람)에게만 자동 지급되는 보상 목록.
-      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
+      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'gmaxMonster'(거다이맥스 몬스터, monsterId 비우면 화이트리스트 내 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
       rewards: [],
     }
     store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
@@ -3732,6 +3751,16 @@ function grantWorldBossRewards(djId, settings, mc, mvpKey, mvpNickname) {
         if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
         mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
         parts.push(`🌈이로치 ${picked.name}`)
+      }
+    } else if (r.type === 'gmaxMonster') {
+      const picked = r.monsterId
+        ? (mcIsGmaxEligible(String(r.monsterId)) ? mc.monsters.find(m => String(m.id) === String(r.monsterId)) : null)
+        : mcPickGmaxMonster(mc)
+      if (picked) {
+        const grantId = MC_GMAX_PREFIX + picked.id
+        if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+        mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+        parts.push(`🌟거다이맥스 ${picked.name}`)
       }
     } else if (r.type === 'ball') {
       const amount = Math.max(1, Number(r.amount) || 1)
@@ -3801,7 +3830,7 @@ app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
 app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const catalog = mcCatalog(SHARED_TOKEN_DJID)
-  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name, isGmaxEligible: mcIsGmaxEligible(m.id) })) })
 })
 
 // ══════════════════════════════════════════════════════
@@ -3897,11 +3926,11 @@ app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (spawnMsg != null) wb.spawnMsg = spawnMsg
   if (Array.isArray(rewards)) {
     wb.rewards = rewards
-      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall', 'point'].includes(r.type))
+      .filter(r => r && ['lotto', 'shinyMonster', 'gmaxMonster', 'ball', 'greatBall', 'point'].includes(r.type))
       .map(r => ({
         type: r.type,
-        amount: r.type === 'shinyMonster' ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
-        monsterId: r.type === 'shinyMonster' ? String(r.monsterId || '').trim() : undefined,
+        amount: (r.type === 'shinyMonster' || r.type === 'gmaxMonster') ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
+        monsterId: (r.type === 'shinyMonster' || r.type === 'gmaxMonster') ? String(r.monsterId || '').trim() : undefined,
       }))
       .slice(0, 20)
   }
@@ -15087,7 +15116,7 @@ function quizFormat(tpl, data) {
 }
 
 function ensureQuizState(room) {
-  if (!room.quiz) room.quiz = { running: false, current: null, timeoutTimer: null, nextTimer: null }
+  if (!room.quiz) room.quiz = { running: false, current: null, timeoutTimer: null, nextTimer: null, nextAt: null }
   return room.quiz
 }
 
@@ -15097,33 +15126,48 @@ function clearQuizTimers(room) {
   if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
   room.quiz.timeoutTimer = null
   room.quiz.nextTimer = null
+  room.quiz.nextAt = null
 }
 
 function scheduleNextQuiz(djId) {
   const room = getRoom(djId)
   ensureQuizState(room)
   if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
+  room.quiz.nextAt = null
   if (!room.quiz.running) return
   const settings = store.getSettings(djId) || {}
   const quiz = getQuizSettings(djId, settings)
   const intervalMs = (Number(quiz.intervalMin) || 0) * 60000 + (Number(quiz.intervalSec) || 0) * 1000
   if (intervalMs <= 0) return // 0분0초 = 비활성
+  room.quiz.nextAt = Date.now() + intervalMs
   room.quiz.nextTimer = setTimeout(() => askQuizQuestion(djId), intervalMs)
 }
 
-function askQuizQuestion(djId) {
+async function askQuizQuestion(djId) {
   const room = getRoom(djId)
   ensureQuizState(room)
-  if (!room.isConnected || !room.quiz.running) return
+  if (!room.quiz.running) return
+  // ⚠️ 봇이 방송에 접속되어 있지 않아도(일시적 재접속 등) 여기서 그냥 멈추지 않고
+  // 계속 재시도하도록 스케줄을 이어간다 (예전엔 여기서 바로 return해서 한 번 끊기면
+  // "다음 문제 대기중" 상태로 영원히 멈추는 버그가 있었음).
+  if (!room.isConnected) { scheduleNextQuiz(djId); return }
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'quiz', djId)) { scheduleNextQuiz(djId); return }
   const quiz = getQuizSettings(djId, settings)
   if (!quiz.questions.length) { scheduleNextQuiz(djId); return }
   const q = quiz.questions[Math.floor(Math.random() * quiz.questions.length)]
   const timeLimit = Math.max(1, Number(q.timeLimit) || 20)
-  room.quiz.current = { id: q.id, question: q.question, answer: q.answer, score: Number(q.score) || 0, timeLimit }
   const msg = quizFormat(quiz.msgQuestion, { question: q.question, time: timeLimit })
-  sendChatToRoom(djId, msg)
+  // ⚠️ 실제 채팅 전송이 성공했는지 확인 후에만 "출제 중" 상태로 표시한다 (예전엔 전송 실패해도
+  // 무조건 current를 세팅해서, 채팅창엔 안 나왔는데 관리자 패널에는 "출제 중"으로 뜨는 버그가 있었음).
+  const sent = await sendChatToRoom(djId, msg)
+  if (!sent) {
+    console.log(`[퀴즈][${djId}] 문제 전송 실패 — 다음 간격에 재시도합니다:`, q.question)
+    scheduleNextQuiz(djId)
+    return
+  }
+  room.quiz.current = { id: q.id, question: q.question, answer: q.answer, score: Number(q.score) || 0, timeLimit }
+  room.quiz.nextAt = null
   broadcast({ type: 'quiz', djId, status: 'asked', question: q.question })
   room.quiz.timeoutTimer = setTimeout(() => handleQuizTimeout(djId), timeLimit * 1000)
 }
@@ -18640,7 +18684,8 @@ app.get('/quiz/questions', auth.requireAuth, (req, res) => {
       msgCorrect: quiz.msgCorrect, msgTimeout: quiz.msgTimeout, msgQuestion: quiz.msgQuestion
     },
     running: !!(room.quiz && room.quiz.running),
-    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null
+    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null,
+    nextAt: (room.quiz && room.quiz.nextAt) || null
   })
 })
 

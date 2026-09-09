@@ -5729,7 +5729,7 @@ const MODULE_ICON_FILES={
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
-const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
+const EXPIRY_EXEMPT_KEYS=['chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
 let moduleVisible={};
 let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
@@ -7623,7 +7623,7 @@ async function loadWorldBoss(){
     document.getElementById('wbStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전체 방 동시 등장 중`:'⏸️ 꺼짐';
   }catch(e){}
 }
-const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼',point:'✨ 도감 포인트'};
+const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',gmaxMonster:'🌟 거다이맥스 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼',point:'✨ 도감 포인트'};
 function renderWbRewardList(){
   const wrap=document.getElementById('wbRewardList');
   if(!wrap)return;
@@ -7632,6 +7632,15 @@ function renderWbRewardList(){
     const typeOpts=Object.keys(WB_REWARD_TYPE_LABEL).map(t=>`<option value="${t}" ${r.type===t?'selected':''}>${WB_REWARD_TYPE_LABEL[t]}</option>`).join('');
     if(r.type==='shinyMonster'){
       const monsterOpts='<option value="">랜덤</option>'+wbMonsterCatalog.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
+      return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
+        <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
+        <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
+        <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
+      </div>`;
+    }
+    if(r.type==='gmaxMonster'){
+      const gmaxList=wbMonsterCatalog.filter(m=>m.isGmaxEligible);
+      const monsterOpts='<option value="">랜덤 (거다이맥스 가능 종 중)</option>'+gmaxList.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
       return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
         <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
         <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
@@ -9663,6 +9672,8 @@ async function grantRouletteToSelected(sign){
 let quizQuestions=[];
 let quizSettingsCache={};
 let quizEditingId=null;
+let quizNextAt=null;
+let quizCountdownTimer=null;
 
 async function loadQuizData(){
   try{
@@ -9677,16 +9688,34 @@ async function loadQuizData(){
     document.getElementById('quizMsgCorrect').value=quizSettingsCache.msgCorrect||'';
     document.getElementById('quizMsgTimeout').value=quizSettingsCache.msgTimeout||'';
     document.getElementById('quizMsgQuestion').value=quizSettingsCache.msgQuestion||'';
-    renderQuizStatus(d.running,d.current);
+    renderQuizStatus(d.running,d.current,d.nextAt);
     renderQuizList();
   }catch(e){}
 }
 
-function renderQuizStatus(running,current){
+function quizRemainLabel(){
+  if(!quizNextAt)return'...';
+  const sec=Math.max(0,Math.round((quizNextAt-Date.now())/1000));
+  const m=Math.floor(sec/60),s=sec%60;
+  return m>0?(m+'분 '+s+'초'):(s+'초');
+}
+
+function renderQuizStatus(running,current,nextAt){
   const pill=document.getElementById('quizStatusPill');
   if(!pill)return;
+  quizNextAt=(running && !current)?(nextAt||null):null;
+  if(quizCountdownTimer){clearInterval(quizCountdownTimer);quizCountdownTimer=null;}
   if(running && current){ pill.textContent='🟢 출제 중: '+current.question; pill.className='session-pill ok'; }
-  else if(running){ pill.textContent='🟡 진행 중 (다음 문제 대기)'; pill.className='session-pill ok'; }
+  else if(running){
+    pill.textContent='🟡 진행 중 (다음 문제까지 '+quizRemainLabel()+')'; pill.className='session-pill ok';
+    if(quizNextAt){
+      quizCountdownTimer=setInterval(()=>{
+        const p=document.getElementById('quizStatusPill');
+        if(!p){clearInterval(quizCountdownTimer);quizCountdownTimer=null;return;}
+        p.textContent='🟡 진행 중 (다음 문제까지 '+quizRemainLabel()+')';
+      },1000);
+    }
+  }
   else{ pill.textContent='⏸ 대기 중'; pill.className='session-pill'; }
 }
 
