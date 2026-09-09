@@ -1010,6 +1010,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>🌟 거다이맥스 가능 몬스터 설정</span></div>
+          <p class="hint" style="margin-bottom:12px">체크된 몬스터만 잡기/상자열기에서 거다이맥스로 나올 수 있고, 월드보스 처치 보상의 "🌟 거다이맥스 몬스터"에서도 이 목록 안에서만 고를 수 있어요.</p>
+          <div id="gmaxMonsterListWrap" style="margin-top:4px;max-height:420px;overflow-y:auto"></div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGmaxConfig()">💾 거다이맥스 목록 저장</button>
+          <div class="hint" id="gmaxStatusHint" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>🐉 던전/보스 통합 관리</span></div>
           <p class="hint" style="margin-bottom:12px">켜두면 각 디제이가 개인적으로 설정해둔 던전 목록/파티 규칙/보스 스탯/주사위 설정 대신, 여기서 설정한 값을 <b>모든 디제이 방이 동일하게</b> 사용해요. (안내 멘트 문구는 이거랑 별개로 디제이별로 계속 커스텀할 수 있어요)</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="gdbEnabled" onchange="saveGdbEnabled()"> 전체 통합 관리 켜기</label>
@@ -5456,7 +5464,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
@@ -5621,7 +5629,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
+  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
@@ -12313,6 +12321,41 @@ async function saveGmcMonsters(){
     const res=await fetch(SERVER+'/globalmonstercatalog-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({monsters:gmcMonsters})});
     const d=await res.json();
     if(d.success){ showToast('통합 몬스터 목록을 저장했어요.'); loadGlobalMonsterCatalog(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🌟 관리자(sum) 전용 — 거다이맥스 가능 몬스터 설정 ── */
+let gmaxCatalog=[];
+let gmaxEligibleIds=[];
+async function loadGmaxConfig(){
+  try{
+    const res=await fetch(SERVER+'/gmax-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    gmaxCatalog=d.monsters||[];
+    gmaxEligibleIds=(d.eligibleIds||[]).slice();
+    renderGmaxConfig();
+  }catch(e){}
+}
+function renderGmaxConfig(){
+  const wrap=document.getElementById('gmaxMonsterListWrap');
+  if(!wrap)return;
+  if(!gmaxCatalog.length){ wrap.innerHTML='<p class="hint">몬스터 목록이 비어있어요.</p>'; return; }
+  wrap.innerHTML=gmaxCatalog.map(m=>{
+    const checked=gmaxEligibleIds.includes(m.id);
+    return `<label class="check-opt" style="margin-top:0"><input type="checkbox" ${checked?'checked':''} onchange="toggleGmaxEligible('${escapeAttr(String(m.id))}',this.checked)"> ${escapeHtml(m.name)}</label>`;
+  }).join('');
+}
+function toggleGmaxEligible(id,on){
+  if(on){ if(!gmaxEligibleIds.includes(id)) gmaxEligibleIds.push(id); }
+  else{ gmaxEligibleIds=gmaxEligibleIds.filter(x=>x!==id); }
+}
+async function saveGmaxConfig(){
+  try{
+    const res=await fetch(SERVER+'/gmax-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({eligibleIds:gmaxEligibleIds})});
+    const d=await res.json();
+    if(d.success){ showToast('거다이맥스 목록을 저장했어요.'); loadGmaxConfig(); }
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
