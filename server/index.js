@@ -2878,11 +2878,21 @@ const MC_GMAX_POWER_MULT = 1.3
 const MC_GMAX_CHANCE = 0.03
 function mcIsGmaxId(id) { return typeof id === 'string' && id.startsWith(MC_GMAX_PREFIX) }
 function mcBaseIdFromGmax(id) { return mcIsGmaxId(id) ? id.slice(MC_GMAX_PREFIX.length) : id }
-// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 1세대(도감 001~151)
-// 기준으로 실제 거다이맥스가 존재하는 12종만 화이트리스트로 관리한다: 이상해꽃/리자몽/거북왕/버터플/
-// 피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보. 이 목록 밖의 몬스터는 거다이맥스 확률 자체가 적용되지 않는다.
+// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 기본값은 1세대(도감 001~151)
+// 기준으로 실제 거다이맥스가 존재하는 12종: 이상해꽃/리자몽/거북왕/버터플/피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보.
+// 관리자(sum)가 admin 페이지에서 이 목록을 직접 추가/제거할 수 있다(settings.gmaxConfig.eligibleIds) — 여기 있는 배열은
+// 최초 1회 생성될 때만 쓰이는 기본값이고, 실제 판정은 getGmaxConfig()가 저장된 목록을 기준으로 한다.
 const MC_GMAX_ELIGIBLE_IDS = ['pkmn-003', 'pkmn-006', 'pkmn-009', 'pkmn-012', 'pkmn-025', 'pkmn-052', 'pkmn-068', 'pkmn-094', 'pkmn-099', 'pkmn-131', 'pkmn-133', 'pkmn-143']
-function mcIsGmaxEligible(id) { return MC_GMAX_ELIGIBLE_IDS.includes(id) }
+function getGmaxConfig() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.gmaxConfig) {
+    settings.gmaxConfig = { eligibleIds: [...MC_GMAX_ELIGIBLE_IDS] }
+    store.saveSettings(SHARED_TOKEN_DJID, { gmaxConfig: settings.gmaxConfig })
+  }
+  if (!Array.isArray(settings.gmaxConfig.eligibleIds)) settings.gmaxConfig.eligibleIds = [...MC_GMAX_ELIGIBLE_IDS]
+  return settings.gmaxConfig
+}
+function mcIsGmaxEligible(id) { return getGmaxConfig().eligibleIds.includes(id) }
 
 // id(이로치/거다이맥스 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
 function mcResolveMonster(id, monsters, tag) {
@@ -3831,6 +3841,28 @@ app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const catalog = mcCatalog(SHARED_TOKEN_DJID)
   res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name, isGmaxEligible: mcIsGmaxEligible(m.id) })) })
+})
+
+// 🌟 관리자(sum) 전용 — 거다이맥스 가능 몬스터 목록을 admin 페이지에서 직접 설정한다.
+// 이 목록은 몬스터잡기(잡기/상자열기 거다이맥스 확률)와 월드보스 처치 보상(gmaxMonster) 둘 다에
+// 그대로 반영된다(mcIsGmaxEligible이 여기 저장된 값을 기준으로 판정하므로 별도 동기화가 필요없다).
+app.get('/gmax-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const catalog = mcCatalog(SHARED_TOKEN_DJID)
+  const cfg = getGmaxConfig()
+  res.json({ success: true, eligibleIds: cfg.eligibleIds, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+})
+app.post('/gmax-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const cfg = getGmaxConfig()
+  const { eligibleIds } = req.body || {}
+  if (Array.isArray(eligibleIds)) {
+    const catalog = mcCatalog(SHARED_TOKEN_DJID)
+    const validIds = new Set(catalog.map(m => m.id))
+    cfg.eligibleIds = eligibleIds.map(id => String(id || '').trim()).filter(id => validIds.has(id)).slice(0, 300)
+  }
+  store.saveSettings(SHARED_TOKEN_DJID, { gmaxConfig: cfg })
+  res.json({ success: true })
 })
 
 // ══════════════════════════════════════════════════════
