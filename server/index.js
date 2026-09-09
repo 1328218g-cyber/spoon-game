@@ -18017,7 +18017,10 @@ app.get('/session/global-off', auth.requireAuth, (req, res) => {
   const off = store.getSessionModuleGlobalOff()
   const allowedUsers = store.getSessionAllowedUsers()
   const restricted = allowedUsers.length > 0 // 목록이 하나라도 있으면 "지정된 유저만" 모드
-  const allowedForMe = req.djId === SHARED_TOKEN_DJID || !restricted || allowedUsers.includes(req.djId)
+  const explicitlyAllowed = allowedUsers.includes(req.djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기" 토글이 켜져있어도 항상 보이게 한다(그게 이 목록의
+  // 존재 이유이므로). 목록에 없고 목록 자체가 비어있으면 기존처럼 "전체 숨기기" 값만 따른다.
+  const allowedForMe = req.djId === SHARED_TOKEN_DJID || explicitlyAllowed || (!restricted && !off)
   res.json({ success: true, off, restricted, allowedForMe })
 })
 app.post('/session/global-off', auth.requireAuth, (req, res) => {
@@ -18068,6 +18071,7 @@ app.post('/module-request/submit', auth.requireAuth, (req, res) => {
 })
 app.get('/module-request/list', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  store.markModuleRequestsReadForAdmin() // 관리자가 목록을 열어봤으니 "관리자 안읽음" 표시를 끈다
   res.json({ success: true, requests: store.getModuleRequests() })
 })
 app.post('/module-request/delete', auth.requireAuth, (req, res) => {
@@ -18075,6 +18079,40 @@ app.post('/module-request/delete', auth.requireAuth, (req, res) => {
   const { id } = req.body || {}
   const result = store.deleteModuleRequest(id)
   res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+// 📝 내가(로그인한 디제이 본인) 쓴 요청 글만 — 댓글로 관리자랑 주고받을 때 씀
+app.get('/module-request/mine', auth.requireAuth, (req, res) => {
+  store.markModuleRequestsReadForDj(req.djId) // 본인 글 목록을 열어봤으니 "디제이 안읽음" 표시를 끈다
+  res.json({ success: true, requests: store.getMyModuleRequests(req.djId) })
+})
+// 💬 댓글 달기 — 관리자는 아무 글에나, 디제이는 본인이 쓴 글에만 달 수 있다.
+app.post('/module-request/comment', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const { id, text } = req.body || {}
+  const trimmed = String(text || '').trim().slice(0, 1000)
+  if (!trimmed) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const requests = store.getModuleRequests()
+  const target = requests.find(r => r.id === id)
+  if (!target) return res.json({ success: false, error: '존재하지 않는 요청이에요.' })
+  const isAdmin = djId === 'sum'
+  if (!isAdmin && target.djId !== djId) return res.status(403).json({ success: false, error: '본인이 쓴 글에만 댓글을 달 수 있어요.' })
+  const room = getRoom(djId)
+  const meta = (room && room.lastLiveMeta) || {}
+  const comment = {
+    id: 'mc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    role: isAdmin ? 'admin' : 'dj',
+    authorDjId: djId,
+    nickname: isAdmin ? '관리자' : (meta.djNickname || djId),
+    text: trimmed,
+    createdAt: new Date().toISOString(),
+  }
+  const result = store.addModuleRequestComment(id, comment)
+  res.json(result.ok ? { success: true, comment } : { success: false, error: result.error })
+})
+// 🔔 상단 "모듈제작 요청" 메뉴 깜빡임 표시용 — 안 읽은 댓글이 있는지만 가볍게 확인
+app.get('/module-request/unread', auth.requireAuth, (req, res) => {
+  const isAdmin = req.djId === 'sum'
+  res.json({ success: true, unread: store.hasUnreadModuleRequests(req.djId, isAdmin) })
 })
 
 // 📊 관리자 대시보드 요약 통계
@@ -23009,11 +23047,13 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
-  if (djId !== SHARED_TOKEN_DJID && store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
-  // 🔑 "지정된 유저만" 모드 — 목록이 비어있지 않으면 그 안에 있는 djId(+관리자)만 업로드 가능
   const allowedUsers = store.getSessionAllowedUsers()
-  if (djId !== SHARED_TOKEN_DJID && allowedUsers.length > 0 && !allowedUsers.includes(djId)) {
-    return res.json({ success: false, error: '세션 연결 권한이 없는 계정이에요. 관리자에게 문의해주세요.' })
+  const explicitlyAllowed = allowedUsers.includes(djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기"가 켜져있어도 항상 통과시킨다 — 목록에 없을 때만
+  // 전체 숨기기 값과 "지정된 유저만" 제한을 순서대로 적용한다.
+  if (djId !== SHARED_TOKEN_DJID && !explicitlyAllowed) {
+    if (store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
+    if (allowedUsers.length > 0) return res.json({ success: false, error: '세션 연결 권한이 없는 계정이에요. 관리자에게 문의해주세요.' })
   }
   if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body

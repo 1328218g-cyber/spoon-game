@@ -101,6 +101,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 }
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes mrBlink{0%,100%{opacity:1;color:inherit}50%{opacity:.35;color:#ef4444}}
+.mr-blink{animation:mrBlink 1s ease-in-out infinite}
 
 .panel-locked-banner{display:flex;align-items:center;gap:10px;background:rgba(225,29,72,.08);border:1px solid rgba(225,29,72,.3);color:var(--danger);padding:12px 16px;border-radius:12px;margin-bottom:16px;font-size:13px;font-weight:600}
 .panel-locked-banner button{background:var(--danger);color:#fff;padding:6px 12px;font-size:12px;margin-left:auto;flex-shrink:0;white-space:nowrap}
@@ -636,7 +638,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
     <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic ic-img"><img src="/icons/trophyeditor.png" alt=""></span><span class="lbl">박제 하기</span></div>
     <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic ic-img"><img src="/icons/requestmodules.png" alt=""></span><span class="lbl">요청 모듈</span></div>
-    <div class="nav-item" data-panel="modulerequest"><span class="ic ic-img"><img src="/icons/modulerequest.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">모듈제작 요청</span></div>
+    <div class="nav-item" data-panel="modulerequest"><span class="ic ic-img"><img src="/icons/modulerequest.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl" id="mrNavLabel">모듈제작 요청</span></div>
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic ic-img"><img src="/icons/session-connect.png" alt=""></span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -888,7 +890,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="modulerequest">
         <div class="card">
           <div class="card-title"><span>📝 모듈제작 요청하기</span></div>
-          <p class="hint" style="margin-bottom:14px">원하는 모듈 아이디어를 자유롭게 남겨주세요. 작성한 글은 관리자만 확인할 수 있어요.</p>
+          <p class="hint" style="margin-bottom:14px">원하는 모듈 아이디어를 자유롭게 남겨주세요. 목록 전체는 관리자만 볼 수 있고, 본인이 쓴 글은 아래에서 확인하며 댓글로 관리자와 주고받을 수 있어요.</p>
           <label style="margin-top:0">모듈 이름</label>
           <input type="text" id="mrModuleName" placeholder="예: 스티커 유리병">
           <label>공개 여부</label>
@@ -901,6 +903,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label>상세 설명</label>
           <textarea id="mrDescription" rows="5" placeholder="어떤 기능인지, 어떻게 동작했으면 하는지 자세히 적어주세요" style="width:100%;resize:vertical"></textarea>
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="submitModuleRequest()">📨 요청 보내기</button>
+        </div>
+        <div class="card" id="mrMineCard" style="display:none">
+          <div class="card-title"><span>📨 내가 보낸 요청</span></div>
+          <div id="mrMineList"><p class="hint">불러오는 중...</p></div>
         </div>
         <div class="card" id="mrAdminListCard" style="display:none">
           <div class="card-title"><span>📋 접수된 모듈제작 요청 (관리자 전용)</span></div>
@@ -915,7 +921,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:10px">켜두면 일반 디제이들은 각자 개인 모듈 설정과 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보여요. 관리자(sum) 본인 화면에는 항상 그대로 보여요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="sessionGlobalOffToggle" onchange="saveSessionGlobalOff(this.checked)"> 일반 디제이에게 세션 연결 메뉴 숨기기</label>
           <div class="card-title" style="margin-top:18px"><span>🔑 지정된 유저만 사용 허용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSessionAllowedUsers()">💾 저장</button></div>
-          <p class="hint" style="margin-bottom:10px">여기에 djId를 한 줄에 하나씩(또는 쉼표로) 적어두면, 그 계정들만(+ 관리자 sum) 세션 연결을 쓸 수 있어요. 비워두면 제한 없이 모두 사용 가능해요 (위 "전체 숨기기" 설정과는 별개로 같이 적용돼요).</p>
+          <p class="hint" style="margin-bottom:10px">여기에 djId를 한 줄에 하나씩(또는 쉼표로) 적어두면, 그 계정들만(+ 관리자 sum) 세션 연결을 쓸 수 있어요. 목록에 있는 계정은 위 "전체 숨기기"가 켜져있어도 항상 예외로 허용돼요. 비워두면 이 제한은 없고, 그때는 위 "전체 숨기기" 값만 그대로 적용돼요.</p>
           <textarea id="sessionAllowedUsersBox" rows="4" placeholder="예)&#10;sum2&#10;sum3" style="width:100%;resize:vertical"></textarea>
         </div>
         <div class="card">
@@ -5487,6 +5493,7 @@ function enterApp(){
   if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
+  startModuleRequestUnreadPolling();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
   if(sessionAdminGateCard) sessionAdminGateCard.style.display = isAdmin ? '' : 'none';
   if(isAdmin) loadSessionAllowedUsers();
@@ -5641,7 +5648,10 @@ function selectPanel(name){
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
   if(name==='requestmodules')renderRequestModulesPanel();
-  if(name==='modulerequest'&&djId===ADMIN_DJ_ID){ document.getElementById('mrAdminListCard').style.display=''; loadModuleRequests(); }
+  if(name==='modulerequest'){
+    if(djId===ADMIN_DJ_ID){ document.getElementById('mrAdminListCard').style.display=''; loadModuleRequests(); }
+    else { document.getElementById('mrMineCard').style.display=''; loadMyModuleRequests(); }
+  }
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
@@ -5822,7 +5832,7 @@ function renderNavVisibility(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
-  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?(!sessionModuleGlobalOff&&sessionAllowedForMe):true;
+  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?sessionAllowedForMe:true;
   // 🚫 꺼진(OFF) 모듈은 사이드바 배지로 껐든 모듈 마켓에서 껐든 상관없이 목록에서 바로 사라진다.
   // 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 순간 사이드바에도 다시 나타난다.
   navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
@@ -7784,8 +7794,52 @@ async function submitModuleRequest(){
     document.getElementById('mrCommands').value='';
     document.getElementById('mrDescription').value='';
     document.getElementById('mrVisibility').value='public';
-    if(djId===ADMIN_DJ_ID) loadModuleRequests();
+    if(djId===ADMIN_DJ_ID) loadModuleRequests(); else loadMyModuleRequests();
   }catch(e){ showToast('오류: '+e.message); }
+}
+function renderModuleRequestCommentThread(r){
+  const comments=(r.comments||[]).map(c=>`
+    <div style="display:flex;gap:8px;margin-top:8px;${c.role==='admin'?'flex-direction:row-reverse':''}">
+      <div style="max-width:80%;background:${c.role==='admin'?'var(--accent-dim,rgba(139,92,246,.15))':'var(--surface2,rgba(255,255,255,.05))'};border-radius:10px;padding:8px 11px">
+        <div style="font-size:11px;font-weight:700;${c.role==='admin'?'color:var(--accent,#8b5cf6)':'color:var(--muted)'}">${c.role==='admin'?'🛡️ 관리자':escapeHtml(c.nickname)}</div>
+        <div style="font-size:13px;margin-top:2px;white-space:pre-wrap;line-height:1.5">${escapeHtml(c.text)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">${new Date(c.createdAt).toLocaleString('ko-KR')}</div>
+      </div>
+    </div>`).join('');
+  return `
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      ${comments||'<p class="hint" style="margin:0">아직 댓글이 없어요.</p>'}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <input type="text" id="mrReply_${r.id}" placeholder="댓글 입력..." style="flex:1" onkeydown="if(event.key==='Enter')sendModuleRequestComment('${r.id}')">
+        <button class="btn-gray" style="padding:8px 14px;font-size:12px" onclick="sendModuleRequestComment('${r.id}')">전송</button>
+      </div>
+    </div>`;
+}
+function renderModuleRequestCard(r){
+  const avatar=r.profileUrl
+    ? `<img src="${r.profileUrl}" style="width:36px;height:36px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px&quot;>👤</div>'">`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px">👤</div>`;
+  const visBadge=r.visibility==='private'
+    ? '<span class="status-pill dday">비공개</span>'
+    : '<span class="status-pill ongoing">공개</span>';
+  const deleteBtn=djId===ADMIN_DJ_ID?`<button class="btn-gray" style="margin-top:10px;padding:6px 12px;font-size:12px" onclick="deleteModuleRequest('${r.id}')">🗑️ 삭제</button>`:'';
+  return `<div style="background:var(--bg2,rgba(255,255,255,.03));border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${avatar}
+        <div>
+          <div style="font-weight:700;font-size:13.5px">${escapeHtml(r.nickname)} <span style="color:var(--muted);font-weight:400;font-size:11.5px">(${escapeHtml(r.djId)})</span></div>
+          <div style="font-size:11px;color:var(--muted)">${new Date(r.createdAt).toLocaleString('ko-KR')}</div>
+        </div>
+      </div>
+      ${visBadge}
+    </div>
+    <div style="margin-top:10px;font-size:14px;font-weight:700">📦 ${escapeHtml(r.moduleName)}</div>
+    ${r.commands?`<div style="margin-top:4px;font-size:12.5px;color:var(--muted)">명령어: ${escapeHtml(r.commands)}</div>`:''}
+    <div style="margin-top:8px;font-size:13px;white-space:pre-wrap;line-height:1.6">${escapeHtml(r.description)}</div>
+    ${deleteBtn}
+    ${renderModuleRequestCommentThread(r)}
+  </div>`;
 }
 async function loadModuleRequests(){
   const box=document.getElementById('mrAdminList');
@@ -7794,32 +7848,32 @@ async function loadModuleRequests(){
     const res=await fetch(SERVER+'/module-request/list',{headers:authHeaders()});
     const d=await res.json();
     if(!d.success){ box.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
-    if(!d.requests.length){ box.innerHTML='<p class="hint">아직 접수된 요청이 없어요.</p>'; return; }
-    box.innerHTML=d.requests.map(r=>{
-      const avatar=r.profileUrl
-        ? `<img src="${r.profileUrl}" style="width:36px;height:36px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px&quot;>👤</div>'">`
-        : `<div style="width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px">👤</div>`;
-      const visBadge=r.visibility==='private'
-        ? '<span class="status-pill dday">비공개</span>'
-        : '<span class="status-pill ongoing">공개</span>';
-      return `<div style="background:var(--bg2,rgba(255,255,255,.03));border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
-          <div style="display:flex;align-items:center;gap:10px">
-            ${avatar}
-            <div>
-              <div style="font-weight:700;font-size:13.5px">${escapeHtml(r.nickname)} <span style="color:var(--muted);font-weight:400;font-size:11.5px">(${escapeHtml(r.djId)})</span></div>
-              <div style="font-size:11px;color:var(--muted)">${new Date(r.createdAt).toLocaleString('ko-KR')}</div>
-            </div>
-          </div>
-          ${visBadge}
-        </div>
-        <div style="margin-top:10px;font-size:14px;font-weight:700">📦 ${escapeHtml(r.moduleName)}</div>
-        ${r.commands?`<div style="margin-top:4px;font-size:12.5px;color:var(--muted)">명령어: ${escapeHtml(r.commands)}</div>`:''}
-        <div style="margin-top:8px;font-size:13px;white-space:pre-wrap;line-height:1.6">${escapeHtml(r.description)}</div>
-        <button class="btn-gray" style="margin-top:10px;padding:6px 12px;font-size:12px" onclick="deleteModuleRequest('${r.id}')">🗑️ 삭제</button>
-      </div>`;
-    }).join('');
+    box.innerHTML=d.requests.length?d.requests.map(renderModuleRequestCard).join(''):'<p class="hint">아직 접수된 요청이 없어요.</p>';
   }catch(e){ box.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+  checkModuleRequestUnread();
+}
+async function loadMyModuleRequests(){
+  const box=document.getElementById('mrMineList');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/mine',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ box.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    box.innerHTML=d.requests.length?d.requests.map(renderModuleRequestCard).join(''):'<p class="hint">아직 보낸 요청이 없어요.</p>';
+  }catch(e){ box.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+  checkModuleRequestUnread();
+}
+async function sendModuleRequestComment(id){
+  const input=document.getElementById('mrReply_'+id);
+  if(!input)return;
+  const text=input.value.trim();
+  if(!text){ showToast('댓글 내용을 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/module-request/comment',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,text})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'댓글 전송 실패'); return; }
+    if(djId===ADMIN_DJ_ID) loadModuleRequests(); else loadMyModuleRequests();
+  }catch(e){ showToast('오류: '+e.message); }
 }
 async function deleteModuleRequest(id){
   if(!confirm('이 요청 글을 삭제할까요?'))return;
@@ -7829,6 +7883,24 @@ async function deleteModuleRequest(id){
     if(d.success) loadModuleRequests();
     else showToast(d.error||'삭제 실패');
   }catch(e){ showToast('오류: '+e.message); }
+}
+// 🔔 "모듈제작 요청" 메뉴 깜빡임 — 관리자든 디제이든, 상대가 댓글을 달면 안 읽은 상태가 되고
+// 이 메뉴 글자가 깜빡인다. 주기적으로 폴링하고, 게시판을 직접 열어보면(위 load 함수들 끝에서
+// 이 함수를 다시 부름) 서버 쪽 안읽음 표시가 사라지니 깜빡임도 같이 꺼진다.
+async function checkModuleRequestUnread(){
+  const label=document.getElementById('mrNavLabel');
+  if(!label)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/unread',{headers:authHeaders()});
+    const d=await res.json();
+    label.classList.toggle('mr-blink', !!(d.success&&d.unread));
+  }catch(e){}
+}
+let mrUnreadPollTimer=null;
+function startModuleRequestUnreadPolling(){
+  checkModuleRequestUnread();
+  clearInterval(mrUnreadPollTimer);
+  mrUnreadPollTimer=setInterval(checkModuleRequestUnread, 20000);
 }
 async function saveSessionGlobalOff(off){
   try{

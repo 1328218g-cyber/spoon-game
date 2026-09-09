@@ -524,7 +524,8 @@ function setSessionAllowedUsers(users) {
   return { ok: true, users: cleaned };
 }
 
-// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있지만, 확인은 관리자(sum)만 할 수 있다.
+// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있고, 목록 전체를 볼 수 있는 건 관리자(sum)뿐이지만
+// 본인이 쓴 글만은 작성자 본인도 볼 수 있어서 댓글로 관리자랑 주고받을 수 있다.
 // 다른 관리자 전용 전역 데이터(세션 허용 목록, 상태 배너 등)와 같은 방식으로 sum 계정 설정에
 // 중앙 저장한다.
 function getModuleRequests() {
@@ -537,6 +538,9 @@ function addModuleRequest(entry) {
   if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
   if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
   if (!Array.isArray(djs['sum'].settings.moduleRequests)) djs['sum'].settings.moduleRequests = [];
+  entry.comments = []
+  entry.unreadForAdmin = false // 새 글 자체는 목록에 바로 보이니 "댓글 알림" 용도인 이 플래그는 처음엔 안 켬
+  entry.unreadForDj = false
   djs['sum'].settings.moduleRequests.unshift(entry); // 최신 글이 위로 오게
   saveDjs(djs);
   return { ok: true }
@@ -547,6 +551,48 @@ function deleteModuleRequest(id) {
   djs['sum'].settings.moduleRequests = djs['sum'].settings.moduleRequests.filter(r => r.id !== id);
   saveDjs(djs);
   return { ok: true };
+}
+// 특정 디제이 본인이 쓴 요청 글만 골라서 반환 (본인 글에 달린 댓글 확인/답글용)
+function getMyModuleRequests(djId) {
+  return getModuleRequests().filter(r => r.djId === djId);
+}
+// 댓글 추가 — role이 'admin'이면 상대(글쓴이 djId)의 안읽음 플래그를 켜고, role이 'dj'면 관리자
+// 쪽 안읽음 플래그를 켠다. 관리자는 아무 글에나 댓글 달 수 있지만, 디제이는 본인이 쓴 글에만 가능
+// (호출하는 쪽 index.js에서 이미 그 권한 체크를 하고 넘어온다는 전제).
+function addModuleRequestComment(id, comment) {
+  const djs = loadDjs();
+  const list = djs['sum'] && djs['sum'].settings && djs['sum'].settings.moduleRequests;
+  if (!Array.isArray(list)) return { ok: false, error: '요청 목록이 없어요' };
+  const entry = list.find(r => r.id === id);
+  if (!entry) return { ok: false, error: '존재하지 않는 요청이에요' };
+  if (!Array.isArray(entry.comments)) entry.comments = [];
+  entry.comments.push(comment);
+  if (comment.role === 'admin') entry.unreadForDj = true;
+  else entry.unreadForAdmin = true;
+  saveDjs(djs);
+  return { ok: true, entry };
+}
+// 관리자가 게시판(목록)을 열어봤다는 뜻 — 모든 글의 "관리자 안읽음" 플래그를 끈다.
+function markModuleRequestsReadForAdmin() {
+  const djs = loadDjs();
+  const list = djs['sum'] && djs['sum'].settings && djs['sum'].settings.moduleRequests;
+  if (!Array.isArray(list)) return;
+  list.forEach(r => { r.unreadForAdmin = false; });
+  saveDjs(djs);
+}
+// 디제이 본인이 자기 글 목록을 열어봤다는 뜻 — 본인이 쓴 글들의 "디제이 안읽음" 플래그를 끈다.
+function markModuleRequestsReadForDj(djId) {
+  const djs = loadDjs();
+  const list = djs['sum'] && djs['sum'].settings && djs['sum'].settings.moduleRequests;
+  if (!Array.isArray(list)) return;
+  list.forEach(r => { if (r.djId === djId) r.unreadForDj = false; });
+  saveDjs(djs);
+}
+// 🔔 상단 메뉴 깜빡임용 — 이 사람(관리자 또는 특정 디제이) 기준으로 안 읽은 댓글이 하나라도 있는지
+function hasUnreadModuleRequests(djId, isAdmin) {
+  const list = getModuleRequests();
+  if (isAdmin) return list.some(r => r.unreadForAdmin);
+  return list.some(r => r.djId === djId && r.unreadForDj);
 }
 
 // 🎬 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록할 수 있다.
@@ -1121,6 +1167,11 @@ module.exports = {
   getModuleRequests,
   addModuleRequest,
   deleteModuleRequest,
+  getMyModuleRequests,
+  addModuleRequestComment,
+  markModuleRequestsReadForAdmin,
+  markModuleRequestsReadForDj,
+  hasUnreadModuleRequests,
   getYoutubeApiKeys,
   setYoutubeApiKeys,
   getMyinfoFonts,
