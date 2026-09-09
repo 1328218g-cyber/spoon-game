@@ -1,3 +1,4 @@
+
 const WebSocket = require('ws')
 const express = require('express')
 const cors = require('cors')
@@ -3839,7 +3840,7 @@ app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
 })
 app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const catalog = mcCatalog(SHARED_TOKEN_DJID)
+  const catalog = mcAdminCatalog()
   res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name, isGmaxEligible: mcIsGmaxEligible(m.id) })) })
 })
 
@@ -3848,7 +3849,7 @@ app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
 // 그대로 반영된다(mcIsGmaxEligible이 여기 저장된 값을 기준으로 판정하므로 별도 동기화가 필요없다).
 app.get('/gmax-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const catalog = mcCatalog(SHARED_TOKEN_DJID)
+  const catalog = mcAdminCatalog()
   const cfg = getGmaxConfig()
   res.json({ success: true, eligibleIds: cfg.eligibleIds, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
 })
@@ -3857,7 +3858,7 @@ app.post('/gmax-admin/settings', auth.requireAuth, (req, res) => {
   const cfg = getGmaxConfig()
   const { eligibleIds } = req.body || {}
   if (Array.isArray(eligibleIds)) {
-    const catalog = mcCatalog(SHARED_TOKEN_DJID)
+    const catalog = mcAdminCatalog()
     const validIds = new Set(catalog.map(m => m.id))
     cfg.eligibleIds = eligibleIds.map(id => String(id || '').trim()).filter(id => validIds.has(id)).slice(0, 300)
   }
@@ -21253,6 +21254,15 @@ function mcCatalog(djId) {
     if (mc.monsters && mc.monsters.length) return mc.monsters
   }
   return []
+}
+// 🌍 관리자(sum) 전용 카탈로그 조회 — mcCatalog와 달리 admin(sum) 계정 자체의 monstercatch 모듈이
+// 꺼져있어도(관리자는 직접 몬스터게임을 안 할 수도 있음) 항상 admin 계정의 몬스터 목록(전체 통합
+// 관리가 켜져있으면 그 목록, 아니면 기본 1세대 목록)을 그대로 돌려준다. 월드보스/거다이맥스 설정처럼
+// "다른 아무 디제이가 monstercatch를 켰는지"에 의존하면 안 되는 관리자 전용 화면에서 쓴다.
+function mcAdminCatalog() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  const mc = getMonsterCatchSettings(SHARED_TOKEN_DJID, settings)
+  return mc.monsters || []
 }
 app.post('/monsterdex/:djId/register', (req, res) => {
   const djId = req.params.djId

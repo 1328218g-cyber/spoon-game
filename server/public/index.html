@@ -12332,20 +12332,27 @@ async function loadGmaxConfig(){
   try{
     const res=await fetch(SERVER+'/gmax-admin/settings',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success)return;
+    if(!d.success){ const w=document.getElementById('gmaxMonsterListWrap'); if(w) w.innerHTML='<p class="hint">불러오기 실패: '+escapeHtml(d.error||('응답 '+res.status))+'</p>'; return; }
     gmaxCatalog=d.monsters||[];
     gmaxEligibleIds=(d.eligibleIds||[]).slice();
     renderGmaxConfig();
-  }catch(e){}
+  }catch(e){
+    const w=document.getElementById('gmaxMonsterListWrap');
+    if(w) w.innerHTML='<p class="hint">불러오기 오류: '+escapeHtml(e.message||String(e))+'</p>';
+  }
 }
 function renderGmaxConfig(){
   const wrap=document.getElementById('gmaxMonsterListWrap');
   if(!wrap)return;
   if(!gmaxCatalog.length){ wrap.innerHTML='<p class="hint">몬스터 목록이 비어있어요.</p>'; return; }
-  wrap.innerHTML=gmaxCatalog.map(m=>{
-    const checked=gmaxEligibleIds.includes(m.id);
-    return `<label class="check-opt" style="margin-top:0"><input type="checkbox" ${checked?'checked':''} onchange="toggleGmaxEligible('${escapeAttr(String(m.id))}',this.checked)"> ${escapeHtml(m.name)}</label>`;
-  }).join('');
+  try{
+    wrap.innerHTML=gmaxCatalog.map(m=>{
+      const checked=gmaxEligibleIds.includes(m.id);
+      return `<label class="check-opt" style="margin-top:0"><input type="checkbox" ${checked?'checked':''} onchange="toggleGmaxEligible('${escapeAttr(String(m.id))}',this.checked)"> ${escapeHtml(m.name)}</label>`;
+    }).join('');
+  }catch(e){
+    wrap.innerHTML='<p class="hint">목록 표시 오류: '+escapeHtml(e.message||String(e))+'</p>';
+  }
 }
 function toggleGmaxEligible(id,on){
   if(on){ if(!gmaxEligibleIds.includes(id)) gmaxEligibleIds.push(id); }
