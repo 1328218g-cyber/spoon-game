@@ -636,6 +636,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
     <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic ic-img"><img src="/icons/trophyeditor.png" alt=""></span><span class="lbl">박제 하기</span></div>
     <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic ic-img"><img src="/icons/requestmodules.png" alt=""></span><span class="lbl">요청 모듈</span></div>
+    <div class="nav-item" data-panel="modulerequest"><span class="ic ic-img"><img src="/icons/modulerequest.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">모듈제작 요청</span></div>
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic ic-img"><img src="/icons/session-connect.png" alt=""></span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -883,12 +884,39 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 📝 모듈제작 요청 -->
+      <div class="panel" data-panel="modulerequest">
+        <div class="card">
+          <div class="card-title"><span>📝 모듈제작 요청하기</span></div>
+          <p class="hint" style="margin-bottom:14px">원하는 모듈 아이디어를 자유롭게 남겨주세요. 작성한 글은 관리자만 확인할 수 있어요.</p>
+          <label style="margin-top:0">모듈 이름</label>
+          <input type="text" id="mrModuleName" placeholder="예: 스티커 유리병">
+          <label>공개 여부</label>
+          <select id="mrVisibility">
+            <option value="public">공개 — 모든 디제이가 쓸 수 있게</option>
+            <option value="private">비공개 — 나만 쓸 수 있게</option>
+          </select>
+          <label>사용할 명령어</label>
+          <input type="text" id="mrCommands" placeholder="예: !유리병, !병비우기">
+          <label>상세 설명</label>
+          <textarea id="mrDescription" rows="5" placeholder="어떤 기능인지, 어떻게 동작했으면 하는지 자세히 적어주세요" style="width:100%;resize:vertical"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="submitModuleRequest()">📨 요청 보내기</button>
+        </div>
+        <div class="card" id="mrAdminListCard" style="display:none">
+          <div class="card-title"><span>📋 접수된 모듈제작 요청 (관리자 전용)</span></div>
+          <div id="mrAdminList"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <!-- 세션 연결 -->
       <div class="panel active" data-panel="session">
         <div class="card" id="sessionAdminGateCard" style="display:none">
           <div class="card-title"><span>🔒 일반 디제이 노출 제어 (관리자 전용)</span></div>
           <p class="hint" style="margin-bottom:10px">켜두면 일반 디제이들은 각자 개인 모듈 설정과 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보여요. 관리자(sum) 본인 화면에는 항상 그대로 보여요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="sessionGlobalOffToggle" onchange="saveSessionGlobalOff(this.checked)"> 일반 디제이에게 세션 연결 메뉴 숨기기</label>
+          <div class="card-title" style="margin-top:18px"><span>🔑 지정된 유저만 사용 허용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSessionAllowedUsers()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:10px">여기에 djId를 한 줄에 하나씩(또는 쉼표로) 적어두면, 그 계정들만(+ 관리자 sum) 세션 연결을 쓸 수 있어요. 비워두면 제한 없이 모두 사용 가능해요 (위 "전체 숨기기" 설정과는 별개로 같이 적용돼요).</p>
+          <textarea id="sessionAllowedUsersBox" rows="4" placeholder="예)&#10;sum2&#10;sum3" style="width:100%;resize:vertical"></textarea>
         </div>
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
@@ -1007,14 +1035,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <div id="gmcMonsterListWrap" style="margin-top:12px;max-height:520px;overflow-y:auto"></div>
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGmcMonsters()">💾 몬스터 목록 저장</button>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><span>🌟 거다이맥스 가능 몬스터 설정</span></div>
-          <p class="hint" style="margin-bottom:12px">체크된 몬스터만 잡기/상자열기에서 거다이맥스로 나올 수 있고, 월드보스 처치 보상의 "🌟 거다이맥스 몬스터"에서도 이 목록 안에서만 고를 수 있어요.</p>
-          <div id="gmaxMonsterListWrap" style="margin-top:4px;max-height:420px;overflow-y:auto"></div>
-          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGmaxConfig()">💾 거다이맥스 목록 저장</button>
-          <div class="hint" id="gmaxStatusHint" style="margin-top:8px"></div>
         </div>
 
         <div class="card">
@@ -5464,11 +5484,12 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
   if(sessionAdminGateCard) sessionAdminGateCard.style.display = isAdmin ? '' : 'none';
+  if(isAdmin) loadSessionAllowedUsers();
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
@@ -5545,6 +5566,7 @@ async function installPwaApp(){
 const PANEL_META={
   modulemarket:['🛒 모듈 마켓','필요한 기능만 켜고 나머지는 꺼두세요'],
   requestmodules:['🔐 요청 모듈','특정 유저에게만 허용된 제한 메뉴입니다'],
+  modulerequest:['📝 모듈제작 요청','원하는 모듈 아이디어를 자유롭게 요청할 수 있는 게시판입니다. 작성한 글은 관리자만 볼 수 있어요'],
   'trophy-editor':['🎨 박제 하기','스티커·이미지로 나만의 박제를 직접 만드는 도구입니다'],
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
@@ -5619,6 +5641,7 @@ function selectPanel(name){
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
   if(name==='requestmodules')renderRequestModulesPanel();
+  if(name==='modulerequest'&&djId===ADMIN_DJ_ID){ document.getElementById('mrAdminListCard').style.display=''; loadModuleRequests(); }
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
@@ -5629,7 +5652,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
+  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGlobalDungeonBoss(); }
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
@@ -5737,10 +5760,11 @@ const MODULE_ICON_FILES={
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
-const EXPIRY_EXEMPT_KEYS=['chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
+const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
 let moduleVisible={};
 let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
+let sessionRestricted=false, sessionAllowedForMe=true; // 🔑 "지정된 유저만" 모드일 때, 나(현재 로그인한 djId)한테 허용됐는지
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
 let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
 let expiryTimer=null;
@@ -5798,7 +5822,7 @@ function renderNavVisibility(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
-  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?!sessionModuleGlobalOff:true;
+  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?(!sessionModuleGlobalOff&&sessionAllowedForMe):true;
   // 🚫 꺼진(OFF) 모듈은 사이드바 배지로 껐든 모듈 마켓에서 껐든 상관없이 목록에서 바로 사라진다.
   // 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 순간 사이드바에도 다시 나타난다.
   navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
@@ -7631,7 +7655,7 @@ async function loadWorldBoss(){
     document.getElementById('wbStatusHint').textContent=d.data.enabled?`✅ 켜짐 — ${d.data.intervalMin}분마다 전체 방 동시 등장 중`:'⏸️ 꺼짐';
   }catch(e){}
 }
-const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',gmaxMonster:'🌟 거다이맥스 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼',point:'✨ 도감 포인트'};
+const WB_REWARD_TYPE_LABEL={lotto:'🎟️ 복권',shinyMonster:'🌈 이로치 몬스터',ball:'🎒 포획볼',greatBall:'⚡ 고급볼',point:'✨ 도감 포인트'};
 function renderWbRewardList(){
   const wrap=document.getElementById('wbRewardList');
   if(!wrap)return;
@@ -7640,15 +7664,6 @@ function renderWbRewardList(){
     const typeOpts=Object.keys(WB_REWARD_TYPE_LABEL).map(t=>`<option value="${t}" ${r.type===t?'selected':''}>${WB_REWARD_TYPE_LABEL[t]}</option>`).join('');
     if(r.type==='shinyMonster'){
       const monsterOpts='<option value="">랜덤</option>'+wbMonsterCatalog.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
-      return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
-        <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
-        <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
-        <button class="btn-shield-reset" style="padding:6px" onclick="wbRemoveReward(${i})">✕</button>
-      </div>`;
-    }
-    if(r.type==='gmaxMonster'){
-      const gmaxList=wbMonsterCatalog.filter(m=>m.isGmaxEligible);
-      const monsterOpts='<option value="">랜덤 (거다이맥스 가능 종 중)</option>'+gmaxList.map(m=>`<option value="${escapeAttr(String(m.id))}" ${String(r.monsterId)===String(m.id)?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
       return `<div class="btn-row" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-bottom:8px;gap:6px">
         <select onchange="wbRewards[${i}].type=this.value;renderWbRewardList()">${typeOpts}</select>
         <select onchange="wbRewards[${i}].monsterId=this.value">${monsterOpts}</select>
@@ -7716,11 +7731,104 @@ async function loadSessionGlobalOffStatus(){
   try{
     const res=await fetch(SERVER+'/session/global-off',{headers:authHeaders()});
     const d=await res.json();
-    if(d.success) sessionModuleGlobalOff=!!d.off;
+    if(d.success){
+      sessionModuleGlobalOff=!!d.off;
+      sessionRestricted=!!d.restricted;
+      sessionAllowedForMe=d.allowedForMe!==false;
+    }
   }catch(e){}
   renderNavVisibility('session');
   const toggle=document.getElementById('sessionGlobalOffToggle');
   if(toggle) toggle.checked=sessionModuleGlobalOff;
+}
+// 🔑 세션 연결 "지정된 유저만" 허용 목록 — 관리자 전용
+async function loadSessionAllowedUsers(){
+  const box=document.getElementById('sessionAllowedUsersBox');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/session/allowed-users',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success) box.value=(d.users||[]).join('\n');
+  }catch(e){}
+}
+async function saveSessionAllowedUsers(){
+  const box=document.getElementById('sessionAllowedUsersBox');
+  if(!box)return;
+  const users=box.value.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+  try{
+    const res=await fetch(SERVER+'/session/allowed-users',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({users})});
+    const d=await res.json();
+    if(d.success){
+      showToast(users.length?`${users.length}개 계정만 세션 연결을 쓸 수 있게 저장했어요 🔒`:'제한을 풀었어요 — 모든 디제이가 세션 연결을 쓸 수 있어요');
+      loadSessionGlobalOffStatus();
+    } else {
+      showToast(d.error||'저장 실패');
+    }
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* ── 📝 모듈제작 요청 ── */
+async function submitModuleRequest(){
+  const moduleName=document.getElementById('mrModuleName').value.trim();
+  const visibility=document.getElementById('mrVisibility').value;
+  const commands=document.getElementById('mrCommands').value.trim();
+  const description=document.getElementById('mrDescription').value.trim();
+  if(!moduleName){ showToast('모듈 이름을 입력해주세요'); return; }
+  if(!description){ showToast('상세 설명을 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/module-request/submit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleName,visibility,commands,description})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'전송 실패'); return; }
+    showToast('요청을 보냈어요 📨');
+    document.getElementById('mrModuleName').value='';
+    document.getElementById('mrCommands').value='';
+    document.getElementById('mrDescription').value='';
+    document.getElementById('mrVisibility').value='public';
+    if(djId===ADMIN_DJ_ID) loadModuleRequests();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function loadModuleRequests(){
+  const box=document.getElementById('mrAdminList');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/list',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ box.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    if(!d.requests.length){ box.innerHTML='<p class="hint">아직 접수된 요청이 없어요.</p>'; return; }
+    box.innerHTML=d.requests.map(r=>{
+      const avatar=r.profileUrl
+        ? `<img src="${r.profileUrl}" style="width:36px;height:36px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px&quot;>👤</div>'">`
+        : `<div style="width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px">👤</div>`;
+      const visBadge=r.visibility==='private'
+        ? '<span class="status-pill dday">비공개</span>'
+        : '<span class="status-pill ongoing">공개</span>';
+      return `<div style="background:var(--bg2,rgba(255,255,255,.03));border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:10px">
+            ${avatar}
+            <div>
+              <div style="font-weight:700;font-size:13.5px">${escapeHtml(r.nickname)} <span style="color:var(--muted);font-weight:400;font-size:11.5px">(${escapeHtml(r.djId)})</span></div>
+              <div style="font-size:11px;color:var(--muted)">${new Date(r.createdAt).toLocaleString('ko-KR')}</div>
+            </div>
+          </div>
+          ${visBadge}
+        </div>
+        <div style="margin-top:10px;font-size:14px;font-weight:700">📦 ${escapeHtml(r.moduleName)}</div>
+        ${r.commands?`<div style="margin-top:4px;font-size:12.5px;color:var(--muted)">명령어: ${escapeHtml(r.commands)}</div>`:''}
+        <div style="margin-top:8px;font-size:13px;white-space:pre-wrap;line-height:1.6">${escapeHtml(r.description)}</div>
+        <button class="btn-gray" style="margin-top:10px;padding:6px 12px;font-size:12px" onclick="deleteModuleRequest('${r.id}')">🗑️ 삭제</button>
+      </div>`;
+    }).join('');
+  }catch(e){ box.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+}
+async function deleteModuleRequest(id){
+  if(!confirm('이 요청 글을 삭제할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/module-request/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(d.success) loadModuleRequests();
+    else showToast(d.error||'삭제 실패');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 async function saveSessionGlobalOff(off){
   try{
@@ -9680,8 +9788,6 @@ async function grantRouletteToSelected(sign){
 let quizQuestions=[];
 let quizSettingsCache={};
 let quizEditingId=null;
-let quizNextAt=null;
-let quizCountdownTimer=null;
 
 async function loadQuizData(){
   try{
@@ -9696,34 +9802,16 @@ async function loadQuizData(){
     document.getElementById('quizMsgCorrect').value=quizSettingsCache.msgCorrect||'';
     document.getElementById('quizMsgTimeout').value=quizSettingsCache.msgTimeout||'';
     document.getElementById('quizMsgQuestion').value=quizSettingsCache.msgQuestion||'';
-    renderQuizStatus(d.running,d.current,d.nextAt);
+    renderQuizStatus(d.running,d.current);
     renderQuizList();
   }catch(e){}
 }
 
-function quizRemainLabel(){
-  if(!quizNextAt)return'...';
-  const sec=Math.max(0,Math.round((quizNextAt-Date.now())/1000));
-  const m=Math.floor(sec/60),s=sec%60;
-  return m>0?(m+'분 '+s+'초'):(s+'초');
-}
-
-function renderQuizStatus(running,current,nextAt){
+function renderQuizStatus(running,current){
   const pill=document.getElementById('quizStatusPill');
   if(!pill)return;
-  quizNextAt=(running && !current)?(nextAt||null):null;
-  if(quizCountdownTimer){clearInterval(quizCountdownTimer);quizCountdownTimer=null;}
   if(running && current){ pill.textContent='🟢 출제 중: '+current.question; pill.className='session-pill ok'; }
-  else if(running){
-    pill.textContent='🟡 진행 중 (다음 문제까지 '+quizRemainLabel()+')'; pill.className='session-pill ok';
-    if(quizNextAt){
-      quizCountdownTimer=setInterval(()=>{
-        const p=document.getElementById('quizStatusPill');
-        if(!p){clearInterval(quizCountdownTimer);quizCountdownTimer=null;return;}
-        p.textContent='🟡 진행 중 (다음 문제까지 '+quizRemainLabel()+')';
-      },1000);
-    }
-  }
+  else if(running){ pill.textContent='🟡 진행 중 (다음 문제 대기)'; pill.className='session-pill ok'; }
   else{ pill.textContent='⏸ 대기 중'; pill.className='session-pill'; }
 }
 
@@ -12321,48 +12409,6 @@ async function saveGmcMonsters(){
     const res=await fetch(SERVER+'/globalmonstercatalog-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({monsters:gmcMonsters})});
     const d=await res.json();
     if(d.success){ showToast('통합 몬스터 목록을 저장했어요.'); loadGlobalMonsterCatalog(); }
-    else showToast(d.error||'저장 실패');
-  }catch(e){showToast('오류: '+e.message);}
-}
-
-/* ── 🌟 관리자(sum) 전용 — 거다이맥스 가능 몬스터 설정 ── */
-let gmaxCatalog=[];
-let gmaxEligibleIds=[];
-async function loadGmaxConfig(){
-  try{
-    const res=await fetch(SERVER+'/gmax-admin/settings',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ const w=document.getElementById('gmaxMonsterListWrap'); if(w) w.innerHTML='<p class="hint">불러오기 실패: '+escapeHtml(d.error||('응답 '+res.status))+'</p>'; return; }
-    gmaxCatalog=d.monsters||[];
-    gmaxEligibleIds=(d.eligibleIds||[]).slice();
-    renderGmaxConfig();
-  }catch(e){
-    const w=document.getElementById('gmaxMonsterListWrap');
-    if(w) w.innerHTML='<p class="hint">불러오기 오류: '+escapeHtml(e.message||String(e))+'</p>';
-  }
-}
-function renderGmaxConfig(){
-  const wrap=document.getElementById('gmaxMonsterListWrap');
-  if(!wrap)return;
-  if(!gmaxCatalog.length){ wrap.innerHTML='<p class="hint">몬스터 목록이 비어있어요.</p>'; return; }
-  try{
-    wrap.innerHTML=gmaxCatalog.map(m=>{
-      const checked=gmaxEligibleIds.includes(m.id);
-      return `<label class="check-opt" style="margin-top:0"><input type="checkbox" ${checked?'checked':''} onchange="toggleGmaxEligible('${escapeAttr(String(m.id))}',this.checked)"> ${escapeHtml(m.name)}</label>`;
-    }).join('');
-  }catch(e){
-    wrap.innerHTML='<p class="hint">목록 표시 오류: '+escapeHtml(e.message||String(e))+'</p>';
-  }
-}
-function toggleGmaxEligible(id,on){
-  if(on){ if(!gmaxEligibleIds.includes(id)) gmaxEligibleIds.push(id); }
-  else{ gmaxEligibleIds=gmaxEligibleIds.filter(x=>x!==id); }
-}
-async function saveGmaxConfig(){
-  try{
-    const res=await fetch(SERVER+'/gmax-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({eligibleIds:gmaxEligibleIds})});
-    const d=await res.json();
-    if(d.success){ showToast('거다이맥스 목록을 저장했어요.'); loadGmaxConfig(); }
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }

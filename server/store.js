@@ -507,6 +507,47 @@ function setSessionModuleGlobalOff(off) {
   saveDjs(djs);
   return { ok: true, off: djs['sum'].settings.sessionModuleGlobalOff };
 }
+// 🔑 세션 연결 사용 가능 유저 목록 — 비어있으면 제한 없음(위 전역 OFF 설정만 적용). 목록에 하나라도
+// 들어있으면, 그 목록에 있는 djId만(+ 관리자 sum) 세션 연결 메뉴/업로드를 쓸 수 있다.
+function getSessionAllowedUsers() {
+  const djs = loadDjs();
+  const list = djs['sum'] && djs['sum'].settings && djs['sum'].settings.sessionAllowedUsers;
+  return Array.isArray(list) ? list : [];
+}
+function setSessionAllowedUsers(users) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cleaned = (Array.isArray(users) ? users : []).map(u => String(u).trim()).filter(Boolean);
+  djs['sum'].settings.sessionAllowedUsers = cleaned;
+  saveDjs(djs);
+  return { ok: true, users: cleaned };
+}
+
+// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있지만, 확인은 관리자(sum)만 할 수 있다.
+// 다른 관리자 전용 전역 데이터(세션 허용 목록, 상태 배너 등)와 같은 방식으로 sum 계정 설정에
+// 중앙 저장한다.
+function getModuleRequests() {
+  const djs = loadDjs();
+  const list = djs['sum'] && djs['sum'].settings && djs['sum'].settings.moduleRequests;
+  return Array.isArray(list) ? list : [];
+}
+function addModuleRequest(entry) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  if (!Array.isArray(djs['sum'].settings.moduleRequests)) djs['sum'].settings.moduleRequests = [];
+  djs['sum'].settings.moduleRequests.unshift(entry); // 최신 글이 위로 오게
+  saveDjs(djs);
+  return { ok: true }
+}
+function deleteModuleRequest(id) {
+  const djs = loadDjs();
+  if (!djs['sum'] || !djs['sum'].settings || !Array.isArray(djs['sum'].settings.moduleRequests)) return { ok: false, error: '요청 목록이 없어요' };
+  djs['sum'].settings.moduleRequests = djs['sum'].settings.moduleRequests.filter(r => r.id !== id);
+  saveDjs(djs);
+  return { ok: true };
+}
 
 // 🎬 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록할 수 있다.
 // 하나가 일일 쿼터를 다 쓰면(quotaExceeded) 자동으로 다음 등록 키로 넘어가서 검색을 계속한다.
@@ -1075,6 +1116,11 @@ module.exports = {
   setStatusBanner,
   getSessionModuleGlobalOff,
   setSessionModuleGlobalOff,
+  getSessionAllowedUsers,
+  setSessionAllowedUsers,
+  getModuleRequests,
+  addModuleRequest,
+  deleteModuleRequest,
   getYoutubeApiKeys,
   setYoutubeApiKeys,
   getMyinfoFonts,
