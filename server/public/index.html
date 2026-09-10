@@ -647,6 +647,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" id="userListOnlyNav" data-panel="userlistonly" style="display:none"><span class="ic">👥</span><span class="lbl">유저 목록</span></div>
     <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic ic-img"><img src="/icons/adminstats.png" alt=""></span><span class="lbl">관리자 대시보드</span></div>
     <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic ic-img"><img src="/icons/eventviewer.png" alt=""></span><span class="lbl">이벤트 뷰어</span></div>
+    <div class="nav-item" id="debugLogNav" data-panel="debuglog" style="display:none"><span class="ic ic-img"><img src="/icons/debuglog.png" alt="" onerror="this.onerror=null;this.src='/icons/eventviewer.png'"></span><span class="lbl">디버그 로그</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic ic-img"><img src="/icons/room-entry.png" alt=""></span><span class="lbl">자동입장</span><span class="nav-badge on" style="cursor:default" title="자동입장은 항상 켜져 있어요">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic ic-img"><img src="/icons/botreboot.png" alt=""></span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic ic-img"><img src="/icons/migrate.png" alt=""></span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1104,6 +1105,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div id="evListWrap" style="max-height:65vh;overflow-y:auto;font-family:Consolas,monospace;font-size:12px">
             <p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🩺 디버그 로그 -->
+      <div class="panel" data-panel="debuglog">
+        <div class="card">
+          <div class="card-title"><span>🩺 디버그 로그</span></div>
+          <p class="hint" style="margin-bottom:12px">서버 콘솔(Railway 로그)에 찍히는 모든 <code>console.log</code>를 실시간으로 그대로 보여줘요. Railway에 직접 안 들어가도, 여기서 <code>[룰렛디버그:djId]</code>나 <code>[입장디버그:djId]</code> 같은 걸 바로 검색할 수 있어요. (전체 서버 로그를 다 받는 거라 다른 방 로그도 섞여 나와요 — 아래 필터로 원하는 djId만 걸러보세요)</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="dbgFilter" placeholder="필터 (예: 룰렛디버그, pippy0605)" style="max-width:260px" oninput="renderDebugLogList()">
+            <button class="btn-connect" id="dbgPauseBtn" style="padding:9px 16px" onclick="toggleDebugLogPause()">⏸️ 일시정지</button>
+            <button class="btn-gray" style="padding:9px 16px" onclick="clearDebugLog()">🗑️ 지우기</button>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="dbgAutoScroll" checked> 자동 스크롤</label>
+          </div>
+          <div class="hint" style="margin-top:8px">누적 <span id="dbgCount">0</span>개 (최근 1000개까지만 보관돼요)</div>
+        </div>
+        <div class="card">
+          <div id="dbgListWrap" style="max-height:65vh;overflow-y:auto;font-family:Consolas,monospace;font-size:11.5px;white-space:pre-wrap;word-break:break-all">
+            <p class="hint">로그를 기다리는 중...</p>
           </div>
         </div>
       </div>
@@ -2945,12 +2966,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label class="check-opt"><input type="checkbox" id="couponShowZero" checked> 0장인 룰렛도 표시</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:14px">
             <div><label>쿠폰 확인 명령어</label><input type="text" id="couponCmdCoupon" value="!쿠폰"></div>
-            <div><label>룰렛권 지급 명령어</label><input type="text" id="couponCmdGive" value="!룰렛권지급"></div>
-            <div><label>쿠폰 동기화 명령어</label><input type="text" id="couponCmdSync" value="!쿠폰동기화"></div>
+            <div><label>룰렛권 지급 명령어 (접두어)</label><input type="text" id="couponCmdGive" value="!룰렛지급"></div>
+            <div><label>쿠폰 동기화 명령어 (접두어)</label><input type="text" id="couponCmdSync" value="!쿠폰동기화"></div>
           </div>
           <p class="hint" style="margin-top:10px">
-          · [지급 명령어] [룰렛번호] [고유닉] [수량] → 그만큼 더해서 지급 (DJ/매니저)<br>
-          · [동기화 명령어] [룰렛번호] [고유닉] [수량] → 정확히 그 수량으로 설정 (DJ/매니저)
+          · 룰렛 번호가 명령어 뒤에 바로 붙어요 (예: <code>!룰렛지급1</code>, <code>!룰렛지급2</code>) — "!룰렛N" 뽑기 명령어랑 같은 방식<br>
+          · [지급 명령어][번호] [고유닉] [수량] → 그만큼 더해서 지급 (DJ/매니저) — 예: <code>!룰렛지급1 abc123 5</code><br>
+          · [지급 명령어][번호] 전체 [수량] → 등록된 유저 전원에게 한 번에 지급 — 예: <code>!룰렛지급1 전체 5</code><br>
+          · [동기화 명령어][번호] [고유닉] [수량] → 정확히 그 수량으로 설정 (전체도 동일하게 가능)
           </p>
         </div>
       </div>
@@ -5486,6 +5509,8 @@ function enterApp(){
   if(adminStatsNav) adminStatsNav.style.display = isAdmin ? '' : 'none';
   const eventViewerNav=document.getElementById('eventViewerNav');
   if(eventViewerNav) eventViewerNav.style.display = isAdmin ? '' : 'none';
+  const debugLogNav=document.getElementById('debugLogNav');
+  if(debugLogNav) debugLogNav.style.display = isAdmin ? '' : 'none';
   // 🧪 선물캡처판 "테스트 선물 보내기" 버튼 — 관리자(sum)만 보이게
   const gcTestBtnWrap=document.getElementById('gcTestBtnWrap');
   if(gcTestBtnWrap) gcTestBtnWrap.style.display = isAdmin ? 'flex' : 'none';
@@ -5679,6 +5704,7 @@ function selectPanel(name){
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
+  if(name==='debuglog'){ renderDebugLogList(); const c=document.getElementById('dbgCount'); if(c)c.textContent=debugLogBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -7603,6 +7629,59 @@ function clearEventViewerLog(){
   const wrap=document.getElementById('evListWrap');
   if(wrap){ wrap.innerHTML='<p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>'; delete wrap.dataset.hasEvents; }
   const countEl=document.getElementById('evCount');
+  if(countEl) countEl.textContent='0';
+}
+
+/* ── 🩺 디버그 로그 (서버 console.log 실시간 스트림) ── */
+let debugLogBuffer=[];
+let debugLogPaused=false;
+const DEBUG_LOG_MAX=1000;
+function pushDebugLog(d){
+  if(debugLogPaused)return;
+  debugLogBuffer.push(d);
+  if(debugLogBuffer.length>DEBUG_LOG_MAX) debugLogBuffer.shift();
+  if(document.getElementById('dbgListWrap')) appendDebugLogRow(d);
+  const countEl=document.getElementById('dbgCount');
+  if(countEl) countEl.textContent=debugLogBuffer.length;
+}
+function debugLogMatchesFilter(d){
+  const filter=(document.getElementById('dbgFilter')?.value||'').trim().toLowerCase();
+  if(!filter)return true;
+  return (d.message||'').toLowerCase().includes(filter);
+}
+function appendDebugLogRow(d){
+  if(!debugLogMatchesFilter(d))return;
+  const wrap=document.getElementById('dbgListWrap');
+  if(!wrap)return;
+  if(!wrap.dataset.hasLogs){ wrap.innerHTML=''; wrap.dataset.hasLogs='1'; }
+  const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
+  const time=new Date(d.ts||Date.now()).toLocaleTimeString('ko-KR',{hour12:false});
+  const row=document.createElement('div');
+  row.style.cssText='border-bottom:1px solid var(--border);padding:5px 4px';
+  row.innerHTML=`<span class="hint" style="margin:0">${time}</span> ${escapeHtml(d.message||'')}`;
+  wrap.appendChild(row);
+  while(wrap.children.length>DEBUG_LOG_MAX) wrap.removeChild(wrap.firstChild);
+  if(document.getElementById('dbgAutoScroll')?.checked && atBottom) wrap.scrollTop=wrap.scrollHeight;
+}
+function renderDebugLogList(){
+  const wrap=document.getElementById('dbgListWrap');
+  if(!wrap)return;
+  wrap.innerHTML='';
+  delete wrap.dataset.hasLogs;
+  const filtered=debugLogBuffer.filter(debugLogMatchesFilter);
+  if(!filtered.length){ wrap.innerHTML='<p class="hint">조건에 맞는 로그가 없어요.</p>'; return; }
+  filtered.forEach(d=>appendDebugLogRow(d));
+}
+function toggleDebugLogPause(){
+  debugLogPaused=!debugLogPaused;
+  const btn=document.getElementById('dbgPauseBtn');
+  if(btn) btn.textContent = debugLogPaused ? '▶️ 재개' : '⏸️ 일시정지';
+}
+function clearDebugLog(){
+  debugLogBuffer=[];
+  const wrap=document.getElementById('dbgListWrap');
+  if(wrap){ wrap.innerHTML='<p class="hint">로그를 기다리는 중...</p>'; delete wrap.dataset.hasLogs; }
+  const countEl=document.getElementById('dbgCount');
   if(countEl) countEl.textContent='0';
 }
 
@@ -14234,7 +14313,7 @@ async function loadCouponData(){
     document.getElementById('couponFooter').value=d.settings.footer||'보유 쿠폰 조회 완료!';
     document.getElementById('couponShowZero').checked=d.settings.showZeroRoulette!==false;
     document.getElementById('couponCmdCoupon').value=d.settings.cmdCoupon||'!쿠폰';
-    document.getElementById('couponCmdGive').value=d.settings.cmdGive||'!룰렛권지급';
+    document.getElementById('couponCmdGive').value=d.settings.cmdGive||'!룰렛지급';
     document.getElementById('couponCmdSync').value=d.settings.cmdSync||'!쿠폰동기화';
   }catch(e){}
 }
@@ -17979,6 +18058,7 @@ function startSSE(){
       if(d.page!=null && document.getElementById('wheelPageTabBar')) switchWheelPage(d.page,true);
     }
     else if(d.type==='raw_event'){ if(typeof pushEventViewerLog==='function') pushEventViewerLog(d); }
+    else if(d.type==='debuglog'){ if(typeof pushDebugLog==='function') pushDebugLog(d); }
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);

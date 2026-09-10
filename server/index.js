@@ -377,6 +377,22 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
+// 🩺 디버그 로그 실시간 방송 — console.log를 가로채서, 서버 로그(Railway)로 나가는 그대로
+// 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
+// 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
+// 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
+const _originalConsoleLog = console.log.bind(console)
+console.log = function (...args) {
+  _originalConsoleLog(...args)
+  try {
+    const message = args.map(a => {
+      if (typeof a === 'string') return a
+      try { return JSON.stringify(a) } catch (e) { return String(a) }
+    }).join(' ')
+    broadcast({ type: 'debuglog', message, ts: Date.now() })
+  } catch (e) { /* 로그 방송 자체가 실패해도 원래 로그 출력에는 영향 없게 무시 */ }
+}
+
 async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -15967,11 +15983,14 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
 // 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
 // (같은 사람한테 인사가 두 번 나가는 걸 방지).
 function sendJoinMessage(djId, settings, author, tag, gen) {
-  if (settings.botEnabled === false) return
+  // 🩺 입장인사디버그 — 룰렛디버그랑 같은 목적. "조용히 아무 일도 안 일어나는" 상태의 정확한
+  // 원인을 다음에 또 재현됐을 때 바로 찾을 수 있게, 인사가 나가기도 전에 관련 상태를 먼저 찍어둔다.
+  console.log(`[입장디버그:${djId}] author=${author} tag=${tag} botEnabled=${settings.botEnabled} greetOn=${isModuleOn(settings, 'greet', djId)} entryOn=${isModuleOn(settings, 'entrysettings', djId)} greetings등록수=${(settings.greetings || []).length}`)
+  if (settings.botEnabled === false) { console.log(`[입장디버그:${djId}] botEnabled=false라서 인사 건너뜀`); return }
   const room = getRoom(djId)
   if (!room._greetedKeys) room._greetedKeys = new Set()
   const greetKey = String(tag || author || '').trim().toLowerCase()
-  if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
+  if (greetKey && room._greetedKeys.has(greetKey)) { console.log(`[입장디버그:${djId}] greetKey=${greetKey} 이미 인사 처리된 키라서 건너뜀`); return } // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
   if (greetKey) room._greetedKeys.add(greetKey)
 
   // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
@@ -15983,6 +16002,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const soundCooldownOk = cooldownSec <= 0 || !greetKey || (nowTs - lastSoundAt) >= cooldownSec * 1000
 
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+  console.log(`[입장디버그:${djId}] tag=${tag} 매칭된지정인사=${greeting ? greeting.tag : '없음'}`)
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
   const visitCount = incrementVisitCount(djId, settings, author, tag) // 🔢 {count} — 누적 입장 횟수
