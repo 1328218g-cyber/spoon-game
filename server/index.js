@@ -5782,8 +5782,8 @@ function getCouponCheckSettings(djId, settings) {
       footer: '보유 쿠폰 조회 완료!',
       showZeroRoulette: true,
       cmdCoupon: '!쿠폰',
-      cmdGive: '!룰렛권지급',
-      cmdSync: '!쿠폰동기화',
+      cmdGive: '!룰렛지급',   // 🆕 번호가 뒤에 바로 붙는 접두어 방식 (예: !룰렛지급1) — "!룰렛N" 뽑기 명령어랑 같은 스타일
+      cmdSync: '!쿠폰동기화', // 마찬가지로 접두어로 쓴다 (예: !쿠폰동기화1)
     }
     store.saveSettings(djId, { couponCheck: settings.couponCheck })
   }
@@ -5797,8 +5797,8 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
   const parts = msg.split(/\s+/)
   const first = parts[0]
   const cmdCoupon = cfg.cmdCoupon || '!쿠폰'
-  const cmdGive = cfg.cmdGive || '!룰렛권지급'
-  const cmdSync = cfg.cmdSync || '!쿠폰동기화'
+  const givePrefix = cfg.cmdGive || '!룰렛지급'
+  const syncPrefix = cfg.cmdSync || '!쿠폰동기화'
 
   if (first === cmdCoupon) {
     const act = getActivitySettings(djId, settings)
@@ -5830,18 +5830,50 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     return
   }
 
-  if (first === cmdGive || first === cmdSync) {
+  // 🎯 !룰렛지급1, !룰렛지급2 ... 처럼 룰렛 번호가 명령어 뒤에 바로 붙는 방식 (기존 "!룰렛N" 뽑기
+  // 명령어랑 같은 스타일). 대상 자리에 "전체"를 쓰면 지금까지 등록된 유저 전원에게 한 번에 지급/동기화된다.
+  let mode = null, rouletteNo = null
+  if (first.startsWith(givePrefix) && /^\d+$/.test(first.slice(givePrefix.length))) {
+    mode = 'give'; rouletteNo = parseInt(first.slice(givePrefix.length), 10)
+  } else if (first.startsWith(syncPrefix) && /^\d+$/.test(first.slice(syncPrefix.length))) {
+    mode = 'sync'; rouletteNo = parseInt(first.slice(syncPrefix.length), 10)
+  }
+  if (mode) {
     const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
     const act = getActivitySettings(djId, settings)
     const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
     const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ 매니저 이상만 사용 가능합니다.'), 400); return }
 
-    const rouletteNo = parseInt(parts[1], 10)
-    const targetInput = parts[2]
-    const countVal = parseInt(parts[3], 10)
-    if (!rouletteNo || !targetInput || isNaN(countVal)) {
-      setTimeout(() => sendChatToRoom(djId, `사용법: ${first === cmdGive ? cmdGive : cmdSync} 1 @고유닉 3`), 400)
+    const targetInput = parts[1]
+    const countVal = parseInt(parts[2], 10)
+    if (!targetInput || isNaN(countVal)) {
+      setTimeout(() => sendChatToRoom(djId, `사용법: ${first} 고유닉 3  (전체에게 주려면: ${first} 전체 3)`), 400)
+      return
+    }
+
+    // 🌐 "전체" — 지금 이 방에 실시간으로 접속 중인 사람 전원에게 한 번에 지급/동기화
+    // (예전 기록이 있는지랑 상관없이, 지금 방에 있는 사람만 대상)
+    if (targetInput === '전체') {
+      if (!room._lastLiveMembers || !room._lastLiveMembers.size) {
+        setTimeout(() => sendChatToRoom(djId, '⚠️ 지금 방에 접속 중인 사람이 없어요.'), 400)
+        return
+      }
+      let count = 0
+      for (const info of room._lastLiveMembers.values()) {
+        if (!info.tag) continue // 고유닉을 아직 못 알아낸 사람은 건너뜀 (기록 자체를 못 만듦)
+        const rec = getHistoryRecByIdentity(settings, info.tag, info.nickname)
+        if (!rec) continue
+        if (!rec.coupons) rec.coupons = {}
+        if (mode === 'give') rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
+        else rec.coupons[rouletteNo] = Math.max(0, countVal)
+        count++
+      }
+      if (!count) { setTimeout(() => sendChatToRoom(djId, '⚠️ 지급할 대상을 찾지 못했어요.'), 400); return }
+      store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+      broadcast({ type: 'roulette', djId, tag: 'all' })
+      const label = mode === 'give' ? '지급' : '동기화'
+      setTimeout(() => sendChatToRoom(djId, `✅ 지금 접속 중인 ${count}명에게 룰렛${rouletteNo} 일괄 ${label} 완료! (${countVal}장)`), 400)
       return
     }
 
@@ -5864,14 +5896,14 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     }
     const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
-    if (first === cmdGive) {
+    if (mode === 'give') {
       rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
     } else {
       rec.coupons[rouletteNo] = Math.max(0, countVal)
     }
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
     broadcast({ type: 'roulette', djId, tag: targetTag || targetName })
-    const label = first === cmdGive ? '지급' : '동기화'
+    const label = mode === 'give' ? '지급' : '동기화'
     setTimeout(() => sendChatToRoom(djId, `✅ ${targetName}님 룰렛${rouletteNo} ${label} 완료 / 보유 ${rec.coupons[rouletteNo]}장`), 400)
     return
   }
@@ -19586,7 +19618,7 @@ app.post('/coupon/settings', auth.requireAuth, (req, res) => {
   if (footer != null) cfg.footer = String(footer).slice(0, 100)
   if (showZeroRoulette != null) cfg.showZeroRoulette = !!showZeroRoulette
   if (cmdCoupon != null) cfg.cmdCoupon = String(cmdCoupon).trim() || '!쿠폰'
-  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛권지급'
+  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛지급'
   if (cmdSync != null) cfg.cmdSync = String(cmdSync).trim() || '!쿠폰동기화'
   store.saveSettings(req.djId, { couponCheck: cfg })
   res.json({ success: true })
@@ -19969,7 +20001,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const cc = settings.couponCheck
     groups.push({
       key: 'couponcheck', icon: '🎟️', label: '쿠폰 확인', items: [
-        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive, desc: '룰렛권 지급 (관리자)' }, { cmd: cc.cmdSync, desc: '쿠폰 동기화 (관리자)' },
+        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive + 'N', desc: '룰렛권 지급 (관리자) — 예: ' + cc.cmdGive + '1 고유닉 5, 전체도 가능' }, { cmd: cc.cmdSync + 'N', desc: '쿠폰 동기화 (관리자)' },
       ].filter(x => x.cmd)
     })
   }
@@ -20685,9 +20717,20 @@ app.get('/mafia/:djId/me', (req, res) => {
   const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
   if (player) {
     resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
+    // 🕵️ 경찰 조사 결과 — 밤에 조사를 지목하면, 그 결과는 "다음날 낮"에 확인하는 거라서 phase가
+    // day로 넘어간 뒤에도 내려줘야 한다. 예전엔 이 블록이 night 분기 안에만 있어서, 결과가 실제로
+    // 계산되는 시점(밤이 끝나고 낮이 된 직후)엔 이미 phase가 'day'라 조건에 안 걸려 한 번도
+    // 내려간 적이 없었다 — 그래서 "조사결과가 안 뜬다"는 문제가 있었다.
+    if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
+    // 🤝 마피아 팀원 공개 — 마피아끼리는 서로 누가 마피아인지 알아야 밤에 같은 사람을 지목해서
+    // 팀킬(마피아가 마피아를 죽임)하는 걸 피할 수 있다.
+    if (player.team === 'mafia') {
+      resp.mafiaTeammates = Object.entries(game.players)
+        .filter(([t, p]) => p.team === 'mafia' && t !== tag)
+        .map(([t, p]) => ({ tag: t, nickname: p.nickname, alive: p.alive }))
+    }
     if (game.phase === 'night') {
       resp.myNightAction = game.nightActions[tag] || null
-      if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
       // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
       let candidates = mfAliveTags(game)
       if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)

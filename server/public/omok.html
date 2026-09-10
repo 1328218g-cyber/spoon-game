@@ -80,7 +80,8 @@
   .cell.clickable{cursor:pointer}
   .cell.clickable .ghost{position:absolute;width:62%;height:62%;border-radius:50%;background:#00000022;opacity:0;transition:opacity .1s}
   .cell.clickable:hover .ghost{opacity:1}
-  .cell .piece{position:absolute;width:82%;height:82%;border-radius:50%;z-index:2;animation:pop .12s ease-out}
+  .cell .piece{position:absolute;width:82%;height:82%;border-radius:50%;z-index:2}
+  .cell .piece.new{animation:pop .12s ease-out}
   @keyframes pop{from{transform:scale(.35);opacity:0}to{transform:scale(1);opacity:1}}
   .cell .piece.black{background:radial-gradient(circle at 35% 28%,#6a6a6a,#0a0a0a 70%);
     box-shadow:0 2px 3px rgba(0,0,0,.6),inset 0 -2px 3px rgba(0,0,0,.5)}
@@ -137,6 +138,7 @@ let authCode = '';
 let myTag = '';
 let roomCode = localStorage.getItem('omok_room'+KEY_SUFFIX) || '';
 let pollTimer = null;
+let lastAnimatedMoveKey = null; // 방금 둔 돌 애니메이션을 이미 재생했는지 추적 — 같은 수인데 폴링 때마다 또 재생되는 걸 막는다
 let tickTimer = null;
 let lobbyPollTimer = null;
 let currentRoomPlayers = { black: null, white: null };
@@ -366,6 +368,9 @@ function renderRoom(d){
   const lastMove = d.lastMove;
 
   let boardHtml = '';
+  const lastMoveKey = lastMove ? (lastMove.row+','+lastMove.col) : null;
+  const shouldAnimateLast = lastMoveKey && lastMoveKey !== lastAnimatedMoveKey;
+  if(lastMoveKey) lastAnimatedMoveKey = lastMoveKey;
   for(let r=0;r<size;r++){
     for(let c=0;c<size;c++){
       const v = d.board[r][c];
@@ -373,7 +378,10 @@ function renderRoom(d){
       let inner = '';
       if(v===1||v===2){
         const isLast = lastMove && lastMove.row===r && lastMove.col===c;
-        inner = `<div class="piece ${v===1?'black':'white'} ${isLast?'last':''}"></div>`;
+        // 🎞️ 애니메이션(pop)은 방금 둔 돌이 "처음 화면에 나타날 때" 딱 한 번만 재생한다 — 예전엔
+        // 매 폴링(1.4초)마다 보드 전체를 다시 그리면서 이미 있던 돌들까지 매번 팝 애니메이션이
+        // 다시 재생돼서 화면이 계속 깜빡거리는 것처럼 보였다.
+        inner = `<div class="piece ${v===1?'black':'white'} ${isLast?'last':''} ${isLast&&shouldAnimateLast?'new':''}"></div>`;
       } else if(isStarPoint(r,c)){
         inner = `<div class="star"></div>`;
       } else if(clickable){

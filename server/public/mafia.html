@@ -33,6 +33,7 @@
   .role-card .role-name{font-size:24px;font-weight:800;margin:6px 0}
   .role-card .role-team{font-size:13px;opacity:.9}
   .role-card .role-action{font-size:12.5px;margin-top:10px;opacity:.85}
+  .role-card .role-teammates{font-size:12px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);opacity:.9}
   .target-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
   .target-btn{width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:#fff;font-size:14px;cursor:pointer;text-align:left}
   .target-btn.selected{border-color:var(--purple);background:#f7f2ff;font-weight:700}
@@ -235,7 +236,7 @@ function renderMain(d){
     pill.className='phase-pill phase-night'; pill.textContent=`🌙 ${d.round}일차 밤`;
     statusText.textContent = d.role ? '' : '이번 판에는 참가하지 않았어요. 다음 판을 기다려주세요.';
     if(d.role){
-      renderRoleCard(d.role);
+      renderRoleCard(d.role, d.mafiaTeammates);
       if(d.role.alive && d.role.nightAction !== 'none'){
         renderNightAction(d);
         nightBox.style.display='block';
@@ -249,7 +250,7 @@ function renderMain(d){
   } else if(d.phase === 'day'){
     pill.className='phase-pill phase-day'; pill.textContent=`☀️ ${d.round}일차 낮`;
     if(d.role){
-      renderRoleCard(d.role);
+      renderRoleCard(d.role, d.mafiaTeammates);
       roleBox.style.display='block';
       if(d.investigateResult){
         statusText.textContent = `🔍 조사 결과: ${d.investigateResult.targetNickname}님은 ${d.investigateResult.team==='mafia'?'마피아팀':'시민팀'}이에요.`;
@@ -273,13 +274,22 @@ function renderMain(d){
   aliveWrap.innerHTML = (d.aliveList||[]).map(n=>`<span>${escapeHtml(n)}</span>`).join('') || '<span>-</span>';
 }
 
-function renderRoleCard(role){
+function renderRoleCard(role, teammates){
   const box = document.getElementById('roleBox');
   const actionLabels = {kill:'🔪 암살 능력 보유',heal:'💊 치료 능력 보유',investigate:'🔍 조사 능력 보유',none:''};
+  // 🤝 마피아 동료 공개 — 서로 누가 마피아인지 알아야 밤에 같은 사람을 지목해서
+  // 팀킬(마피아가 마피아를 죽임)하는 걸 피할 수 있다.
+  let teammateHtml = '';
+  if(role.team === 'mafia' && teammates && teammates.length){
+    teammateHtml = `<div class="role-teammates">🤝 마피아 동료: ${teammates.map(t=>`${escapeHtml(t.nickname)}${t.alive?'':' (💀사망)'}`).join(', ')}</div>`;
+  } else if(role.team === 'mafia'){
+    teammateHtml = `<div class="role-teammates">🤝 혼자인 마피아예요 (동료 없음)</div>`;
+  }
   box.innerHTML = `<div class="role-card team-${role.team}">
     <div class="role-team">${role.team==='mafia'?'마피아팀':'시민팀'}</div>
     <div class="role-name">${escapeHtml(role.name)}</div>
     <div class="role-action">${actionLabels[role.nightAction]||''}${role.alive?'':' · 💀 사망'}</div>
+    ${teammateHtml}
   </div>`;
 }
 
