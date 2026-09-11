@@ -377,6 +377,22 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
+// 🩺 디버그 로그 실시간 방송 — console.log를 가로채서, 서버 로그(Railway)로 나가는 그대로
+// 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
+// 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
+// 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
+const _originalConsoleLog = console.log.bind(console)
+console.log = function (...args) {
+  _originalConsoleLog(...args)
+  try {
+    const message = args.map(a => {
+      if (typeof a === 'string') return a
+      try { return JSON.stringify(a) } catch (e) { return String(a) }
+    }).join(' ')
+    broadcast({ type: 'debuglog', message, ts: Date.now() })
+  } catch (e) { /* 로그 방송 자체가 실패해도 원래 로그 출력에는 영향 없게 무시 */ }
+}
+
 async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -5853,8 +5869,8 @@ function getCouponCheckSettings(djId, settings) {
       footer: '보유 쿠폰 조회 완료!',
       showZeroRoulette: true,
       cmdCoupon: '!쿠폰',
-      cmdGive: '!룰렛권지급',
-      cmdSync: '!쿠폰동기화',
+      cmdGive: '!룰렛지급',   // 🆕 번호가 뒤에 바로 붙는 접두어 방식 (예: !룰렛지급1) — "!룰렛N" 뽑기 명령어랑 같은 스타일
+      cmdSync: '!쿠폰동기화', // 마찬가지로 접두어로 쓴다 (예: !쿠폰동기화1)
     }
     store.saveSettings(djId, { couponCheck: settings.couponCheck })
   }
@@ -5868,8 +5884,8 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
   const parts = msg.split(/\s+/)
   const first = parts[0]
   const cmdCoupon = cfg.cmdCoupon || '!쿠폰'
-  const cmdGive = cfg.cmdGive || '!룰렛권지급'
-  const cmdSync = cfg.cmdSync || '!쿠폰동기화'
+  const givePrefix = cfg.cmdGive || '!룰렛지급'
+  const syncPrefix = cfg.cmdSync || '!쿠폰동기화'
 
   if (first === cmdCoupon) {
     const act = getActivitySettings(djId, settings)
@@ -5901,18 +5917,50 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     return
   }
 
-  if (first === cmdGive || first === cmdSync) {
+  // 🎯 !룰렛지급1, !룰렛지급2 ... 처럼 룰렛 번호가 명령어 뒤에 바로 붙는 방식 (기존 "!룰렛N" 뽑기
+  // 명령어랑 같은 스타일). 대상 자리에 "전체"를 쓰면 지금까지 등록된 유저 전원에게 한 번에 지급/동기화된다.
+  let mode = null, rouletteNo = null
+  if (first.startsWith(givePrefix) && /^\d+$/.test(first.slice(givePrefix.length))) {
+    mode = 'give'; rouletteNo = parseInt(first.slice(givePrefix.length), 10)
+  } else if (first.startsWith(syncPrefix) && /^\d+$/.test(first.slice(syncPrefix.length))) {
+    mode = 'sync'; rouletteNo = parseInt(first.slice(syncPrefix.length), 10)
+  }
+  if (mode) {
     const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
     const act = getActivitySettings(djId, settings)
     const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
     const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ 매니저 이상만 사용 가능합니다.'), 400); return }
 
-    const rouletteNo = parseInt(parts[1], 10)
-    const targetInput = parts[2]
-    const countVal = parseInt(parts[3], 10)
-    if (!rouletteNo || !targetInput || isNaN(countVal)) {
-      setTimeout(() => sendChatToRoom(djId, `사용법: ${first === cmdGive ? cmdGive : cmdSync} 1 @고유닉 3`), 400)
+    const targetInput = parts[1]
+    const countVal = parseInt(parts[2], 10)
+    if (!targetInput || isNaN(countVal)) {
+      setTimeout(() => sendChatToRoom(djId, `사용법: ${first} 고유닉 3  (전체에게 주려면: ${first} 전체 3)`), 400)
+      return
+    }
+
+    // 🌐 "전체" — 지금 이 방에 실시간으로 접속 중인 사람 전원에게 한 번에 지급/동기화
+    // (예전 기록이 있는지랑 상관없이, 지금 방에 있는 사람만 대상)
+    if (targetInput === '전체') {
+      if (!room._lastLiveMembers || !room._lastLiveMembers.size) {
+        setTimeout(() => sendChatToRoom(djId, '⚠️ 지금 방에 접속 중인 사람이 없어요.'), 400)
+        return
+      }
+      let count = 0
+      for (const info of room._lastLiveMembers.values()) {
+        if (!info.tag) continue // 고유닉을 아직 못 알아낸 사람은 건너뜀 (기록 자체를 못 만듦)
+        const rec = getHistoryRecByIdentity(settings, info.tag, info.nickname)
+        if (!rec) continue
+        if (!rec.coupons) rec.coupons = {}
+        if (mode === 'give') rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
+        else rec.coupons[rouletteNo] = Math.max(0, countVal)
+        count++
+      }
+      if (!count) { setTimeout(() => sendChatToRoom(djId, '⚠️ 지급할 대상을 찾지 못했어요.'), 400); return }
+      store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+      broadcast({ type: 'roulette', djId, tag: 'all' })
+      const label = mode === 'give' ? '지급' : '동기화'
+      setTimeout(() => sendChatToRoom(djId, `✅ 지금 접속 중인 ${count}명에게 룰렛${rouletteNo} 일괄 ${label} 완료! (${countVal}장)`), 400)
       return
     }
 
@@ -5935,14 +5983,14 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     }
     const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
-    if (first === cmdGive) {
+    if (mode === 'give') {
       rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
     } else {
       rec.coupons[rouletteNo] = Math.max(0, countVal)
     }
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
     broadcast({ type: 'roulette', djId, tag: targetTag || targetName })
-    const label = first === cmdGive ? '지급' : '동기화'
+    const label = mode === 'give' ? '지급' : '동기화'
     setTimeout(() => sendChatToRoom(djId, `✅ ${targetName}님 룰렛${rouletteNo} ${label} 완료 / 보유 ${rec.coupons[rouletteNo]}장`), 400)
     return
   }
@@ -16025,11 +16073,14 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
 // 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
 // (같은 사람한테 인사가 두 번 나가는 걸 방지).
 function sendJoinMessage(djId, settings, author, tag, gen) {
-  if (settings.botEnabled === false) return
+  // 🩺 입장인사디버그 — 룰렛디버그랑 같은 목적. "조용히 아무 일도 안 일어나는" 상태의 정확한
+  // 원인을 다음에 또 재현됐을 때 바로 찾을 수 있게, 인사가 나가기도 전에 관련 상태를 먼저 찍어둔다.
+  console.log(`[입장디버그:${djId}] author=${author} tag=${tag} botEnabled=${settings.botEnabled} greetOn=${isModuleOn(settings, 'greet', djId)} entryOn=${isModuleOn(settings, 'entrysettings', djId)} greetings등록수=${(settings.greetings || []).length}`)
+  if (settings.botEnabled === false) { console.log(`[입장디버그:${djId}] botEnabled=false라서 인사 건너뜀`); return }
   const room = getRoom(djId)
   if (!room._greetedKeys) room._greetedKeys = new Set()
   const greetKey = String(tag || author || '').trim().toLowerCase()
-  if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
+  if (greetKey && room._greetedKeys.has(greetKey)) { console.log(`[입장디버그:${djId}] greetKey=${greetKey} 이미 인사 처리된 키라서 건너뜀`); return } // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
   if (greetKey) room._greetedKeys.add(greetKey)
 
   // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
@@ -16041,6 +16092,7 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const soundCooldownOk = cooldownSec <= 0 || !greetKey || (nowTs - lastSoundAt) >= cooldownSec * 1000
 
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
+  console.log(`[입장디버그:${djId}] tag=${tag} 매칭된지정인사=${greeting ? greeting.tag : '없음'}`)
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
   const visitCount = incrementVisitCount(djId, settings, author, tag) // 🔢 {count} — 누적 입장 횟수
@@ -18104,13 +18156,105 @@ app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
 
 // 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
 app.get('/session/global-off', auth.requireAuth, (req, res) => {
-  res.json({ success: true, off: store.getSessionModuleGlobalOff() })
+  const off = store.getSessionModuleGlobalOff()
+  const allowedUsers = store.getSessionAllowedUsers()
+  const restricted = allowedUsers.length > 0 // 목록이 하나라도 있으면 "지정된 유저만" 모드
+  const explicitlyAllowed = allowedUsers.includes(req.djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기" 토글이 켜져있어도 항상 보이게 한다(그게 이 목록의
+  // 존재 이유이므로). 목록에 없고 목록 자체가 비어있으면 기존처럼 "전체 숨기기" 값만 따른다.
+  const allowedForMe = req.djId === SHARED_TOKEN_DJID || explicitlyAllowed || (!restricted && !off)
+  res.json({ success: true, off, restricted, allowedForMe })
 })
 app.post('/session/global-off', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const { off } = req.body || {}
   const result = store.setSessionModuleGlobalOff(off)
   res.json(result.ok ? { success: true, off: result.off } : { success: false, error: result.error })
+})
+// 🔑 세션 연결 사용 가능 유저 목록 관리 — 관리자 전용. 이 목록이 비어있으면 (위 전역 OFF 설정을
+// 제외하곤) 제한 없이 모든 디제이가 세션 연결을 쓸 수 있고, 목록에 하나라도 들어있으면 그 목록에
+// 있는 djId(+ 관리자 sum)만 쓸 수 있다.
+app.get('/session/allowed-users', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, users: store.getSessionAllowedUsers() })
+})
+app.post('/session/allowed-users', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { users } = req.body || {}
+  const result = store.setSessionAllowedUsers(users)
+  res.json(result.ok ? { success: true, users: result.users } : { success: false, error: result.error })
+})
+
+// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있지만(요청 보내기), 목록 확인은 관리자만 가능하다.
+app.post('/module-request/submit', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const { moduleName, visibility, commands, description } = req.body || {}
+  const name = String(moduleName || '').trim().slice(0, 60)
+  if (!name) return res.json({ success: false, error: '모듈 이름을 입력해주세요.' })
+  const desc = String(description || '').trim().slice(0, 2000)
+  if (!desc) return res.json({ success: false, error: '상세 설명을 입력해주세요.' })
+  // 🙋 작성자 닉네임/프로필 — 지금 방송 연결돼있으면 그 방송의 최신 정보(LiveMetaUpdate)에서
+  // 가져오고, 없으면 그냥 계정 아이디를 이름으로 쓴다.
+  const room = getRoom(djId)
+  const meta = (room && room.lastLiveMeta) || {}
+  const entry = {
+    id: 'mr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    djId,
+    nickname: meta.djNickname || djId,
+    profileUrl: meta.djProfileImageUrl || '',
+    moduleName: name,
+    visibility: visibility === 'private' ? 'private' : 'public',
+    commands: String(commands || '').trim().slice(0, 300),
+    description: desc,
+    createdAt: new Date().toISOString(),
+  }
+  const result = store.addModuleRequest(entry)
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+app.get('/module-request/list', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  store.markModuleRequestsReadForAdmin() // 관리자가 목록을 열어봤으니 "관리자 안읽음" 표시를 끈다
+  res.json({ success: true, requests: store.getModuleRequests() })
+})
+app.post('/module-request/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { id } = req.body || {}
+  const result = store.deleteModuleRequest(id)
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+// 📝 내가(로그인한 디제이 본인) 쓴 요청 글만 — 댓글로 관리자랑 주고받을 때 씀
+app.get('/module-request/mine', auth.requireAuth, (req, res) => {
+  store.markModuleRequestsReadForDj(req.djId) // 본인 글 목록을 열어봤으니 "디제이 안읽음" 표시를 끈다
+  res.json({ success: true, requests: store.getMyModuleRequests(req.djId) })
+})
+// 💬 댓글 달기 — 관리자는 아무 글에나, 디제이는 본인이 쓴 글에만 달 수 있다.
+app.post('/module-request/comment', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const { id, text } = req.body || {}
+  const trimmed = String(text || '').trim().slice(0, 1000)
+  if (!trimmed) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const requests = store.getModuleRequests()
+  const target = requests.find(r => r.id === id)
+  if (!target) return res.json({ success: false, error: '존재하지 않는 요청이에요.' })
+  const isAdmin = djId === 'sum'
+  if (!isAdmin && target.djId !== djId) return res.status(403).json({ success: false, error: '본인이 쓴 글에만 댓글을 달 수 있어요.' })
+  const room = getRoom(djId)
+  const meta = (room && room.lastLiveMeta) || {}
+  const comment = {
+    id: 'mc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    role: isAdmin ? 'admin' : 'dj',
+    authorDjId: djId,
+    nickname: isAdmin ? '관리자' : (meta.djNickname || djId),
+    text: trimmed,
+    createdAt: new Date().toISOString(),
+  }
+  const result = store.addModuleRequestComment(id, comment)
+  res.json(result.ok ? { success: true, comment } : { success: false, error: result.error })
+})
+// 🔔 상단 "모듈제작 요청" 메뉴 깜빡임 표시용 — 안 읽은 댓글이 있는지만 가볍게 확인
+app.get('/module-request/unread', auth.requireAuth, (req, res) => {
+  const isAdmin = req.djId === 'sum'
+  res.json({ success: true, unread: store.hasUnreadModuleRequests(req.djId, isAdmin) })
 })
 
 // 📊 관리자 대시보드 요약 통계
@@ -19585,7 +19729,7 @@ app.post('/coupon/settings', auth.requireAuth, (req, res) => {
   if (footer != null) cfg.footer = String(footer).slice(0, 100)
   if (showZeroRoulette != null) cfg.showZeroRoulette = !!showZeroRoulette
   if (cmdCoupon != null) cfg.cmdCoupon = String(cmdCoupon).trim() || '!쿠폰'
-  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛권지급'
+  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛지급'
   if (cmdSync != null) cfg.cmdSync = String(cmdSync).trim() || '!쿠폰동기화'
   store.saveSettings(req.djId, { couponCheck: cfg })
   res.json({ success: true })
@@ -19968,7 +20112,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const cc = settings.couponCheck
     groups.push({
       key: 'couponcheck', icon: '🎟️', label: '쿠폰 확인', items: [
-        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive, desc: '룰렛권 지급 (관리자)' }, { cmd: cc.cmdSync, desc: '쿠폰 동기화 (관리자)' },
+        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive + 'N', desc: '룰렛권 지급 (관리자) — 예: ' + cc.cmdGive + '1 고유닉 5, 전체도 가능' }, { cmd: cc.cmdSync + 'N', desc: '쿠폰 동기화 (관리자)' },
       ].filter(x => x.cmd)
     })
   }
@@ -20684,9 +20828,20 @@ app.get('/mafia/:djId/me', (req, res) => {
   const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
   if (player) {
     resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
+    // 🕵️ 경찰 조사 결과 — 밤에 조사를 지목하면, 그 결과는 "다음날 낮"에 확인하는 거라서 phase가
+    // day로 넘어간 뒤에도 내려줘야 한다. 예전엔 이 블록이 night 분기 안에만 있어서, 결과가 실제로
+    // 계산되는 시점(밤이 끝나고 낮이 된 직후)엔 이미 phase가 'day'라 조건에 안 걸려 한 번도
+    // 내려간 적이 없었다 — 그래서 "조사결과가 안 뜬다"는 문제가 있었다.
+    if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
+    // 🤝 마피아 팀원 공개 — 마피아끼리는 서로 누가 마피아인지 알아야 밤에 같은 사람을 지목해서
+    // 팀킬(마피아가 마피아를 죽임)하는 걸 피할 수 있다.
+    if (player.team === 'mafia') {
+      resp.mafiaTeammates = Object.entries(game.players)
+        .filter(([t, p]) => p.team === 'mafia' && t !== tag)
+        .map(([t, p]) => ({ tag: t, nickname: p.nickname, alive: p.alive }))
+    }
     if (game.phase === 'night') {
       resp.myNightAction = game.nightActions[tag] || null
-      if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
       // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
       let candidates = mfAliveTags(game)
       if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)
@@ -23071,7 +23226,14 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
-  if (djId !== SHARED_TOKEN_DJID && store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
+  const allowedUsers = store.getSessionAllowedUsers()
+  const explicitlyAllowed = allowedUsers.includes(djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기"가 켜져있어도 항상 통과시킨다 — 목록에 없을 때만
+  // 전체 숨기기 값과 "지정된 유저만" 제한을 순서대로 적용한다.
+  if (djId !== SHARED_TOKEN_DJID && !explicitlyAllowed) {
+    if (store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
+    if (allowedUsers.length > 0) return res.json({ success: false, error: '세션 연결 권한이 없는 계정이에요. 관리자에게 문의해주세요.' })
+  }
   if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {

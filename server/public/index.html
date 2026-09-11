@@ -101,6 +101,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 }
 .panel.active{display:block;animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes mrBlink{0%,100%{opacity:1;color:inherit}50%{opacity:.35;color:#ef4444}}
+.mr-blink{animation:mrBlink 1s ease-in-out infinite}
 
 .panel-locked-banner{display:flex;align-items:center;gap:10px;background:rgba(225,29,72,.08);border:1px solid rgba(225,29,72,.3);color:var(--danger);padding:12px 16px;border-radius:12px;margin-bottom:16px;font-size:13px;font-weight:600}
 .panel-locked-banner button{background:var(--danger);color:#fff;padding:6px 12px;font-size:12px;margin-left:auto;flex-shrink:0;white-space:nowrap}
@@ -559,7 +561,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <label>이메일 <span class="hint-inline">(비밀번호 찾기에 사용돼요)</span></label>
       <input type="email" id="authEmail" placeholder="예: edibot@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
       <label>디제이 고유닉 <span class="hint-inline">(필수)</span></label>
-      <input type="text" id="authDjTag" placeholder="고유닉 입력 (예: sum)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <input type="text" id="authDjTag" placeholder="고유닉 입력 (예: sum)" oninput="filterDjTagInput(this)" onkeydown="if(event.key==='Enter')submitAuth()">
+      <p class="hint" id="authDjTagHint" style="display:none;color:#ef4444;margin-top:4px">고유닉엔 한글을 쓸 수 없어요. 스푼 프로필의 "@" 뒤에 오는 고유닉을 입력해주세요.</p>
     </div>
     <label class="check-opt" id="authAutoLoginWrap" style="margin-top:14px"><input type="checkbox" id="authAutoLogin" checked> 자동 로그인 유지 <span class="hint-inline">(체크 해제 시 브라우저를 닫으면 다시 로그인해야 해요)</span></label>
     <button class="btn-connect" style="width:100%;margin-top:16px" id="authSubmitBtn" onclick="submitAuth()">로그인</button>
@@ -636,6 +639,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
     <div class="nav-item" id="trophyEditorNav" style="display:none" onclick="event.stopImmediatePropagation();window.open('/trophy-editor','_blank')"><span class="ic ic-img"><img src="/icons/trophyeditor.png" alt=""></span><span class="lbl">박제 하기</span></div>
     <div class="nav-item" id="requestModulesNav" data-panel="requestmodules" style="display:none"><span class="ic ic-img"><img src="/icons/requestmodules.png" alt=""></span><span class="lbl">요청 모듈</span></div>
+    <div class="nav-item" data-panel="modulerequest"><span class="ic ic-img"><img src="/icons/modulerequest.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl" id="mrNavLabel">모듈제작 요청</span></div>
 
     <div class="nav-group-label">연결</div>
     <div class="nav-item active" data-panel="session"><span class="ic ic-img"><img src="/icons/session-connect.png" alt=""></span><span class="lbl">세션 연결</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -643,6 +647,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" id="userListOnlyNav" data-panel="userlistonly" style="display:none"><span class="ic">👥</span><span class="lbl">유저 목록</span></div>
     <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic ic-img"><img src="/icons/adminstats.png" alt=""></span><span class="lbl">관리자 대시보드</span></div>
     <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic ic-img"><img src="/icons/eventviewer.png" alt=""></span><span class="lbl">이벤트 뷰어</span></div>
+    <div class="nav-item" id="debugLogNav" data-panel="debuglog" style="display:none"><span class="ic ic-img"><img src="/icons/debuglog.png" alt="" onerror="this.onerror=null;this.src='/icons/eventviewer.png'"></span><span class="lbl">디버그 로그</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic ic-img"><img src="/icons/room-entry.png" alt=""></span><span class="lbl">자동입장</span><span class="nav-badge on" style="cursor:default" title="자동입장은 항상 켜져 있어요">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic ic-img"><img src="/icons/botreboot.png" alt=""></span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic ic-img"><img src="/icons/migrate.png" alt=""></span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -883,12 +888,43 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 📝 모듈제작 요청 -->
+      <div class="panel" data-panel="modulerequest">
+        <div class="card">
+          <div class="card-title"><span>📝 모듈제작 요청하기</span></div>
+          <p class="hint" style="margin-bottom:14px">원하는 모듈 아이디어를 자유롭게 남겨주세요. 목록 전체는 관리자만 볼 수 있고, 본인이 쓴 글은 아래에서 확인하며 댓글로 관리자와 주고받을 수 있어요.</p>
+          <label style="margin-top:0">모듈 이름</label>
+          <input type="text" id="mrModuleName" placeholder="예: 스티커 유리병">
+          <label>공개 여부</label>
+          <select id="mrVisibility">
+            <option value="public">공개 — 모든 디제이가 쓸 수 있게</option>
+            <option value="private">비공개 — 나만 쓸 수 있게</option>
+          </select>
+          <label>사용할 명령어</label>
+          <input type="text" id="mrCommands" placeholder="예: !유리병, !병비우기">
+          <label>상세 설명</label>
+          <textarea id="mrDescription" rows="5" placeholder="어떤 기능인지, 어떻게 동작했으면 하는지 자세히 적어주세요" style="width:100%;resize:vertical"></textarea>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="submitModuleRequest()">📨 요청 보내기</button>
+        </div>
+        <div class="card" id="mrMineCard" style="display:none">
+          <div class="card-title"><span>📨 내가 보낸 요청</span></div>
+          <div id="mrMineList"><p class="hint">불러오는 중...</p></div>
+        </div>
+        <div class="card" id="mrAdminListCard" style="display:none">
+          <div class="card-title"><span>📋 접수된 모듈제작 요청 (관리자 전용)</span></div>
+          <div id="mrAdminList"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <!-- 세션 연결 -->
       <div class="panel active" data-panel="session">
         <div class="card" id="sessionAdminGateCard" style="display:none">
           <div class="card-title"><span>🔒 일반 디제이 노출 제어 (관리자 전용)</span></div>
           <p class="hint" style="margin-bottom:10px">켜두면 일반 디제이들은 각자 개인 모듈 설정과 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보여요. 관리자(sum) 본인 화면에는 항상 그대로 보여요.</p>
           <label class="check-opt" style="margin-top:0"><input type="checkbox" id="sessionGlobalOffToggle" onchange="saveSessionGlobalOff(this.checked)"> 일반 디제이에게 세션 연결 메뉴 숨기기</label>
+          <div class="card-title" style="margin-top:18px"><span>🔑 지정된 유저만 사용 허용</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveSessionAllowedUsers()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:10px">여기에 djId를 한 줄에 하나씩(또는 쉼표로) 적어두면, 그 계정들만(+ 관리자 sum) 세션 연결을 쓸 수 있어요. 목록에 있는 계정은 위 "전체 숨기기"가 켜져있어도 항상 예외로 허용돼요. 비워두면 이 제한은 없고, 그때는 위 "전체 숨기기" 값만 그대로 적용돼요.</p>
+          <textarea id="sessionAllowedUsersBox" rows="4" placeholder="예)&#10;sum2&#10;sum3" style="width:100%;resize:vertical"></textarea>
         </div>
         <div class="card">
           <div class="card-title"><span>세션 상태</span><span class="session-pill" id="sessionPill">확인 중...</span></div>
@@ -1077,6 +1113,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div id="evListWrap" style="max-height:65vh;overflow-y:auto;font-family:Consolas,monospace;font-size:12px">
             <p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🩺 디버그 로그 -->
+      <div class="panel" data-panel="debuglog">
+        <div class="card">
+          <div class="card-title"><span>🩺 디버그 로그</span></div>
+          <p class="hint" style="margin-bottom:12px">서버 콘솔(Railway 로그)에 찍히는 모든 <code>console.log</code>를 실시간으로 그대로 보여줘요. Railway에 직접 안 들어가도, 여기서 <code>[룰렛디버그:djId]</code>나 <code>[입장디버그:djId]</code> 같은 걸 바로 검색할 수 있어요. (전체 서버 로그를 다 받는 거라 다른 방 로그도 섞여 나와요 — 아래 필터로 원하는 djId만 걸러보세요)</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="dbgFilter" placeholder="필터 (예: 룰렛디버그, pippy0605)" style="max-width:260px" oninput="renderDebugLogList()">
+            <button class="btn-connect" id="dbgPauseBtn" style="padding:9px 16px" onclick="toggleDebugLogPause()">⏸️ 일시정지</button>
+            <button class="btn-gray" style="padding:9px 16px" onclick="clearDebugLog()">🗑️ 지우기</button>
+            <label class="check-opt" style="margin:0"><input type="checkbox" id="dbgAutoScroll" checked> 자동 스크롤</label>
+          </div>
+          <div class="hint" style="margin-top:8px">누적 <span id="dbgCount">0</span>개 (최근 1000개까지만 보관돼요)</div>
+        </div>
+        <div class="card">
+          <div id="dbgListWrap" style="max-height:65vh;overflow-y:auto;font-family:Consolas,monospace;font-size:11.5px;white-space:pre-wrap;word-break:break-all">
+            <p class="hint">로그를 기다리는 중...</p>
           </div>
         </div>
       </div>
@@ -2925,12 +2981,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label class="check-opt"><input type="checkbox" id="couponShowZero" checked> 0장인 룰렛도 표시</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:14px">
             <div><label>쿠폰 확인 명령어</label><input type="text" id="couponCmdCoupon" value="!쿠폰"></div>
-            <div><label>룰렛권 지급 명령어</label><input type="text" id="couponCmdGive" value="!룰렛권지급"></div>
-            <div><label>쿠폰 동기화 명령어</label><input type="text" id="couponCmdSync" value="!쿠폰동기화"></div>
+            <div><label>룰렛권 지급 명령어 (접두어)</label><input type="text" id="couponCmdGive" value="!룰렛지급"></div>
+            <div><label>쿠폰 동기화 명령어 (접두어)</label><input type="text" id="couponCmdSync" value="!쿠폰동기화"></div>
           </div>
           <p class="hint" style="margin-top:10px">
-          · [지급 명령어] [룰렛번호] [고유닉] [수량] → 그만큼 더해서 지급 (DJ/매니저)<br>
-          · [동기화 명령어] [룰렛번호] [고유닉] [수량] → 정확히 그 수량으로 설정 (DJ/매니저)
+          · 룰렛 번호가 명령어 뒤에 바로 붙어요 (예: <code>!룰렛지급1</code>, <code>!룰렛지급2</code>) — "!룰렛N" 뽑기 명령어랑 같은 방식<br>
+          · [지급 명령어][번호] [고유닉] [수량] → 그만큼 더해서 지급 (DJ/매니저) — 예: <code>!룰렛지급1 abc123 5</code><br>
+          · [지급 명령어][번호] 전체 [수량] → 등록된 유저 전원에게 한 번에 지급 — 예: <code>!룰렛지급1 전체 5</code><br>
+          · [동기화 명령어][번호] [고유닉] [수량] → 정확히 그 수량으로 설정 (전체도 동일하게 가능)
           </p>
         </div>
       </div>
@@ -5023,6 +5081,16 @@ function getOrCreateDeviceId(){
   }catch(e){ return null; } // localStorage 접근 불가(시크릿모드 일부 브라우저 등)면 그냥 null
 }
 
+const HANGUL_REGEX=/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]/;
+function filterDjTagInput(el){
+  const hint=document.getElementById('authDjTagHint');
+  if(HANGUL_REGEX.test(el.value)){
+    el.value=el.value.replace(HANGUL_REGEX,'');
+    if(hint) hint.style.display='block';
+  } else if(hint){
+    hint.style.display='none';
+  }
+}
 async function submitAuth(){
   const id=document.getElementById('authDjId').value.trim();
   const pw=document.getElementById('authPassword').value;
@@ -5038,6 +5106,7 @@ async function submitAuth(){
     if(!email){errEl.textContent='비밀번호 찾기에 사용할 이메일을 입력해주세요';return;}
     const djTag=document.getElementById('authDjTag').value.trim();
     if(!djTag){errEl.textContent='디제이 고유닉을 입력해주세요';return;}
+    if(HANGUL_REGEX.test(djTag)){errEl.textContent='고유닉엔 한글을 쓸 수 없어요. 스푼 프로필의 "@" 뒤에 오는 고유닉을 입력해주세요.';return;}
     try{
       const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email,deviceId:getOrCreateDeviceId()})});
       const d=await res.json();
@@ -5455,6 +5524,8 @@ function enterApp(){
   if(adminStatsNav) adminStatsNav.style.display = isAdmin ? '' : 'none';
   const eventViewerNav=document.getElementById('eventViewerNav');
   if(eventViewerNav) eventViewerNav.style.display = isAdmin ? '' : 'none';
+  const debugLogNav=document.getElementById('debugLogNav');
+  if(debugLogNav) debugLogNav.style.display = isAdmin ? '' : 'none';
   // 🧪 선물캡처판 "테스트 선물 보내기" 버튼 — 관리자(sum)만 보이게
   const gcTestBtnWrap=document.getElementById('gcTestBtnWrap');
   if(gcTestBtnWrap) gcTestBtnWrap.style.display = isAdmin ? 'flex' : 'none';
@@ -5474,8 +5545,10 @@ function enterApp(){
   if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
+  startModuleRequestUnreadPolling();
   const sessionAdminGateCard=document.getElementById('sessionAdminGateCard');
   if(sessionAdminGateCard) sessionAdminGateCard.style.display = isAdmin ? '' : 'none';
+  if(isAdmin) loadSessionAllowedUsers();
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
 
@@ -5552,6 +5625,7 @@ async function installPwaApp(){
 const PANEL_META={
   modulemarket:['🛒 모듈 마켓','필요한 기능만 켜고 나머지는 꺼두세요'],
   requestmodules:['🔐 요청 모듈','특정 유저에게만 허용된 제한 메뉴입니다'],
+  modulerequest:['📝 모듈제작 요청','원하는 모듈 아이디어를 자유롭게 요청할 수 있는 게시판입니다. 작성한 글은 관리자만 볼 수 있어요'],
   'trophy-editor':['🎨 박제 하기','스티커·이미지로 나만의 박제를 직접 만드는 도구입니다'],
   session:['🔑 세션 연결','PC 없이 로그인 상태를 유지합니다'],
   autojoin:['🚪 방 입장','봇 기능 on/off, 즉시 입장, 다중 감시를 관리합니다'],
@@ -5626,6 +5700,10 @@ function selectPanel(name){
   applyPanelLockState(name);
   if(name==='modulemarket')renderModuleMarket();
   if(name==='requestmodules')renderRequestModulesPanel();
+  if(name==='modulerequest'){
+    if(djId===ADMIN_DJ_ID){ document.getElementById('mrAdminListCard').style.display=''; loadModuleRequests(); }
+    else { document.getElementById('mrMineCard').style.display=''; loadMyModuleRequests(); }
+  }
   if(name==='mynotes'&&document.getElementById('myNotesListWrap'))loadMyNotes();
   if(name==='pickboard'&&document.getElementById('pbSideNav'))loadPbSettings();
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
@@ -5641,6 +5719,7 @@ function selectPanel(name){
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
+  if(name==='debuglog'){ renderDebugLogList(); const c=document.getElementById('dbgCount'); if(c)c.textContent=debugLogBuffer.length; }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -5744,10 +5823,11 @@ const MODULE_ICON_FILES={
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
-const EXPIRY_EXEMPT_KEYS=['chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
+const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
 let moduleVisible={};
 let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
+let sessionRestricted=false, sessionAllowedForMe=true; // 🔑 "지정된 유저만" 모드일 때, 나(현재 로그인한 djId)한테 허용됐는지
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
 let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
 let expiryTimer=null;
@@ -5805,7 +5885,7 @@ function renderNavVisibility(key){
   const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
   if(!navItem)return;
   const adminGate=MARKET_ADMIN_ONLY_KEYS.includes(key)?(djId===ADMIN_DJ_ID):true;
-  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?!sessionModuleGlobalOff:true;
+  const sessionGate=(key==='session'&&djId!==ADMIN_DJ_ID)?sessionAllowedForMe:true;
   // 🚫 꺼진(OFF) 모듈은 사이드바 배지로 껐든 모듈 마켓에서 껐든 상관없이 목록에서 바로 사라진다.
   // 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 순간 사이드바에도 다시 나타난다.
   navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
@@ -7567,6 +7647,59 @@ function clearEventViewerLog(){
   if(countEl) countEl.textContent='0';
 }
 
+/* ── 🩺 디버그 로그 (서버 console.log 실시간 스트림) ── */
+let debugLogBuffer=[];
+let debugLogPaused=false;
+const DEBUG_LOG_MAX=1000;
+function pushDebugLog(d){
+  if(debugLogPaused)return;
+  debugLogBuffer.push(d);
+  if(debugLogBuffer.length>DEBUG_LOG_MAX) debugLogBuffer.shift();
+  if(document.getElementById('dbgListWrap')) appendDebugLogRow(d);
+  const countEl=document.getElementById('dbgCount');
+  if(countEl) countEl.textContent=debugLogBuffer.length;
+}
+function debugLogMatchesFilter(d){
+  const filter=(document.getElementById('dbgFilter')?.value||'').trim().toLowerCase();
+  if(!filter)return true;
+  return (d.message||'').toLowerCase().includes(filter);
+}
+function appendDebugLogRow(d){
+  if(!debugLogMatchesFilter(d))return;
+  const wrap=document.getElementById('dbgListWrap');
+  if(!wrap)return;
+  if(!wrap.dataset.hasLogs){ wrap.innerHTML=''; wrap.dataset.hasLogs='1'; }
+  const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
+  const time=new Date(d.ts||Date.now()).toLocaleTimeString('ko-KR',{hour12:false});
+  const row=document.createElement('div');
+  row.style.cssText='border-bottom:1px solid var(--border);padding:5px 4px';
+  row.innerHTML=`<span class="hint" style="margin:0">${time}</span> ${escapeHtml(d.message||'')}`;
+  wrap.appendChild(row);
+  while(wrap.children.length>DEBUG_LOG_MAX) wrap.removeChild(wrap.firstChild);
+  if(document.getElementById('dbgAutoScroll')?.checked && atBottom) wrap.scrollTop=wrap.scrollHeight;
+}
+function renderDebugLogList(){
+  const wrap=document.getElementById('dbgListWrap');
+  if(!wrap)return;
+  wrap.innerHTML='';
+  delete wrap.dataset.hasLogs;
+  const filtered=debugLogBuffer.filter(debugLogMatchesFilter);
+  if(!filtered.length){ wrap.innerHTML='<p class="hint">조건에 맞는 로그가 없어요.</p>'; return; }
+  filtered.forEach(d=>appendDebugLogRow(d));
+}
+function toggleDebugLogPause(){
+  debugLogPaused=!debugLogPaused;
+  const btn=document.getElementById('dbgPauseBtn');
+  if(btn) btn.textContent = debugLogPaused ? '▶️ 재개' : '⏸️ 일시정지';
+}
+function clearDebugLog(){
+  debugLogBuffer=[];
+  const wrap=document.getElementById('dbgListWrap');
+  if(wrap){ wrap.innerHTML='<p class="hint">로그를 기다리는 중...</p>'; delete wrap.dataset.hasLogs; }
+  const countEl=document.getElementById('dbgCount');
+  if(countEl) countEl.textContent='0';
+}
+
 async function loadStatusBannerAdmin(){
   try{
     const res=await fetch(SERVER+'/status-banner',{headers:authHeaders()});
@@ -7723,11 +7856,166 @@ async function loadSessionGlobalOffStatus(){
   try{
     const res=await fetch(SERVER+'/session/global-off',{headers:authHeaders()});
     const d=await res.json();
-    if(d.success) sessionModuleGlobalOff=!!d.off;
+    if(d.success){
+      sessionModuleGlobalOff=!!d.off;
+      sessionRestricted=!!d.restricted;
+      sessionAllowedForMe=d.allowedForMe!==false;
+    }
   }catch(e){}
   renderNavVisibility('session');
   const toggle=document.getElementById('sessionGlobalOffToggle');
   if(toggle) toggle.checked=sessionModuleGlobalOff;
+}
+// 🔑 세션 연결 "지정된 유저만" 허용 목록 — 관리자 전용
+async function loadSessionAllowedUsers(){
+  const box=document.getElementById('sessionAllowedUsersBox');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/session/allowed-users',{headers:authHeaders()});
+    const d=await res.json();
+    if(d.success) box.value=(d.users||[]).join('\n');
+  }catch(e){}
+}
+async function saveSessionAllowedUsers(){
+  const box=document.getElementById('sessionAllowedUsersBox');
+  if(!box)return;
+  const users=box.value.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+  try{
+    const res=await fetch(SERVER+'/session/allowed-users',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({users})});
+    const d=await res.json();
+    if(d.success){
+      showToast(users.length?`${users.length}개 계정만 세션 연결을 쓸 수 있게 저장했어요 🔒`:'제한을 풀었어요 — 모든 디제이가 세션 연결을 쓸 수 있어요');
+      loadSessionGlobalOffStatus();
+    } else {
+      showToast(d.error||'저장 실패');
+    }
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+/* ── 📝 모듈제작 요청 ── */
+async function submitModuleRequest(){
+  const moduleName=document.getElementById('mrModuleName').value.trim();
+  const visibility=document.getElementById('mrVisibility').value;
+  const commands=document.getElementById('mrCommands').value.trim();
+  const description=document.getElementById('mrDescription').value.trim();
+  if(!moduleName){ showToast('모듈 이름을 입력해주세요'); return; }
+  if(!description){ showToast('상세 설명을 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/module-request/submit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({moduleName,visibility,commands,description})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'전송 실패'); return; }
+    showToast('요청을 보냈어요 📨');
+    document.getElementById('mrModuleName').value='';
+    document.getElementById('mrCommands').value='';
+    document.getElementById('mrDescription').value='';
+    document.getElementById('mrVisibility').value='public';
+    if(djId===ADMIN_DJ_ID) loadModuleRequests(); else loadMyModuleRequests();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+function renderModuleRequestCommentThread(r){
+  const comments=(r.comments||[]).map(c=>`
+    <div style="display:flex;gap:8px;margin-top:8px;${c.role==='admin'?'flex-direction:row-reverse':''}">
+      <div style="max-width:80%;background:${c.role==='admin'?'var(--accent-dim,rgba(139,92,246,.15))':'var(--surface2,rgba(255,255,255,.05))'};border-radius:10px;padding:8px 11px">
+        <div style="font-size:11px;font-weight:700;${c.role==='admin'?'color:var(--accent,#8b5cf6)':'color:var(--muted)'}">${c.role==='admin'?'🛡️ 관리자':escapeHtml(c.nickname)}</div>
+        <div style="font-size:13px;margin-top:2px;white-space:pre-wrap;line-height:1.5">${escapeHtml(c.text)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">${new Date(c.createdAt).toLocaleString('ko-KR')}</div>
+      </div>
+    </div>`).join('');
+  return `
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      ${comments||'<p class="hint" style="margin:0">아직 댓글이 없어요.</p>'}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <input type="text" id="mrReply_${r.id}" placeholder="댓글 입력..." style="flex:1" onkeydown="if(event.key==='Enter')sendModuleRequestComment('${r.id}')">
+        <button class="btn-gray" style="padding:8px 14px;font-size:12px" onclick="sendModuleRequestComment('${r.id}')">전송</button>
+      </div>
+    </div>`;
+}
+function renderModuleRequestCard(r){
+  const avatar=r.profileUrl
+    ? `<img src="${r.profileUrl}" style="width:36px;height:36px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px&quot;>👤</div>'">`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px">👤</div>`;
+  const visBadge=r.visibility==='private'
+    ? '<span class="status-pill dday">비공개</span>'
+    : '<span class="status-pill ongoing">공개</span>';
+  const deleteBtn=djId===ADMIN_DJ_ID?`<button class="btn-gray" style="margin-top:10px;padding:6px 12px;font-size:12px" onclick="deleteModuleRequest('${r.id}')">🗑️ 삭제</button>`:'';
+  return `<div style="background:var(--bg2,rgba(255,255,255,.03));border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${avatar}
+        <div>
+          <div style="font-weight:700;font-size:13.5px">${escapeHtml(r.nickname)} <span style="color:var(--muted);font-weight:400;font-size:11.5px">(${escapeHtml(r.djId)})</span></div>
+          <div style="font-size:11px;color:var(--muted)">${new Date(r.createdAt).toLocaleString('ko-KR')}</div>
+        </div>
+      </div>
+      ${visBadge}
+    </div>
+    <div style="margin-top:10px;font-size:14px;font-weight:700">📦 ${escapeHtml(r.moduleName)}</div>
+    ${r.commands?`<div style="margin-top:4px;font-size:12.5px;color:var(--muted)">명령어: ${escapeHtml(r.commands)}</div>`:''}
+    <div style="margin-top:8px;font-size:13px;white-space:pre-wrap;line-height:1.6">${escapeHtml(r.description)}</div>
+    ${deleteBtn}
+    ${renderModuleRequestCommentThread(r)}
+  </div>`;
+}
+async function loadModuleRequests(){
+  const box=document.getElementById('mrAdminList');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/list',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ box.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    box.innerHTML=d.requests.length?d.requests.map(renderModuleRequestCard).join(''):'<p class="hint">아직 접수된 요청이 없어요.</p>';
+  }catch(e){ box.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+  checkModuleRequestUnread();
+}
+async function loadMyModuleRequests(){
+  const box=document.getElementById('mrMineList');
+  if(!box)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/mine',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ box.innerHTML='<p class="hint">'+(d.error||'불러오기 실패')+'</p>'; return; }
+    box.innerHTML=d.requests.length?d.requests.map(renderModuleRequestCard).join(''):'<p class="hint">아직 보낸 요청이 없어요.</p>';
+  }catch(e){ box.innerHTML='<p class="hint">오류: '+e.message+'</p>'; }
+  checkModuleRequestUnread();
+}
+async function sendModuleRequestComment(id){
+  const input=document.getElementById('mrReply_'+id);
+  if(!input)return;
+  const text=input.value.trim();
+  if(!text){ showToast('댓글 내용을 입력해주세요'); return; }
+  try{
+    const res=await fetch(SERVER+'/module-request/comment',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,text})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'댓글 전송 실패'); return; }
+    if(djId===ADMIN_DJ_ID) loadModuleRequests(); else loadMyModuleRequests();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function deleteModuleRequest(id){
+  if(!confirm('이 요청 글을 삭제할까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/module-request/delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id})});
+    const d=await res.json();
+    if(d.success) loadModuleRequests();
+    else showToast(d.error||'삭제 실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+// 🔔 "모듈제작 요청" 메뉴 깜빡임 — 관리자든 디제이든, 상대가 댓글을 달면 안 읽은 상태가 되고
+// 이 메뉴 글자가 깜빡인다. 주기적으로 폴링하고, 게시판을 직접 열어보면(위 load 함수들 끝에서
+// 이 함수를 다시 부름) 서버 쪽 안읽음 표시가 사라지니 깜빡임도 같이 꺼진다.
+async function checkModuleRequestUnread(){
+  const label=document.getElementById('mrNavLabel');
+  if(!label)return;
+  try{
+    const res=await fetch(SERVER+'/module-request/unread',{headers:authHeaders()});
+    const d=await res.json();
+    label.classList.toggle('mr-blink', !!(d.success&&d.unread));
+  }catch(e){}
+}
+let mrUnreadPollTimer=null;
+function startModuleRequestUnreadPolling(){
+  checkModuleRequestUnread();
+  clearInterval(mrUnreadPollTimer);
+  mrUnreadPollTimer=setInterval(checkModuleRequestUnread, 20000);
 }
 async function saveSessionGlobalOff(off){
   try{
@@ -14111,7 +14399,7 @@ async function loadCouponData(){
     document.getElementById('couponFooter').value=d.settings.footer||'보유 쿠폰 조회 완료!';
     document.getElementById('couponShowZero').checked=d.settings.showZeroRoulette!==false;
     document.getElementById('couponCmdCoupon').value=d.settings.cmdCoupon||'!쿠폰';
-    document.getElementById('couponCmdGive').value=d.settings.cmdGive||'!룰렛권지급';
+    document.getElementById('couponCmdGive').value=d.settings.cmdGive||'!룰렛지급';
     document.getElementById('couponCmdSync').value=d.settings.cmdSync||'!쿠폰동기화';
   }catch(e){}
 }
@@ -17913,6 +18201,7 @@ function startSSE(){
       if(d.page!=null && document.getElementById('wheelPageTabBar')) switchWheelPage(d.page,true);
     }
     else if(d.type==='raw_event'){ if(typeof pushEventViewerLog==='function') pushEventViewerLog(d); }
+    else if(d.type==='debuglog'){ if(typeof pushDebugLog==='function') pushDebugLog(d); }
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
