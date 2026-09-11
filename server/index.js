@@ -801,24 +801,116 @@ function isAccountExpired(settings, djId) {
 }
 function isModuleOn(settings, key, djId) {
   if (isAccountExpired(settings, djId) && !EXPIRY_EXEMPT_KEYS.includes(key)) return false
+  if (djId && !hasRestrictedModeAccess(djId, key, settings)) return false
   const v = settings && settings.moduleEnabled ? settings.moduleEnabled[key] : undefined
   if (v === undefined) return !NEW_MODULE_DEFAULT_OFF_KEYS.includes(key)
   return v !== false
 }
 
 // ══════════════════════════════════════════════════════
-// 🔐 요청 모듈 — 특정 유저만 접근 가능한 제한 메뉴.
-// 일반 모듈 마켓(누구나 켜고 끌 수 있음)과 달리, 관리자(sum)가 항목별로 "허용 유저 목록"을
-// 직접 관리한다. 목록에 없는 유저는 사이드바에서 아예 안 보이고, API도 막힌다.
-// 항목은 관리자(sum) 계정의 settings.requestModules 배열에 저장된다:
-//   { id, title, icon, targetPanel, allowedDjIds: [djId, ...] }
-// targetPanel은 이미 존재하는 화면(panel)의 키를 그대로 재사용한다 (예: 'fishtournament').
+// 🔒 제한 모드(화이트리스트 모드) — 켜두면 관리자(sum) 빼고는 alwaysOnKeys에 있는 몇 개 메뉴(기본:
+// 대시보드/채팅/입장설정)만 승인 없이 쓸 수 있고, 그 외 모든 메뉴는 "요청 모듈" 허용목록에
+// 그 djId가 들어있어야만 열린다 (기존 요청모듈 관리 화면에서 모듈 선택 후 그 유저를 추가하면 됨).
+// 대시보드는 조금 특별해서, alwaysOnKeys에 있어도 base44 연동이 켜져있으면 base44 쪽 유효회원
+// 판정(settings.base44Status.found)까지 추가로 통과해야 한다 — base44Enabled가 꺼져있으면 이 조건은 건너뛴다.
+// 이 기능 자체는 기본 꺼짐이라, 관리자가 admin 페이지에서 켜기 전까지는 기존 동작과 완전히 같다.
 // ══════════════════════════════════════════════════════
+function getRestrictedModeConfig() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.restrictedMode) {
+    settings.restrictedMode = { enabled: false, alwaysOnKeys: ['dashboard', 'chat', 'entrysettings'], base44Enabled: false, base44AuthKey: '', base44IntervalMin: 5 }
+    store.saveSettings(SHARED_TOKEN_DJID, { restrictedMode: settings.restrictedMode })
+  }
+  if (!Array.isArray(settings.restrictedMode.alwaysOnKeys)) settings.restrictedMode.alwaysOnKeys = ['dashboard', 'chat', 'entrysettings']
+  return settings.restrictedMode
+}
+function base44IsMemberActive(djId, settings) {
+  const status = settings && settings.base44Status
+  return !!(status && status.found === true)
+}
+// 요청 모듈 허용목록 조회 (관리자 sum 계정의 settings.requestModules 배열: { targetPanel, allowedDjIds }).
+// 원래는 fishtournament 같은 특수 패널 전용이었지만, 아래 hasRestrictedModeAccess가 targetPanel 자리에
+// 아무 모듈 키(key)나 넣어서 재사용한다 — 관리자가 "요청 모듈" 관리 화면에서 그 모듈을 선택해 유저를
+// 추가하면, 제한 모드가 켜져있을 때 그 유저에게만 해당 메뉴가 열리는 식으로 그대로 동작한다.
 function isRequestModuleAllowed(targetPanel, djId) {
   if (djId === 'sum') return true // 관리자는 모든 요청 모듈에 항상 접근 가능
   const list = store.getRequestModules()
   return list.some(m => m.targetPanel === targetPanel && (m.allowedDjIds || []).includes(djId))
 }
+function hasRestrictedModeAccess(djId, key, settings) {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.enabled) return true // 기능 자체가 꺼져있으면 원래대로 전부 허용
+  if (djId === SHARED_TOKEN_DJID) return true // 관리자는 항상 전체 허용
+  if (key === 'dashboard' && cfg.base44Enabled && !base44IsMemberActive(djId, settings)) return false
+  if (cfg.alwaysOnKeys.includes(key)) return true
+  return isRequestModuleAllowed(key, djId) // 기존 요청모듈 허용목록을 그대로 재사용 (targetPanel=모듈 키)
+}
+// 베이스44(외부 회원관리 서버)에 djId 한 명의 회원 상태를 조회해서 settings.base44Status에 캐싱한다.
+// 매 요청마다 외부 API를 부르면 느리고 위험하니, 아래 startBase44Checker()가 주기적으로만 갱신한다.
+async function checkBase44MemberStatus(djId) {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44Enabled || !cfg.base44AuthKey) return
+  try {
+    const res = await fetch('https://massive-user-vault-flow.base44.app/functions/getMember', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_key: cfg.base44AuthKey, unique_nick: djId, nickname: djId })
+    })
+    const data = await res.json().catch(() => ({}))
+    const status = {
+      found: !!data.found,
+      reason: data.reason || null,
+      expireAt: data.expire_at || null,
+      isTester: !!data.is_tester,
+      isPermanent: !!data.is_permanent,
+      checkedAt: Date.now(),
+    }
+    store.saveSettings(djId, { base44Status: status })
+  } catch (e) {
+    console.log(`[base44][${djId}] 조회 실패:`, e.message)
+  }
+}
+let base44Timer = null
+function startBase44Checker() {
+  if (base44Timer) { clearInterval(base44Timer); base44Timer = null }
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44Enabled) return
+  const intervalMs = Math.max(1, Number(cfg.base44IntervalMin) || 5) * 60000
+  const run = async () => {
+    const c = getRestrictedModeConfig()
+    if (!c.base44Enabled) return
+    for (const djId of store.listDjIds()) {
+      if (djId === SHARED_TOKEN_DJID) continue
+      await checkBase44MemberStatus(djId)
+    }
+  }
+  run()
+  base44Timer = setInterval(run, intervalMs)
+}
+app.get('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: getRestrictedModeConfig() })
+})
+app.post('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const cfg = getRestrictedModeConfig()
+  const { enabled, alwaysOnKeys, base44Enabled, base44AuthKey, base44IntervalMin } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (Array.isArray(alwaysOnKeys)) cfg.alwaysOnKeys = alwaysOnKeys.map(k => String(k || '').trim()).filter(Boolean).slice(0, 50)
+  if (base44Enabled != null) cfg.base44Enabled = !!base44Enabled
+  if (base44AuthKey != null) cfg.base44AuthKey = String(base44AuthKey).trim()
+  if (base44IntervalMin != null) cfg.base44IntervalMin = Math.max(1, Math.min(120, parseInt(base44IntervalMin, 10) || 5))
+  store.saveSettings(SHARED_TOKEN_DJID, { restrictedMode: cfg })
+  startBase44Checker()
+  res.json({ success: true })
+})
+// 관리자가 특정 유저 한 명만 즉시 다시 조회하고 싶을 때 (매번 몇 분씩 기다리지 않도록)
+app.post('/restrictedmode-admin/recheck/:djId', auth.requireAuth, async (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  await checkBase44MemberStatus(req.params.djId)
+  const settings = store.getSettings(req.params.djId) || {}
+  res.json({ success: true, status: settings.base44Status || null })
+})
 // 라우트에 붙이는 미들웨어 — auth.requireAuth 뒤에 이어서 사용한다.
 function requireRequestModuleAccess(targetPanel) {
   return (req, res, next) => {
@@ -18416,6 +18508,25 @@ app.get('/request-modules', auth.requireAuth, (req, res) => {
   res.json({ success: true, list: mine.map(m => ({ id: m.id, title: m.title, icon: m.icon, targetPanel: m.targetPanel })) })
 })
 
+// 본인 계정 전용 — 제한 모드(화이트리스트 모드)가 나에게 어떻게 적용되는지 알려준다 (사이드바 렌더링용).
+// 관리자(sum)이거나 제한 모드 자체가 꺼져있으면 enabled:false만 내려주고, 프론트는 기존처럼 전부 허용한다.
+app.get('/restrictedmode/mine', auth.requireAuth, (req, res) => {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.enabled || req.djId === SHARED_TOKEN_DJID) {
+    return res.json({ success: true, enabled: false })
+  }
+  const settings = store.getSettings(req.djId) || {}
+  const allowedKeys = store.getRequestModules().filter(m => (m.allowedDjIds || []).includes(req.djId)).map(m => m.targetPanel)
+  res.json({
+    success: true,
+    enabled: true,
+    alwaysOnKeys: cfg.alwaysOnKeys,
+    allowedKeys,
+    dashboardBlocked: cfg.base44Enabled && !base44IsMemberActive(req.djId, settings),
+    base44Status: settings.base44Status || null,
+  })
+})
+
 // 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
 // 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
 // 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
@@ -23334,6 +23445,8 @@ app.listen(PORT, () => {
   startGlobalAnnounceTimer()
   // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
   startWorldBossTimer()
+  // 🔒 제한 모드 base44 회원 체크 타이머도 서버 시작 시 켠다 (base44Enabled일 때만 실제로 동작함)
+  try { startBase44Checker() } catch (e) { console.log('[base44] 타이머 시작 실패', e.message) }
 
   // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
   // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가

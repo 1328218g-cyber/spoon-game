@@ -877,6 +877,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="addRequestModule()">➕ 접근 권한 추가</button>
           <div class="hint" style="margin-top:10px">같은 모듈에 여러 명을 추가할 수 있어요. 관리자(sum)는 등록된 모든 요청 모듈에 항상 접근 가능해요.</div>
         </div>
+        <div class="card" id="restrictedModeAdminCard" style="display:none">
+          <div class="card-title"><span>🔒 제한 모드 (화이트리스트) 설정</span></div>
+          <p class="hint" style="margin-bottom:14px">켜두면 관리자(sum) 빼고는 아래 "항상 허용" 메뉴만 승인 없이 쓸 수 있고, 그 외 모든 메뉴는 위의 "요청 모듈"에 그 유저가 등록돼야만 열려요. 대시보드는 base44 연동을 켜두면 유효회원 판정도 추가로 통과해야 해요.</p>
+          <label class="check-opt"><input type="checkbox" id="rmodeEnabled"> 제한 모드 켜기</label>
+          <div style="margin-top:10px"><label>항상 허용 메뉴 (쉼표로 구분)</label><input type="text" id="rmodeAlwaysOnKeys" placeholder="dashboard, chat, entrysettings"></div>
+          <hr style="border-color:var(--border);margin:14px 0">
+          <label class="check-opt"><input type="checkbox" id="rmodeBase44Enabled"> base44 회원 연동 켜기 (대시보드 접근에 사용)</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>base44 auth_key</label><input type="password" id="rmodeBase44AuthKey" placeholder="발급받은 인증키"></div>
+            <div><label>조회 주기 (분)</label><input type="number" min="1" id="rmodeBase44IntervalMin" value="5"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveRestrictedModeConfig()">💾 제한 모드 설정 저장</button>
+          <div class="hint" id="rmodeStatusHint" style="margin-top:8px"></div>
+        </div>
         <div class="card" id="rmAdminListCard" style="display:none">
           <div class="card-title">등록된 요청 모듈</div>
           <div id="rmAdminList"></div>
@@ -5823,7 +5837,7 @@ const MODULE_ICON_FILES={
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
-const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
+const EXPIRY_EXEMPT_KEYS=['chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
 let moduleEnabled={};
 let moduleVisible={};
 let sessionModuleGlobalOff=false; // 🔑 관리자가 켜두면 일반 디제이 사이드바에서 "세션 연결" 메뉴가 통째로 숨겨짐
@@ -5831,10 +5845,27 @@ let sessionRestricted=false, sessionAllowedForMe=true; // 🔑 "지정된 유저
 let expiresAt=null;      // 이용 만료 예정 시각 (ISO 문자열) — 없으면 무제한
 let expiryStartAt=null;  // 현재 만료일이 설정된 시점 (진행률 표시용)
 let expiryTimer=null;
+let restrictedModeState=null; // 🔒 /restrictedmode/mine 응답 캐시 — null이거나 enabled:false면 기존 동작과 완전히 동일
 
 function isAccountExpired(){
   if(djId===ADMIN_DJ_ID) return false; // 🔓 관리자(sum) 계정은 이용 만료일을 테스트/기록용으로 저장해둘 순 있어도, 스스로를 잠가버리면 안 되니 화면에서도 항상 예외
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
+}
+
+// 🔒 제한 모드(화이트리스트 모드) — 관리자가 admin 페이지에서 켰을 때만 의미가 있고, 꺼져있으면
+// (restrictedModeState가 없거나 enabled:false) 항상 true를 돌려줘서 기존 동작을 그대로 유지한다.
+async function loadRestrictedModeState(){
+  try{
+    const res=await fetch(SERVER+'/restrictedmode/mine',{headers:authHeaders()});
+    const d=await res.json();
+    restrictedModeState=d.success?d:null;
+  }catch(e){ restrictedModeState=null; }
+}
+function isRestrictedModuleAllowed(key){
+  if(!restrictedModeState || !restrictedModeState.enabled) return true;
+  if(key==='dashboard') return !restrictedModeState.dashboardBlocked;
+  if((restrictedModeState.alwaysOnKeys||[]).includes(key)) return true;
+  return (restrictedModeState.allowedKeys||[]).includes(key);
 }
 
 const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
@@ -5850,6 +5881,7 @@ function isModulePreferenceOn(key){
   return v!==false;
 }
 function isModuleVisible(key){
+  if(!isRestrictedModuleAllowed(key)) return false;
   if(moduleVisible[key]!==undefined) return moduleVisible[key]!==false;
   // 한 번도 안 건드린 모듈이면, 처음 가입한 계정 기본 메뉴 목록에 있는지로 표시 여부를 정한다.
   // 🔧 단, NEW_MODULE_DEFAULT_OFF_KEYS에 없어서 기능 자체가 기본 ON인 모듈은
@@ -5860,6 +5892,7 @@ function isModuleVisible(key){
 
 function isModuleOn(key){
   if(isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(key)) return false;
+  if(!isRestrictedModuleAllowed(key)) return false;
   return isModulePreferenceOn(key);
 }
 
@@ -6048,7 +6081,8 @@ function renderRequestModulesPanel(){
   const isAdmin=djId===ADMIN_DJ_ID;
   document.getElementById('rmAdminCard').style.display=isAdmin?'':'none';
   document.getElementById('rmAdminListCard').style.display=isAdmin?'':'none';
-  if(isAdmin){ populateRmModuleSelect(); loadRequestModulesAdmin(); }
+  document.getElementById('restrictedModeAdminCard').style.display=isAdmin?'':'none';
+  if(isAdmin){ populateRmModuleSelect(); loadRequestModulesAdmin(); loadRestrictedModeConfig(); }
 
   const grid=document.getElementById('rmUserGrid');
   const emptyHint=document.getElementById('rmEmptyHint');
@@ -6095,6 +6129,40 @@ async function loadRequestModulesAdmin(){
     requestModulesAdminList=(d.success&&d.list)?d.list:[];
   }catch(e){ requestModulesAdminList=[]; }
   renderRequestModulesAdminList();
+}
+
+/* ── 🔒 관리자(sum) 전용 — 제한 모드(화이트리스트) + base44 연동 설정 ── */
+async function loadRestrictedModeConfig(){
+  try{
+    const res=await fetch(SERVER+'/restrictedmode-admin/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ const h=document.getElementById('rmodeStatusHint'); if(h) h.textContent='불러오기 실패: '+(d.error||''); return; }
+    const cfg=d.data||{};
+    document.getElementById('rmodeEnabled').checked=!!cfg.enabled;
+    document.getElementById('rmodeAlwaysOnKeys').value=(cfg.alwaysOnKeys||[]).join(', ');
+    document.getElementById('rmodeBase44Enabled').checked=!!cfg.base44Enabled;
+    document.getElementById('rmodeBase44AuthKey').value=cfg.base44AuthKey||'';
+    document.getElementById('rmodeBase44IntervalMin').value=cfg.base44IntervalMin||5;
+  }catch(e){
+    const h=document.getElementById('rmodeStatusHint');
+    if(h) h.textContent='불러오기 오류: '+e.message;
+  }
+}
+async function saveRestrictedModeConfig(){
+  const alwaysOnKeys=document.getElementById('rmodeAlwaysOnKeys').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body={
+    enabled: document.getElementById('rmodeEnabled').checked,
+    alwaysOnKeys,
+    base44Enabled: document.getElementById('rmodeBase44Enabled').checked,
+    base44AuthKey: document.getElementById('rmodeBase44AuthKey').value.trim(),
+    base44IntervalMin: Number(document.getElementById('rmodeBase44IntervalMin').value)||5,
+  };
+  try{
+    const res=await fetch(SERVER+'/restrictedmode-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){ showToast('제한 모드 설정을 저장했어요.'); loadRestrictedModeConfig(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 
 function renderRequestModulesAdminList(){
@@ -6979,6 +7047,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 /* ── 이하 기존 기능 로직 (로그인 이후 initApp()에서 시작) ── */
 async function initApp(){
+  await loadRestrictedModeState();
   await loadDjSettings();
   checkStatus();
   checkSessionStatus();
