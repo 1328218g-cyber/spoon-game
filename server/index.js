@@ -377,22 +377,6 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
-// 🩺 디버그 로그 실시간 방송 — console.log를 가로채서, 서버 로그(Railway)로 나가는 그대로
-// 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
-// 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
-// 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
-const _originalConsoleLog = console.log.bind(console)
-console.log = function (...args) {
-  _originalConsoleLog(...args)
-  try {
-    const message = args.map(a => {
-      if (typeof a === 'string') return a
-      try { return JSON.stringify(a) } catch (e) { return String(a) }
-    }).join(' ')
-    broadcast({ type: 'debuglog', message, ts: Date.now() })
-  } catch (e) { /* 로그 방송 자체가 실패해도 원래 로그 출력에는 영향 없게 무시 */ }
-}
-
 async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -743,7 +727,7 @@ async function sendChatToRoom(djId, message) {
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
     console.log(`[채팅전송 실패][${djId}] streamName=${room.streamName || '없음'}, accessToken=${accessToken ? '있음' : '없음'} — 메시지가 전송되지 않았어요:`, message)
-    return
+    return false
   }
   try {
     const headers = {
@@ -759,9 +743,16 @@ async function sendChatToRoom(djId, message) {
       headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, body.slice(0, 300), '— 메시지:', message)
+      return false
+    }
     console.log(`[채팅:${djId}]`, message, '응답:', res.status)
+    return true
   } catch (e) {
     console.log(`[채팅:${djId} 오류]`, e.message)
+    return false
   }
 }
 
@@ -776,7 +767,7 @@ function escapeRegExp(s) {
 // 이용 만료일(expiresAt)이 지난 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 강제로 꺼진다.
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
-const EXPIRY_EXEMPT_KEYS = ['autojoin', 'chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
+const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
 const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
@@ -2809,6 +2800,18 @@ function mcPickMonster(mc) {
   }
   return list[list.length - 1]
 }
+// 🌟 거다이맥스 보상용 — 거다이맥스 폼이 있는 화이트리스트(MC_GMAX_ELIGIBLE_IDS) 안에서만 랜덤으로 고른다.
+function mcPickGmaxMonster(mc) {
+  const list = (mc.monsters || []).filter(m => m.name && Number(m.weight) > 0 && mcIsGmaxEligible(m.id))
+  if (!list.length) return null
+  const total = list.reduce((s, m) => s + Number(m.weight), 0)
+  let r = Math.random() * total
+  for (const m of list) {
+    r -= Number(m.weight)
+    if (r <= 0) return m
+  }
+  return list[list.length - 1]
+}
 
 // ══════════════════════════════════════════════════════
 // 🔥 타입(속성) 상성표 — 포켓몬 세대1 상성 그대로. 값은 데미지 배율(2=효과 굉장함, 0.5=별로,
@@ -2875,11 +2878,21 @@ const MC_GMAX_POWER_MULT = 1.3
 const MC_GMAX_CHANCE = 0.03
 function mcIsGmaxId(id) { return typeof id === 'string' && id.startsWith(MC_GMAX_PREFIX) }
 function mcBaseIdFromGmax(id) { return mcIsGmaxId(id) ? id.slice(MC_GMAX_PREFIX.length) : id }
-// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 1세대(도감 001~151)
-// 기준으로 실제 거다이맥스가 존재하는 12종만 화이트리스트로 관리한다: 이상해꽃/리자몽/거북왕/버터플/
-// 피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보. 이 목록 밖의 몬스터는 거다이맥스 확률 자체가 적용되지 않는다.
+// 🌟 거다이맥스는 실제 포켓몬 게임과 동일하게 "거다이맥스 폼이 있는 종"만 나올 수 있다 — 기본값은 1세대(도감 001~151)
+// 기준으로 실제 거다이맥스가 존재하는 12종: 이상해꽃/리자몽/거북왕/버터플/피카츄/나옹/괴력몬/팬텀/킹크랩/라프라스/이브이/잠만보.
+// 관리자(sum)가 admin 페이지에서 이 목록을 직접 추가/제거할 수 있다(settings.gmaxConfig.eligibleIds) — 여기 있는 배열은
+// 최초 1회 생성될 때만 쓰이는 기본값이고, 실제 판정은 getGmaxConfig()가 저장된 목록을 기준으로 한다.
 const MC_GMAX_ELIGIBLE_IDS = ['pkmn-003', 'pkmn-006', 'pkmn-009', 'pkmn-012', 'pkmn-025', 'pkmn-052', 'pkmn-068', 'pkmn-094', 'pkmn-099', 'pkmn-131', 'pkmn-133', 'pkmn-143']
-function mcIsGmaxEligible(id) { return MC_GMAX_ELIGIBLE_IDS.includes(id) }
+function getGmaxConfig() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  if (!settings.gmaxConfig) {
+    settings.gmaxConfig = { eligibleIds: [...MC_GMAX_ELIGIBLE_IDS] }
+    store.saveSettings(SHARED_TOKEN_DJID, { gmaxConfig: settings.gmaxConfig })
+  }
+  if (!Array.isArray(settings.gmaxConfig.eligibleIds)) settings.gmaxConfig.eligibleIds = [...MC_GMAX_ELIGIBLE_IDS]
+  return settings.gmaxConfig
+}
+function mcIsGmaxEligible(id) { return getGmaxConfig().eligibleIds.includes(id) }
 
 // id(이로치/거다이맥스 id 포함)로 실제 몬스터 정의 + 표시용 이름 + 실제 공격력을 한 번에 계산해준다.
 function mcResolveMonster(id, monsters, tag) {
@@ -3714,7 +3727,7 @@ function getWorldBossSettings() {
       joinWindowSec: 90,
       spawnMsg: '🌍 월드보스 [{monster}]이(가) 나타났습니다! (공격력 {bossPower}) {cmdBossJoin}로 함께 싸워보세요! ({sec}초 안에 참여 마감)',
       // 🏆 처치 성공 시 MVP(1등, 총 공격력 가장 많이 기여한 사람)에게만 자동 지급되는 보상 목록.
-      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
+      // type: 'lotto'(복권) | 'shinyMonster'(이로치 몬스터, monsterId 비우면 랜덤) | 'gmaxMonster'(거다이맥스 몬스터, monsterId 비우면 화이트리스트 내 랜덤) | 'ball'(포획볼) | 'greatBall'(고급볼)
       rewards: [],
     }
     store.saveSettings(SHARED_TOKEN_DJID, { worldBoss: settings.worldBoss })
@@ -3748,6 +3761,16 @@ function grantWorldBossRewards(djId, settings, mc, mvpKey, mvpNickname) {
         if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
         mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
         parts.push(`🌈이로치 ${picked.name}`)
+      }
+    } else if (r.type === 'gmaxMonster') {
+      const picked = r.monsterId
+        ? (mcIsGmaxEligible(String(r.monsterId)) ? mc.monsters.find(m => String(m.id) === String(r.monsterId)) : null)
+        : mcPickGmaxMonster(mc)
+      if (picked) {
+        const grantId = MC_GMAX_PREFIX + picked.id
+        if (!mc.collections[mvpKey]) mc.collections[mvpKey] = {}
+        mc.collections[mvpKey][grantId] = (mc.collections[mvpKey][grantId] || 0) + 1
+        parts.push(`🌟거다이맥스 ${picked.name}`)
       }
     } else if (r.type === 'ball') {
       const amount = Math.max(1, Number(r.amount) || 1)
@@ -3816,8 +3839,30 @@ app.get('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
 })
 app.get('/worldboss-admin/monster-catalog', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const catalog = mcCatalog(SHARED_TOKEN_DJID)
-  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+  const catalog = mcAdminCatalog()
+  res.json({ success: true, monsters: catalog.map(m => ({ id: m.id, name: m.name, isGmaxEligible: mcIsGmaxEligible(m.id) })) })
+})
+
+// 🌟 관리자(sum) 전용 — 거다이맥스 가능 몬스터 목록을 admin 페이지에서 직접 설정한다.
+// 이 목록은 몬스터잡기(잡기/상자열기 거다이맥스 확률)와 월드보스 처치 보상(gmaxMonster) 둘 다에
+// 그대로 반영된다(mcIsGmaxEligible이 여기 저장된 값을 기준으로 판정하므로 별도 동기화가 필요없다).
+app.get('/gmax-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const catalog = mcAdminCatalog()
+  const cfg = getGmaxConfig()
+  res.json({ success: true, eligibleIds: cfg.eligibleIds, monsters: catalog.map(m => ({ id: m.id, name: m.name })) })
+})
+app.post('/gmax-admin/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const cfg = getGmaxConfig()
+  const { eligibleIds } = req.body || {}
+  if (Array.isArray(eligibleIds)) {
+    const catalog = mcAdminCatalog()
+    const validIds = new Set(catalog.map(m => m.id))
+    cfg.eligibleIds = eligibleIds.map(id => String(id || '').trim()).filter(id => validIds.has(id)).slice(0, 300)
+  }
+  store.saveSettings(SHARED_TOKEN_DJID, { gmaxConfig: cfg })
+  res.json({ success: true })
 })
 
 // ══════════════════════════════════════════════════════
@@ -3913,11 +3958,11 @@ app.post('/worldboss-admin/settings', auth.requireAuth, (req, res) => {
   if (spawnMsg != null) wb.spawnMsg = spawnMsg
   if (Array.isArray(rewards)) {
     wb.rewards = rewards
-      .filter(r => r && ['lotto', 'shinyMonster', 'ball', 'greatBall', 'point'].includes(r.type))
+      .filter(r => r && ['lotto', 'shinyMonster', 'gmaxMonster', 'ball', 'greatBall', 'point'].includes(r.type))
       .map(r => ({
         type: r.type,
-        amount: r.type === 'shinyMonster' ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
-        monsterId: r.type === 'shinyMonster' ? String(r.monsterId || '').trim() : undefined,
+        amount: (r.type === 'shinyMonster' || r.type === 'gmaxMonster') ? null : Math.max(1, Math.min(9999, parseInt(r.amount, 10) || 1)),
+        monsterId: (r.type === 'shinyMonster' || r.type === 'gmaxMonster') ? String(r.monsterId || '').trim() : undefined,
       }))
       .slice(0, 20)
   }
@@ -5798,8 +5843,8 @@ function getCouponCheckSettings(djId, settings) {
       footer: '보유 쿠폰 조회 완료!',
       showZeroRoulette: true,
       cmdCoupon: '!쿠폰',
-      cmdGive: '!룰렛지급',   // 🆕 번호가 뒤에 바로 붙는 접두어 방식 (예: !룰렛지급1) — "!룰렛N" 뽑기 명령어랑 같은 스타일
-      cmdSync: '!쿠폰동기화', // 마찬가지로 접두어로 쓴다 (예: !쿠폰동기화1)
+      cmdGive: '!룰렛권지급',
+      cmdSync: '!쿠폰동기화',
     }
     store.saveSettings(djId, { couponCheck: settings.couponCheck })
   }
@@ -5813,8 +5858,8 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
   const parts = msg.split(/\s+/)
   const first = parts[0]
   const cmdCoupon = cfg.cmdCoupon || '!쿠폰'
-  const givePrefix = cfg.cmdGive || '!룰렛지급'
-  const syncPrefix = cfg.cmdSync || '!쿠폰동기화'
+  const cmdGive = cfg.cmdGive || '!룰렛권지급'
+  const cmdSync = cfg.cmdSync || '!쿠폰동기화'
 
   if (first === cmdCoupon) {
     const act = getActivitySettings(djId, settings)
@@ -5846,50 +5891,18 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     return
   }
 
-  // 🎯 !룰렛지급1, !룰렛지급2 ... 처럼 룰렛 번호가 명령어 뒤에 바로 붙는 방식 (기존 "!룰렛N" 뽑기
-  // 명령어랑 같은 스타일). 대상 자리에 "전체"를 쓰면 지금까지 등록된 유저 전원에게 한 번에 지급/동기화된다.
-  let mode = null, rouletteNo = null
-  if (first.startsWith(givePrefix) && /^\d+$/.test(first.slice(givePrefix.length))) {
-    mode = 'give'; rouletteNo = parseInt(first.slice(givePrefix.length), 10)
-  } else if (first.startsWith(syncPrefix) && /^\d+$/.test(first.slice(syncPrefix.length))) {
-    mode = 'sync'; rouletteNo = parseInt(first.slice(syncPrefix.length), 10)
-  }
-  if (mode) {
+  if (first === cmdGive || first === cmdSync) {
     const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
     const act = getActivitySettings(djId, settings)
     const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
     const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ 매니저 이상만 사용 가능합니다.'), 400); return }
 
-    const targetInput = parts[1]
-    const countVal = parseInt(parts[2], 10)
-    if (!targetInput || isNaN(countVal)) {
-      setTimeout(() => sendChatToRoom(djId, `사용법: ${first} 고유닉 3  (전체에게 주려면: ${first} 전체 3)`), 400)
-      return
-    }
-
-    // 🌐 "전체" — 지금 이 방에 실시간으로 접속 중인 사람 전원에게 한 번에 지급/동기화
-    // (예전 기록이 있는지랑 상관없이, 지금 방에 있는 사람만 대상)
-    if (targetInput === '전체') {
-      if (!room._lastLiveMembers || !room._lastLiveMembers.size) {
-        setTimeout(() => sendChatToRoom(djId, '⚠️ 지금 방에 접속 중인 사람이 없어요.'), 400)
-        return
-      }
-      let count = 0
-      for (const info of room._lastLiveMembers.values()) {
-        if (!info.tag) continue // 고유닉을 아직 못 알아낸 사람은 건너뜀 (기록 자체를 못 만듦)
-        const rec = getHistoryRecByIdentity(settings, info.tag, info.nickname)
-        if (!rec) continue
-        if (!rec.coupons) rec.coupons = {}
-        if (mode === 'give') rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
-        else rec.coupons[rouletteNo] = Math.max(0, countVal)
-        count++
-      }
-      if (!count) { setTimeout(() => sendChatToRoom(djId, '⚠️ 지급할 대상을 찾지 못했어요.'), 400); return }
-      store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
-      broadcast({ type: 'roulette', djId, tag: 'all' })
-      const label = mode === 'give' ? '지급' : '동기화'
-      setTimeout(() => sendChatToRoom(djId, `✅ 지금 접속 중인 ${count}명에게 룰렛${rouletteNo} 일괄 ${label} 완료! (${countVal}장)`), 400)
+    const rouletteNo = parseInt(parts[1], 10)
+    const targetInput = parts[2]
+    const countVal = parseInt(parts[3], 10)
+    if (!rouletteNo || !targetInput || isNaN(countVal)) {
+      setTimeout(() => sendChatToRoom(djId, `사용법: ${first === cmdGive ? cmdGive : cmdSync} 1 @고유닉 3`), 400)
       return
     }
 
@@ -5912,14 +5925,14 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     }
     const rec = getHistoryRecByIdentity(settings, targetTag, targetName)
     if (!rec) { setTimeout(() => sendChatToRoom(djId, TAG_RETRY_MSG), 400); return }
-    if (mode === 'give') {
+    if (first === cmdGive) {
       rec.coupons[rouletteNo] = Number(rec.coupons[rouletteNo] || 0) + countVal
     } else {
       rec.coupons[rouletteNo] = Math.max(0, countVal)
     }
     store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
     broadcast({ type: 'roulette', djId, tag: targetTag || targetName })
-    const label = mode === 'give' ? '지급' : '동기화'
+    const label = first === cmdGive ? '지급' : '동기화'
     setTimeout(() => sendChatToRoom(djId, `✅ ${targetName}님 룰렛${rouletteNo} ${label} 완료 / 보유 ${rec.coupons[rouletteNo]}장`), 400)
     return
   }
@@ -15135,7 +15148,7 @@ function quizFormat(tpl, data) {
 }
 
 function ensureQuizState(room) {
-  if (!room.quiz) room.quiz = { running: false, current: null, timeoutTimer: null, nextTimer: null }
+  if (!room.quiz) room.quiz = { running: false, current: null, timeoutTimer: null, nextTimer: null, nextAt: null }
   return room.quiz
 }
 
@@ -15145,33 +15158,48 @@ function clearQuizTimers(room) {
   if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
   room.quiz.timeoutTimer = null
   room.quiz.nextTimer = null
+  room.quiz.nextAt = null
 }
 
 function scheduleNextQuiz(djId) {
   const room = getRoom(djId)
   ensureQuizState(room)
   if (room.quiz.nextTimer) clearTimeout(room.quiz.nextTimer)
+  room.quiz.nextAt = null
   if (!room.quiz.running) return
   const settings = store.getSettings(djId) || {}
   const quiz = getQuizSettings(djId, settings)
   const intervalMs = (Number(quiz.intervalMin) || 0) * 60000 + (Number(quiz.intervalSec) || 0) * 1000
   if (intervalMs <= 0) return // 0분0초 = 비활성
+  room.quiz.nextAt = Date.now() + intervalMs
   room.quiz.nextTimer = setTimeout(() => askQuizQuestion(djId), intervalMs)
 }
 
-function askQuizQuestion(djId) {
+async function askQuizQuestion(djId) {
   const room = getRoom(djId)
   ensureQuizState(room)
-  if (!room.isConnected || !room.quiz.running) return
+  if (!room.quiz.running) return
+  // ⚠️ 봇이 방송에 접속되어 있지 않아도(일시적 재접속 등) 여기서 그냥 멈추지 않고
+  // 계속 재시도하도록 스케줄을 이어간다 (예전엔 여기서 바로 return해서 한 번 끊기면
+  // "다음 문제 대기중" 상태로 영원히 멈추는 버그가 있었음).
+  if (!room.isConnected) { scheduleNextQuiz(djId); return }
   const settings = store.getSettings(djId) || {}
   if (!isModuleOn(settings, 'quiz', djId)) { scheduleNextQuiz(djId); return }
   const quiz = getQuizSettings(djId, settings)
   if (!quiz.questions.length) { scheduleNextQuiz(djId); return }
   const q = quiz.questions[Math.floor(Math.random() * quiz.questions.length)]
   const timeLimit = Math.max(1, Number(q.timeLimit) || 20)
-  room.quiz.current = { id: q.id, question: q.question, answer: q.answer, score: Number(q.score) || 0, timeLimit }
   const msg = quizFormat(quiz.msgQuestion, { question: q.question, time: timeLimit })
-  sendChatToRoom(djId, msg)
+  // ⚠️ 실제 채팅 전송이 성공했는지 확인 후에만 "출제 중" 상태로 표시한다 (예전엔 전송 실패해도
+  // 무조건 current를 세팅해서, 채팅창엔 안 나왔는데 관리자 패널에는 "출제 중"으로 뜨는 버그가 있었음).
+  const sent = await sendChatToRoom(djId, msg)
+  if (!sent) {
+    console.log(`[퀴즈][${djId}] 문제 전송 실패 — 다음 간격에 재시도합니다:`, q.question)
+    scheduleNextQuiz(djId)
+    return
+  }
+  room.quiz.current = { id: q.id, question: q.question, answer: q.answer, score: Number(q.score) || 0, timeLimit }
+  room.quiz.nextAt = null
   broadcast({ type: 'quiz', djId, status: 'asked', question: q.question })
   room.quiz.timeoutTimer = setTimeout(() => handleQuizTimeout(djId), timeLimit * 1000)
 }
@@ -15186,8 +15214,11 @@ function handleQuizTimeout(djId) {
   const msg = quizFormat(quiz.msgTimeout, { answer: cur.answer })
   sendChatToRoom(djId, msg)
   room.quiz.current = null
-  broadcast({ type: 'quiz', djId, status: 'timeout' })
+  // ⚠️ nextAt이 세팅된 뒤(scheduleNextQuiz) 브로드캐스트해야, 관리자 패널의 실시간 카운트다운이
+  // 끊기지 않는다 (예전엔 순서가 반대라 브로드캐스트 시점엔 nextAt이 비어있어서, 폴링으로 잠깐
+  // 보이던 "다음 문제까지 X초"가 실시간 이벤트 오는 순간 "..."로 사라지는 버그가 있었음).
   scheduleNextQuiz(djId)
+  broadcast({ type: 'quiz', djId, status: 'timeout', nextAt: room.quiz.nextAt })
 }
 
 // 채팅 메시지가 들어올 때마다(진행 중인 문제가 있을 때만) 정답 여부를 확인한다.
@@ -15215,8 +15246,9 @@ function handleQuizAnswer(djId, settings, author, text, tag) {
 
   const out = quizFormat(quiz.msgCorrect, { nickname: author, answer: cur.answer, score: cur.score })
   sendChatToRoom(djId, out)
-  broadcast({ type: 'quiz', djId, status: 'correct', nickname: author })
+  // ⚠️ 위 timeout 함수와 동일한 이유로 scheduleNextQuiz를 먼저 호출해서 nextAt을 채운 뒤 브로드캐스트한다.
   scheduleNextQuiz(djId)
+  broadcast({ type: 'quiz', djId, status: 'correct', nickname: author, nextAt: room.quiz.nextAt })
 }
 
 function startQuiz(djId) {
@@ -15228,7 +15260,7 @@ function startQuiz(djId) {
   ensureQuizState(room)
   room.quiz.running = true
   scheduleNextQuiz(djId)
-  broadcast({ type: 'quiz', djId, status: 'started' })
+  broadcast({ type: 'quiz', djId, status: 'started', nextAt: room.quiz.nextAt })
 }
 
 function stopQuiz(djId) {
@@ -15983,14 +16015,11 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
 // 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
 // (같은 사람한테 인사가 두 번 나가는 걸 방지).
 function sendJoinMessage(djId, settings, author, tag, gen) {
-  // 🩺 입장인사디버그 — 룰렛디버그랑 같은 목적. "조용히 아무 일도 안 일어나는" 상태의 정확한
-  // 원인을 다음에 또 재현됐을 때 바로 찾을 수 있게, 인사가 나가기도 전에 관련 상태를 먼저 찍어둔다.
-  console.log(`[입장디버그:${djId}] author=${author} tag=${tag} botEnabled=${settings.botEnabled} greetOn=${isModuleOn(settings, 'greet', djId)} entryOn=${isModuleOn(settings, 'entrysettings', djId)} greetings등록수=${(settings.greetings || []).length}`)
-  if (settings.botEnabled === false) { console.log(`[입장디버그:${djId}] botEnabled=false라서 인사 건너뜀`); return }
+  if (settings.botEnabled === false) return
   const room = getRoom(djId)
   if (!room._greetedKeys) room._greetedKeys = new Set()
   const greetKey = String(tag || author || '').trim().toLowerCase()
-  if (greetKey && room._greetedKeys.has(greetKey)) { console.log(`[입장디버그:${djId}] greetKey=${greetKey} 이미 인사 처리된 키라서 건너뜀`); return } // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
+  if (greetKey && room._greetedKeys.has(greetKey)) return // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
   if (greetKey) room._greetedKeys.add(greetKey)
 
   // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
@@ -16002,7 +16031,6 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   const soundCooldownOk = cooldownSec <= 0 || !greetKey || (nowTs - lastSoundAt) >= cooldownSec * 1000
 
   const greeting = (tag && isModuleOn(settings, 'greet', djId)) ? (settings.greetings || []).find(g => String(g.tag).toLowerCase() === tag.toLowerCase()) : null
-  console.log(`[입장디버그:${djId}] tag=${tag} 매칭된지정인사=${greeting ? greeting.tag : '없음'}`)
   const joinTier = gen ? updateVipTierForUser(djId, settings, author, tag, gen) : null // 🌟 귀빈 등급 갱신 (폴링 감지는 gen 정보가 없어서 등급 갱신은 생략됨)
   const tierName = joinTier ? joinTier.name : ''
   const visitCount = incrementVisitCount(djId, settings, author, tag) // 🔢 {count} — 누적 입장 횟수
@@ -18066,105 +18094,13 @@ app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
 
 // 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
 app.get('/session/global-off', auth.requireAuth, (req, res) => {
-  const off = store.getSessionModuleGlobalOff()
-  const allowedUsers = store.getSessionAllowedUsers()
-  const restricted = allowedUsers.length > 0 // 목록이 하나라도 있으면 "지정된 유저만" 모드
-  const explicitlyAllowed = allowedUsers.includes(req.djId)
-  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기" 토글이 켜져있어도 항상 보이게 한다(그게 이 목록의
-  // 존재 이유이므로). 목록에 없고 목록 자체가 비어있으면 기존처럼 "전체 숨기기" 값만 따른다.
-  const allowedForMe = req.djId === SHARED_TOKEN_DJID || explicitlyAllowed || (!restricted && !off)
-  res.json({ success: true, off, restricted, allowedForMe })
+  res.json({ success: true, off: store.getSessionModuleGlobalOff() })
 })
 app.post('/session/global-off', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const { off } = req.body || {}
   const result = store.setSessionModuleGlobalOff(off)
   res.json(result.ok ? { success: true, off: result.off } : { success: false, error: result.error })
-})
-// 🔑 세션 연결 사용 가능 유저 목록 관리 — 관리자 전용. 이 목록이 비어있으면 (위 전역 OFF 설정을
-// 제외하곤) 제한 없이 모든 디제이가 세션 연결을 쓸 수 있고, 목록에 하나라도 들어있으면 그 목록에
-// 있는 djId(+ 관리자 sum)만 쓸 수 있다.
-app.get('/session/allowed-users', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
-  res.json({ success: true, users: store.getSessionAllowedUsers() })
-})
-app.post('/session/allowed-users', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const { users } = req.body || {}
-  const result = store.setSessionAllowedUsers(users)
-  res.json(result.ok ? { success: true, users: result.users } : { success: false, error: result.error })
-})
-
-// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있지만(요청 보내기), 목록 확인은 관리자만 가능하다.
-app.post('/module-request/submit', auth.requireAuth, (req, res) => {
-  const djId = req.djId
-  const { moduleName, visibility, commands, description } = req.body || {}
-  const name = String(moduleName || '').trim().slice(0, 60)
-  if (!name) return res.json({ success: false, error: '모듈 이름을 입력해주세요.' })
-  const desc = String(description || '').trim().slice(0, 2000)
-  if (!desc) return res.json({ success: false, error: '상세 설명을 입력해주세요.' })
-  // 🙋 작성자 닉네임/프로필 — 지금 방송 연결돼있으면 그 방송의 최신 정보(LiveMetaUpdate)에서
-  // 가져오고, 없으면 그냥 계정 아이디를 이름으로 쓴다.
-  const room = getRoom(djId)
-  const meta = (room && room.lastLiveMeta) || {}
-  const entry = {
-    id: 'mr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    djId,
-    nickname: meta.djNickname || djId,
-    profileUrl: meta.djProfileImageUrl || '',
-    moduleName: name,
-    visibility: visibility === 'private' ? 'private' : 'public',
-    commands: String(commands || '').trim().slice(0, 300),
-    description: desc,
-    createdAt: new Date().toISOString(),
-  }
-  const result = store.addModuleRequest(entry)
-  res.json(result.ok ? { success: true } : { success: false, error: result.error })
-})
-app.get('/module-request/list', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  store.markModuleRequestsReadForAdmin() // 관리자가 목록을 열어봤으니 "관리자 안읽음" 표시를 끈다
-  res.json({ success: true, requests: store.getModuleRequests() })
-})
-app.post('/module-request/delete', auth.requireAuth, (req, res) => {
-  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  const { id } = req.body || {}
-  const result = store.deleteModuleRequest(id)
-  res.json(result.ok ? { success: true } : { success: false, error: result.error })
-})
-// 📝 내가(로그인한 디제이 본인) 쓴 요청 글만 — 댓글로 관리자랑 주고받을 때 씀
-app.get('/module-request/mine', auth.requireAuth, (req, res) => {
-  store.markModuleRequestsReadForDj(req.djId) // 본인 글 목록을 열어봤으니 "디제이 안읽음" 표시를 끈다
-  res.json({ success: true, requests: store.getMyModuleRequests(req.djId) })
-})
-// 💬 댓글 달기 — 관리자는 아무 글에나, 디제이는 본인이 쓴 글에만 달 수 있다.
-app.post('/module-request/comment', auth.requireAuth, (req, res) => {
-  const djId = req.djId
-  const { id, text } = req.body || {}
-  const trimmed = String(text || '').trim().slice(0, 1000)
-  if (!trimmed) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
-  const requests = store.getModuleRequests()
-  const target = requests.find(r => r.id === id)
-  if (!target) return res.json({ success: false, error: '존재하지 않는 요청이에요.' })
-  const isAdmin = djId === 'sum'
-  if (!isAdmin && target.djId !== djId) return res.status(403).json({ success: false, error: '본인이 쓴 글에만 댓글을 달 수 있어요.' })
-  const room = getRoom(djId)
-  const meta = (room && room.lastLiveMeta) || {}
-  const comment = {
-    id: 'mc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    role: isAdmin ? 'admin' : 'dj',
-    authorDjId: djId,
-    nickname: isAdmin ? '관리자' : (meta.djNickname || djId),
-    text: trimmed,
-    createdAt: new Date().toISOString(),
-  }
-  const result = store.addModuleRequestComment(id, comment)
-  res.json(result.ok ? { success: true, comment } : { success: false, error: result.error })
-})
-// 🔔 상단 "모듈제작 요청" 메뉴 깜빡임 표시용 — 안 읽은 댓글이 있는지만 가볍게 확인
-app.get('/module-request/unread', auth.requireAuth, (req, res) => {
-  const isAdmin = req.djId === 'sum'
-  res.json({ success: true, unread: store.hasUnreadModuleRequests(req.djId, isAdmin) })
 })
 
 // 📊 관리자 대시보드 요약 통계
@@ -18784,7 +18720,8 @@ app.get('/quiz/questions', auth.requireAuth, (req, res) => {
       msgCorrect: quiz.msgCorrect, msgTimeout: quiz.msgTimeout, msgQuestion: quiz.msgQuestion
     },
     running: !!(room.quiz && room.quiz.running),
-    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null
+    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null,
+    nextAt: (room.quiz && room.quiz.nextAt) || null
   })
 })
 
@@ -19638,7 +19575,7 @@ app.post('/coupon/settings', auth.requireAuth, (req, res) => {
   if (footer != null) cfg.footer = String(footer).slice(0, 100)
   if (showZeroRoulette != null) cfg.showZeroRoulette = !!showZeroRoulette
   if (cmdCoupon != null) cfg.cmdCoupon = String(cmdCoupon).trim() || '!쿠폰'
-  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛지급'
+  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛권지급'
   if (cmdSync != null) cfg.cmdSync = String(cmdSync).trim() || '!쿠폰동기화'
   store.saveSettings(req.djId, { couponCheck: cfg })
   res.json({ success: true })
@@ -20021,7 +19958,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const cc = settings.couponCheck
     groups.push({
       key: 'couponcheck', icon: '🎟️', label: '쿠폰 확인', items: [
-        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive + 'N', desc: '룰렛권 지급 (관리자) — 예: ' + cc.cmdGive + '1 고유닉 5, 전체도 가능' }, { cmd: cc.cmdSync + 'N', desc: '쿠폰 동기화 (관리자)' },
+        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive, desc: '룰렛권 지급 (관리자)' }, { cmd: cc.cmdSync, desc: '쿠폰 동기화 (관리자)' },
       ].filter(x => x.cmd)
     })
   }
@@ -20737,20 +20674,9 @@ app.get('/mafia/:djId/me', (req, res) => {
   const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
   if (player) {
     resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
-    // 🕵️ 경찰 조사 결과 — 밤에 조사를 지목하면, 그 결과는 "다음날 낮"에 확인하는 거라서 phase가
-    // day로 넘어간 뒤에도 내려줘야 한다. 예전엔 이 블록이 night 분기 안에만 있어서, 결과가 실제로
-    // 계산되는 시점(밤이 끝나고 낮이 된 직후)엔 이미 phase가 'day'라 조건에 안 걸려 한 번도
-    // 내려간 적이 없었다 — 그래서 "조사결과가 안 뜬다"는 문제가 있었다.
-    if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
-    // 🤝 마피아 팀원 공개 — 마피아끼리는 서로 누가 마피아인지 알아야 밤에 같은 사람을 지목해서
-    // 팀킬(마피아가 마피아를 죽임)하는 걸 피할 수 있다.
-    if (player.team === 'mafia') {
-      resp.mafiaTeammates = Object.entries(game.players)
-        .filter(([t, p]) => p.team === 'mafia' && t !== tag)
-        .map(([t, p]) => ({ tag: t, nickname: p.nickname, alive: p.alive }))
-    }
     if (game.phase === 'night') {
       resp.myNightAction = game.nightActions[tag] || null
+      if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
       // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
       let candidates = mfAliveTags(game)
       if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)
@@ -21331,6 +21257,15 @@ function mcCatalog(djId) {
     if (mc.monsters && mc.monsters.length) return mc.monsters
   }
   return []
+}
+// 🌍 관리자(sum) 전용 카탈로그 조회 — mcCatalog와 달리 admin(sum) 계정 자체의 monstercatch 모듈이
+// 꺼져있어도(관리자는 직접 몬스터게임을 안 할 수도 있음) 항상 admin 계정의 몬스터 목록(전체 통합
+// 관리가 켜져있으면 그 목록, 아니면 기본 1세대 목록)을 그대로 돌려준다. 월드보스/거다이맥스 설정처럼
+// "다른 아무 디제이가 monstercatch를 켰는지"에 의존하면 안 되는 관리자 전용 화면에서 쓴다.
+function mcAdminCatalog() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  const mc = getMonsterCatchSettings(SHARED_TOKEN_DJID, settings)
+  return mc.monsters || []
 }
 app.post('/monsterdex/:djId/register', (req, res) => {
   const djId = req.params.djId
@@ -22670,6 +22605,22 @@ app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 체크박스로 여러 명 한번에 삭제 — 개별 삭제 API를 여러 번 부르는 대신 한 번에 처리한다.
+app.post('/roulette/history/bulk-delete', auth.requireAuth, (req, res) => {
+  const { tags } = req.body || {}
+  if (!Array.isArray(tags) || !tags.length) return res.json({ success: false, error: '삭제할 대상이 없어요' })
+  const settings = store.getSettings(req.djId) || {}
+  let deleted = 0
+  if (settings.rouletteHistory) {
+    for (const raw of tags) {
+      const cleanTag = String(raw || '').trim().toLowerCase()
+      if (cleanTag && settings.rouletteHistory[cleanTag]) { delete settings.rouletteHistory[cleanTag]; deleted++ }
+    }
+  }
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
+  res.json({ success: true, deleted })
+})
+
 app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   const { idx, delta } = req.body || {}
   if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
@@ -23110,14 +23061,7 @@ app.post('/admin/announce', auth.requireAuth, (req, res) => {
 app.post('/session/upload', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const settings = store.getSettings(djId) || {}
-  const allowedUsers = store.getSessionAllowedUsers()
-  const explicitlyAllowed = allowedUsers.includes(djId)
-  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기"가 켜져있어도 항상 통과시킨다 — 목록에 없을 때만
-  // 전체 숨기기 값과 "지정된 유저만" 제한을 순서대로 적용한다.
-  if (djId !== SHARED_TOKEN_DJID && !explicitlyAllowed) {
-    if (store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
-    if (allowedUsers.length > 0) return res.json({ success: false, error: '세션 연결 권한이 없는 계정이에요. 관리자에게 문의해주세요.' })
-  }
+  if (djId !== SHARED_TOKEN_DJID && store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
   if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const { cookies, localStorage, sessionStorage } = req.body
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
