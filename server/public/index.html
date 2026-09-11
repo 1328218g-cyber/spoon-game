@@ -881,7 +881,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title"><span>🔒 제한 모드 (화이트리스트) 설정</span></div>
           <p class="hint" style="margin-bottom:14px">켜두면 관리자(sum) 빼고는 아래 "항상 허용" 메뉴만 승인 없이 쓸 수 있고, 그 외 모든 메뉴는 위의 "요청 모듈"에 그 유저가 등록돼야만 열려요. 대시보드는 base44 연동을 켜두면 유효회원 판정도 추가로 통과해야 해요.</p>
           <label class="check-opt"><input type="checkbox" id="rmodeEnabled"> 제한 모드 켜기</label>
-          <div style="margin-top:10px"><label>항상 허용 메뉴 (쉼표로 구분)</label><input type="text" id="rmodeAlwaysOnKeys" placeholder="dashboard, chat, entrysettings"></div>
+          <div style="margin-top:10px"><label>항상 허용 메뉴 (쉼표로 구분)</label><input type="text" id="rmodeAlwaysOnKeys" placeholder="dashboard, myinfo, modulerequest, autojoin, botreboot, linkshortener, giftcapture, giftgallery, monstercatch, reversi, liverank, mafia"></div>
+          <p class="hint" style="margin-top:6px">모듈 마켓 메뉴는 이 목록과 상관없이 항상 보이지만, 제한 모드가 켜져있으면 들어가도 "유료 전환 후 사용 가능" 안내만 뜨고 실제로는 못 써요.</p>
           <hr style="border-color:var(--border);margin:14px 0">
           <label class="check-opt"><input type="checkbox" id="rmodeBase44Enabled"> base44 회원 연동 켜기 (대시보드 접근에 사용)</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
@@ -5867,6 +5868,17 @@ function isRestrictedModuleAllowed(key){
   if((restrictedModeState.alwaysOnKeys||[]).includes(key)) return true;
   return (restrictedModeState.allowedKeys||[]).includes(key);
 }
+// 🔒 MODULE_KEYS에 없어서(자체 ON/OFF 토글이 없는) 원래 항상 보이던 특수 메뉴들 — 제한 모드가
+// 켜져있을 땐 이것도 "항상 허용 메뉴" 목록 기준으로 같이 가려준다. 모듈마켓은 예외로 목록에서
+// 빼지 않고 항상 보이게 두되, 들어가면 잠금 안내만 뜨게 한다(아래 applyPanelLockState 참고).
+const RESTRICTED_MODE_EXTRA_NAV_KEYS=['autofollow','settingsbackup'];
+function renderRestrictedModeExtraNav(){
+  RESTRICTED_MODE_EXTRA_NAV_KEYS.forEach(key=>{
+    const navItem=document.querySelector('.nav-item[data-panel="'+key+'"]');
+    if(!navItem)return;
+    navItem.style.display=isRestrictedModuleAllowed(key)?'':'none';
+  });
+}
 
 const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
@@ -5923,7 +5935,7 @@ function renderNavVisibility(key){
   // 다시 쓰려면 모듈 마켓에서 켜야 하고, 켜는 순간 사이드바에도 다시 나타난다.
   navItem.style.display=(adminGate&&sessionGate&&isModuleOn(key)&&isModuleVisible(key))?'':'none';
 }
-function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); updateMarketNewBadge(); }
+function renderAllNavVisibility(){ MODULE_KEYS.forEach(renderNavVisibility); renderRestrictedModeExtraNav(); updateMarketNewBadge(); }
 
 // 아직 안 켜본(꺼져있는) 신규 모듈이 하나라도 있으면 "모듈 마켓" 메뉴 옆에 빨간 NEW 글씨를 띄운다.
 function updateMarketNewBadge(){
@@ -5941,14 +5953,19 @@ function applyPanelLockState(name){
   let banner=panelEl.querySelector('.panel-locked-banner');
   if(!on){
     const expiredLock=isAccountExpired() && !EXPIRY_EXEMPT_KEYS.includes(name);
+    const restrictedLock=!expiredLock && restrictedModeState && restrictedModeState.enabled && !isRestrictedModuleAllowed(name);
     if(!banner){
       banner=document.createElement('div');
       banner.className='panel-locked-banner';
       panelEl.insertBefore(banner,panelEl.firstChild);
     }
-    banner.innerHTML = expiredLock
-      ? '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 유료결제 후 사용 가능합니다.</span><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>'
-      : '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>';
+    if(expiredLock){
+      banner.innerHTML = '<span>⏳ 이용 기간이 만료되어 이 기능을 사용할 수 없어요. 유료결제 후 사용 가능합니다.</span><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>';
+    } else if(restrictedLock){
+      banner.innerHTML = '<span>🛒 이 메뉴는 유료 전환 후 사용 가능합니다.</span>';
+    } else {
+      banner.innerHTML = '<span>🔒 이 기능은 꺼져있어요. 꺼진 동안에는 관련 채팅 명령어도 응답하지 않아요.</span><button onclick="toggleModuleByKey(\''+name+'\')">다시 켜기</button><button onclick="selectPanel(\'modulemarket\')">🛒 모듈 마켓</button>';
+    }
   } else if(banner){
     banner.remove();
   }
