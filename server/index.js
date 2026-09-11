@@ -746,6 +746,16 @@ async function sendChatToRoom(djId, message) {
     if (!res.ok) {
       const body = await res.text().catch(() => '')
       console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, body.slice(0, 300), '— 메시지:', message)
+      // ⚠️ 404는 "이 방송(streamName)이 더 이상 존재하지 않는다"는 뜻이다 — 방송이 이미
+      // 끝났는데 WS 쪽에는 아직 종료 이벤트가 안 와서 room.isConnected가 계속 true로 남아있는
+      // 상태(좀비 연결)일 가능성이 크다. 이걸 그냥 두면 채팅 전송이 계속 404로 실패하다가
+      // 한참 뒤에야 스푼 쪽에서 강제로 WS를 끊어버려서 "가끔씩 봇이 팅긴다"처럼 보인다.
+      // 여기서 바로 ws를 끊어버리면 기존 ws.on('close') 정리 로직이 그대로 타면서(자동입장이면)
+      // 곧바로 재접속을 시도하게 된다.
+      if (res.status === 404 && room.ws) {
+        console.log(`[${djId}] 채팅 전송 404 — 방송이 끝난 것으로 보여 연결을 정리합니다.`)
+        try { room.ws.terminate() } catch (e) { /* 이미 끊어졌으면 무시 */ }
+      }
       return false
     }
     console.log(`[채팅:${djId}]`, message, '응답:', res.status)
