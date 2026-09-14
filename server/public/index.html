@@ -749,6 +749,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 📊 대시보드 -->
       <div class="panel" data-panel="dashboard">
+        <div class="card" id="base44MineCard" style="display:none;margin-bottom:16px">
+          <div class="card-title">🎫 내 이용권 확인</div>
+          <p class="hint" style="margin-bottom:10px">가입한 계정이 유료회원으로 등록됐는지, 남은 기간이 얼마나 되는지 바로 확인할 수 있어요.</p>
+          <button class="btn-connect" onclick="checkMyBase44Status()">🔍 확인하기</button>
+          <div id="base44MineResult" style="margin-top:10px"></div>
+        </div>
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
             <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
@@ -5563,6 +5569,8 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
+  const base44MineCard=document.getElementById('base44MineCard');
+  if(base44MineCard) base44MineCard.style.display = isAdmin ? 'none' : '';
   if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
@@ -6192,6 +6200,23 @@ function base44RemainingLabel(expireAt){
   const hours=Math.floor((ms%86400000)/3600000);
   return days>0?(days+'일 '+hours+'시간 남음'):(hours+'시간 남음');
 }
+function renderBase44Result(data, resultEl, fallbackNick){
+  if(!data || !data.found){
+    const reasonLabel=data&&data.reason==='expired'?'⏰ 만료된 이용권이에요.':data&&data.reason==='not_found'?'❌ 등록되지 않은 계정이에요.':('❌ '+escapeHtml((data&&data.reason)||'조회 실패'));
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+reasonLabel+'</p>';
+    return;
+  }
+  const remain=base44RemainingLabel(data.expire_at);
+  const badges=[];
+  if(data.is_permanent) badges.push('♾️ 영구회원');
+  if(data.is_tester) badges.push('🧪 테스터');
+  resultEl.innerHTML=`
+    <div class="hint" style="color:var(--accent);font-weight:600">✅ 유료회원 확인됨${badges.length?' ('+badges.join(', ')+')':''}</div>
+    <div class="hint" style="margin-top:4px">닉네임: ${escapeHtml(data.nickname||'-')} · 고유닉: ${escapeHtml(data.unique_nick||fallbackNick||'-')}</div>
+    <div class="hint" style="margin-top:4px">가입일: ${escapeHtml(data.join_date||'-')}</div>
+    ${data.is_permanent?'<div class="hint" style="margin-top:4px">만료일: 없음 (영구회원)</div>':`<div class="hint" style="margin-top:4px">만료일: ${escapeHtml(data.expire_at||'-')} ${remain?('('+remain+')'):''}</div>`}
+  `;
+}
 async function checkBase44Member(){
   const uniqueNick=document.getElementById('base44CheckUniqueNick').value.trim();
   const resultEl=document.getElementById('base44CheckResult');
@@ -6201,22 +6226,20 @@ async function checkBase44Member(){
     const res=await fetch(SERVER+'/restrictedmode-admin/base44-lookup',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({uniqueNick})});
     const d=await res.json();
     if(!d.success){ resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'조회 실패')+'</p>'; return; }
-    const data=d.data||{};
-    if(!data.found){
-      const reasonLabel=data.reason==='expired'?'⏰ 만료된 회원이에요.':data.reason==='not_found'?'❌ 등록되지 않은 회원이에요.':('❌ '+escapeHtml(data.reason||'조회 실패'));
-      resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+reasonLabel+'</p>';
-      return;
-    }
-    const remain=base44RemainingLabel(data.expire_at);
-    const badges=[];
-    if(data.is_permanent) badges.push('♾️ 영구회원');
-    if(data.is_tester) badges.push('🧪 테스터');
-    resultEl.innerHTML=`
-      <div class="hint" style="color:var(--accent);font-weight:600">✅ 유료회원 확인됨${badges.length?' ('+badges.join(', ')+')':''}</div>
-      <div class="hint" style="margin-top:4px">닉네임: ${escapeHtml(data.nickname||'-')} · 고유닉: ${escapeHtml(data.unique_nick||uniqueNick)}</div>
-      <div class="hint" style="margin-top:4px">가입일: ${escapeHtml(data.join_date||'-')}</div>
-      ${data.is_permanent?'<div class="hint" style="margin-top:4px">만료일: 없음 (영구회원)</div>':`<div class="hint" style="margin-top:4px">만료일: ${escapeHtml(data.expire_at||'-')} ${remain?('('+remain+')'):''}</div>`}
-    `;
+    renderBase44Result(d.data,resultEl,uniqueNick);
+  }catch(e){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message)+'</p>';
+  }
+}
+// 🎫 일반 유저 본인용 — 대시보드의 "내 이용권 확인" 버튼. 본인 djId로만 조회되고 다른 사람 조회는 못 한다.
+async function checkMyBase44Status(){
+  const resultEl=document.getElementById('base44MineResult');
+  resultEl.innerHTML='<p class="hint">조회 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/base44/mine',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'조회 실패')+'</p>'; return; }
+    renderBase44Result(d.data,resultEl,djId);
   }catch(e){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message)+'</p>';
   }
