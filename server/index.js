@@ -819,7 +819,7 @@ function getRestrictedModeConfig() {
   const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
   const DEFAULT_ALWAYS_ON = ['dashboard', 'myinfo', 'modulerequest', 'autojoin', 'botreboot', 'linkshortener', 'giftcapture', 'giftgallery', 'monstercatch', 'reversi', 'liverank', 'mafia']
   if (!settings.restrictedMode) {
-    settings.restrictedMode = { enabled: false, alwaysOnKeys: DEFAULT_ALWAYS_ON, base44Enabled: false, base44AuthKey: '', base44IntervalMin: 5 }
+    settings.restrictedMode = { enabled: true, alwaysOnKeys: DEFAULT_ALWAYS_ON, base44Enabled: false, base44AuthKey: '', base44IntervalMin: 5 }
     store.saveSettings(SHARED_TOKEN_DJID, { restrictedMode: settings.restrictedMode })
   }
   if (!Array.isArray(settings.restrictedMode.alwaysOnKeys)) settings.restrictedMode.alwaysOnKeys = DEFAULT_ALWAYS_ON
@@ -840,7 +840,6 @@ function isRequestModuleAllowed(targetPanel, djId) {
 }
 function hasRestrictedModeAccess(djId, key, settings) {
   const cfg = getRestrictedModeConfig()
-  if (!cfg.enabled) return true // 기능 자체가 꺼져있으면 원래대로 전부 허용
   if (djId === SHARED_TOKEN_DJID) return true // 관리자는 항상 전체 허용
   if (key === 'dashboard' && cfg.base44Enabled && !base44IsMemberActive(djId, settings)) return false
   if (cfg.alwaysOnKeys.includes(key)) return true
@@ -895,8 +894,7 @@ app.get('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
 app.post('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const cfg = getRestrictedModeConfig()
-  const { enabled, alwaysOnKeys, base44Enabled, base44AuthKey, base44IntervalMin } = req.body || {}
-  if (enabled != null) cfg.enabled = !!enabled
+  const { alwaysOnKeys, base44Enabled, base44AuthKey, base44IntervalMin } = req.body || {}
   if (Array.isArray(alwaysOnKeys)) cfg.alwaysOnKeys = alwaysOnKeys.map(k => String(k || '').trim()).filter(Boolean).slice(0, 50)
   if (base44Enabled != null) cfg.base44Enabled = !!base44Enabled
   if (base44AuthKey != null) cfg.base44AuthKey = String(base44AuthKey).trim()
@@ -18513,7 +18511,7 @@ app.get('/request-modules', auth.requireAuth, (req, res) => {
 // 관리자(sum)이거나 제한 모드 자체가 꺼져있으면 enabled:false만 내려주고, 프론트는 기존처럼 전부 허용한다.
 app.get('/restrictedmode/mine', auth.requireAuth, (req, res) => {
   const cfg = getRestrictedModeConfig()
-  if (!cfg.enabled || req.djId === SHARED_TOKEN_DJID) {
+  if (req.djId === SHARED_TOKEN_DJID) {
     return res.json({ success: true, enabled: false })
   }
   const settings = store.getSettings(req.djId) || {}
