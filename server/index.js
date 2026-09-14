@@ -851,16 +851,22 @@ function hasRestrictedModeAccess(djId, key, settings) {
 }
 // 베이스44(외부 회원관리 서버)에 djId 한 명의 회원 상태를 조회해서 settings.base44Status에 캐싱한다.
 // 매 요청마다 외부 API를 부르면 느리고 위험하니, 아래 startBase44Checker()가 주기적으로만 갱신한다.
+// base44 getMember API를 직접 호출하는 공용 함수 — auth_key 없으면 호출 자체를 안 하고 null을 돌려준다.
+async function base44FetchMember(uniqueNick) {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44AuthKey) return null
+  const res = await fetch('https://massive-user-vault-flow.base44.app/functions/getMember', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth_key: cfg.base44AuthKey, unique_nick: uniqueNick, nickname: uniqueNick })
+  })
+  return res.json().catch(() => ({}))
+}
 async function checkBase44MemberStatus(djId) {
   const cfg = getRestrictedModeConfig()
   if (!cfg.base44Enabled || !cfg.base44AuthKey) return
   try {
-    const res = await fetch('https://massive-user-vault-flow.base44.app/functions/getMember', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auth_key: cfg.base44AuthKey, unique_nick: djId, nickname: djId })
-    })
-    const data = await res.json().catch(() => ({}))
+    const data = await base44FetchMember(djId) || {}
     const status = {
       found: !!data.found,
       reason: data.reason || null,
@@ -912,6 +918,21 @@ app.post('/restrictedmode-admin/recheck/:djId', auth.requireAuth, async (req, re
   await checkBase44MemberStatus(req.params.djId)
   const settings = store.getSettings(req.params.djId) || {}
   res.json({ success: true, status: settings.base44Status || null })
+})
+// 관리자가 아무 고유닉이나 입력해서 base44에 직접 유료 여부/남은 기간을 즉석에서 조회한다.
+// (로컬 djId 계정이랑 무관하게, base44 쪽 데이터만 그대로 보여준다 — 조회 결과를 저장하진 않음)
+app.post('/restrictedmode-admin/base44-lookup', auth.requireAuth, async (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44AuthKey) return res.json({ success: false, error: 'base44 auth_key가 아직 설정 안 됐어요. 위에서 먼저 저장해주세요.' })
+  const uniqueNick = String((req.body || {}).uniqueNick || '').trim()
+  if (!uniqueNick) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  try {
+    const data = await base44FetchMember(uniqueNick)
+    res.json({ success: true, data })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
 })
 // 라우트에 붙이는 미들웨어 — auth.requireAuth 뒤에 이어서 사용한다.
 function requireRequestModuleAccess(targetPanel) {
