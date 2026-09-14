@@ -947,6 +947,20 @@ app.get('/base44/mine', auth.requireAuth, async (req, res) => {
     res.json({ success: false, error: '조회 중 오류가 발생했어요.' })
   }
 })
+// 🚪 자동입장 화면에서 고유닉 등록할 때 남은 이용 기간을 바로 보여주기 위한 조회.
+// 관리자 전용 조회(/restrictedmode-admin/base44-lookup)와 달리 로그인한 유저라면 누구나 쓸 수 있다.
+app.get('/base44/lookup', auth.requireAuth, async (req, res) => {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44AuthKey) return res.json({ success: false, error: '아직 이용권 확인 기능이 준비되지 않았어요.' })
+  const uniqueNick = String(req.query.uniqueNick || '').trim()
+  if (!uniqueNick) return res.json({ success: false, error: '고유닉이 없어요' })
+  try {
+    const data = await base44FetchMember(uniqueNick)
+    res.json({ success: true, data })
+  } catch (e) {
+    res.json({ success: false, error: '조회 중 오류가 발생했어요.' })
+  }
+})
 // 라우트에 붙이는 미들웨어 — auth.requireAuth 뒤에 이어서 사용한다.
 function requireRequestModuleAccess(targetPanel) {
   return (req, res, next) => {
