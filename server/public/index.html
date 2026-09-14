@@ -1336,7 +1336,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card">
           <div class="card-title">방 입장</div>
           <label>DJ 고유닉 (@태그)</label>
-          <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
+          <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:6px" onblur="checkAutoJoinTagBase44()">
+          <div id="autoJoinBase44Info" style="margin-bottom:10px"></div>
           <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
           <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
@@ -6209,6 +6210,35 @@ function base44RemainingLabel(expireAt){
   const hours=Math.floor((ms%86400000)/3600000);
   return days>0?(days+'일 '+hours+'시간 남음'):(hours+'시간 남음');
 }
+// 🚪 자동입장에 고유닉 입력하면(칸에서 포커스 벗어나거나 "지금 입장하기" 누를 때) base44에서
+// 그 고유닉의 유료 여부/남은 기간을 조회해서 입력창 바로 아래에 짧게 보여준다.
+let autoJoinBase44CheckSeq=0;
+async function checkAutoJoinTagBase44(){
+  const tag=(document.getElementById('autoJoinTag').value||'').trim().replace('@','');
+  const infoEl=document.getElementById('autoJoinBase44Info');
+  if(!infoEl)return;
+  if(!tag){ infoEl.innerHTML=''; return; }
+  const seq=++autoJoinBase44CheckSeq; // 입력 도중 여러 번 호출돼도 마지막 요청 결과만 반영
+  infoEl.innerHTML='<span class="hint">이용권 확인 중...</span>';
+  try{
+    const res=await fetch(SERVER+'/base44/lookup?uniqueNick='+encodeURIComponent(tag),{headers:authHeaders()});
+    const d=await res.json();
+    if(seq!==autoJoinBase44CheckSeq)return; // 그 사이 다른 태그로 또 확인했으면 이 결과는 버린다
+    if(!d.success){ infoEl.innerHTML='<span class="hint">'+escapeHtml(d.error||'이용권 확인 불가')+'</span>'; return; }
+    const data=d.data||{};
+    if(!data.found){
+      const reasonLabel=data.reason==='expired'?'⏰ 만료됨':data.reason==='not_found'?'❌ 미등록 회원':'❌ '+escapeHtml(data.reason||'조회 실패');
+      infoEl.innerHTML='<span class="hint" style="color:var(--danger)">'+reasonLabel+'</span>';
+      return;
+    }
+    const remain=base44RemainingLabel(data.expire_at);
+    const badge=data.is_permanent?' · ♾️영구회원':(data.is_tester?' · 🧪테스터':'');
+    infoEl.innerHTML='<span class="hint" style="color:var(--accent)">✅ '+escapeHtml(data.nickname||tag)+'님'+(data.is_permanent?' (영구회원)':(remain?' · 남은 기간: '+remain:''))+badge+'</span>';
+  }catch(e){
+    if(seq!==autoJoinBase44CheckSeq)return;
+    infoEl.innerHTML='<span class="hint">이용권 확인 오류</span>';
+  }
+}
 // 🔐 데스크톱 앱(에디봇 설치판) 전용 — 스푼 로그인은 URL이 안 바뀌는 팝업/모달 방식이라
 // "로그인 성공"을 자동으로 감지할 수가 없다. 그래서 1) 로그인 창을 열고 2) 유저가 로그인을
 // 마친 뒤 직접 "연결하기"를 눌러주는 2단계 방식으로 동작한다. 일반 브라우저에서는
@@ -6226,6 +6256,32 @@ async function spoonLoginOpenWindow(){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';
   }
 }
+// 세션 업로드 공용 함수 — 버튼으로 직접 연결할 때와, 앱 시작할 때 저장된 값으로 자동 재연결할 때
+// 둘 다 이 함수를 쓴다. saveAfterSuccess가 true면 성공 시 이 컴퓨터에 다시 저장해서, 다음에 앱을
+// 켤 때도 자동으로 재업로드되게 한다.
+async function uploadSpoonSession(captured, resultEl, saveAfterSuccess){
+  const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(captured)});
+  const d=await res.json();
+  if(d.success){
+    if(resultEl) resultEl.innerHTML='<p class="hint" style="color:var(--accent);font-weight:600">✅ 연결됐어요! 이제 이 스푼 계정으로 봇이 동작해요.</p>';
+    if(saveAfterSuccess && window.edibotDesktop && window.edibotDesktop.spoonSessionSave){
+      window.edibotDesktop.spoonSessionSave(captured); // 다음에 앱 켤 때(윈도우 시작시 자동실행 포함) 자동 재업로드용
+    }
+  } else if(resultEl){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'연결 실패')+'</p>';
+  }
+  return d.success;
+}
+// 🔄 앱이 켜질 때(윈도우 시작시 자동실행 포함) 예전에 저장해둔 세션이 있으면 자동으로 재업로드한다.
+// 창을 닫아놨다가 윈도우를 껐다 켜도, 다시 로그인 창을 열 필요 없이 알아서 연결이 이어진다.
+if(window.edibotDesktop && window.edibotDesktop.onSpoonSessionRestore){
+  window.edibotDesktop.onSpoonSessionRestore(async (savedData)=>{
+    try{
+      await uploadSpoonSession(savedData,null,false); // 이미 저장된 값이니 다시 저장할 필요는 없음
+      console.log('[스푼 세션] 저장된 세션으로 자동 재연결됨');
+    }catch(e){ console.log('[스푼 세션] 자동 재연결 실패', e); }
+  });
+}
 async function spoonLoginConnect(){
   const resultEl=document.getElementById('spoonLoginResult');
   if(!window.edibotDesktop || !window.edibotDesktop.spoonLoginCapture){
@@ -6235,14 +6291,8 @@ async function spoonLoginConnect(){
   resultEl.innerHTML='<p class="hint">연결하는 중...</p>';
   try{
     const captured=await window.edibotDesktop.spoonLoginCapture();
-    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(captured)});
-    const d=await res.json();
-    if(d.success){
-      resultEl.innerHTML='<p class="hint" style="color:var(--accent);font-weight:600">✅ 연결됐어요! 이제 이 스푼 계정으로 봇이 동작해요.</p>';
-      showToast('스푼 계정 연결 완료 ✓');
-    } else {
-      resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'연결 실패')+'</p>';
-    }
+    const ok=await uploadSpoonSession(captured,resultEl,true);
+    if(ok) showToast('스푼 계정 연결 완료 ✓');
   }catch(e){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';
   }
@@ -6255,6 +6305,7 @@ async function spoonLoginDisconnect(){
     const res=await fetch(SERVER+'/session/disconnect',{method:'POST',headers:authHeaders()});
     const d=await res.json();
     if(d.success){
+      if(window.edibotDesktop && window.edibotDesktop.spoonSessionClear) window.edibotDesktop.spoonSessionClear(); // 저장된 값도 같이 지워야 다음 실행 때 예전 계정으로 안 돌아옴
       resultEl.innerHTML='<p class="hint">🔌 연결이 해제됐어요. 다른 계정으로 다시 로그인할 수 있어요.</p>';
       showToast('스푼 계정 연결을 해제했어요');
     } else {
@@ -18098,6 +18149,7 @@ function startSettingsImport(){
 async function startAutoJoin(){
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  checkAutoJoinTagBase44(); // 입장 시도할 때도 남은 기간을 같이 확인해서 보여준다
   document.getElementById('autoJoinStatus').textContent='🚪 입장 시도 중...';
   try{
     const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
