@@ -793,7 +793,7 @@ function escapeRegExp(s) {
 // 이용 만료일(expiresAt)이 지난 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 강제로 꺼진다.
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
-const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
+const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday', 'session', 'spoonlogin']
 const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
@@ -841,7 +841,7 @@ function isRequestModuleAllowed(targetPanel, djId) {
 // 🔒 신규가입 유저에게 항상 보이는 메뉴 — 관리자 화면에서 값을 바꾼 적 없이도(설정에 뭐가 저장돼있든)
 // 무조건 이 12개로 고정한다. 예전에 admin 화면에서 한 번 저장했던 값이 계속 남아서 안 바뀌는
 // 문제가 있었어서, 아예 저장된 값을 안 쓰고 코드에 직접 박아둔다.
-const RESTRICTED_MODE_ALWAYS_ON_KEYS = ['dashboard', 'myinfo', 'modulerequest', 'autojoin', 'botreboot', 'linkshortener', 'giftcapture', 'giftgallery', 'monstercatch', 'reversi', 'liverank', 'mafia']
+const RESTRICTED_MODE_ALWAYS_ON_KEYS = ['dashboard', 'myinfo', 'modulerequest', 'autojoin', 'botreboot', 'linkshortener', 'giftcapture', 'giftgallery', 'monstercatch', 'reversi', 'liverank', 'mafia', 'session', 'spoonlogin']
 function hasRestrictedModeAccess(djId, key, settings) {
   const cfg = getRestrictedModeConfig()
   if (djId === SHARED_TOKEN_DJID) return true // 관리자는 항상 전체 허용
