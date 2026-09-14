@@ -1443,9 +1443,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="spoonlogin">
         <div class="card" id="spoonLoginCard">
           <div class="card-title">🔐 스푼 계정 연결</div>
-          <p class="hint" style="margin-bottom:10px">버튼을 누르면 스푼 로그인 창이 떠요. 로그인하면 자동으로 이 계정에 연결돼서, 그 스푼 계정으로 봇이 바로 동작해요.</p>
-          <button class="btn-connect" onclick="spoonDesktopLogin()">🥄 스푼 계정으로 로그인</button>
+          <p class="hint" style="margin-bottom:10px">1) 아래 버튼으로 로그인 창을 열고 그 창에서 스푼 로그인을 완료해주세요.<br>2) 로그인 다 됐으면 "연결하기" 버튼을 눌러주세요 — 그 계정으로 봇이 바로 동작해요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <button class="btn-gray" onclick="spoonLoginOpenWindow()">1️⃣ 로그인 창 열기</button>
+            <button class="btn-connect" onclick="spoonLoginConnect()">2️⃣ 로그인 완료 → 연결하기</button>
+          </div>
           <div id="spoonLoginResult" style="margin-top:10px"></div>
+          <hr style="border-color:var(--border);margin:14px 0">
+          <p class="hint" style="margin-bottom:10px">다른 스푼 계정으로 다시 연결하고 싶으면, 먼저 지금 연결을 해제해주세요.</p>
+          <button class="btn-shield-reset" onclick="spoonLoginDisconnect()">🔌 스푼 계정 연결 해제</button>
         </div>
       </div>
 
@@ -6203,19 +6209,32 @@ function base44RemainingLabel(expireAt){
   const hours=Math.floor((ms%86400000)/3600000);
   return days>0?(days+'일 '+hours+'시간 남음'):(hours+'시간 남음');
 }
-// 🔐 데스크톱 앱(에디봇 설치판) 전용 — 버튼 누르면 electron 쪽에서 스푼 로그인 창을 띄우고,
-// 로그인 성공 시 캡처된 쿠키를 그대로 기존 세션 업로드 API로 넘긴다. 일반 브라우저에서는
+// 🔐 데스크톱 앱(에디봇 설치판) 전용 — 스푼 로그인은 URL이 안 바뀌는 팝업/모달 방식이라
+// "로그인 성공"을 자동으로 감지할 수가 없다. 그래서 1) 로그인 창을 열고 2) 유저가 로그인을
+// 마친 뒤 직접 "연결하기"를 눌러주는 2단계 방식으로 동작한다. 일반 브라우저에서는
 // window.edibotDesktop 자체가 없어서 이 버튼이 애초에 안 보인다(위 initApp 참고).
-async function spoonDesktopLogin(){
+async function spoonLoginOpenWindow(){
   const resultEl=document.getElementById('spoonLoginResult');
-  if(!window.edibotDesktop || !window.edibotDesktop.spoonLogin){
+  if(!window.edibotDesktop || !window.edibotDesktop.spoonLoginOpen){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">데스크톱 앱에서만 사용할 수 있어요.</p>';
     return;
   }
-  resultEl.innerHTML='<p class="hint">스푼 로그인 창이 열렸어요. 로그인을 완료해주세요...</p>';
   try{
-    const captured=await window.edibotDesktop.spoonLogin();
-    resultEl.innerHTML='<p class="hint">연결하는 중...</p>';
+    await window.edibotDesktop.spoonLoginOpen();
+    resultEl.innerHTML='<p class="hint">로그인 창이 열렸어요. 거기서 로그인 마치고 "연결하기"를 눌러주세요.</p>';
+  }catch(e){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';
+  }
+}
+async function spoonLoginConnect(){
+  const resultEl=document.getElementById('spoonLoginResult');
+  if(!window.edibotDesktop || !window.edibotDesktop.spoonLoginCapture){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">데스크톱 앱에서만 사용할 수 있어요.</p>';
+    return;
+  }
+  resultEl.innerHTML='<p class="hint">연결하는 중...</p>';
+  try{
+    const captured=await window.edibotDesktop.spoonLoginCapture();
     const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(captured)});
     const d=await res.json();
     if(d.success){
@@ -6223,6 +6242,23 @@ async function spoonDesktopLogin(){
       showToast('스푼 계정 연결 완료 ✓');
     } else {
       resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'연결 실패')+'</p>';
+    }
+  }catch(e){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';
+  }
+}
+async function spoonLoginDisconnect(){
+  if(!confirm('지금 연결된 스푼 계정을 해제할까요?\n해제 후에는 다시 로그인해서 연결해야 봇이 동작해요.'))return;
+  const resultEl=document.getElementById('spoonLoginResult');
+  resultEl.innerHTML='<p class="hint">연결 해제하는 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/session/disconnect',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      resultEl.innerHTML='<p class="hint">🔌 연결이 해제됐어요. 다른 계정으로 다시 로그인할 수 있어요.</p>';
+      showToast('스푼 계정 연결을 해제했어요');
+    } else {
+      resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'해제 실패')+'</p>';
     }
   }catch(e){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';

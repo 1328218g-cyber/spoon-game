@@ -1,4 +1,3 @@
-
 const WebSocket = require('ws')
 const express = require('express')
 const cors = require('cors')
@@ -23395,6 +23394,19 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   tokenManager.ensureAutoRefresh(djId, 30)
   console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
   res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
+})
+
+// 본인 계정에 연결해둔 스푼 세션을 해제한다 (다른 스푼 계정으로 다시 연결하고 싶을 때 사용).
+// 쿠키를 빈 값으로 덮어써서 hasCookies()가 false가 되게 하고, 지금 접속 중이면 끊어서
+// 다음부터는 다시 관리자 공용 계정을 쓰거나, 새로 로그인해서 연결한 계정을 쓰게 한다.
+app.post('/session/disconnect', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  tokenManager.setCookies(djId, { cookies: [], localStorage: {}, sessionStorage: {} })
+  const room = getRoom(djId)
+  if (room.ws) { try { room.ws.terminate() } catch (e) { /* 이미 끊어졌으면 무시 */ } }
+  room.isConnected = false
+  console.log(`[세션:${djId}] 연결 해제됨`)
+  res.json({ success: true })
 })
 
 // 인증 없이도 확인 가능한 "관리자 공용 계정" 상태 체크 (로그인 전 랜딩 화면 등에서 사용).
