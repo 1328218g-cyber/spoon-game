@@ -829,6 +829,17 @@ function base44IsMemberActive(djId, settings) {
   const status = settings && settings.base44Status
   return !!(status && status.found === true)
 }
+// 🚪 자동입장(자동 방 입장) 같은 "실제 기능 실행"을 막을 때 쓰는 공용 체크. base44 연동 자체가
+// 꺼져있으면 항상 통과(null)시켜서 예전 동작 그대로 유지되고, 켜져있을 때만 관리자 제외 전원에게
+// 적용된다. 캐시된 settings.base44Status(주기적으로 갱신됨)를 기준으로 판단해서 매번 외부 API를
+// 부르지 않는다.
+function base44MembershipGateError(djId, settings) {
+  const cfg = getRestrictedModeConfig()
+  if (!cfg.base44Enabled) return null
+  if (djId === SHARED_TOKEN_DJID) return null
+  if (base44IsMemberActive(djId, settings)) return null
+  return '이용 기간이 만료됐어요. 유료결제 후 사용해주세요.'
+}
 // 요청 모듈 허용목록 조회 (관리자 sum 계정의 settings.requestModules 배열: { targetPanel, allowedDjIds }).
 // 원래는 fishtournament 같은 특수 패널 전용이었지만, 아래 hasRestrictedModeAccess가 targetPanel 자리에
 // 아무 모듈 키(key)나 넣어서 재사용한다 — 관리자가 "요청 모듈" 관리 화면에서 그 모듈을 선택해 유저를
@@ -23128,6 +23139,7 @@ async function checkAdminAutoJoin() {
     const settings = store.getSettings(djId)
     if (!settings || !settings.autoJoinWatch) continue
     if (!isModuleOn(settings, 'autojoin', djId)) continue
+    if (base44MembershipGateError(djId, settings)) continue // 유료회원 아니면 백그라운드 자동입장도 건너뜀
     const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
     if (!tagList.length) continue
 
@@ -23250,6 +23262,10 @@ app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
   const { enabled, tags } = req.body || {}
   const settingsForCheck = store.getSettings(djId) || {}
   if (enabled && !isModuleOn(settingsForCheck, 'autojoin', djId)) return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  if (enabled) {
+    const gateErr = base44MembershipGateError(djId, settingsForCheck)
+    if (gateErr) return res.json({ success: false, error: gateErr })
+  }
   const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
 
   if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
@@ -23279,6 +23295,8 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   if (!isModuleOn(settingsForCheck, 'autojoin', djId)) {
     return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   }
+  const gateErr = base44MembershipGateError(djId, settingsForCheck)
+  if (gateErr) return res.json({ success: false, error: gateErr })
   if (!cleanTag) {
     return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
   }
