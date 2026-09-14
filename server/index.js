@@ -838,11 +838,15 @@ function isRequestModuleAllowed(targetPanel, djId) {
   const list = store.getRequestModules()
   return list.some(m => m.targetPanel === targetPanel && (m.allowedDjIds || []).includes(djId))
 }
+// 🔒 신규가입 유저에게 항상 보이는 메뉴 — 관리자 화면에서 값을 바꾼 적 없이도(설정에 뭐가 저장돼있든)
+// 무조건 이 12개로 고정한다. 예전에 admin 화면에서 한 번 저장했던 값이 계속 남아서 안 바뀌는
+// 문제가 있었어서, 아예 저장된 값을 안 쓰고 코드에 직접 박아둔다.
+const RESTRICTED_MODE_ALWAYS_ON_KEYS = ['dashboard', 'myinfo', 'modulerequest', 'autojoin', 'botreboot', 'linkshortener', 'giftcapture', 'giftgallery', 'monstercatch', 'reversi', 'liverank', 'mafia']
 function hasRestrictedModeAccess(djId, key, settings) {
   const cfg = getRestrictedModeConfig()
   if (djId === SHARED_TOKEN_DJID) return true // 관리자는 항상 전체 허용
   if (key === 'dashboard' && cfg.base44Enabled && !base44IsMemberActive(djId, settings)) return false
-  if (cfg.alwaysOnKeys.includes(key)) return true
+  if (RESTRICTED_MODE_ALWAYS_ON_KEYS.includes(key)) return true
   return isRequestModuleAllowed(key, djId) // 기존 요청모듈 허용목록을 그대로 재사용 (targetPanel=모듈 키)
 }
 // 베이스44(외부 회원관리 서버)에 djId 한 명의 회원 상태를 조회해서 settings.base44Status에 캐싱한다.
@@ -894,8 +898,7 @@ app.get('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
 app.post('/restrictedmode-admin/settings', auth.requireAuth, (req, res) => {
   if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
   const cfg = getRestrictedModeConfig()
-  const { alwaysOnKeys, base44Enabled, base44AuthKey, base44IntervalMin } = req.body || {}
-  if (Array.isArray(alwaysOnKeys)) cfg.alwaysOnKeys = alwaysOnKeys.map(k => String(k || '').trim()).filter(Boolean).slice(0, 50)
+  const { base44Enabled, base44AuthKey, base44IntervalMin } = req.body || {}
   if (base44Enabled != null) cfg.base44Enabled = !!base44Enabled
   if (base44AuthKey != null) cfg.base44AuthKey = String(base44AuthKey).trim()
   if (base44IntervalMin != null) cfg.base44IntervalMin = Math.max(1, Math.min(120, parseInt(base44IntervalMin, 10) || 5))
@@ -18519,7 +18522,7 @@ app.get('/restrictedmode/mine', auth.requireAuth, (req, res) => {
   res.json({
     success: true,
     enabled: true,
-    alwaysOnKeys: cfg.alwaysOnKeys,
+    alwaysOnKeys: RESTRICTED_MODE_ALWAYS_ON_KEYS,
     allowedKeys,
     dashboardBlocked: cfg.base44Enabled && !base44IsMemberActive(req.djId, settings),
     base44Status: settings.base44Status || null,
