@@ -631,6 +631,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" id="spoonLoginNav" data-panel="spoonlogin" style="display:none"><span class="ic">🥄</span><span class="lbl">스푼 로그인</span></div>
     <div class="nav-item" data-panel="autofollow"><span class="ic ic-img"><img src="/icons/autofollow.png" alt=""></span><span class="lbl">고정매니저신청</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -749,12 +750,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 📊 대시보드 -->
       <div class="panel" data-panel="dashboard">
-        <div class="card" id="base44MineCard" style="display:none;margin-bottom:16px">
-          <div class="card-title">🎫 내 이용권 확인</div>
-          <p class="hint" style="margin-bottom:10px">가입한 계정이 유료회원으로 등록됐는지, 남은 기간이 얼마나 되는지 바로 확인할 수 있어요.</p>
-          <button class="btn-connect" onclick="checkMyBase44Status()">🔍 확인하기</button>
-          <div id="base44MineResult" style="margin-top:10px"></div>
-        </div>
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
             <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
@@ -1441,6 +1436,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div id="mySystemRestoreListWrapR2" style="margin-top:10px"></div>
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
           <div id="mySystemRestoreResultR2" class="hint" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- 🥄 스푼 로그인 (데스크톱 앱 전용) -->
+      <div class="panel" data-panel="spoonlogin">
+        <div class="card" id="spoonLoginCard">
+          <div class="card-title">🔐 스푼 계정 연결</div>
+          <p class="hint" style="margin-bottom:10px">버튼을 누르면 스푼 로그인 창이 떠요. 로그인하면 자동으로 이 계정에 연결돼서, 그 스푼 계정으로 봇이 바로 동작해요.</p>
+          <button class="btn-connect" onclick="spoonDesktopLogin()">🥄 스푼 계정으로 로그인</button>
+          <div id="spoonLoginResult" style="margin-top:10px"></div>
         </div>
       </div>
 
@@ -5569,8 +5574,6 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  const base44MineCard=document.getElementById('base44MineCard');
-  if(base44MineCard) base44MineCard.style.display = isAdmin ? 'none' : '';
   if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
@@ -6200,6 +6203,31 @@ function base44RemainingLabel(expireAt){
   const hours=Math.floor((ms%86400000)/3600000);
   return days>0?(days+'일 '+hours+'시간 남음'):(hours+'시간 남음');
 }
+// 🔐 데스크톱 앱(에디봇 설치판) 전용 — 버튼 누르면 electron 쪽에서 스푼 로그인 창을 띄우고,
+// 로그인 성공 시 캡처된 쿠키를 그대로 기존 세션 업로드 API로 넘긴다. 일반 브라우저에서는
+// window.edibotDesktop 자체가 없어서 이 버튼이 애초에 안 보인다(위 initApp 참고).
+async function spoonDesktopLogin(){
+  const resultEl=document.getElementById('spoonLoginResult');
+  if(!window.edibotDesktop || !window.edibotDesktop.spoonLogin){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">데스크톱 앱에서만 사용할 수 있어요.</p>';
+    return;
+  }
+  resultEl.innerHTML='<p class="hint">스푼 로그인 창이 열렸어요. 로그인을 완료해주세요...</p>';
+  try{
+    const captured=await window.edibotDesktop.spoonLogin();
+    resultEl.innerHTML='<p class="hint">연결하는 중...</p>';
+    const res=await fetch(SERVER+'/session/upload',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(captured)});
+    const d=await res.json();
+    if(d.success){
+      resultEl.innerHTML='<p class="hint" style="color:var(--accent);font-weight:600">✅ 연결됐어요! 이제 이 스푼 계정으로 봇이 동작해요.</p>';
+      showToast('스푼 계정 연결 완료 ✓');
+    } else {
+      resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'연결 실패')+'</p>';
+    }
+  }catch(e){
+    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message||String(e))+'</p>';
+  }
+}
 function renderBase44Result(data, resultEl, fallbackNick){
   if(!data || !data.found){
     const reasonLabel=data&&data.reason==='expired'?'⏰ 만료된 이용권이에요.':data&&data.reason==='not_found'?'❌ 등록되지 않은 계정이에요.':('❌ '+escapeHtml((data&&data.reason)||'조회 실패'));
@@ -6231,19 +6259,7 @@ async function checkBase44Member(){
     resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message)+'</p>';
   }
 }
-// 🎫 일반 유저 본인용 — 대시보드의 "내 이용권 확인" 버튼. 본인 djId로만 조회되고 다른 사람 조회는 못 한다.
-async function checkMyBase44Status(){
-  const resultEl=document.getElementById('base44MineResult');
-  resultEl.innerHTML='<p class="hint">조회 중...</p>';
-  try{
-    const res=await fetch(SERVER+'/base44/mine',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){ resultEl.innerHTML='<p class="hint" style="color:var(--danger)">'+escapeHtml(d.error||'조회 실패')+'</p>'; return; }
-    renderBase44Result(d.data,resultEl,djId);
-  }catch(e){
-    resultEl.innerHTML='<p class="hint" style="color:var(--danger)">오류: '+escapeHtml(e.message)+'</p>';
-  }
-}
+
 
 function renderRequestModulesAdminList(){
   const box=document.getElementById('rmAdminList');
@@ -7129,6 +7145,8 @@ document.addEventListener('DOMContentLoaded',()=>{
 async function initApp(){
   await loadRestrictedModeState();
   await loadDjSettings();
+  const spoonLoginNav=document.getElementById('spoonLoginNav');
+  if(spoonLoginNav) spoonLoginNav.style.display=(window.edibotDesktop&&window.edibotDesktop.isDesktopApp)?'':'none';
   checkStatus();
   checkSessionStatus();
   startSSE();
