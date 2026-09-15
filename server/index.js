@@ -16293,7 +16293,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   })
   room.ws = ws
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
-  ws.on('pong', () => { ws.isAlive = true })
+  ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 2회 연속일 때만 끊기 위한 카운터
+  ws.on('pong', () => { ws.isAlive = true; ws.missedPong = 0 })
 
   ws.on('unexpected-response', (req, res) => {
     console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
@@ -16697,16 +16698,24 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 // 💓 웹소켓 하트비트 — 30초마다 연결되어있는 모든 방에 ping을 보내고, 지난번 ping에
 // pong 응답이 없었던(=끊어졌는데 close 이벤트가 안 온) 죽은 연결은 강제로 종료 처리한다.
 // 이게 없으면 네트워크가 조용히 끊겼을 때 관리자 화면에 "접속중"이라고 계속 잘못 표시된다.
+// ⚠️ 예전엔 퐁 한 번만 놓쳐도 바로 끊었는데, 순간적인 네트워크 지연/버벅임에도 오탐으로
+// 멀쩡한 방송이 랜덤하게 튕기는 문제가 있었다. 그래서 연속 2회(최대 60초) 놓쳤을 때만
+// 진짜 죽은 연결로 판단하도록 완화한다 — 죽은 연결 감지는 최대 30초 늦어지지만, 오탐으로
+// 인한 불필요한 강제종료는 확 줄어든다.
 setInterval(() => {
   for (const djId of store.listDjIds()) {
     const room = getRoom(djId)
     const ws = room.ws
     if (!ws) continue
     if (ws.isAlive === false) {
-      console.log(`[${djId}] 하트비트 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
-      ws.terminate() // 이 호출로 'close' 이벤트가 발생해서 room.isConnected 등 정리는 기존 로직이 처리해준다
+      ws.missedPong = (ws.missedPong || 0) + 1
+      if (ws.missedPong >= 2) {
+        console.log(`[${djId}] 하트비트 2회 연속 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
+        ws.terminate() // 이 호출로 'close' 이벤트가 발생해서 room.isConnected 등 정리는 기존 로직이 처리해준다
+      }
       continue
     }
+    ws.missedPong = 0
     ws.isAlive = false
     try { ws.ping() } catch (e) { /* 이미 닫혔으면 무시 — 다음 주기에 정리됨 */ }
   }
