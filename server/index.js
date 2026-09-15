@@ -15853,7 +15853,7 @@ function handleRouletteMenuCommand(djId, settings, text) {
   const idx = parseInt(m[1], 10)
   const page = parseInt(m[2], 10) || 1
   const rt = settings.roulette && settings.roulette.list[idx - 1]
-  if (!rt) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
+  if (!rt || rt.enabled === false) { setTimeout(() => sendChatToRoom(djId, `🎡 룰렛${idx}은 등록되어 있지 않습니다.`), 400); return }
   if (!rt.items || !rt.items.length) { setTimeout(() => sendChatToRoom(djId, `🎡 ${rt.name} 룰렛에 등록된 항목이 없습니다.`), 400); return }
 
   const pageSize = Math.max(1, Number(settings.roulette.menuPageSize) || 10)
@@ -15881,7 +15881,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   const idx = parseInt(m[1], 10)
   const count = m[2] ? Math.max(1, parseInt(m[2], 10)) : 1
   const rt = rl.list[idx - 1]
-  if (!rt || !rt.items || !rt.items.length) return
+  if (!rt || rt.enabled === false || !rt.items || !rt.items.length) return
 
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -15939,7 +15939,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
         : calcAutoGrantCount(rt.triggerMode, rt.triggerAmount, amount, comboCount)
       return { rt, idx: i + 1, count }
     })
-    .filter(x => x.count > 0 && x.rt.items && x.rt.items.length > 0)
+    .filter(x => x.count > 0 && x.rt.enabled !== false && x.rt.items && x.rt.items.length > 0)
   console.log(`[룰렛디버그:${djId}] author=${author} amount=${amount} combo=${comboCount} sticker=${sticker} 적용될 룰렛수=${applicable.length}`)
   if (!applicable.length) return
 
@@ -20266,6 +20266,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
     const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
     list.forEach((rt, i) => {
       const idx = i + 1
+      if (rt.enabled === false) return // ⏸ 꺼둔 룰렛은 명령어 안내에서도 숨김
       const name = rt.name || `룰렛${idx}`
       items.push({ cmd: `!룰렛${idx}`, desc: `[${name}] 돌리기 (뒤에 숫자 붙이면 여러 번: !룰렛${idx} 3)` })
       items.push({ cmd: `!룰렛메뉴${idx}`, desc: `[${name}] 항목 목록 확인` })
@@ -21241,7 +21242,7 @@ app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
   const idx = parseInt((req.body || {}).idx, 10)
   const rl = settings.roulette
   const rt = rl && rl.list && rl.list[idx - 1]
-  if (!rt || !rt.items || !rt.items.length) return res.json({ success: false, error: '잘못된 룰렛이에요.' })
+  if (!rt || rt.enabled === false || !rt.items || !rt.items.length) return res.json({ success: false, error: '잘못된 룰렛이에요.' })
 
   const existingRec = settings.rouletteHistory && settings.rouletteHistory[tag]
   const nickname = (existingRec && existingRec.nickname) || tag
@@ -21332,7 +21333,9 @@ app.get('/myinfo/:djId/roulettes', (req, res) => {
   if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
   const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
   const roulettes = list
-    .map((rt, i) => ({ idx: i + 1, name: rt.name || `룰렛${i + 1}`, items: (rt.items || []).map(it => it.name).filter(Boolean) }))
+    .map((rt, i) => ({ rt, idx: i + 1 }))
+    .filter(x => x.rt.enabled !== false)
+    .map(x => ({ idx: x.idx, name: x.rt.name || `룰렛${x.idx}`, items: (x.rt.items || []).map(it => it.name).filter(Boolean) }))
     .filter(rt => rt.items.length)
   res.json({ success: true, roulettes })
 })

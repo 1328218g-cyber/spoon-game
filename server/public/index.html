@@ -230,6 +230,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .tab-bar{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
 .tab-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:600;cursor:pointer}
 .tab-btn.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+.tab-btn.rl-off{opacity:.45;border-style:dashed}
+.tab-btn.rl-off.active{opacity:.7}
 .card-title .badge-inline{font-size:10px;font-weight:700;background:rgba(74,222,128,.15);color:var(--success);padding:2px 8px;border-radius:20px;text-transform:none;letter-spacing:0}
 .hint-inline{font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
 
@@ -2029,7 +2031,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="roulette">
         <div class="card">
           <div class="card-title"><span>🎡 룰렛 시스템 설정</span></div>
-          <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받거나, 지정한 스티커를 선물 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급).</p>
+          <p class="hint">최대 10개의 룰렛을 관리합니다. 지정한 스푼만큼 선물을 받거나, 지정한 스티커를 선물 받으면 조건에 따라 즉시 자동으로 룰렛이 돌아가요. !룰렛N [수량]으로 룰렛권을 사용해 수동으로 돌릴 수도 있어요 (룰렛권은 "룰렛 기록"에서 직접 지급). 각 룰렛 탭 안의 스위치로 개별 온/오프가 가능해서, 여러 개를 등록해두고 그날 방송에 필요한 것만 켜서 쓸 수 있어요 (꺼진 룰렛은 !룰렛N/자동지급/내정보 웹페이지에서 제외돼요).</p>
         </div>
 
         <div class="card">
@@ -2048,7 +2050,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         <div class="card" id="rouletteFormCard" style="display:none">
           <div class="card-title">
             <input type="text" id="rlName" placeholder="예: 일반룰렛" style="max-width:220px;font-weight:700">
-            <div style="display:flex;gap:6px">
+            <div style="display:flex;gap:10px;align-items:center">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap" title="꺼두면 이 룰렛은 !룰렛N 명령어/자동지급/내정보 웹페이지에서 쓸 수 없어요">
+                <span id="rlEnabledLabel">사용중</span>
+                <label class="switch"><input type="checkbox" id="rlEnabledToggle" checked onchange="toggleRouletteEnabled(this.checked)"><span class="slider"></span></label>
+              </div>
               <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="openModuleHelp('rouletteAutoGrant')">🎁 자동지급</button>
               <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="deleteCurrentRoulette()">🗑️ 룰렛 삭제</button>
             </div>
@@ -9941,9 +9947,10 @@ function renderRouletteList(){
 function renderRouletteTabBar(){
   const bar=document.getElementById('rouletteTabBar');
   if(rlSelectedId===null && rouletteData.list.length) rlSelectedId=rouletteData.list[0].id;
-  bar.innerHTML = rouletteData.list.map((r,i)=>
-    `<button class="tab-btn ${r.id===rlSelectedId?'active':''}" onclick="switchRouletteTab('${r.id}')">룰렛${i+1}</button>`
-  ).join('') + `<button class="tab-btn" style="border-style:dashed" onclick="addNewRouletteTab()">＋ 새 룰렛</button>`;
+  bar.innerHTML = rouletteData.list.map((r,i)=>{
+    const off=r.enabled===false;
+    return `<button class="tab-btn ${r.id===rlSelectedId?'active':''} ${off?'rl-off':''}" onclick="switchRouletteTab('${r.id}')">${off?'⏸ ':''}룰렛${i+1}</button>`;
+  }).join('') + `<button class="tab-btn" style="border-style:dashed" onclick="addNewRouletteTab()">＋ 새 룰렛</button>`;
 
   if(rlSelectedId){
     loadRouletteFormFields(rlSelectedId);
@@ -9958,10 +9965,20 @@ function switchRouletteTab(id){
   renderRouletteTabBar();
 }
 
+function toggleRouletteEnabled(checked){
+  const r=rouletteData.list.find(x=>x.id===rlSelectedId);
+  if(!r)return;
+  r.enabled=checked;
+  document.getElementById('rlEnabledLabel').textContent=checked?'사용중':'꺼짐';
+  renderRouletteTabBar();
+  saveRouletteGlobal();
+  showToast(checked?'🎡 이 룰렛을 켰어요':'⏸ 이 룰렛을 껐어요 (!룰렛N/자동지급 등에서 제외됩니다)');
+}
+
 function addNewRouletteTab(){
   if(rouletteData.list.length>=10)return showToast('룰렛은 최대 10개까지 등록 가능해요');
   const idx=rouletteData.list.length+1;
-  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,triggerMode:'exact',triggerAmount:10,triggerSticker:'',triggerStickerPayout:'combo',triggerStickerCount:1,items:[]};
+  const r={id:'rl'+(rlIdSeq++),name:'새 룰렛 '+idx,enabled:true,triggerMode:'exact',triggerAmount:10,triggerSticker:'',triggerStickerPayout:'combo',triggerStickerCount:1,items:[]};
   rouletteData.list.push(r);
   rlSelectedId=r.id;
   renderRouletteTabBar();
@@ -9972,6 +9989,9 @@ function loadRouletteFormFields(id){
   const r=rouletteData.list.find(x=>x.id===id);
   if(!r)return;
   document.getElementById('rlName').value=r.name;
+  const rlEnabled=r.enabled!==false;
+  document.getElementById('rlEnabledToggle').checked=rlEnabled;
+  document.getElementById('rlEnabledLabel').textContent=rlEnabled?'사용중':'꺼짐';
   document.getElementById('rlTriggerMode').value=r.triggerMode||'exact';
   document.getElementById('rlTriggerAmount').value=r.triggerAmount||10;
   document.getElementById('rlTriggerSticker').value=r.triggerSticker||'';
