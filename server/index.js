@@ -370,6 +370,13 @@ tokenManager.setOnTokenUpdate((djId) => {
 tokenManager.setOnSessionExpired((djId) => {
   broadcast({ type: 'session', djId, status: 'expired' })
 })
+// 🚨 Puppeteer로 실제 accessToken을 갱신(refreshAccessToken)한 시점을 관리자페이지 에러로그에도 남긴다.
+// PC 쿠키 업로드(setCookies)는 가벼워서 여기 안 걸리고, 30분 백업 타이머(ensureAutoRefresh) 등으로
+// 무거운 브라우저 작업이 실제로 도는 시점만 찍힌다 — WS 1006 끊김 타이밍과 겹치는지 대조하기 위함.
+tokenManager.setOnRefreshEvent((djId, status, detail) => {
+  const typeLabel = status === 'success' ? '토큰 갱신 성공' : status === 'expired' ? '토큰 갱신 — 세션 만료' : '토큰 갱신 오류'
+  logAdminError(djId, typeLabel, detail)
+})
 
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'

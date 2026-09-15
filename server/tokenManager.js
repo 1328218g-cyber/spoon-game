@@ -44,6 +44,9 @@ function getAccount(djId) {
 
 let onTokenUpdate = null    // (djId, token) => void — 토큰 갱신 성공 시
 let onSessionExpired = null // (djId) => void — 세션 만료(재로그인 필요) 감지 시
+let onRefreshEvent = null   // (djId, status, detail) => void — Puppeteer 토큰 갱신(refreshAccessToken)이 끝났을 때마다.
+                             // status: 'success' | 'expired' | 'error' — 관리자페이지 에러로그에서 1006 끊김이랑
+                             // 타이밍이 겹치는지 대조할 수 있게, 무거운 갱신 작업이 실제로 일어난 시점을 남기기 위함.
 
 // Chrome이 크래시 리포터(crashpad handler) 프로세스를 추가로 띄우려다
 // 컨테이너의 프로세스/메모리 한도(ulimit)에 걸려 통째로 죽는 경우가 있어,
@@ -274,6 +277,7 @@ function getAccessToken(djId) {
 
 function setOnTokenUpdate(cb) { onTokenUpdate = cb }
 function setOnSessionExpired(cb) { onSessionExpired = cb }
+function setOnRefreshEvent(cb) { onRefreshEvent = cb }
 
 // 계정이 몇 개 등록돼있는지 (세션 보유 기준)
 function listAccountIds() {
@@ -419,15 +423,18 @@ async function refreshAccessTokenInner(djId) {
       persistToDisk()
       console.log(`[tokenManager:${djId}] ✅ accessToken 갱신 성공`)
       if (onTokenUpdate) onTokenUpdate(djId, a.accessToken)
+      if (onRefreshEvent) onRefreshEvent(djId, 'success', 'accessToken 갱신 성공')
       return a.accessToken
     }
 
     console.log(`[tokenManager:${djId}] ⚠️ spoon_at_kr 쿠키를 찾지 못했습니다. 세션이 만료됐을 수 있습니다. (재연결 필요)`)
     if (onSessionExpired) onSessionExpired(djId)
+    if (onRefreshEvent) onRefreshEvent(djId, 'expired', 'spoon_at_kr 쿠키를 찾지 못함 — 세션이 만료됐을 수 있음')
     return null
   } catch (e) {
     console.log(`[tokenManager:${djId}] 갱신 오류:`, e.message)
     if (onSessionExpired) onSessionExpired(djId)
+    if (onRefreshEvent) onRefreshEvent(djId, 'error', e.message)
     return null
   } finally {
     await closeContextSafely(context)
@@ -474,6 +481,7 @@ module.exports = {
   startAutoRefreshForAll,
   setOnTokenUpdate,
   setOnSessionExpired,
+  setOnRefreshEvent,
   initFromDisk,
   listAccountIds,
   shutdownSharedBrowser,
