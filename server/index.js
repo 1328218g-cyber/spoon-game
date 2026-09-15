@@ -355,7 +355,7 @@ app.get('/s/:code', (req, res) => {
 const rooms = {}
 function getRoom(djId) {
   if (!rooms[djId]) {
-    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, liveDjUserId: null, djProfileUrl: '', tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
+    rooms[djId] = { ws: null, isConnected: false, streamName: '', roomToken: '', autoJoinedFor: '', watchingTag: '', checking: false, reconnectTimer: null, reconnectTries: 0, liveDjUserId: null, djProfileUrl: '', tagCache: new Map(), tagToNickname: new Map(), profileUrlCache: new Map() }
   }
   return rooms[djId]
 }
@@ -16239,6 +16239,8 @@ function stopLeavePolling(djId) {
 // 이 함수 하나를 공통으로 사용한다.
 function rebootDjConnection(djId) {
   const room = getRoom(djId)
+  cancelReconnect(room) // 🔁 예약돼 있던 자동 재접속도 같이 취소 (재부팅은 의도적인 종료)
+  room.autoJoinedFor = '' // close 핸들러가 "의도적 종료"로 인식하게 먼저 비워둔다
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
@@ -16258,8 +16260,79 @@ function rebootDjConnection(djId) {
   console.log(`[재부팅] ${djId} 계정의 봇 연결 상태를 초기화했어요`)
 }
 
+// ══════════════════════════════════════════════════════
+// 🔁 자동 재접속 — 스푼 웹소켓이 code 1006(비정상 종료) 등으로 갑자기 끊겼을 때,
+// 15초 주기 자동입장 감시만 믿고 기다리지 않고 여기서 직접 다시 붙는다.
+//
+// 기존 문제:
+//  1) 감시(autoJoinWatch)를 안 켠 채 수동 입장으로 쓰던 사람은 끊기면 그대로 죽어버렸다.
+//  2) 감시를 켰어도 최대 15초 공백이 생겨서, 그 사이 들어온 입장/채팅/후원이 전부 씹혔다.
+//  3) close 때 room.tokenDjId를 매번 비워버려서, 재접속할 때마다 다른 공용 계정으로
+//     배정될 수 있었다 — 그 계정이 정원이 찼으면 429/403으로 핸드셰이크가 거절되면서
+//     "연결됨 → 바로 끊김"이 반복됐다.
+//
+// 3초 → 6초 → 12초 → 24초 → 30초(상한)로 간격을 늘려가며 재시도하고, 접속에
+// 성공하면 카운터를 0으로 되돌린다. 방송 자체가 꺼진 게 확인되면 재시도를 멈춘다.
+const RECONNECT_BASE_MS = 3000
+const RECONNECT_MAX_MS = 30 * 1000
+
+function cancelReconnect(room) {
+  if (room && room.reconnectTimer) { clearTimeout(room.reconnectTimer); room.reconnectTimer = null }
+  if (room) room.reconnectTries = 0
+}
+
+function scheduleReconnect(djId, room, reason) {
+  if (!room) return
+  if (getRoom(djId) !== room) return          // 재부팅 등으로 room 객체 자체가 갈아끼워진 경우
+  if (room.reconnectTimer) return             // 이미 예약돼 있으면 중복 예약 금지
+  if (room.ws || room.isConnected) return     // 이미 다시 붙었으면 할 일 없음
+  // 수동 나가기 / 방송 종료 감지 / 재부팅 경로는 전부 autoJoinedFor를 먼저 비우므로,
+  // 비어있으면 "의도적인 종료"로 보고 재시도하지 않는다.
+  if (!room.autoJoinedFor) return
+
+  room.reconnectTries = (room.reconnectTries || 0) + 1
+  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 1), RECONNECT_MAX_MS)
+  console.log(`[${djId}] ${reason} → ${Math.round(delay / 1000)}초 뒤 자동 재접속 시도 (${room.reconnectTries}번째)`)
+
+  room.reconnectTimer = setTimeout(async () => {
+    room.reconnectTimer = null
+    try {
+      if (getRoom(djId) !== room) return
+      if (room.ws || room.isConnected) return
+      if (!room.autoJoinedFor) return
+
+      // 방송이 아직 켜져 있는지 먼저 확인한다. 꺼졌으면 재시도를 멈추고, 방송을 껐다 켜서
+      // liveId가 바뀌었으면 새 liveId로 갱신해서 붙는다.
+      if (room.watchingTag) {
+        const cur = await fetchUserStatusByTag(room.watchingTag)
+        if (!cur || !cur.is_live || !cur.current_live_id) {
+          const endedTag = room.watchingTag
+          console.log(`[${djId}] 재접속 중단 — @${endedTag} 방송이 종료된 상태예요`)
+          room.autoJoinedFor = ''
+          room.watchingTag = ''
+          room.reconnectTries = 0
+          broadcast({ type: 'status', djId, isConnected: false })
+          broadcast({ type: 'autojoin', djId, status: 'offline', tag: endedTag })
+          return
+        }
+        if (String(cur.current_live_id) !== String(room.autoJoinedFor)) {
+          console.log(`[${djId}] 방송이 새로 켜졌네요 — liveId ${room.autoJoinedFor} → ${cur.current_live_id}`)
+          room.autoJoinedFor = String(cur.current_live_id)
+        }
+      }
+
+      const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
+      await connectSpoonForDj(djId, room.autoJoinedFor, roomToken || '')
+    } catch (e) {
+      console.log(`[${djId}] 자동 재접속 실패:`, e.message)
+      scheduleReconnect(djId, room, '재접속 시도 중 오류')
+    }
+  }, delay)
+}
+
 async function connectSpoonForDj(djId, liveId, roomToken) {
   const room = getRoom(djId)
+  if (room.reconnectTimer) { clearTimeout(room.reconnectTimer); room.reconnectTimer = null } // 다른 경로로 먼저 붙는 중이면 예약된 재시도는 취소
   if (room.ws) { room.ws.terminate(); room.ws = null }
 
   // 🐛 버그 수정 — 봇이 튕겨서 자동 재접속할 때도 이 함수가 다시 호출되는데, liveId(방)가 그대로면
@@ -16305,8 +16378,18 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   })
   room.ws = ws
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
-  ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 2회 연속일 때만 끊기 위한 카운터
-  ws.on('pong', () => { ws.isAlive = true; ws.missedPong = 0 })
+  ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
+  ws.lastPingAt = 0 // 💓 방금 보낸 ping 시각 — pong이 돌아왔을 때 왕복시간(RTT)을 재기 위함(진단용)
+  ws.on('pong', () => {
+    ws.isAlive = true
+    ws.missedPong = 0
+    if (ws.lastPingAt) {
+      const rtt = Date.now() - ws.lastPingAt
+      // ⚠️ 왕복이 유난히 느리면(네트워크 불안정 조짐) 미리 로그를 남겨서, 완전히 끊기기 전에
+      // 원인 파악에 쓸 수 있게 한다. 평소엔 대부분 수십~수백ms라 5초 넘는 경우만 남긴다.
+      if (rtt > 5000) console.log(`[${djId}] 하트비트 응답 지연: ${rtt}ms`)
+    }
+  })
 
   ws.on('unexpected-response', (req, res) => {
     console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
@@ -16314,6 +16397,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // room.ws가 죽은 채로 남고 프론트는 방금 보낸 "접속중" 상태에 영원히 멈춰있게 된다.
     // (close 핸들러랑 같은 정리 로직 + 실패했다는 걸 프론트에 알려주는 브로드캐스트만 추가)
     try { ws.terminate() } catch (e) {}
+    if (getRoom(djId) !== room) return
+    if (room.ws && room.ws !== ws) return
     room.isConnected = false
     room.ws = null
     room.tokenDjId = null // 🔀 다음 접속 시도 때 그 시점 기준으로 여유 있는 공용 계정으로 다시 배정받게 초기화
@@ -16329,11 +16414,19 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       : `스푼 서버가 연결을 거절했어요 (status ${res.statusCode})`
     broadcast({ type: 'status', djId, isConnected: false })
     broadcast({ type: 'autojoin', djId, status: 'error', msg: reason })
+
+    // 정원 초과(429/403)는 아무리 다시 붙어도 똑같이 거절당하니 빠르게 재시도하지 않는다.
+    // 대신 tokenDjId를 위에서 비워뒀으니, 다음 시도 때 여유 있는 계정으로 다시 배정받는다.
+    // (그 외 일시적인 서버 오류는 평소대로 백오프 재접속)
+    if (res.statusCode !== 429 && res.statusCode !== 403) {
+      scheduleReconnect(djId, room, `핸드셰이크 거절(status ${res.statusCode})`)
+    }
   })
 
   ws.on('open', () => {
     console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName)
     room.isConnected = true
+    room.reconnectTries = 0 // 🔁 붙는 데 성공했으니 재시도 간격(백오프)을 처음으로 되돌린다
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         command: 'ACTIVATE_CHANNEL',
@@ -16680,14 +16773,25 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   })
 
   ws.on('close', (code) => {
+    // 🧟 좀비 핸들러 차단 — terminate() 후에 발생하는 close는 비동기로 늦게 도착한다.
+    // 그 사이에 이미 새 소켓으로 갈아끼워졌다면(=room.ws가 내가 아님) 여기서 room을
+    // 건드리면 안 된다. 예전엔 이 가드가 없어서, 재접속 직후 옛 소켓의 close가 뒤늦게
+    // 도착하면서 방금 살아난 연결을 isConnected=false로 꺼버리고 타이머까지 전부
+    // 정리해버리는 경우가 있었다 (프론트는 "접속중"인데 봇은 반응 없는 상태).
+    if (getRoom(djId) !== room) return
+    if (room.ws && room.ws !== ws) return
+
     console.log(`[${djId}] 스푼 연결 종료 code:`, code)
     room.isConnected = false
     room.ws = null
-    // 🔀 공용 계정 배정을 여기서 같이 초기화한다. 안 그러면 한 번 sum으로 배정된 DJ는
-    // 서버 재시작 전까지 방송을 껐다 켜도 계속 sum으로만 재접속돼서, sum이 꽉 찬 뒤에도
-    // "단골" DJ들이 sum2로 안 넘어가는 문제가 있었다 — 연결 끊길 때마다 초기화해두면,
-    // 다음 접속 시점 기준으로 그때 여유 있는 계정으로 다시 배정받는다.
-    room.tokenDjId = null
+
+    // 🔀 공용 계정 배정 초기화 — "방송을 껐다 켰을 때" 여유 있는 계정으로 다시 배정받기
+    // 위한 처리인데, 예전엔 잠깐 끊긴 경우에도 매번 비워버리는 게 문제였다. 재접속할
+    // 때마다 다른 공용 계정으로 옮겨가고, 그 계정 정원이 차 있으면 429/403으로 거절돼서
+    // "연결됨 → 즉시 끊김"이 반복됐다. 그래서 진짜 종료(autoJoinedFor가 이미 비워진
+    // 경우 = 수동 나가기/방송 종료 감지/재부팅)일 때만 초기화한다.
+    if (!room.autoJoinedFor) room.tokenDjId = null
+
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
     stopStockTimers(djId)
@@ -16696,9 +16800,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     clearQuizTimers(room)
     if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
+
+    // 🔁 정상 종료(1000)가 아니면 — code 1006(비정상 종료) 포함 — 곧바로 재접속을 예약한다.
+    // 의도적으로 나간 경우엔 autoJoinedFor가 비어있어서 scheduleReconnect가 알아서 빠진다.
+    if (code !== 1000) scheduleReconnect(djId, room, `연결 종료(code ${code})`)
   })
 
   ws.on('error', (e) => {
+    if (getRoom(djId) !== room) return
+    if (room.ws && room.ws !== ws) return
     console.log(`[${djId}] 스푼 오류:`, e.message)
     room.isConnected = false
   })
@@ -16707,31 +16817,56 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 // ══════════════════════════════════════════════════════
 // (실시간 방송 감시 폴링은 제거됨 — 이제 고유닉으로 즉시 1회 입장하는 방식만 사용)
 
-// 💓 웹소켓 하트비트 — 30초마다 연결되어있는 모든 방에 ping을 보내고, 지난번 ping에
+// 💓 웹소켓 하트비트 — 일정 주기로 연결되어있는 모든 방에 ping을 보내고, 지난번 ping에
 // pong 응답이 없었던(=끊어졌는데 close 이벤트가 안 온) 죽은 연결은 강제로 종료 처리한다.
 // 이게 없으면 네트워크가 조용히 끊겼을 때 관리자 화면에 "접속중"이라고 계속 잘못 표시된다.
-// ⚠️ 예전엔 퐁 한 번만 놓쳐도 바로 끊었는데, 순간적인 네트워크 지연/버벅임에도 오탐으로
-// 멀쩡한 방송이 랜덤하게 튕기는 문제가 있었다. 그래서 연속 2회(최대 60초) 놓쳤을 때만
-// 진짜 죽은 연결로 판단하도록 완화한다 — 죽은 연결 감지는 최대 30초 늦어지지만, 오탐으로
-// 인한 불필요한 강제종료는 확 줄어든다.
+//
+// 🔧 강화된 부분:
+//  - 주기를 30초 → 15초로 줄여서, 죽은 연결을 더 빨리 잡아낸다.
+//  - 그냥 놔두면 오탐이 늘어날 수 있어서, 대신 판정 기준을 2회 → 3회 연속 미응답으로
+//    올렸다. 즉 "최대로 늦게 걸리는 시간"은 기존과 거의 같은 45초(15×3)인데, ping을
+//    더 자주 보내니 진짜 죽은 연결은 평균적으로 훨씬 빨리 잡힌다.
+//  - readyState가 이미 OPEN이 아니면(CONNECTING/CLOSING/CLOSED) ping 응답을 기다릴
+//    필요도 없이 바로 죽은 걸로 처리한다 — 소켓이 이미 닫히는 중인데 pong만 기다리며
+//    시간을 허비하지 않기 위함.
+//  - ping() 호출 자체가 예외를 던지면(이미 끊긴 파이프) 미응답 카운트를 세지 않고
+//    즉시 죽은 연결로 판단한다 — 다음 주기까지 기다릴 필요가 없다.
+const HEARTBEAT_INTERVAL_MS = 15 * 1000
+const HEARTBEAT_MAX_MISSED = 3 // 15초 × 3 = 최대 45초 안에 죽은 연결 감지
+
 setInterval(() => {
   for (const djId of store.listDjIds()) {
     const room = getRoom(djId)
     const ws = room.ws
     if (!ws) continue
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
+      try { ws.terminate() } catch (e) {}
+      continue
+    }
+
     if (ws.isAlive === false) {
       ws.missedPong = (ws.missedPong || 0) + 1
-      if (ws.missedPong >= 2) {
-        console.log(`[${djId}] 하트비트 2회 연속 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
+      console.log(`[${djId}] 하트비트 응답 없음 (${ws.missedPong}/${HEARTBEAT_MAX_MISSED}회)`)
+      if (ws.missedPong >= HEARTBEAT_MAX_MISSED) {
+        console.log(`[${djId}] 하트비트 ${HEARTBEAT_MAX_MISSED}회 연속 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
         ws.terminate() // 이 호출로 'close' 이벤트가 발생해서 room.isConnected 등 정리는 기존 로직이 처리해준다
       }
       continue
     }
     ws.missedPong = 0
     ws.isAlive = false
-    try { ws.ping() } catch (e) { /* 이미 닫혔으면 무시 — 다음 주기에 정리됨 */ }
+    ws.lastPingAt = Date.now()
+    try {
+      ws.ping()
+    } catch (e) {
+      // ping 자체가 실패하면(파이프가 이미 끊긴 상태) 미응답을 기다릴 것도 없이 바로 종료
+      console.log(`[${djId}] 하트비트 ping 전송 실패(${e.message}) → 즉시 종료 처리`)
+      try { ws.terminate() } catch (e2) {}
+    }
   }
-}, 30 * 1000)
+}, HEARTBEAT_INTERVAL_MS)
 
 // 5분마다 "주기 출력" 켜진 깃발의 현재 상태를 채팅으로 자동 출력
 setInterval(() => {
@@ -18588,6 +18723,8 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
 
   const room = getRoom(targetId)
+  cancelReconnect(room)
+  room.autoJoinedFor = ''
   if (room.ws) { room.ws.terminate(); room.ws = null }
   room.isConnected = false
   room.autoJoinedFor = ''
@@ -23020,6 +23157,7 @@ async function checkAdminAutoJoin() {
 
     const room = getRoom(djId)
     if (room.checking) continue
+    if (room.reconnectTimer) continue // 🔁 자동 재접속이 예약돼 있으면 그쪽에 맡긴다 (동시에 두 번 붙지 않게)
     room.checking = true
 
     try {
@@ -23028,6 +23166,8 @@ async function checkAdminAutoJoin() {
         const cur = await fetchUserStatusByTag(room.watchingTag)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
+          cancelReconnect(room) // 🔁 방송이 끝난 거니 재접속 예약은 취소
+          room.autoJoinedFor = '' // terminate 전에 비워서 close 핸들러가 재접속을 예약하지 않게 한다
           if (room.ws) { room.ws.terminate(); room.ws = null }
           room.isConnected = false
           room.autoJoinedFor = ''
@@ -23211,6 +23351,8 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 app.post('/room/leave', auth.requireAuth, (req, res) => {
   const djId = req.djId
   const room = getRoom(djId)
+  cancelReconnect(room) // 🔁 직접 나간 거니까 자동 재접속은 하지 않는다
+  room.autoJoinedFor = '' // terminate 전에 먼저 비워서 close 핸들러가 재접속을 예약하지 않게 한다
   if (room.ws) { room.ws.terminate(); room.ws = null }
   room.isConnected = false
   room.autoJoinedFor = ''
