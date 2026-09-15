@@ -737,6 +737,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" id="adminStatsNav" data-panel="adminstats" style="display:none"><span class="ic ic-img"><img src="/icons/adminstats.png" alt=""></span><span class="lbl">관리자 대시보드</span></div>
     <div class="nav-item" id="eventViewerNav" data-panel="eventviewer" style="display:none"><span class="ic ic-img"><img src="/icons/eventviewer.png" alt=""></span><span class="lbl">이벤트 뷰어</span></div>
     <div class="nav-item" id="debugLogNav" data-panel="debuglog" style="display:none"><span class="ic ic-img"><img src="/icons/debuglog.png" alt="" onerror="this.onerror=null;this.src='/icons/eventviewer.png'"></span><span class="lbl">디버그 로그</span></div>
+    <div class="nav-item" id="errorLogNav" data-panel="errorlog" style="display:none"><span class="ic">🚨</span><span class="lbl">에러 로그</span><span id="errorLogBadge" style="display:none;background:var(--danger);color:#fff;font-size:10.5px;font-weight:800;border-radius:20px;padding:1px 7px;margin-left:6px">0</span></div>
     <div class="nav-item" data-panel="autojoin"><span class="ic ic-img"><img src="/icons/room-entry.png" alt=""></span><span class="lbl">자동입장</span><span class="nav-badge on" style="cursor:default" title="자동입장은 항상 켜져 있어요">ON</span></div>
     <div class="nav-item" data-panel="botreboot"><span class="ic ic-img"><img src="/icons/botreboot.png" alt=""></span><span class="lbl">봇 재부팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="migrate"><span class="ic ic-img"><img src="/icons/migrate.png" alt=""></span><span class="lbl">로컬 데이터 가져오기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -1225,6 +1226,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
       </div>
+      <!-- 🚨 에러 로그 -->
+      <div class="panel" data-panel="errorlog">
+        <div class="card">
+          <div class="card-title"><span>🚨 에러 로그</span></div>
+          <p class="hint" style="margin-bottom:12px">방송 연결이 갑자기 끊기거나(code 1006 등), 하트비트가 죽거나, 서버에서 처리되지 않은 오류가 났을 때 자동으로 여기 쌓여요. Railway 콘솔에 직접 들어가지 않아도 여기서 바로 확인할 수 있어요. 지금 화면을 보고 있으면 실시간으로도 올라와요.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="errFilter" placeholder="필터 (예: 1006, sihoon241219, 하트비트)" style="max-width:280px" oninput="renderErrorLogList()">
+            <button class="btn-connect" id="errPauseBtn" style="padding:9px 16px" onclick="toggleErrorLogPause()">⏸️ 일시정지</button>
+            <button class="btn-gray" style="padding:9px 16px" onclick="clearErrorLogRemote()">🗑️ 지우기</button>
+            <button class="btn-gray" style="padding:9px 16px" onclick="loadErrorLogPanel()">🔄 새로고침</button>
+          </div>
+          <div class="hint" style="margin-top:8px">누적 <span id="errCount">0</span>개 (최근 300개까지만 보관돼요)</div>
+        </div>
+        <div class="card">
+          <div id="errListWrap" style="max-height:65vh;overflow-y:auto">
+            <p class="hint">불러오는 중...</p>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" data-panel="userlistonly">
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
@@ -5683,6 +5704,9 @@ function enterApp(){
   if(eventViewerNav) eventViewerNav.style.display = isAdmin ? '' : 'none';
   const debugLogNav=document.getElementById('debugLogNav');
   if(debugLogNav) debugLogNav.style.display = isAdmin ? '' : 'none';
+  const errorLogNav=document.getElementById('errorLogNav');
+  if(errorLogNav) errorLogNav.style.display = isAdmin ? '' : 'none';
+  if(isAdmin) loadErrorLogPanel(); // 🚨 관리자로 접속하면 지금까지 쌓인 에러도 배지 카운트에 바로 반영
   // 🧪 선물캡처판 "테스트 선물 보내기" 버튼 — 관리자(sum)만 보이게
   const gcTestBtnWrap=document.getElementById('gcTestBtnWrap');
   if(gcTestBtnWrap) gcTestBtnWrap.style.display = isAdmin ? 'flex' : 'none';
@@ -5793,6 +5817,7 @@ const PANEL_META={
   userlist:['👥 유저 관리','가입해서 봇을 사용 중인 디제이 목록입니다'],
   adminstats:['📊 관리자 대시보드','전체 서비스 현황을 한눈에 봅니다'],
   eventviewer:['🛰️ 이벤트 뷰어','스푼에서 들어오는 원본 이벤트를 실시간으로 확인합니다'],
+  errorlog:['🚨 에러 로그','방송 연결 끊김·하트비트 실패·처리되지 않은 오류를 자동으로 모아서 보여줍니다'],
   chat:['💬 채팅','실시간 채팅을 보고 메시지를 보냅니다'],
   entrysettings:['👋 입장 설정','입장/좋아요 메시지를 관리합니다 (퇴장·선물·반복문구는 준비 중)'],
   funding:['💰 펀딩 관리','펀딩 목표를 만들고 채팅 명령어로 적립/차감합니다'],
@@ -5879,6 +5904,7 @@ function selectPanel(name){
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(name==='debuglog'){ renderDebugLogList(); const c=document.getElementById('dbgCount'); if(c)c.textContent=debugLogBuffer.length; }
+  if(name==='errorlog'){ loadErrorLogPanel(); errorLogUnread=0; updateErrorLogBadge(); }
   if(window.innerWidth<=860)document.getElementById('sidebar').classList.remove('open');
 }
 
@@ -7858,6 +7884,95 @@ function clearDebugLog(){
   if(wrap){ wrap.innerHTML='<p class="hint">로그를 기다리는 중...</p>'; delete wrap.dataset.hasLogs; }
   const countEl=document.getElementById('dbgCount');
   if(countEl) countEl.textContent='0';
+}
+
+/* ── 🚨 에러 로그 (연결 끊김/하트비트 실패/처리되지 않은 예외 — 서버가 logAdminError()로 쌓아둔 것) ── */
+let errorLogBuffer=[];
+let errorLogPaused=false;
+let errorLogUnread=0; // 지금 이 패널을 보고 있지 않을 때 새로 쌓인 개수 — 사이드바 배지에 표시
+const ERROR_LOG_TYPE_ICON={ '연결 종료':'🔌', '핸드셰이크 거절':'🚫', '재접속 실패':'🔁', '소켓 오류':'⚠️', '하트비트':'💓', 'uncaughtException':'💥', 'unhandledRejection':'💥' };
+
+function updateErrorLogBadge(){
+  const badge=document.getElementById('errorLogBadge');
+  if(!badge)return;
+  if(errorLogUnread>0){ badge.style.display=''; badge.textContent=errorLogUnread>99?'99+':String(errorLogUnread); }
+  else badge.style.display='none';
+}
+
+async function loadErrorLogPanel(){
+  try{
+    const res=await fetch(SERVER+'/admin/error-logs',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    errorLogBuffer=d.logs||[];
+    if(document.querySelector('.panel[data-panel="errorlog"]')?.classList.contains('active')) renderErrorLogList();
+    const countEl=document.getElementById('errCount');
+    if(countEl) countEl.textContent=errorLogBuffer.length;
+  }catch(e){}
+}
+
+function pushErrorLog(entry){
+  if(!entry)return;
+  errorLogBuffer.unshift(entry);
+  if(errorLogBuffer.length>300) errorLogBuffer.pop();
+  const isViewing=document.querySelector('.panel[data-panel="errorlog"]')?.classList.contains('active');
+  if(isViewing){ if(!errorLogPaused) renderErrorLogList(); }
+  else { errorLogUnread++; updateErrorLogBadge(); }
+  const countEl=document.getElementById('errCount');
+  if(countEl) countEl.textContent=errorLogBuffer.length;
+  // 🚨 방송 중 끊김처럼 당장 눈에 띄어야 하는 이벤트는 토스트로도 바로 알려준다
+  if(document.getElementById('errorLogNav')?.style.display!=='none'){
+    showToast(`🚨 [${entry.djId}] ${entry.type}: ${String(entry.message||'').slice(0,60)}`);
+  }
+}
+
+function errorLogMatchesFilter(e){
+  const filter=(document.getElementById('errFilter')?.value||'').trim().toLowerCase();
+  if(!filter)return true;
+  return `${e.djId} ${e.type} ${e.message}`.toLowerCase().includes(filter);
+}
+
+function renderErrorLogList(){
+  const wrap=document.getElementById('errListWrap');
+  if(!wrap)return;
+  const filtered=errorLogBuffer.filter(errorLogMatchesFilter);
+  if(!filtered.length){ wrap.innerHTML='<p class="hint">'+(errorLogBuffer.length?'조건에 맞는 로그가 없어요.':'아직 기록된 에러가 없어요. 정상이에요 👍')+'</p>'; return; }
+  wrap.innerHTML=filtered.map(e=>{
+    const time=new Date(e.ts||Date.now()).toLocaleString('ko-KR',{hour12:false});
+    const icon=ERROR_LOG_TYPE_ICON[e.type]||'❗';
+    return `<div style="border-bottom:1px solid var(--border);padding:10px 4px;display:flex;gap:10px;align-items:flex-start">
+      <div style="font-size:16px;flex-shrink:0">${icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:3px">
+          <span style="font-weight:700;font-size:12.5px;color:var(--text)">${escapeHtml(e.djId||'-')}</span>
+          <span class="hint" style="margin:0;background:var(--surface2);padding:1px 8px;border-radius:20px">${escapeHtml(e.type||'기타')}</span>
+          <span class="hint" style="margin:0">${time}</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--text);word-break:break-all;white-space:pre-wrap;font-family:Consolas,monospace">${escapeHtml(e.message||'')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleErrorLogPause(){
+  errorLogPaused=!errorLogPaused;
+  const btn=document.getElementById('errPauseBtn');
+  if(btn) btn.textContent = errorLogPaused ? '▶️ 재개' : '⏸️ 일시정지';
+}
+
+async function clearErrorLogRemote(){
+  if(!confirm('에러 로그를 전부 지울까요? (되돌릴 수 없어요)'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/error-logs/clear',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){
+      errorLogBuffer=[];
+      renderErrorLogList();
+      const countEl=document.getElementById('errCount');
+      if(countEl) countEl.textContent='0';
+      showToast('에러 로그를 지웠어요');
+    }else showToast(d.error||'삭제 실패');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 async function loadStatusBannerAdmin(){
@@ -18375,6 +18490,7 @@ function startSSE(){
     }
     else if(d.type==='raw_event'){ if(typeof pushEventViewerLog==='function') pushEventViewerLog(d); }
     else if(d.type==='debuglog'){ if(typeof pushDebugLog==='function') pushDebugLog(d); }
+    else if(d.type==='admin_error'){ if(typeof pushErrorLog==='function') pushErrorLog(d.entry); }
     else if(d.type==='status')setStatus(d.isConnected);
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);

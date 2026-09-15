@@ -381,6 +381,30 @@ function broadcast(data) {
 // 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
 // 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
 // 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
+// ⚠️ 관리자 에러 로그 — "방송 연결이 끊기거나(1006 등) 하트비트가 죽는" 것처럼 관리자가
+// 나중에 꼭 확인해야 하는 이벤트를, Railway 콘솔을 직접 뒤지지 않고도 관리자 페이지에서
+// 바로 볼 수 있게 store에 쌓아두고 실시간으로도 뿌려준다. 콘솔 로그(console.log)는 지금
+// 화면을 보고 있을 때만 보이는데, 이건 서버에 남아있어서 나중에 접속해도 확인 가능하다.
+function logAdminError(djId, type, message) {
+  try {
+    const entry = { id: Date.now() + Math.random().toString(36).slice(2, 7), djId: djId || '-', type: type || '기타', message: String(message || ''), ts: Date.now() }
+    store.addErrorLog(entry)
+    broadcast({ type: 'admin_error', entry })
+  } catch (e) { /* 에러 로그 남기다가 또 에러나면 무한루프 위험 — 조용히 무시 */ }
+}
+
+// 🚨 서버 전체에서 처리되지 않은 예외/프라미스 거부도 놓치지 않고 에러 로그에 남긴다.
+// (이런 게 터지면 보통 특정 기능이 조용히 멈춰버리는데, 지금까진 Railway 콘솔에만 찍혀서
+// 관리자가 먼저 알아채기 전까진 아무도 몰랐다.)
+process.on('uncaughtException', (err) => {
+  console.log('[치명적 오류] uncaughtException:', err && err.stack || err)
+  logAdminError('-', 'uncaughtException', (err && err.stack) || String(err))
+})
+process.on('unhandledRejection', (reason) => {
+  console.log('[치명적 오류] unhandledRejection:', reason && reason.stack || reason)
+  logAdminError('-', 'unhandledRejection', (reason && reason.stack) || String(reason))
+})
+
 const _originalConsoleLog = console.log.bind(console)
 console.log = function (...args) {
   _originalConsoleLog(...args)
@@ -16325,6 +16349,7 @@ function scheduleReconnect(djId, room, reason) {
       await connectSpoonForDj(djId, room.autoJoinedFor, roomToken || '')
     } catch (e) {
       console.log(`[${djId}] 자동 재접속 실패:`, e.message)
+      logAdminError(djId, '재접속 실패', e.message)
       scheduleReconnect(djId, room, '재접속 시도 중 오류')
     }
   }, delay)
@@ -16414,6 +16439,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       : `스푼 서버가 연결을 거절했어요 (status ${res.statusCode})`
     broadcast({ type: 'status', djId, isConnected: false })
     broadcast({ type: 'autojoin', djId, status: 'error', msg: reason })
+    logAdminError(djId, '핸드셰이크 거절', `status ${res.statusCode} — ${reason}`)
 
     // 정원 초과(429/403)는 아무리 다시 붙어도 똑같이 거절당하니 빠르게 재시도하지 않는다.
     // 대신 tokenDjId를 위에서 비워뒀으니, 다음 시도 때 여유 있는 계정으로 다시 배정받는다.
@@ -16782,6 +16808,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (room.ws && room.ws !== ws) return
 
     console.log(`[${djId}] 스푼 연결 종료 code:`, code)
+    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}`)
     room.isConnected = false
     room.ws = null
 
@@ -16810,6 +16837,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (getRoom(djId) !== room) return
     if (room.ws && room.ws !== ws) return
     console.log(`[${djId}] 스푼 오류:`, e.message)
+    logAdminError(djId, '소켓 오류', e.message)
     room.isConnected = false
   })
 }
@@ -16842,6 +16870,7 @@ setInterval(() => {
 
     if (ws.readyState !== WebSocket.OPEN) {
       console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
+      logAdminError(djId, '하트비트', `소켓 상태 이상(readyState=${ws.readyState}) → 종료 처리`)
       try { ws.terminate() } catch (e) {}
       continue
     }
@@ -16851,6 +16880,7 @@ setInterval(() => {
       console.log(`[${djId}] 하트비트 응답 없음 (${ws.missedPong}/${HEARTBEAT_MAX_MISSED}회)`)
       if (ws.missedPong >= HEARTBEAT_MAX_MISSED) {
         console.log(`[${djId}] 하트비트 ${HEARTBEAT_MAX_MISSED}회 연속 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
+        logAdminError(djId, '하트비트', `${HEARTBEAT_MAX_MISSED}회 연속 응답 없음(최대 ${Math.round(HEARTBEAT_INTERVAL_MS * HEARTBEAT_MAX_MISSED / 1000)}초) → 강제 종료`)
         ws.terminate() // 이 호출로 'close' 이벤트가 발생해서 room.isConnected 등 정리는 기존 로직이 처리해준다
       }
       continue
@@ -16863,6 +16893,7 @@ setInterval(() => {
     } catch (e) {
       // ping 자체가 실패하면(파이프가 이미 끊긴 상태) 미응답을 기다릴 것도 없이 바로 종료
       console.log(`[${djId}] 하트비트 ping 전송 실패(${e.message}) → 즉시 종료 처리`)
+      logAdminError(djId, '하트비트', `ping 전송 실패: ${e.message}`)
       try { ws.terminate() } catch (e2) {}
     }
   }
@@ -18423,6 +18454,21 @@ app.get('/module-request/unread', auth.requireAuth, (req, res) => {
 app.get('/admin/stats', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   res.json({ success: true, stats: store.getAdminStats() })
+})
+
+// 🚨 관리자 에러 로그 — 연결 종료(code 1006 등)/하트비트 실패/처리 안 된 예외처럼 관리자가
+// 나중에 꼭 확인해야 하는 이벤트 목록을 조회한다. logAdminError()가 쌓아둔 걸 그대로 반환.
+// (실시간 갱신은 이미 떠 있는 SSE(/events)로 'admin_error' 타입을 그대로 받아서 처리)
+app.get('/admin/error-logs', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const limit = Number(req.query.limit) || 300
+  res.json({ success: true, logs: store.getErrorLog(limit) })
+})
+
+app.post('/admin/error-logs/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  store.clearErrorLog()
+  res.json({ success: true })
 })
 
 // 🔑 비밀번호 찾기 — 가입 시 등록한 이메일이 일치하는지 확인 후, 맞으면 새 비밀번호로 바로 변경한다.
