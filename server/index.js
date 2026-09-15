@@ -4861,6 +4861,7 @@ function incrementVisitCount(djId, settings, author, tag) {
   if (!key) return 1
   if (!settings.visitCounts) settings.visitCounts = { users: {} }
   if (!settings.visitCounts.users) settings.visitCounts.users = {}
+  // ⚠️ lastLiveId는 connectSpoonForDj에서 심어둔 "이번 방송 식별자"라, 여기서 절대 건드리지 않는다.
   const prev = (settings.visitCounts.users[key] && settings.visitCounts.users[key].count) || 0
   const count = prev + 1
   settings.visitCounts.users[key] = { count, nickname: author, updatedAt: Date.now() }
@@ -16282,6 +16283,17 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     settingsForReset.tempRanking = { users: {}, lastLiveId: liveId }
     store.saveSettings(djId, { tempRanking: settingsForReset.tempRanking })
     console.log(`[온도랭킹] ${djId} 새 방(${liveId}) 연결 — 온도 기록 초기화`)
+  }
+
+  // 🔢 입장 메시지의 {count}(입장 횟수)도 "이번 방송" 기준으로만 센다.
+  // 예전엔 visitCounts가 계속 누적돼서 방송을 새로 켜도 숫자가 1부터 시작하지 않았다.
+  // 온도랭킹과 똑같이 lastLiveId를 같이 저장해두고, 방(liveId)이 바뀌었을 때만 비운다.
+  // (봇이 튕겨서 같은 방으로 자동 재접속한 경우엔 그대로 유지 — 안 그러면 재접속할 때마다
+  //  이미 들어와 있던 사람들 카운트가 1로 되돌아간다.)
+  if (!settingsForReset.visitCounts || settingsForReset.visitCounts.lastLiveId !== liveId) {
+    settingsForReset.visitCounts = { users: {}, lastLiveId: liveId }
+    store.saveSettings(djId, { visitCounts: settingsForReset.visitCounts })
+    console.log(`[입장카운트] ${djId} 새 방송(${liveId}) 시작 — {count} 입장 횟수 초기화`)
   }
 
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
