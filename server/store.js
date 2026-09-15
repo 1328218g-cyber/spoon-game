@@ -683,7 +683,7 @@ function findDuplicateSignup(signupIp, deviceId) {
   return null;
 }
 
-function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck = false) {
+function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck = false, referrerId = null) {
   djId = String(djId || '').trim();
   if (!validDjId(djId)) return { ok: false, error: '아이디는 영문/숫자/밑줄 2~20자로 입력해주세요' };
   if (!password || password.length < 4) return { ok: false, error: '비밀번호는 4자 이상이어야 해요' };
@@ -691,6 +691,12 @@ function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck =
   if (!validEmail(cleanEmail)) return { ok: false, error: '비밀번호 찾기에 사용할 이메일을 올바르게 입력해주세요' };
   const djs = loadDjs();
   if (djs[djId]) return { ok: false, error: '이미 있는 아이디예요' };
+
+  // 🎁 초대 이벤트 — 초대 링크(?ref=아이디)로 들어온 경우에만 추천인을 기록한다.
+  // 존재하지 않는 아이디거나 본인 스스로를 추천인으로 넣으려는 경우는 조용히 무시한다
+  // (가입 자체를 막을 이유는 아니라서 에러 처리하지 않고 그냥 referrerId 없이 진행).
+  const cleanReferrerId = String(referrerId || '').trim();
+  const validReferrerId = (cleanReferrerId && cleanReferrerId !== djId && djs[cleanReferrerId]) ? cleanReferrerId : null;
 
   if (!skipDupCheck && getDuplicateCheckEnabled()) {
     const dupId = findDuplicateSignup(signupIp, deviceId);
@@ -745,9 +751,49 @@ function signup(djId, password, djTag, email, signupIp, deviceId, skipDupCheck =
     djTag: cleanTag, // 가입 시 등록한 본인 디제이 고유닉
     signupIp: signupIp || null,       // 중복 가입 감지용
     signupDeviceId: deviceId || null, // 중복 가입 감지용 (브라우저에 저장된 임의 식별자)
+    referrerId: validReferrerId,      // 🎁 초대 이벤트 — 이 계정을 초대한 디제이 아이디 (없으면 null)
   };
   saveDjs(djs);
   return { ok: true };
+}
+
+// 🎁 초대 이벤트 — "디제이 2명 초대 + 결제확인 시 초대한 사람에게 1개월 무료" (일회성, 최초 2명까지만).
+// 관리자(sum)가 유저관리 화면에서 특정 유저에게 "결제확인" 버튼을 눌렀을 때 호출된다.
+// 결제확인 자체는 몇 번을 다시 눌러도 최초 1번만 카운트되도록(=매달 결제할 때마다 중복 지급되지 않도록)
+// referralPaymentConfirmed 플래그로 막아둔다.
+function confirmReferralPayment(djId) {
+  const djs = loadDjs();
+  const target = djs[djId];
+  if (!target) return { ok: false, error: '유저를 찾을 수 없어요' };
+  if (target.referralPaymentConfirmed) return { ok: false, error: '이미 결제확인 처리된 유저예요' };
+
+  target.referralPaymentConfirmed = true;
+  target.referralPaymentConfirmedAt = Date.now();
+
+  let reward = null;
+  const referrerId = target.referrerId;
+  const referrer = referrerId ? djs[referrerId] : null;
+
+  // 추천인이 있고, 그 추천인이 아직 이벤트 보상을 못 받았을 때만 카운트를 올린다.
+  // (보상은 최초 2명까지만 — 지급 이후로는 더 초대해도 추가 보상 없음)
+  if (referrer && !referrer.inviteEventRewardGranted) {
+    referrer.inviteEventCount = (referrer.inviteEventCount || 0) + 1;
+    if (referrer.inviteEventCount >= 2) {
+      const rs = referrer.settings || (referrer.settings = defaultSettings());
+      const now = Date.now();
+      // 지금 이용기간이 아직 안 끝났으면 그 뒤에 이어붙이고, 이미 끝났거나 없으면 오늘부터 30일.
+      const currentExpiry = rs.expiresAt ? new Date(rs.expiresAt).getTime() : 0;
+      const base = currentExpiry > now ? currentExpiry : now;
+      const newExpiresAt = new Date(base + 30 * 24 * 60 * 60 * 1000).toISOString();
+      rs.expiresAt = newExpiresAt;
+      if (base === now) rs.expiryStartAt = new Date(now).toISOString(); // 이어붙인 경우가 아니라 새로 시작하는 경우만 진행률 기준일도 갱신
+      referrer.inviteEventRewardGranted = true;
+      reward = { referrerId, newExpiresAt };
+    }
+  }
+
+  saveDjs(djs);
+  return { ok: true, reward };
 }
 
 // ⚡ 비동기로 변경: bcrypt.compareSync는 이벤트 루프를 그대로 막아버려서,
@@ -1004,6 +1050,25 @@ function getDjRecord(djId) {
   return djs[djId] || null;
 }
 
+// 🎁 초대 이벤트 — 내가 초대해서 가입한 유저 목록과 각자의 결제확인 여부, 내 진행 현황(카운트/보상지급여부)을 반환한다.
+function getReferralSummary(djId) {
+  const djs = loadDjs();
+  const me = djs[djId] || {};
+  const invited = Object.keys(djs)
+    .filter(id => djs[id].referrerId === djId)
+    .map(id => ({
+      djId: id,
+      createdAt: djs[id].createdAt || null,
+      referralPaymentConfirmed: !!djs[id].referralPaymentConfirmed,
+    }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return {
+    invited,
+    inviteEventCount: me.inviteEventCount || 0,
+    inviteEventRewardGranted: !!me.inviteEventRewardGranted,
+  };
+}
+
 // 🔄 외부 백업에서 가져온 특정 DJ 레코드를 그대로 덮어써서 복구한다.
 function restoreDjRecord(djId, record) {
   const djs = loadDjs();
@@ -1060,6 +1125,9 @@ function listDjSummaries() {
     autoJoinEnabled: !!djs[id].autoJoinEnabled,
     expiresAt: djs[id].settings?.expiresAt || null,
     referrerId: djs[id].referrerId || null,
+    referralPaymentConfirmed: !!djs[id].referralPaymentConfirmed, // 🎁 초대 이벤트 — 이 계정 본인의 결제확인 여부
+    inviteEventCount: djs[id].inviteEventCount || 0,               // 🎁 초대 이벤트 — 이 계정이 초대해서 결제확인된 인원 수
+    inviteEventRewardGranted: !!djs[id].inviteEventRewardGranted,  // 🎁 초대 이벤트 — 보상(1개월 무료) 지급 완료 여부
   }));
 }
 
@@ -1122,6 +1190,8 @@ function exists(djId) {
 
 module.exports = {
   signup,
+  confirmReferralPayment,
+  getReferralSummary,
   login,
   getSettings,
   saveSettings,

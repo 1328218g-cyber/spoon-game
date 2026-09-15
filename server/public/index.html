@@ -631,6 +631,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="referral"><span class="ic">🎁</span><span class="lbl mr-blink">초대 링크</span></div>
     <div class="nav-item" data-panel="autofollow"><span class="ic ic-img"><img src="/icons/autofollow.png" alt=""></span><span class="lbl">고정매니저신청</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -3908,6 +3909,28 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎁 초대 링크 -->
+      <div class="panel" data-panel="referral">
+        <div class="card">
+          <div class="card-title"><span>🔗 내 초대 링크</span></div>
+          <p class="hint">이 링크로 가입한 디제이가 결제확인되면 아래 목록에 뜨고 카운트돼요. 2명 채우면 저에게 1개월 무료가 자동 지급돼요 (일회성, 이후 추가 초대는 보상 없음).</p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input type="text" id="referralLinkInput" readonly style="flex:1" onclick="this.select()">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyReferralLink()">복사</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>📊 진행 현황</span></div>
+          <div id="referralProgress" style="font-size:14px;font-weight:700;margin-top:4px">불러오는 중...</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>👥 내가 초대한 디제이</span></div>
+          <div id="referralInvitedList"><p class="hint">불러오는 중...</p></div>
+        </div>
+      </div>
+
       <!-- 👤 내정보 웹페이지 -->
       <div class="panel" data-panel="myinfo">
         <div class="card">
@@ -5000,6 +5023,17 @@ let djAutoJoinEnabled=false;
 let authPersistMode=localStorage.getItem('djToken')?'local':(sessionStorage.getItem('djToken')?'session':'local'); // 'local' = localStorage(자동 로그인 유지) / 'session' = sessionStorage(탭 닫으면 로그아웃)
 let authMode='login';
 
+// 🎁 초대 이벤트 — URL에 ?ref=아이디가 붙어있으면 저장해뒀다가 회원가입 시 같이 보낸다.
+// 로그인 탭을 먼저 눌러봤다가 다시 회원가입으로 와도 유지되게 localStorage에 담아둔다.
+function getReferrerIdFromUrl(){
+  try{
+    const ref=(new URLSearchParams(location.search).get('ref')||'').trim();
+    if(ref) localStorage.setItem('ediBotReferrerId',ref);
+    return localStorage.getItem('ediBotReferrerId')||'';
+  }catch(e){ return ''; }
+}
+const referrerIdFromLink=getReferrerIdFromUrl();
+
 function authHeaders(){
   return djToken ? {'Authorization':'Bearer '+djToken} : {};
 }
@@ -5108,9 +5142,10 @@ async function submitAuth(){
     if(!djTag){errEl.textContent='디제이 고유닉을 입력해주세요';return;}
     if(HANGUL_REGEX.test(djTag)){errEl.textContent='고유닉엔 한글을 쓸 수 없어요. 스푼 프로필의 "@" 뒤에 오는 고유닉을 입력해주세요.';return;}
     try{
-      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email,deviceId:getOrCreateDeviceId()})});
+      const res=await fetch(SERVER+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({djId:id,password:pw,djTag,email,deviceId:getOrCreateDeviceId(),referrerId:referrerIdFromLink})});
       const d=await res.json();
       if(!d.success){errEl.textContent=d.error||'가입 실패';return;}
+      try{localStorage.removeItem('ediBotReferrerId');}catch(e){}
       showToast('가입 완료! 로그인해주세요');
       document.getElementById('authPassword').value='';
       document.getElementById('authPasswordConfirm').value='';
@@ -5432,6 +5467,39 @@ function closeMyInfoModal(){
   document.getElementById('myInfoModalOverlay').style.display='none';
 }
 
+function copyReferralLink(){
+  const input=document.getElementById('referralLinkInput');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=>showToast('초대 링크 복사 완료 ✓')).catch(()=>{
+    document.execCommand('copy'); showToast('초대 링크 복사 완료 ✓');
+  });
+}
+
+async function loadReferralPanel(){
+  document.getElementById('referralLinkInput').value=location.origin+'/?ref='+encodeURIComponent(djId);
+  const progressEl=document.getElementById('referralProgress');
+  const listEl=document.getElementById('referralInvitedList');
+  try{
+    const res=await fetch(SERVER+'/referral/me',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){progressEl.textContent='불러오기 실패';return;}
+    if(d.inviteEventRewardGranted){
+      progressEl.innerHTML='🎉 보상 지급 완료! (2명 결제확인 달성)';
+    }else{
+      progressEl.innerHTML=`결제확인 <span style="color:var(--accent)">${d.inviteEventCount}</span> / 2명 — ${2-d.inviteEventCount}명 더 채우면 1개월 무료`;
+    }
+    if(!d.invited.length){
+      listEl.innerHTML='<p class="hint">아직 이 링크로 가입한 디제이가 없어요</p>';
+    }else{
+      listEl.innerHTML=d.invited.map(u=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span>${escapeHtml(u.djId)}</span>
+          ${u.referralPaymentConfirmed?'<span class="status-pill ongoing">결제확인됨</span>':'<span class="status-pill ended">미확인</span>'}
+        </div>`).join('');
+    }
+  }catch(e){progressEl.textContent='불러오기 실패: '+e.message;}
+}
+
 function persistAuth(){
   if(authPersistMode==='local'){
     localStorage.setItem('djToken',djToken);
@@ -5623,6 +5691,7 @@ async function installPwaApp(){
 
 /* ── 사이드바 내비게이션 (UI 전용, 기존 기능 로직은 그대로) ── */
 const PANEL_META={
+  referral:['🎁 초대 링크','디제이를 초대하고 결제확인 현황을 확인하세요'],
   modulemarket:['🛒 모듈 마켓','필요한 기능만 켜고 나머지는 꺼두세요'],
   requestmodules:['🔐 요청 모듈','특정 유저에게만 허용된 제한 메뉴입니다'],
   modulerequest:['📝 모듈제작 요청','원하는 모듈 아이디어를 자유롭게 요청할 수 있는 게시판입니다. 작성한 글은 관리자만 볼 수 있어요'],
@@ -5712,6 +5781,7 @@ function selectPanel(name){
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
+  if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
@@ -6967,6 +7037,7 @@ function escapeHtml(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt
 function escapeAttr(s){return (s||'').replace(/"/g,'&quot;');}
 
 document.addEventListener('DOMContentLoaded',()=>{
+  if(!djToken && referrerIdFromLink && document.getElementById('tabSignup')) switchAuthTab('signup');
   if(document.getElementById('entryMsgList')) renderEntryList();
   if(document.getElementById('shieldNumber')) renderShield();
   if(document.getElementById('flagListWrap')) renderFlags();
@@ -8162,12 +8233,13 @@ function renderUserListTable(){
         </div>${isSum?'<div class="hint" style="margin:4px 0 0">※ 관리자 계정은 날짜를 지나도 잠기지 않아요</div>':''}`;
       return `<tr>
         <td>${isSum?'':`<input type="checkbox" class="expiry-select-cb" data-djid="${escapeAttr(u.djId)}" ${selectedExpiryDjIds.has(u.djId)?'checked':''} onchange="toggleExpirySelect('${escapeAttr(u.djId)}',this.checked)">`}</td>
-        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}</td>
+        <td>${escapeHtml(u.djId)}${isSum?' <span class="hint" style="margin:0">(관리자)</span>':''}${u.signupIp?`<div class="hint" style="margin:2px 0 0">🌐 ${escapeHtml(u.signupIp)} ${dupAllowIps.includes(u.signupIp)?'<span style="color:var(--accent)">(허용됨)</span>':`<button class="hint-inline" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" onclick="document.getElementById('dupAllowIpInput').value='${escapeAttr(u.signupIp)}';addDupAllowIp();">허용추가</button>`}</div>`:''}${u.inviteEventRewardGranted?'<div class="hint" style="margin:2px 0 0;color:#4ade80">🎁 초대이벤트 보상 지급완료</div>':(u.inviteEventCount>0?`<div class="hint" style="margin:2px 0 0">🎁 초대이벤트 ${u.inviteEventCount}/2명</div>`:'')}</td>
         <td>${u.autoJoinTag?`<a href="https://www.spooncast.net/kr/@${escapeAttr(u.autoJoinTag)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline">@${escapeHtml(u.autoJoinTag)}</a>`:'<span class="hint" style="margin:0">미설정</span>'}${isSum?'':`<div style="margin-top:4px"><button class="btn-gray" style="padding:4px 8px;font-size:10.5px" onclick="resetUserAutoJoinLock('${escapeAttr(u.djId)}')">🔓 2일잠금 해제</button></div>`}</td>
         <td><span class="user-dot ${u.isConnected?'on':''}"></span>${u.isConnected?'입장중':'대기'}</td>
         <td>${created}</td>
         <td>${lastLoginCell}</td>
         <td>${u.referrerId?escapeHtml(u.referrerId):'<span class="hint" style="margin:0">-</span>'}</td>
+        <td>${u.referralPaymentConfirmed?'<span class="status-pill ongoing">확인됨</span>':`<button class="btn-gray" style="padding:5px 10px;font-size:11.5px" onclick="confirmUserReferralPayment('${escapeAttr(u.djId)}')">💳 결제확인</button>`}</td>
         <td>${u.blocked?'<span class="status-pill ended">차단됨</span>':'<span class="status-pill ongoing">정상</span>'}</td>
         <td style="white-space:nowrap;min-width:190px">${expiryCell}</td>
         <td><span class="status-pill ongoing">항상 허용</span></td>
@@ -8187,7 +8259,7 @@ function renderUserListTable(){
       <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="clearExpirySelection()">선택 해제</button>
     </div>`;
     wrap.innerHTML=`${bulkBar}<div style="overflow-x:auto"><table class="user-table">
-      <thead><tr><th><input type="checkbox" id="expirySelectAllCb" ${selectableCount&&list.filter(u=>u.djId!=='sum').every(u=>selectedExpiryDjIds.has(u.djId))?'checked':''} onchange="toggleExpirySelectAll(this)"></th><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="expirySelectAllCb" ${selectableCount&&list.filter(u=>u.djId!=='sum').every(u=>selectedExpiryDjIds.has(u.djId))?'checked':''} onchange="toggleExpirySelectAll(this)"></th><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>🎁 결제확인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 }
@@ -8471,6 +8543,18 @@ async function rebootUserConnection(djIdTarget){
     const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/reboot',{method:'POST',headers:authHeaders()});
     const d=await res.json();
     if(d.success){showToast(d.msg||'재부팅했어요');loadUserList();}
+    else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🎁 초대 이벤트 — 이 유저의 결제를 확인 처리한다. 추천인이 2번째 결제확인을 받으면
+// 서버에서 자동으로 1개월 무료를 지급하고, 그 결과 메시지를 그대로 토스트로 보여준다.
+async function confirmUserReferralPayment(djIdTarget){
+  if(!confirm('@'+djIdTarget+' 계정의 결제를 확인 처리할까요?\n이 유저를 초대한 사람이 있다면, 이걸로 2번째 결제확인이 되는 순간 초대인에게 1개월 무료가 자동 지급돼요.\n한 번 처리하면 이 유저 기준으로는 다시 되돌릴 수 없어요.'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/'+encodeURIComponent(djIdTarget)+'/confirm-referral-payment',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){showToast(d.msg||'결제확인 처리했어요');loadUserList();}
     else showToast(d.error||'처리 실패');
   }catch(e){showToast('오류: '+e.message);}
 }

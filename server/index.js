@@ -17729,11 +17729,17 @@ app.post('/admin/create-account', auth.requireAuth, (req, res) => {
 })
 
 app.post('/auth/signup', (req, res) => {
-  const { djId, password, djTag, email, deviceId } = req.body || {}
+  const { djId, password, djTag, email, deviceId, referrerId } = req.body || {}
   const signupIp = req.ip
-  const result = store.signup(djId, password, djTag, email, signupIp, deviceId)
+  const result = store.signup(djId, password, djTag, email, signupIp, deviceId, false, referrerId)
   if (!result.ok) return res.json({ success: false, error: result.error })
   res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
+})
+
+// 🎁 초대 이벤트 — 내가 초대한 유저 목록과 결제확인 현황, 내 보상 진행상황을 조회한다.
+app.get('/referral/me', auth.requireAuth, (req, res) => {
+  const summary = store.getReferralSummary(req.djId)
+  res.json({ success: true, ...summary })
 })
 
 // 관리자(sum) 전용 — 중복 가입 체크 자체를 통째로 켜고 끄기 (데이터 유실 복구 등 여러 명이
@@ -18613,6 +18619,27 @@ app.post('/bot/reboot', auth.requireAuth, (req, res) => {
 // 만료일이 지나면 그 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 자동으로 잠긴다.
 // ⚠️ 관리자(sum) 자신의 날짜도 여기서 직접 입력/수정할 수 있다 (기록·테스트용). 다만 isAccountExpired()가
 //    djId==='sum'인 경우 항상 예외 처리하므로, 날짜를 지나도 관리자 계정 자체가 잠기는 일은 없다.
+// 관리자(sum) 전용 — 🎁 초대 이벤트: 이 유저의 결제를 확인 처리한다.
+// 이 유저를 초대한 사람(referrerId)이 있고, 그 초대인이 이걸로 2번째 결제확인을 받으면
+// 초대인에게 1개월 무료(일회성)가 자동 지급된다. 한 유저당 최초 1번만 카운트되고,
+// 같은 유저를 다시 눌러도(예: 다음달 재결제) 중복 지급되지 않는다.
+app.post('/admin/users/:djId/confirm-referral-payment', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const result = store.confirmReferralPayment(targetId)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+
+  if (result.reward) {
+    console.log(`[초대이벤트] ${result.reward.referrerId}에게 1개월 무료 보상 자동 지급 (만료일: ${result.reward.newExpiresAt})`)
+    return res.json({ success: true, msg: `${targetId} 결제확인 완료! 🎁 초대인 ${result.reward.referrerId}에게 1개월 무료가 자동 지급됐어요.` })
+  }
+  res.json({ success: true, msg: `${targetId} 결제확인 완료했어요.` })
+})
+
 app.post('/admin/users/:djId/expiry', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const adminSettings = store.getSettings(req.djId) || {}
