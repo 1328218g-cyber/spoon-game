@@ -18370,7 +18370,9 @@ app.get('/image-popup', auth.requireAuth, (req, res) => {
   const popup = store.getImagePopup()
   if (!popup) return res.json({ success: true, popup: null })
   const settings = store.getSettings(req.djId) || {}
-  const seen = settings.lastSeenImagePopupId === popup.id
+  // 🖼️ 텍스트 공지랑 똑같이 "오늘 하루 안 보기"를 체크했을 때만 오늘 날짜 기준으로 숨긴다.
+  // 체크 안 하고 닫으면 날짜가 안 저장되니, 로그인할 때마다 계속 다시 뜬다.
+  const seen = settings.lastSeenImagePopupId === popup.id && settings.lastSeenImagePopupDate === todayKST()
   res.json({ success: true, popup, seen })
 })
 app.post('/image-popup', auth.requireAuth, (req, res) => {
@@ -18387,7 +18389,7 @@ app.post('/image-popup/clear', auth.requireAuth, (req, res) => {
 app.post('/image-popup/seen', auth.requireAuth, (req, res) => {
   const popup = store.getImagePopup()
   if (!popup) return res.json({ success: true })
-  store.saveSettings(req.djId, { lastSeenImagePopupId: popup.id })
+  store.saveSettings(req.djId, { lastSeenImagePopupId: popup.id, lastSeenImagePopupDate: todayKST() })
   res.json({ success: true })
 })
 app.get('/image-popup/history', auth.requireAuth, (req, res) => {

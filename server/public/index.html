@@ -5016,7 +5016,11 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   <div class="modal-box" style="max-width:600px;max-height:94vh;overflow-y:auto;padding:10px;position:relative">
     <button class="icon-btn" onclick="closeAnnouncementImageModal()" style="position:absolute;top:8px;right:8px;z-index:1;background:rgba(0,0,0,.45);color:#fff">✕</button>
     <img id="announcementImageOnly" src="" style="width:100%;border-radius:12px;display:block">
-    <button class="btn-connect" style="width:100%;margin-top:12px" onclick="closeAnnouncementImageModal()">확인</button>
+    <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none">
+      <input type="checkbox" id="imagePopupHideTodayCheck" style="width:16px;height:16px;margin:0">
+      오늘 하루 보지 않기
+    </label>
+    <button class="btn-connect" style="width:100%;margin-top:10px" onclick="closeAnnouncementImageModal()">확인</button>
   </div>
 </div>
 <!-- 📢 업데이트 공지 팝업 -->
@@ -5529,6 +5533,8 @@ async function checkImagePopup(thenContinueToAnnouncement){
     currentImagePopupId=d.popup.id;
     document.getElementById('announcementImageOnly').src=d.popup.imageUrl;
     document.getElementById('announcementImageOverlay').dataset.thenAnnouncement=thenContinueToAnnouncement?'1':'';
+    const hideTodayCheck=document.getElementById('imagePopupHideTodayCheck');
+    if(hideTodayCheck){ hideTodayCheck.checked=false; hideTodayCheck.parentElement.style.display='flex'; } // 매번 접속할 때마다 다시 뜨는 거라, 체크 상태도 매번 초기화
     document.getElementById('announcementImageOverlay').style.display='flex';
   }catch(e){
     if(thenContinueToAnnouncement) checkAnnouncement(true);
@@ -5539,9 +5545,13 @@ async function closeAnnouncementImageModal(){
   overlay.style.display='none';
   const thenContinueToAnnouncement=overlay.dataset.thenAnnouncement==='1';
   overlay.dataset.thenAnnouncement='';
+  const hideToday=document.getElementById('imagePopupHideTodayCheck')?.checked;
   if(currentImagePopupId!=null){
     currentImagePopupId=null;
-    try{ await fetch(SERVER+'/image-popup/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
+    // ⚠️ 체크박스를 체크했을 때만 "오늘 하루 안 봄"으로 서버에 기록한다. 체크 안 하면 다음 로그인 때(같은 날이라도) 다시 뜬다.
+    if(hideToday){
+      try{ await fetch(SERVER+'/image-popup/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
+    }
   }
   if(thenContinueToAnnouncement) checkAnnouncement(true);
 }
@@ -5549,8 +5559,11 @@ async function closeAnnouncementImageModal(){
 // 것과 같은 독립 이미지 팝업으로 크게 보여준다. dataset.thenAnnouncement를 비워두므로, 닫아도 다른
 // 흐름(업데이트 공지/튜토리얼)으로 안 이어진다.
 function viewAnnouncementImage(url){
+  currentImagePopupId=null; // 히스토리에서 열람하는 거라 "오늘 하루 안 보기" 기록 대상이 아님
   document.getElementById('announcementImageOnly').src=url;
   document.getElementById('announcementImageOverlay').dataset.thenAnnouncement='';
+  const hideTodayCheck=document.getElementById('imagePopupHideTodayCheck');
+  if(hideTodayCheck) hideTodayCheck.parentElement.style.display='none';
   document.getElementById('announcementImageOverlay').style.display='flex';
 }
 
