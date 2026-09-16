@@ -791,15 +791,32 @@ async function sendChatToRoom(djId, message) {
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
     })
     if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, body.slice(0, 300), '— 메시지:', message)
-      // ⚠️ 404는 "이 방송(streamName)이 더 이상 존재하지 않는다"는 뜻이다 — 방송이 이미
-      // 끝났는데 WS 쪽에는 아직 종료 이벤트가 안 와서 room.isConnected가 계속 true로 남아있는
-      // 상태(좀비 연결)일 가능성이 크다. 이걸 그냥 두면 채팅 전송이 계속 404로 실패하다가
-      // 한참 뒤에야 스푼 쪽에서 강제로 WS를 끊어버려서 "가끔씩 봇이 팅긴다"처럼 보인다.
-      // 여기서 바로 ws를 끊어버리면 기존 ws.on('close') 정리 로직이 그대로 타면서(자동입장이면)
-      // 곧바로 재접속을 시도하게 된다.
-      if (res.status === 404 && room.ws) {
+      const bodyText = await res.text().catch(() => '')
+      console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, bodyText.slice(0, 300), '— 메시지:', message)
+      let body = null
+      try { body = JSON.parse(bodyText) } catch (e) { /* JSON이 아니면 무시 */ }
+
+      // ⚠️ 404에는 최소 두 가지 완전히 다른 상황이 섞여 있다.
+      //  1) errorCode 11001 "Not Join Chat Room" — 방송은 멀쩡히 켜져있는데(로그에 LiveMetaUpdate/채팅이
+      //     계속 들어옴) 채팅방 "조인 세션"만 서버 쪽과 어긋난 경우. 예전엔 이것도 "방송 끝남"으로 오판해서
+      //     멀쩡한 room.ws를 강제로 terminate()해버렸는데, 그게 곧장 code 1006으로 잡히고 3초 뒤 재접속 →
+      //     또 어긋남 → 또 1006... 으로 반복되는, 사실상 봇이 스스로를 끊어버리는 자폭 루프였다.
+      //     → 이 경우엔 소켓은 그대로 두고, roomToken만 새로 받아와서 다음 전송부터 복구를 시도한다.
+      //  2) 그 외(방송이 진짜 끝나서 streamName 자체가 사라진 경우 등) — 기존처럼 좀비 연결로 보고 정리한다.
+      if (res.status === 404 && body && body.errorCode === 11001) {
+        console.log(`[${djId}] 채팅 전송 404 (Not Join Chat Room) — 방송은 살아있는 것으로 보여 소켓은 유지하고 roomToken만 재발급 시도합니다.`)
+        if (room.autoJoinedFor) {
+          tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
+            .then(rt => { if (rt) { room.roomToken = rt; console.log(`[${djId}] roomToken 재발급 성공`) } })
+            .catch(e => console.log(`[${djId}] roomToken 재발급 실패:`, e.message))
+        }
+      } else if (res.status === 404 && room.ws) {
+        // ⚠️ 404는 "이 방송(streamName)이 더 이상 존재하지 않는다"는 뜻이다 — 방송이 이미
+        // 끝났는데 WS 쪽에는 아직 종료 이벤트가 안 와서 room.isConnected가 계속 true로 남아있는
+        // 상태(좀비 연결)일 가능성이 크다. 이걸 그냥 두면 채팅 전송이 계속 404로 실패하다가
+        // 한참 뒤에야 스푼 쪽에서 강제로 WS를 끊어버려서 "가끔씩 봇이 팅긴다"처럼 보인다.
+        // 여기서 바로 ws를 끊어버리면 기존 ws.on('close') 정리 로직이 그대로 타면서(자동입장이면)
+        // 곧바로 재접속을 시도하게 된다.
         console.log(`[${djId}] 채팅 전송 404 — 방송이 끝난 것으로 보여 연결을 정리합니다.`)
         try { room.ws.terminate() } catch (e) { /* 이미 끊어졌으면 무시 */ }
       }
