@@ -10276,7 +10276,7 @@ async function grantLottoToSelected(sign){
   const amount=magnitude*sign;
   const target=u.tag||u.nickname;
   try{
-    const res=await fetch(SERVER+'/activity/grant-lotto',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({target,amount})});
+    const res=await fetch(SERVER+'/activity/grant-lotto',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({target,amount,nickname:u.nickname})});
     const d=await res.json();
     if(d.success){
       showToast(`${d.nickname}님에게 복권 ${magnitude}장 ${sign>0?'지급':'차감'} 완료`);

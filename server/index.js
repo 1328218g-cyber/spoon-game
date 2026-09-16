@@ -19074,13 +19074,17 @@ app.get('/live/members', auth.requireAuth, async (req, res) => {
 app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
   const target = String((req.body || {}).target || '').trim()
   const amount = Number((req.body || {}).amount)
+  const passedNickname = String((req.body || {}).nickname || '').trim()
   if (!target || !amount) return res.json({ success: false, error: '대상과 수량을 입력해주세요' })
   const settings = store.getSettings(req.djId) || {}
   if (!isModuleOn(settings, 'autogrant', req.djId)) return res.json({ success: false, error: '실시간 지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const act = getActivitySettings(req.djId, settings)
   const existingKey = findActUserKey(act, target)
   const key = existingKey || target
-  const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : target, existingKey ? null : target)
+  // 🏷️ 이 사람이 애청지수에 처음 등록되는 경우(existingKey 없음), target은 고유닉일 수 있어서
+  // 그대로 nickname에 넣으면 채팅창 안내가 고유닉으로 나가버린다. 실시간 접속자 목록에서 같이
+  // 넘어온 진짜 닉네임(passedNickname)이 있으면 그걸 우선 쓴다.
+  const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : (passedNickname || target), existingKey ? null : target)
   d.lotto = Math.max(0, (d.lotto || 0) + amount)
   store.saveSettings(req.djId, { activity: act })
   const grantNickname = d.nickname || key
