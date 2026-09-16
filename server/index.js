@@ -16258,7 +16258,7 @@ function startLeavePolling(djId, liveId) {
       for (const u of users) {
         // 🪪 릴레이 계정(에디봇 자기 자신)은 접속자 명단에 들쭉날쭉 잡히면서 스스로에게 입장/퇴장
         // 인사가 반복 나가는 원인이 됐다 — 학습된 self id면 명단 자체에서 아예 제외한다.
-        if (room._selfGeneratorId != null && u.id != null && Number(u.id) === room._selfGeneratorId) continue
+        if (room._selfGeneratorIds && u.id != null && room._selfGeneratorIds.has(Number(u.id))) continue
         const key = (u.tag || u.nickname || '').toString().toLowerCase()
         if (!key) continue
         currentMembers.set(key, u)
@@ -16612,7 +16612,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (authorId != null && room._recentSentTexts && room._recentSentTexts.length) {
           const now = Date.now()
           const matched = room._recentSentTexts.some(r => r.text === text && (now - r.ts) < 10000)
-          if (matched) room._selfGeneratorId = authorId
+          // ⚠️ 예전엔 room._selfGeneratorId에 단일 값으로 덮어썼는데, 그러면 sum으로 학습된 뒤
+          // 공용 토큰 풀 전환으로 sum2가 말해서 sum2로 다시 학습되는 순간 sum의 id가 지워져버려서,
+          // 나중에 sum이 다시 이 방에 들어오면(재접속 등) 자기 자신을 못 알아보고 또 입장인사를
+          // 반복하는 문제가 있었다 — Set으로 누적해서 한 번 학습된 계정은 계속 기억하게 한다.
+          if (matched) { if (!room._selfGeneratorIds) room._selfGeneratorIds = new Set(); room._selfGeneratorIds.add(authorId) }
         }
 
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
@@ -16719,7 +16723,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         // 🪪 릴레이 계정(에디봇 자기 자신)이 채팅 전송 때문에 방에 잠깐 걸리면서 발생하는 RoomJoin은
         // 스스로에게 입장 인사를 하게 만드니 여기서 걸러낸다.
-        if (room._selfGeneratorId != null && authorId === room._selfGeneratorId) {
+        if (room._selfGeneratorIds && authorId != null && room._selfGeneratorIds.has(authorId)) {
           // 아무 것도 안 함 — 자기 자신의 입장 이벤트
         } else {
         broadcast({ type: 'join', djId, nick: author })
