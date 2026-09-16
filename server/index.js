@@ -19083,6 +19083,9 @@ app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
   const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : target, existingKey ? null : target)
   d.lotto = Math.max(0, (d.lotto || 0) + amount)
   store.saveSettings(req.djId, { activity: act })
+  const grantNickname = d.nickname || key
+  if (amount > 0) sendChatSplit(req.djId, `🎫 ${grantNickname}님께 복권 ${amount}장을 지급했어요! (보유 ${d.lotto}장)`, 150, 300)
+  else sendChatSplit(req.djId, `🎫 ${grantNickname}님의 복권 ${Math.abs(amount)}장을 차감했어요. (보유 ${d.lotto}장)`, 150, 300)
   res.json({ success: true, key, nickname: d.nickname || key, lotto: d.lotto })
 })
 
@@ -23174,6 +23177,12 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   const rec = getHistoryRec(settings, req.params.tag)
   rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  const rt = settings.roulette && settings.roulette.list && settings.roulette.list[Number(idx) - 1]
+  const rouletteLabel = `룰렛${idx}` + (rt && rt.name ? ` (${rt.name})` : '')
+  const displayName = String(req.params.tag || '')
+  const amt = Number(delta)
+  if (amt > 0) sendChatSplit(req.djId, `🎡 ${displayName}님께 ${rouletteLabel} ${amt}장을 지급했어요! (보유 ${rec.coupons[idx]}장)`, 150, 300)
+  else sendChatSplit(req.djId, `🎡 ${displayName}님의 ${rouletteLabel} ${Math.abs(amt)}장을 차감했어요. (보유 ${rec.coupons[idx]}장)`, 150, 300)
   res.json({ success: true, coupons: rec.coupons })
 })
 
