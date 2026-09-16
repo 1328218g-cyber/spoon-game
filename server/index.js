@@ -19087,7 +19087,10 @@ app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
   const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : (passedNickname || target), existingKey ? null : target)
   d.lotto = Math.max(0, (d.lotto || 0) + amount)
   store.saveSettings(req.djId, { activity: act })
-  const grantNickname = d.nickname || key
+  // 📢 채팅 안내용 이름은 실시간 접속자 목록에서 방금 넘어온 진짜 닉네임(passedNickname)을 최우선으로 쓴다.
+  // 저장된 d.nickname은 예전에 고유닉으로 잘못 저장된 채 남아있는 경우가 있어서(과거 데이터), 그걸
+  // 그대로 쓰면 안내 메시지에 고유닉이 나오는 문제가 있었다 — 저장 데이터 자체는 안 건드리고 표시만 바로잡는다.
+  const grantNickname = passedNickname || d.nickname || key
   if (amount > 0) sendChatSplit(req.djId, `🎫 ${grantNickname}님께 복권 ${amount}장을 지급했어요! (보유 ${d.lotto}장)`, 150, 300)
   else sendChatSplit(req.djId, `🎫 ${grantNickname}님의 복권 ${Math.abs(amount)}장을 차감했어요. (보유 ${d.lotto}장)`, 150, 300)
   res.json({ success: true, key, nickname: d.nickname || key, lotto: d.lotto })
@@ -23175,7 +23178,7 @@ app.post('/roulette/history/bulk-delete', auth.requireAuth, (req, res) => {
 })
 
 app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
-  const { idx, delta } = req.body || {}
+  const { idx, delta, nickname } = req.body || {}
   if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
   const settings = store.getSettings(req.djId) || {}
   const rec = getHistoryRec(settings, req.params.tag)
@@ -23183,7 +23186,9 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   const rt = settings.roulette && settings.roulette.list && settings.roulette.list[Number(idx) - 1]
   const rouletteLabel = `룰렛${idx}` + (rt && rt.name ? ` (${rt.name})` : '')
-  const displayName = resolveNicknameFromInput(getRoom(req.djId), req.params.tag)
+  // 📢 실시간 접속자 목록에서 넘어온 진짜 닉네임(nickname)을 최우선으로 쓴다 — 채팅 기록이 없어서
+  // room.tagToNickname 매핑에 없는 사람은 resolveNicknameFromInput이 고유닉을 그대로 돌려주기 때문.
+  const displayName = String(nickname || '').trim() || resolveNicknameFromInput(getRoom(req.djId), req.params.tag)
   const amt = Number(delta)
   if (amt > 0) sendChatSplit(req.djId, `🎡 ${displayName}님께 ${rouletteLabel} ${amt}장을 지급했어요! (보유 ${rec.coupons[idx]}장)`, 150, 300)
   else sendChatSplit(req.djId, `🎡 ${displayName}님의 ${rouletteLabel} ${Math.abs(amt)}장을 차감했어요. (보유 ${rec.coupons[idx]}장)`, 150, 300)
