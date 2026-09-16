@@ -16742,4 +16742,6927 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         }
 
       } else if (eventName === 'LiveDonation' || eventName === 'live_present' || eventName === 'DonationMessage') {
-        const gen = eventPayload.generator
+        const gen = eventPayload.generator || {}
+        const author = gen.nickname || eventPayload.nickname || '?'
+        // ⚠️ authorId는 generator 안에 중첩돼서 올 때도 있고, generator 없이 eventPayload 최상위에
+        // userId로 바로 올 때도 있다. 닉네임은 이미 최상위 폴백이 있었는데 authorId만 빠져있어서,
+        // generator가 없는 형태의 이벤트에서는 authorId가 계속 null → 태그 조회 자체를 못 하고 있었다.
+        const authorId = gen.id != null ? Number(gen.id)
+          : (eventPayload.userId != null ? Number(eventPayload.userId)
+            : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
+        // ⚠️ profileUrl도 authorId와 같은 문제였다 — LiveDonation 이벤트는 generator 없이
+        // eventPayload 최상위에 profileUrl이 바로 오는 경우가 있는데, gen.profileUrl만 보고 있어서
+        // 이 경우 항상 빈 값이었다 (선물카드 갤러리에서 후원자 프로필사진이 안 나오던 원인).
+        const donorProfileUrl = gen.profileUrl || eventPayload.profileUrl || eventPayload.profile_url || ''
+        const amount = Number(eventPayload.amount || eventPayload.spoonCount || eventPayload.spoon_count || eventPayload.quantity || eventPayload.value || 0)
+        const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
+        const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
+        const stickerImage = sticker ? await findStickerImage(sticker) : ''
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
+        handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
+        if (!isLurker) {
+          handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
+          handleFundingAutoDonation(djId, settings, amount * Math.max(1, comboCount))
+          await handleRouletteAutoGrant(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          handleRandomBoxTrigger(djId, room, settings, author, authorId, liveId, amount, comboCount, sticker)
+          const donationTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
+          rememberTagNickname(room, donationTag, author)
+          rememberProfileUrl(room, donationTag, author, donorProfileUrl)
+          handleActLottoPointHook(djId, settings, author, amount * Math.max(1, comboCount), donationTag)
+          handleStockDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
+          handleAuctionDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
+          handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
+          handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
+          handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
+          handleGiftCaptureHook(djId, settings, author, donationTag, sticker, comboCount)
+          handleChuseokDonationHook(djId, settings, author, donationTag, amount, comboCount)
+          handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
+          handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
+          recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
+
+          if (isModuleOn(settings, 'entrysettings', djId)) {
+            const gm = pickEntryMessage(settings.entryData, 'gift', author, donationTag)
+            if (gm && gm.text && gm.text.trim()) {
+              const totalCount = amount * Math.max(1, comboCount)
+              const text = gm.text.replace(/{nickname}/g, author).replace(/{tag}/g, donationTag ? `@${donationTag}` : `@${author}`).replace(/{count}/g, totalCount).replace(/{amount}/g, totalCount)
+              setTimeout(() => sendChatToRoom(djId, text), Math.max(0, Number(gm.delay) || 0) * 1000)
+            }
+            fireEntrySound(djId, settings, 'gift', gm)
+          }
+
+          if (isModuleOn(settings, 'tts', djId)) {
+            const ttsCfg = getTtsSettings(djId, settings)
+            if (ttsCfg.enabled) {
+              const totalAmount = amount * Math.max(1, comboCount)
+              if (totalAmount >= (Number(ttsCfg.triggerAmount) || 10)) {
+                grantTtsAccess(djId, room, settings, author)
+              }
+            }
+          }
+
+          recordDashboardSpoon(djId, settings, author, donationTag, amount * Math.max(1, comboCount), comboCount)
+        }
+
+      } else if (eventName === 'LiveStudioMessage') {
+        // 🎬 스푼 스튜디오 리액션(입장 알림 오버레이 등)에서 오는 메시지 — data.message 첫 줄이
+        // "!《_ᴇɴᴛʀʏ_》" 같은 명령어 형태로 오고, 그 뒤에 USER/ID 같은 부가정보가 줄바꿈으로
+        // 이어붙어 있다. 첫 줄만 잘라서 일반 채팅 명령어(단축키 명령어)랑 똑같이 매칭한다.
+        const studioData = eventPayload.data || {}
+        const rawMessage = String(studioData.message || '')
+        const firstLine = rawMessage.split(/\r?\n/)[0].trim()
+        if (firstLine.startsWith('!') && !isLurker) {
+          const targetUser = studioData.targetUser || {}
+          const studioAuthor = targetUser.nickname || '스튜디오'
+          const studioTag = targetUser.tag || null
+          await handleShortcutCommand(djId, room, settings, studioAuthor, targetUser.userId || null, liveId, firstLine, studioTag)
+        }
+      }
+    } catch (e) {
+      console.log(`[${djId}] WS 파싱 오류`, e.message)
+    }
+  })
+
+  ws.on('close', (code) => {
+    // 🧟 좀비 핸들러 차단 — terminate() 후에 발생하는 close는 비동기로 늦게 도착한다.
+    // 그 사이에 이미 새 소켓으로 갈아끼워졌다면(=room.ws가 내가 아님) 여기서 room을
+    // 건드리면 안 된다. 예전엔 이 가드가 없어서, 재접속 직후 옛 소켓의 close가 뒤늦게
+    // 도착하면서 방금 살아난 연결을 isConnected=false로 꺼버리고 타이머까지 전부
+    // 정리해버리는 경우가 있었다 (프론트는 "접속중"인데 봇은 반응 없는 상태).
+    if (getRoom(djId) !== room) return
+    if (room.ws && room.ws !== ws) return
+
+    console.log(`[${djId}] 스푼 연결 종료 code:`, code)
+    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}`)
+    room.isConnected = false
+    room.ws = null
+
+    // 🔀 공용 계정 배정 초기화 — "방송을 껐다 켰을 때" 여유 있는 계정으로 다시 배정받기
+    // 위한 처리인데, 예전엔 잠깐 끊긴 경우에도 매번 비워버리는 게 문제였다. 재접속할
+    // 때마다 다른 공용 계정으로 옮겨가고, 그 계정 정원이 차 있으면 429/403으로 거절돼서
+    // "연결됨 → 즉시 끊김"이 반복됐다. 그래서 진짜 종료(autoJoinedFor가 이미 비워진
+    // 경우 = 수동 나가기/방송 종료 감지/재부팅)일 때만 초기화한다.
+    if (!room.autoJoinedFor) room.tokenDjId = null
+
+    stopLeavePolling(djId)
+    stopLottoAutoTimer(djId)
+    stopStockTimers(djId)
+    clearReminderTimers(room)
+    clearTtsAccess(room)
+    clearQuizTimers(room)
+    if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+    broadcast({ type: 'status', djId, isConnected: false })
+
+    // 🔁 정상 종료(1000)가 아니면 — code 1006(비정상 종료) 포함 — 곧바로 재접속을 예약한다.
+    // 의도적으로 나간 경우엔 autoJoinedFor가 비어있어서 scheduleReconnect가 알아서 빠진다.
+    if (code !== 1000) scheduleReconnect(djId, room, `연결 종료(code ${code})`)
+  })
+
+  ws.on('error', (e) => {
+    if (getRoom(djId) !== room) return
+    if (room.ws && room.ws !== ws) return
+    console.log(`[${djId}] 스푼 오류:`, e.message)
+    logAdminError(djId, '소켓 오류', e.message)
+    room.isConnected = false
+  })
+}
+
+// ══════════════════════════════════════════════════════
+// (실시간 방송 감시 폴링은 제거됨 — 이제 고유닉으로 즉시 1회 입장하는 방식만 사용)
+
+// 💓 웹소켓 하트비트 — 일정 주기로 연결되어있는 모든 방에 ping을 보내고, 지난번 ping에
+// pong 응답이 없었던(=끊어졌는데 close 이벤트가 안 온) 죽은 연결은 강제로 종료 처리한다.
+// 이게 없으면 네트워크가 조용히 끊겼을 때 관리자 화면에 "접속중"이라고 계속 잘못 표시된다.
+//
+// 🔧 강화된 부분:
+//  - 주기를 30초 → 15초로 줄여서, 죽은 연결을 더 빨리 잡아낸다.
+//  - 그냥 놔두면 오탐이 늘어날 수 있어서, 대신 판정 기준을 2회 → 3회 연속 미응답으로
+//    올렸다. 즉 "최대로 늦게 걸리는 시간"은 기존과 거의 같은 45초(15×3)인데, ping을
+//    더 자주 보내니 진짜 죽은 연결은 평균적으로 훨씬 빨리 잡힌다.
+//  - readyState가 이미 OPEN이 아니면(CONNECTING/CLOSING/CLOSED) ping 응답을 기다릴
+//    필요도 없이 바로 죽은 걸로 처리한다 — 소켓이 이미 닫히는 중인데 pong만 기다리며
+//    시간을 허비하지 않기 위함.
+//  - ping() 호출 자체가 예외를 던지면(이미 끊긴 파이프) 미응답 카운트를 세지 않고
+//    즉시 죽은 연결로 판단한다 — 다음 주기까지 기다릴 필요가 없다.
+const HEARTBEAT_INTERVAL_MS = 15 * 1000
+const HEARTBEAT_MAX_MISSED = 3 // 15초 × 3 = 최대 45초 안에 죽은 연결 감지
+
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    const ws = room.ws
+    if (!ws) continue
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
+      logAdminError(djId, '하트비트', `소켓 상태 이상(readyState=${ws.readyState}) → 종료 처리`)
+      try { ws.terminate() } catch (e) {}
+      continue
+    }
+
+    if (ws.isAlive === false) {
+      ws.missedPong = (ws.missedPong || 0) + 1
+      console.log(`[${djId}] 하트비트 응답 없음 (${ws.missedPong}/${HEARTBEAT_MAX_MISSED}회)`)
+      if (ws.missedPong >= HEARTBEAT_MAX_MISSED) {
+        console.log(`[${djId}] 하트비트 ${HEARTBEAT_MAX_MISSED}회 연속 응답 없음 → 죽은 연결로 판단하고 강제 종료`)
+        logAdminError(djId, '하트비트', `${HEARTBEAT_MAX_MISSED}회 연속 응답 없음(최대 ${Math.round(HEARTBEAT_INTERVAL_MS * HEARTBEAT_MAX_MISSED / 1000)}초) → 강제 종료`)
+        ws.terminate() // 이 호출로 'close' 이벤트가 발생해서 room.isConnected 등 정리는 기존 로직이 처리해준다
+      }
+      continue
+    }
+    ws.missedPong = 0
+    ws.isAlive = false
+    ws.lastPingAt = Date.now()
+    try {
+      ws.ping()
+    } catch (e) {
+      // ping 자체가 실패하면(파이프가 이미 끊긴 상태) 미응답을 기다릴 것도 없이 바로 종료
+      console.log(`[${djId}] 하트비트 ping 전송 실패(${e.message}) → 즉시 종료 처리`)
+      logAdminError(djId, '하트비트', `ping 전송 실패: ${e.message}`)
+      try { ws.terminate() } catch (e2) {}
+    }
+  }
+}, HEARTBEAT_INTERVAL_MS)
+
+// 5분마다 "주기 출력" 켜진 깃발의 현재 상태를 채팅으로 자동 출력
+setInterval(() => {
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId)
+    const items = settings?.flags?.items || []
+    items.forEach((f, i) => {
+      if (f.useCycle) sendChatToRoom(djId, renderFlagTemplate(f.template, f, i + 1))
+    })
+  }
+}, 5 * 60 * 1000)
+
+// ══════════════════════════════════════════════════════
+// 🔁 반복 문구 — 입장 설정 > 반복문구 탭에서 등록한 메시지를, 방송에 봇이 들어가 있는 동안
+// 자동으로 채팅에 전송한다. 두 가지 모드를 지원한다 (settings.entryData.repeatMode):
+//  - 'interval'(기본값): 메시지마다 각자 설정한 간격(분/초)마다 독립적으로 반복 — 여러 메시지가
+//    서로 겹쳐서(동시에) 나올 수 있다.
+//  - 'sequence': 순서대로 한 번에 하나씩만 — 앞 메시지가 나온 뒤, 다음에 나올 메시지에 설정된
+//    시간만큼 기다렸다가 그 메시지가 나오고, 마지막 메시지 다음엔 다시 첫 메시지로 돌아간다.
+//    (예: 1분/3분/4분 순서로 등록해두면 1분 뒤 1번째, 그 뒤 3분 지나 2번째, 그 뒤 4분 지나
+//    3번째가 나오고, 다시 1번째의 1분 대기부터 반복)
+// 짧은 주기(10초)로 깨어나 비교하는 방식으로 처리한다.
+const repeatLastSent = {} // djId -> { [messageId]: timestampMs } ('interval' 모드용)
+const repeatSeqState = {} // djId -> { index, nextAt } ('sequence' 모드용)
+const REPEAT_TICK_MS = 10 * 1000
+
+function repeatMsgIntervalMs(m) {
+  return ((Number(m.intervalMin) || 0) * 60 + (Number(m.intervalSec) || 0)) * 1000
+}
+
+function sendRepeatMessage(djId, settings, m) {
+  const text = String(m.text || '').trim()
+  if (!text) return
+  const rv = buildDashboardRankVars(settings)
+  const out = text
+    .replace(/{tag}/g, settings.autoJoinTag ? `@${settings.autoJoinTag}` : '')
+    .replace(/{nickname}/g, rv.nickname)
+    .replace(/{rank}/g, rv.rank)
+    .replace(/{choice_rank}/g, rv.choice_rank)
+    .replace(/{like_rank}/g, rv.like_rank)
+    .replace(/{time_rank}/g, rv.time_rank)
+  sendChatSplit(djId, out, 100, 600) // 길면 자동으로 여러 줄로 나눠서 순차 전송
+}
+
+setInterval(() => {
+  const now = Date.now()
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (!room.isConnected) continue
+    const settings = store.getSettings(djId) || {}
+    if (settings.botEnabled === false) continue
+    if (!isModuleOn(settings, 'entrysettings', djId)) continue
+    const list = settings.entryData?.repeat || []
+    if (!list.length) continue
+    const mode = settings.entryData?.repeatMode === 'sequence' ? 'sequence' : 'interval'
+
+    if (mode === 'sequence') {
+      const activeList = list.filter(m => m && m.enabled !== false && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0)
+      if (!activeList.length) { delete repeatSeqState[djId]; continue }
+
+      if (!repeatSeqState[djId]) repeatSeqState[djId] = { index: 0, nextAt: null }
+      const state = repeatSeqState[djId]
+      if (state.index >= activeList.length) state.index = 0
+
+      if (state.nextAt == null) {
+        // 처음 감지 — 바로 쏘지 않고, 지금 순번 메시지에 설정된 시간만큼 기다렸다가 시작한다.
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+        continue
+      }
+      if (now >= state.nextAt) {
+        sendRepeatMessage(djId, settings, activeList[state.index])
+        state.index = (state.index + 1) % activeList.length
+        state.nextAt = now + repeatMsgIntervalMs(activeList[state.index])
+      }
+      continue
+    }
+
+    // ── 'interval' 모드 (기존 방식) — 메시지마다 독립적으로 각자 간격 반복 ──
+    if (!repeatLastSent[djId]) repeatLastSent[djId] = {}
+    const lastMap = repeatLastSent[djId]
+
+    list.forEach(m => {
+      if (!m || m.enabled === false) return
+      const text = String(m.text || '').trim()
+      if (!text) return
+      const intervalMs = repeatMsgIntervalMs(m)
+      if (intervalMs <= 0) return
+
+      const last = lastMap[m.id]
+      if (last == null) {
+        // 처음 감지된 메시지는 바로 쏘지 않고, 그 시점부터 간격을 재기 시작한다.
+        lastMap[m.id] = now
+        return
+      }
+      if (now - last >= intervalMs) {
+        sendRepeatMessage(djId, settings, m)
+        lastMap[m.id] = now
+      }
+    })
+  }
+}, REPEAT_TICK_MS)
+
+// ══════════════════════════════════════════════════════
+// 🎀 스티커 목록 프록시 — 브라우저에서 static.spooncast.net을 직접 fetch하면
+// CDN이 CORS 헤더를 안 내려줘서 막히는 경우가 있어, 서버가 대신 가져와 내려준다.
+// 결과는 메모리에 잠깐 캐싱해서 매번 스푼 CDN에 다시 요청하지 않도록 한다.
+// (룰렛 "지정 스티커" 선택 화면뿐 아니라, 채팅창에 선물 스티커 이미지를 보여줄 때도 이 캐시를 함께 쓴다.)
+let stickerCache = { data: null, fetchedAt: 0 }
+const STICKER_CACHE_TTL_MS = 30 * 60 * 1000 // 30분
+
+async function getStickerList() {
+  const now = Date.now()
+  if (stickerCache.data && (now - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+    return stickerCache.data
+  }
+  try {
+    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+      headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+    })
+    if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+    const raw = await upstream.json()
+
+    const nowDate = new Date(now)
+    const list = []
+    ;(raw.categories || []).forEach(cat => {
+      // 주의: 카테고리 레벨의 is_used는 스푼 API에서 실제 노출 여부와 무관하게 거의 항상 false로 내려오므로
+      // 이 값으로 카테고리 전체를 거르면 안 된다. 개별 스티커의 is_used만 기준으로 삼는다.
+      ;(cat.stickers || []).forEach(s => {
+        if (s.is_used === false) return
+        if (!s.name) return
+        // 현재 판매 기간(start_date ~ end_date) 안에 있는 스티커만 노출 — 종료된 이벤트 스티커 제외
+        if (s.start_date) {
+          const start = new Date(s.start_date)
+          if (!isNaN(start) && start > nowDate) return
+        }
+        if (s.end_date) {
+          const end = new Date(s.end_date)
+          if (!isNaN(end) && end < nowDate) return
+        }
+        list.push({
+          name: s.name,
+          title: s.title || s.name,
+          // 🖼️ [수정] 썸네일(image_thumbnail_web 등)을 우선으로 쓰면, 스티커에 따라 실제 채팅에 뜨는
+          // 컬러 이미지가 아니라 단순 흑백 윤곽선(placeholder) 아이콘이 내려오는 경우가 있었다
+          // (예: 우유 선물). 실제 스푼 채팅/박제판과 똑같이 보이도록 원본 화질(image_url_web)을
+          // 최우선으로 쓰고, 그게 없을 때만 썸네일로 대체한다.
+          image: s.image_url_web || s.image_thumbnail_web || s.image_thumbnail || '',
+          price: s.price || 0,
+          category: cat.title || cat.name || ''
+        })
+      })
+    })
+    // 같은 name이 여러 카테고리에 중복 등록된 경우 대비, name 기준 중복 제거
+    const dedup = new Map()
+    list.forEach(s => dedup.set(s.name, s))
+    const stickers = Array.from(dedup.values())
+
+    stickerCache = { data: stickers, fetchedAt: now }
+    return stickers
+  } catch (e) {
+    console.log('[스티커 목록 조회 오류]', e.message)
+    // 실패해도 이전에 캐시된 값이 있으면 그거라도 내려준다.
+    return stickerCache.data || []
+  }
+}
+
+// 선물 이벤트로 들어온 스티커 이름으로 실제 이미지 URL을 찾는다. (이름이 정확히 안 맞아도 부분일치까지 시도)
+async function findStickerImage(stickerName) {
+  const name = String(stickerName || '').trim()
+  if (!name) return ''
+  try {
+    const list = await getStickerList()
+    const target = name.toLowerCase()
+    const found = list.find(s => String(s.name).toLowerCase() === target || String(s.title).toLowerCase() === target)
+      || list.find(s => String(s.name).toLowerCase().includes(target) || target.includes(String(s.name).toLowerCase()))
+    return found ? found.image : ''
+  } catch (e) {
+    return ''
+  }
+}
+
+// 🎬 선물캡처판 전용 — 스티커 이름으로 "정지 이미지 + 애니메이션(lottie) URL"을 같이 찾는다.
+// 스푼 원본 데이터에만 lottie_url 필드가 있어서(요약 목록엔 없음), 박제 하기 페이지가 쓰는
+// 원본 캐시(getTrophyEditorStickerData)를 그대로 재사용한다. 애니메이션이 없는 스티커면
+// lottieUrl은 빈 문자열로 내려가고, 그럴 땐 호출하는 쪽에서 정지 이미지로만 대체해서 보여주면 된다.
+async function findStickerAnim(stickerName) {
+  const name = String(stickerName || '').trim()
+  if (!name) return { image: '', lottieUrl: '' }
+  try {
+    const raw = await getTrophyEditorStickerData()
+    const target = name.toLowerCase()
+    let found = null
+    for (const cat of (raw.categories || [])) {
+      for (const s of (cat.stickers || [])) {
+        const sName = String(s.name || '').toLowerCase()
+        const sTitle = String(s.title || '').toLowerCase()
+        if (sName === target || sTitle === target) { found = s; break }
+      }
+      if (found) break
+    }
+    if (!found) {
+      for (const cat of (raw.categories || [])) {
+        found = (cat.stickers || []).find(s => String(s.name || '').toLowerCase().includes(target) || target.includes(String(s.name || '').toLowerCase()))
+        if (found) break
+      }
+    }
+    if (!found) return { image: '', lottieUrl: '' }
+    return {
+      // 🖼️ 캡처 화질을 위해 원본 화질 이미지(image_url_web)를 우선으로 쓰고, 없을 때만 축소판(썸네일)로 대체한다.
+      image: found.image_url_web || found.image_thumbnail_web || found.image_thumbnail || '',
+      lottieUrl: found.lottie_url || '',
+    }
+  } catch (e) {
+    return { image: '', lottieUrl: '' }
+  }
+}
+
+app.get('/stickers', async (req, res) => {
+  try {
+    const wasCached = !!(stickerCache.data && (Date.now() - stickerCache.fetchedAt) < STICKER_CACHE_TTL_MS)
+    const stickers = await getStickerList()
+    if (!stickers.length && !stickerCache.data) {
+      return res.status(502).json({ success: false, error: '스티커 목록을 가져오지 못했어요' })
+    }
+    res.json({ success: true, cached: wasCached, stickers })
+  } catch (e) {
+    console.log('[스티커 목록 조회 오류]', e.message)
+    if (stickerCache.data) {
+      return res.json({ success: true, cached: true, stale: true, stickers: stickerCache.data })
+    }
+    res.status(502).json({ success: false, error: '스티커 목록을 가져오지 못했어요: ' + e.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════
+// 계정 (디제이별 가입/로그인)
+// 🎵 입장인사/지정인사 등에 첨부하는 음원 파일 업로드. base64 data URL을 받아서 Volume에 실제
+// 파일로 저장하고, 설정에는 이 URL 경로만 저장하게 한다 (djs.json이 커지는 걸 막기 위함).
+app.post('/sounds/upload', auth.requireAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  if (!m[1].startsWith('audio/')) return res.json({ success: false, error: '오디오 파일만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 1024 * 1024) return res.json({ success: false, error: '1MB 이하 파일만 업로드할 수 있어요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1] : 'mp3'
+  const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(SOUNDS_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/sounds/${name}`, filename: String(filename || name) })
+})
+// 더 이상 안 쓰는 음원 파일 삭제(첨부 제거/교체 시 호출). 본인이 올린 파일만 지울 수 있다.
+app.post('/sounds/delete', auth.requireAuth, (req, res) => {
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/sounds/')) return res.json({ success: true })
+  const name = path.basename(url)
+  if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true }) // 남의 파일은 조용히 무시
+  try { fs.unlinkSync(path.join(SOUNDS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// 🖼️ 박제판 배경 등에 쓰는 이미지 업로드 (base64 → Volume 파일 저장, sounds/upload와 동일한 방식)
+app.post('/images/upload', auth.requireAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  if (!m[1].startsWith('image/')) return res.json({ success: false, error: '이미지 파일만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 60 * 1024 * 1024) return res.json({ success: false, error: '60MB 이하 이미지만 업로드할 수 있어요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1] : 'png'
+  const name = `${req.djId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(IMAGES_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/images/${name}`, filename: String(filename || name) })
+})
+app.post('/images/delete', auth.requireAuth, (req, res) => {
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/images/')) return res.json({ success: true })
+  const name = path.basename(url)
+  if (!name.startsWith(`${req.djId}_`)) return res.json({ success: true })
+  try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// 🖼️ 선물카드 갤러리 — 이미지 프록시. 스푼 CDN 이미지를 그대로 <img src>에 쓰면 크로스오리진이라
+// html2canvas로 카드를 캡처(다운로드)할 때 그 이미지만 빈 채로 그려지는 문제가 있었다. 우리 서버를
+// 한 번 거치게 해서 같은 도메인(same-origin)으로 보이게 만들면 캡처가 정상적으로 된다.
+// SSRF 방지를 위해 스푼 CDN 도메인만 허용한다. 로그인 없이도 <img> 태그에서 바로 쓸 수 있어야 하므로
+// auth 없이 열어두되(이미지 프록시라 민감정보 없음), 허용 도메인 화이트리스트로 오용을 막는다.
+const GIFT_IMAGE_PROXY_ALLOWED_HOSTS = ['kr-cdn.spooncast.net', 'cdn.spooncast.net', 'static.spooncast.net']
+app.get('/giftgallery/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!GIFT_IMAGE_PROXY_ALLOWED_HOSTS.includes(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw)
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
+})
+
+// 🎁 선물카드 갤러리 — 설정 조회/저장 + 개별삭제/전체삭제
+app.get('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getGiftGallerySettings(req.djId, settings) })
+})
+app.post('/giftgallery/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { avatarShape, cardShape, avatarMode, spoonColor } = req.body || {}
+  if (avatarShape === 'square' || avatarShape === 'circle') gallery.avatarShape = avatarShape
+  if (['rect', 'pill', 'none'].includes(cardShape)) gallery.cardShape = cardShape
+  if (avatarMode === 'senderOnly' || avatarMode === 'both') gallery.avatarMode = avatarMode
+  if (/^#[0-9a-fA-F]{6}$/.test(spoonColor || '')) gallery.spoonColor = spoonColor
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/delete-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id } = req.body || {}
+  gallery.items = gallery.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+// 🖊️ 카드에 표시되는 닉네임을 DJ가 직접 수정 — 원본 닉네임은 origAuthor에 남겨두고 표시용 author만 바꾼다.
+app.post('/giftgallery/update-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  const { id, author } = req.body || {}
+  const nickname = String(author || '').trim()
+  if (!nickname) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const item = gallery.items.find(it => it.id === id)
+  if (!item) return res.json({ success: false, error: '카드를 찾을 수 없어요' })
+  if (item.origAuthor == null) item.origAuthor = item.author // 최초 수정 시점에만 원본 보존
+  item.author = nickname
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  gallery.items = []
+  store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, settings: gallery })
+})
+// 🔄 이미 저장된 카드들의 스티커 이미지를 최신 우선순위(image_url_web 우선)로 다시 찾아서 갱신한다.
+// 코드만 고쳐서는 이미 저장된 항목의 stickerImage URL이 자동으로 안 바뀌기 때문에 필요한 일회성 작업.
+app.post('/giftgallery/refresh-sticker-images', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftgallery', req.djId)) return res.json({ success: false, error: '선물카드 갤러리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gallery = getGiftGallerySettings(req.djId, settings)
+  let changed = 0
+  for (const it of gallery.items) {
+    if (!it.sticker) continue
+    try {
+      const fresh = await findStickerImage(it.sticker)
+      if (fresh && fresh !== it.stickerImage) { it.stickerImage = fresh; changed++ }
+    } catch (e) {}
+  }
+  if (changed) store.saveSettings(req.djId, { giftGallery: gallery })
+  res.json({ success: true, changed, settings: gallery })
+})
+
+// 🎨 박제 하기 — 스티커+텍스트+이모지로 직접 콜라주를 만드는 독립 페이지. 로그인 여부와 무관하게
+// 정적 화면만 내려주고, 완성본은 서버에 저장하지 않고 그 자리에서 바로 다운로드한다.
+app.get('/trophy-editor', (req, res) => {
+  res.sendFile(__dirname + '/public/trophy-editor.html')
+})
+
+// 🎨 박제 하기 — 스티커 원본 목록(카테고리 트리 그대로). 브라우저에서 스푼 CDN으로 직접
+// fetch하면 CORS로 막히기 때문에(기존 /stickers 프록시가 이미 이 문제 때문에 존재함), 이 페이지
+// 전용으로 원본 구조를 그대로 캐시해서 내려주는 프록시를 하나 더 둔다 (카테고리/lottie_url/
+// image_url_web 등 원본 필드가 그대로 필요해서 기존 /stickers의 단순화된 목록으로는 부족함).
+let trophyEditorStickerCache = { data: null, fetchedAt: 0 }
+async function getTrophyEditorStickerData() {
+  const now = Date.now()
+  if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
+    return trophyEditorStickerCache.data
+  }
+  const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+    headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
+  })
+  if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
+  const raw = await upstream.json()
+  // 🎯 룰렛 스티커 선택창과 동일한 기준으로, 지금 실제 판매 중인 스티커만 남긴다
+  // (개별 스티커의 is_used=false 제외 + start_date~end_date 판매기간 벗어난 것 제외).
+  const nowDate = new Date(now)
+  const filtered = {
+    ...raw,
+    categories: (raw.categories || []).map(cat => ({
+      ...cat,
+      stickers: (cat.stickers || []).filter(s => {
+        if (s.is_used === false) return false
+        if (s.start_date) { const d = new Date(s.start_date); if (!isNaN(d) && d > nowDate) return false }
+        if (s.end_date) { const d = new Date(s.end_date); if (!isNaN(d) && d < nowDate) return false }
+        return true
+      })
+    })).filter(cat => cat.stickers.length > 0)
+  }
+  trophyEditorStickerCache = { data: filtered, fetchedAt: now }
+  return filtered
+}
+app.get('/trophy-editor/stickers', async (req, res) => {
+  try {
+    const data = await getTrophyEditorStickerData()
+    res.json(data)
+  } catch (e) {
+    if (trophyEditorStickerCache.data) return res.json(trophyEditorStickerCache.data)
+    res.status(502).json({ categories: [] })
+  }
+})
+
+// 🎨 박제 하기 — 스티커 이미지 프록시. 브라우저가 스푼 CDN 이미지를 직접 fetch(mode:'cors')하면
+// 막히는 경우가 있어서, 우리 서버를 거치게 한다. *.spooncast.net 서브도메인만 허용.
+app.get('/trophy-editor/image-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
+    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA } })
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '이미지를 불러오지 못했어요' })
+  }
+})
+
+app.get('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getTrophyBoardSettings(req.djId, settings) })
+})
+app.post('/trophyboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.djId)) return res.json({ success: false, error: '박제판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const prevBgImageUrl = board.bgImageUrl
+  const { enabled, title, bgImageUrl, columns, rows, cellSize, gridLeft, gridTop, slots } = req.body || {}
+  if (enabled != null) board.enabled = !!enabled
+  if (title != null) board.title = String(title).trim() || '박제판'
+  if (bgImageUrl != null) board.bgImageUrl = String(bgImageUrl)
+  if (columns != null) board.columns = Math.max(1, Math.min(12, parseInt(columns, 10) || 4))
+  if (rows != null) board.rows = Math.max(1, Math.min(20, parseInt(rows, 10) || 4))
+  if (cellSize != null) board.cellSize = Math.max(2, Math.min(50, Number(cellSize) || 12))
+  if (gridLeft != null) board.gridLeft = Math.max(0, Math.min(95, Number(gridLeft) || 0))
+  if (gridTop != null) board.gridTop = Math.max(0, Math.min(95, Number(gridTop) || 0))
+  if (Array.isArray(slots)) {
+    // 기존 칸(이미 서버에 저장된 적 있는 칸)의 holder(닉네임 기록)는 실시간 선물 이벤트로
+    // 방금 채워졌을 수도 있으니 보존한다. 반면 이번에 "처음" 생기는 칸은 서버에 보존할 값이
+    // 없으므로, DJ가 그 자리에서 직접 입력해둔 닉네임(있다면)을 그대로 살려서 저장한다.
+    const prevById = {}
+    board.slots.forEach(s => { prevById[s.id] = s })
+    board.slots = slots.map((s, i) => {
+      // 프론트에서 새 칸에 임시로 붙이는 id는 'new'로 시작한다 — 그 상태로 영구 저장되면
+      // 다음 요청부터 "이미 저장된 칸"인지 프론트가 구분을 못 해서 닉네임 수정이 계속 씹힌다.
+      // 그래서 저장 시점에 진짜 서버 id로 한 번 바꿔준다.
+      const isNew = !s.id || String(s.id).startsWith('new')
+      const prev = !isNew ? prevById[s.id] : null
+      return {
+        id: isNew ? ('slot' + Date.now() + Math.floor(Math.random() * 1000) + i) : s.id,
+        giftName: String(s.giftName || '').trim(),
+        giftImage: String(s.giftImage || ''),
+        row: s.row != null ? Math.max(1, parseInt(s.row, 10) || 1) : null,
+        col: s.col != null ? Math.max(1, parseInt(s.col, 10) || 1) : null,
+        holderNickname: prev ? (prev.holderNickname || '') : String(s.holderNickname || '').trim(),
+        holderTag: prev ? (prev.holderTag || '') : '',
+        holderAt: prev ? (prev.holderAt || null) : (String(s.holderNickname || '').trim() ? Date.now() : null),
+      }
+    })
+  }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 디스크에 고아로 계속 쌓이는 걸 막기 위해 자동 삭제한다.
+  if (prevBgImageUrl && prevBgImageUrl !== board.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
+    const name = path.basename(prevBgImageUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true, settings: board })
+})
+// 🧹 지금까지 쌓인 고아 이미지 파일(더 이상 어디서도 안 쓰는 배경 이미지)을 한 번에 정리.
+// 오늘 이전에 이미 쌓여있던 예전 파일들을 청소할 때 쓴다 (이후로는 위 저장 로직이 자동으로 정리해줌).
+app.post('/images/cleanup', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const inUse = new Set()
+  const board = settings.trophyBoard
+  if (board && board.bgImageUrl) inUse.add(board.bgImageUrl)
+  const gc = settings.giftCapture
+  if (gc && gc.bgImageUrl) inUse.add(gc.bgImageUrl) // 🎬 선물캡처판 배경도 정리 대상에서 제외
+  const cs = settings.chuseokEvent
+  if (cs && cs.posterImageUrl) inUse.add(cs.posterImageUrl) // 🎑 추석이벤트 포스터도 정리 대상에서 제외
+  const ann = store.getAnnouncement()
+  if (ann && ann.imageUrl) inUse.add(ann.imageUrl) // 📢 공지 팝업 이미지도 정리 대상에서 제외 (sum 계정 기준)
+  let deletedCount = 0
+  let freedBytes = 0
+  try {
+    const files = fs.readdirSync(IMAGES_DIR).filter(f => f.startsWith(`${req.djId}_`))
+    files.forEach(f => {
+      const url = `/images/${f}`
+      if (!inUse.has(url)) {
+        try {
+          const full = path.join(IMAGES_DIR, f)
+          const stat = fs.statSync(full)
+          fs.unlinkSync(full)
+          deletedCount++
+          freedBytes += stat.size
+        } catch (e) { /* 개별 파일 실패는 건너뜀 */ }
+      }
+    })
+  } catch (e) {
+    return res.json({ success: false, error: e.message })
+  }
+  res.json({ success: true, deletedCount, freedMB: Math.round(freedBytes / 1024 / 1024 * 10) / 10 })
+})
+
+// ── 🎬 선물 애니메이션 캡처판 ──
+app.get('/giftcapture/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getGiftCaptureSettings(req.djId, settings) })
+})
+// 배경 이미지만 저장 (선물 목록은 실시간 훅에서 자동으로 쌓이므로 여기선 안 건드림)
+const GIFT_CAPTURE_ALLOWED_RATIOS = ['1:1', '3:4', '9:16', '2:3', '3:5', '4:5']
+app.post('/giftcapture/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  const prevBgImageUrl = gc.bgImageUrl
+  const { bgImageUrl, aspectRatio } = req.body || {}
+  if (bgImageUrl != null) {
+    gc.bgImageUrl = String(bgImageUrl)
+    // 🧹 배경을 새로 등록/변경한 시점을 기록 — 하루(24시간) 지나면 자동 삭제하는 데 쓰임
+    gc.bgImageSetAt = gc.bgImageUrl ? Date.now() : null
+  }
+  if (aspectRatio != null) {
+    if (!GIFT_CAPTURE_ALLOWED_RATIOS.includes(aspectRatio)) {
+      return res.json({ success: false, error: '지원하지 않는 비율이에요' })
+    }
+    gc.aspectRatio = aspectRatio
+  }
+  store.saveSettings(req.djId, { giftCapture: gc })
+  // 🧹 배경 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
+  if (prevBgImageUrl && prevBgImageUrl !== gc.bgImageUrl && prevBgImageUrl.startsWith('/images/')) {
+    const name = path.basename(prevBgImageUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
+  res.json({ success: true, settings: gc })
+})
+app.post('/giftcapture/delete-item', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  const { id } = req.body || {}
+  const before = gc.items.length
+  gc.items = gc.items.filter(it => it.id !== id)
+  if (gc.items.length === before) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+  store.saveSettings(req.djId, { giftCapture: gc })
+  res.json({ success: true })
+})
+app.post('/giftcapture/clear', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const gc = getGiftCaptureSettings(req.djId, settings)
+  gc.items = []
+  store.saveSettings(req.djId, { giftCapture: gc })
+  res.json({ success: true })
+})
+// 🧪 실제 선물 없이도 테스트할 수 있게, 기본 선물(비행기)을 하나 받은 것처럼 흉내낸다.
+app.post('/giftcapture/test-gift', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'giftcapture', req.djId)) return res.json({ success: false, error: '선물캡처판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const stickerName = String((req.body || {}).sticker || '비행기').trim()
+  const result = await handleGiftCaptureHook(req.djId, settings, '테스트유저', '', stickerName, 1)
+  if (result && result.reason === 'no_animation') return res.json({ success: false, error: `"${stickerName}"은 애니메이션이 없는 선물이라 기록되지 않았어요. 다른 선물로 시도해보세요.` })
+  res.json({ success: true })
+})
+
+// ── 🎑 추석 팀배틀 이벤트 ──
+app.get('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  res.json({ success: true, settings: { ...ev, members: Object.entries(ev.members).map(([key, m]) => ({ key, ...m })) } })
+})
+app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const ev = getChuseokSettings(req.djId, settings)
+  const prevPosterUrl = ev.posterImageUrl
+  const { title, active, currentRound, rounds, posterImageUrl, minSpoons, cmdRoundPrefix } = req.body || {}
+  if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
+  if (active != null) ev.active = !!active
+  if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
+  if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
+  // 🔧 "!추석1/2/3" 명령어의 앞부분 — 공백/느낌표 없이 순수 텍스트만 허용(명령어 파싱과 어긋나지 않게)
+  if (cmdRoundPrefix != null) {
+    const cleaned = String(cmdRoundPrefix).trim().replace(/^!/, '').replace(/\s+/g, '')
+    ev.cmdRoundPrefix = cleaned || '추석'
+  }
+  // 🆕 라운드 개수를 3개로 고정하지 않고 1~20개 사이에서 DJ가 자유롭게 추가/삭제할 수 있다.
+  //    (라운드가 하나도 없으면 이벤트 자체가 성립하지 않으니 최소 1개는 유지, 너무 많이 늘리는 실수를 막기 위해 20개로 상한)
+  if (Array.isArray(rounds) && rounds.length >= 1 && rounds.length <= 20) {
+    ev.rounds = rounds.map((r, i) => ({
+      teamA: String((r && r.teamA) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamA : `A팀${i + 1}`),
+      teamB: String((r && r.teamB) || '').trim() || (ev.rounds[i] ? ev.rounds[i].teamB : `B팀${i + 1}`),
+    }))
+  }
+  // currentRound는 라운드 배열이 갱신된 뒤(위) 그 길이에 맞춰 정해야 한다 — 라운드를 줄였는데
+  // 지금 라운드가 그보다 크면(예: 5라운드 진행 중에 3개로 줄이면) 마지막 라운드로 자동 보정한다.
+  if (currentRound != null) ev.currentRound = Math.max(1, Math.min(ev.rounds.length, parseInt(currentRound, 10) || 1))
+  else if (ev.currentRound > ev.rounds.length) ev.currentRound = ev.rounds.length
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  // 🧹 포스터 이미지를 새로 바꾼 경우, 예전 이미지 파일이 고아로 남지 않게 자동 삭제
+  if (prevPosterUrl && prevPosterUrl !== ev.posterImageUrl && prevPosterUrl.startsWith('/images/')) {
+    const name = path.basename(prevPosterUrl)
+    if (name.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(IMAGES_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ } }
+  }
+  res.json({ success: true, settings: ev })
+})
+// 유저를 특정 라운드/팀에 (DJ가) 수동으로 추가/이동. 같은 라운드로 다시 지정하면 점수는 유지, 다른 라운드/새 유저면 0점부터.
+app.post('/chuseok/add-member', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { nickname, tag, round, team } = req.body || {}
+  const nick = String(nickname || '').trim()
+  if (!nick) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const roundNum = Math.max(1, Math.min(ev.rounds.length, parseInt(round, 10) || 1))
+  const side = team === 'B' ? 'B' : 'A'
+  const key = chuseokMemberKey(roundNum, nick, tag) // 라운드가 포함된 키라, 다른 라운드로 옮겨도 그 라운드의 기존 기록은 그대로 남는다
+  const existing = ev.members[key]
+  const keepScore = existing ? existing.score : 0
+  ev.members[key] = { nickname: nick, tag: String(tag || '').trim(), round: roundNum, team: side, score: keepScore, joinedAt: Date.now() }
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true })
+})
+app.post('/chuseok/remove-member', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { key } = req.body || {}
+  if (!ev.members[key]) return res.json({ success: false, error: '참가자를 찾을 수 없어요' })
+  delete ev.members[key]
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true })
+})
+// 점수 직접 수정 — 실드/룰렛 등으로 자동 발생한 선물처럼, 이벤트 참여 의도가 아닌 스푼이 잘못 집계됐을 때 보정용.
+app.post('/chuseok/adjust-score', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const { key, delta, setScore } = req.body || {}
+  const member = ev.members[key]
+  if (!member) return res.json({ success: false, error: '참가자를 찾을 수 없어요' })
+  if (setScore != null) member.score = Math.max(0, Number(setScore) || 0)
+  else if (delta != null) member.score = Math.max(0, (Number(member.score) || 0) + Number(delta))
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true, score: member.score })
+})
+
+// 🎬 애니메이션 재생 팝업 페이지 — 별도 창(window.open)으로 열려서, 그 선물의 실제 애니메이션을
+// (배경 이미지가 있으면 그 위에, 없으면 검정 배경에) 크게 재생한다. 로그인 없이 djId+itemId만으로
+// 열리는 공개 페이지라(박제판 공개 링크와 같은 신뢰 모델), 노출돼도 괜찮은 정보만 내려준다.
+app.get('/giftcapture-popup', (req, res) => {
+  res.sendFile(__dirname + '/public/giftcapture-popup.html')
+})
+app.get('/giftcapture/popup-data', async (req, res) => {
+  try {
+    const djId = String(req.query.djId || '').trim()
+    const itemId = String(req.query.itemId || '').trim()
+    if (!djId || !itemId) return res.json({ success: false, error: '잘못된 요청이에요' })
+    const settings = store.getSettings(djId) || {}
+    const gc = getGiftCaptureSettings(djId, settings)
+    const item = gc.items.find(it => it.id === itemId)
+    if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+    res.json({ success: true, bgImageUrl: gc.bgImageUrl, aspectRatio: gc.aspectRatio || '9:16', item })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+// 🎬 선물캡처판 전용 — 스푼 CDN의 lottie 애니메이션 JSON을 브라우저가 직접 fetch하면 CORS로
+// 막히는 경우가 있어서, 이미지 프록시와 같은 방식으로 우리 서버를 거치게 한다. *.spooncast.net만 허용.
+app.get('/giftcapture/lottie-proxy', async (req, res) => {
+  try {
+    const raw = String(req.query.url || '')
+    const parsed = new URL(raw)
+    if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 주소예요' })
+    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
+    if (!upstream.ok) return res.status(upstream.status).end()
+    res.set('Content-Type', 'application/json')
+    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Access-Control-Allow-Origin', '*')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    res.status(400).json({ success: false, error: '애니메이션을 불러오지 못했어요' })
+  }
+})
+
+// 🐾 몬스터 잡기 — 설정 조회/저장 + 도감(수집 현황) 조회
+app.get('/monstercatch/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: mcConfigOnly(getMonsterCatchSettings(req.djId, settings)) })
+})
+app.post('/monstercatch/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', req.djId)) return res.json({ success: false, error: '몬스터 잡기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mc = getMonsterCatchSettings(req.djId, settings)
+  const { enabled, spawnIntervalMin, catchWindowSec, catchMode, cmdCatch, cmdDex, cmdRanking, spawnMsg, legendarySpawnMsg, catchSuccessMsg, catchFailMsg, despawnMsg, monsters,
+    cmdStart, cmdBag, cmdBuyBall, startBalls, buyPrice, chatBallChance, giftBallChance, giftBallCount, chatCountThreshold, chatCountReward, greatBallBonus, shop,
+    msgStart, msgAlreadyStarted, msgBag, msgNoBalls, msgNoAdventure, msgBuySuccess, msgBuyFail, msgChatBall, msgChatCountBall, msgGiftBall,
+    cmdEvolve, autoEvolve, msgEvolveUsage, msgEvolveNotFound, msgEvolveNoTarget, msgEvolveFail, msgEvolveSuccess, msgAutoEvolve,
+    bossEnabled, bossIntervalMin, bossJoinWindowSec, bossMonsterName, bossPower, cmdBossJoin, msgBossSpawn, msgBossJoin, msgBossAlreadyJoined, msgBossNoMonsters, msgBossNoActive, msgBossNoParticipants, msgBossFail, msgBossResult,
+    cmdBossRoll, bossRollWindowSec, msgBossRollPrompt, msgBossRollResult, msgBossRollAlready, msgBossRollNotParticipant, msgBossRollNoOne,
+    dungeons, dungeonMinParty, dungeonMaxParty, dungeonMonstersPerMember, dungeonCooldownSec } = req.body || {}
+  if (enabled != null) mc.enabled = !!enabled
+  if (spawnIntervalMin != null) mc.spawnIntervalMin = Math.max(1, Math.min(180, parseInt(spawnIntervalMin, 10) || 5))
+  if (catchWindowSec != null) mc.catchWindowSec = Math.max(5, Math.min(600, parseInt(catchWindowSec, 10) || 60))
+  if (catchMode === 'first' || catchMode === 'all') mc.catchMode = catchMode
+  if (cmdCatch != null) mc.cmdCatch = String(cmdCatch).trim() || '!잡기'
+  if (cmdDex != null) mc.cmdDex = String(cmdDex).trim() || '!도감'
+  if (cmdRanking != null) mc.cmdRanking = String(cmdRanking).trim() || '!랭킹'
+  if (spawnMsg != null) mc.spawnMsg = spawnMsg
+  if (legendarySpawnMsg != null) mc.legendarySpawnMsg = legendarySpawnMsg
+  if (catchSuccessMsg != null) mc.catchSuccessMsg = catchSuccessMsg
+  if (catchFailMsg != null) mc.catchFailMsg = catchFailMsg
+  if (despawnMsg != null) mc.despawnMsg = despawnMsg
+  if (cmdStart != null) mc.cmdStart = String(cmdStart).trim() || '!모험시작'
+  if (cmdBag != null) mc.cmdBag = String(cmdBag).trim() || '!포획볼'
+  if (cmdBuyBall != null) mc.cmdBuyBall = String(cmdBuyBall).trim() || '!포획볼구매'
+  if (startBalls != null) mc.startBalls = Math.max(0, Math.min(999, parseInt(startBalls, 10) || 5))
+  if (buyPrice != null) mc.buyPrice = Math.max(1, Math.min(9999, parseInt(buyPrice, 10) || 10))
+  if (chatBallChance != null) {
+    mc.chatBallChance = Math.max(0, Math.min(100, Number(chatBallChance) || 0))
+    console.log(`[몬스터잡기][${req.djId}] 저장 요청 받은 chatBallChance=${JSON.stringify(chatBallChance)} → 실제 저장값=${mc.chatBallChance}`)
+  }
+  if (giftBallChance != null) mc.giftBallChance = Math.max(0, Math.min(100, Number(giftBallChance) || 0))
+  if (giftBallCount != null) mc.giftBallCount = Math.max(1, Math.min(99, parseInt(giftBallCount, 10) || 1))
+  if (chatCountThreshold != null) mc.chatCountThreshold = Math.max(1, Math.min(999, parseInt(chatCountThreshold, 10) || 5))
+  if (chatCountReward != null) mc.chatCountReward = Math.max(1, Math.min(999, parseInt(chatCountReward, 10) || 1))
+  if (greatBallBonus != null) mc.greatBallBonus = Math.max(0, Math.min(100, Number(greatBallBonus) || 0))
+  if (shop && typeof shop === 'object') {
+    if (!mc.shop || typeof mc.shop !== 'object') mc.shop = {}
+    if (shop.cmdShop != null) mc.shop.cmdShop = String(shop.cmdShop).trim() || '!상점'
+    if (shop.msgShopList != null) mc.shop.msgShopList = shop.msgShopList
+    if (shop.msgBuyBall != null) mc.shop.msgBuyBall = shop.msgBuyBall
+    if (shop.msgBuyGreatBall != null) mc.shop.msgBuyGreatBall = shop.msgBuyGreatBall
+    if (shop.msgBuyBox != null) mc.shop.msgBuyBox = shop.msgBuyBox
+    if (Array.isArray(shop.items)) {
+      mc.shop.items = shop.items.map((it, i) => ({
+        id: it.id && !String(it.id).startsWith('new') ? it.id : ('shopitem' + Date.now() + Math.floor(Math.random() * 1000) + i),
+        name: String(it.name || '').trim().slice(0, 40) || '아이템',
+        kind: ['ball', 'greatball', 'box'].includes(it.kind) ? it.kind : 'ball',
+        triggerMode: it.triggerMode === 'amount' ? 'amount' : 'sticker',
+        triggerSticker: String(it.triggerSticker || '').trim().slice(0, 60),
+        triggerAmount: Math.max(0, Math.min(999999, parseInt(it.triggerAmount, 10) || 0)),
+        payout: ['exact', 'combo', 'distribute'].includes(it.payout) ? it.payout : 'combo',
+        thresholdCount: Math.max(1, Math.min(999, parseInt(it.thresholdCount, 10) || 1)),
+        grantCount: Math.max(1, Math.min(999, parseInt(it.grantCount, 10) || 1)),
+      }))
+    }
+  }
+  if (msgStart != null) mc.msgStart = msgStart
+  if (msgAlreadyStarted != null) mc.msgAlreadyStarted = msgAlreadyStarted
+  if (msgBag != null) mc.msgBag = msgBag
+  if (msgNoBalls != null) mc.msgNoBalls = msgNoBalls
+  if (msgNoAdventure != null) mc.msgNoAdventure = msgNoAdventure
+  if (msgBuySuccess != null) mc.msgBuySuccess = msgBuySuccess
+  if (msgBuyFail != null) mc.msgBuyFail = msgBuyFail
+  if (msgChatBall != null) mc.msgChatBall = msgChatBall
+  if (msgChatCountBall != null) mc.msgChatCountBall = msgChatCountBall
+  if (msgGiftBall != null) mc.msgGiftBall = msgGiftBall
+  if (req.body && req.body.cmdBattle != null) mc.cmdBattle = String(req.body.cmdBattle).trim() || '!대결'
+  if (req.body && req.body.msgBattleUsage != null) mc.msgBattleUsage = req.body.msgBattleUsage
+  if (req.body && req.body.msgBattleSelfError != null) mc.msgBattleSelfError = req.body.msgBattleSelfError
+  if (req.body && req.body.msgBattleNoMonsters != null) mc.msgBattleNoMonsters = req.body.msgBattleNoMonsters
+  if (req.body && req.body.msgBattleTargetNoMonsters != null) mc.msgBattleTargetNoMonsters = req.body.msgBattleTargetNoMonsters
+  if (req.body && req.body.msgBattleResult != null) mc.msgBattleResult = req.body.msgBattleResult
+  if (req.body && req.body.battleWinPoints != null) mc.battleWinPoints = Math.max(0, Math.min(9999, parseInt(req.body.battleWinPoints, 10) || 0))
+  if (req.body && req.body.battleCooldownSec != null) mc.battleCooldownSec = Math.max(0, Math.min(3600, parseInt(req.body.battleCooldownSec, 10) || 0))
+  if (req.body && req.body.msgBattleCooldown != null) mc.msgBattleCooldown = req.body.msgBattleCooldown
+  if (cmdEvolve != null) mc.cmdEvolve = String(cmdEvolve).trim() || '!진화'
+  if (autoEvolve != null) mc.autoEvolve = !!autoEvolve
+  if (msgEvolveUsage != null) mc.msgEvolveUsage = msgEvolveUsage
+  if (msgEvolveNotFound != null) mc.msgEvolveNotFound = msgEvolveNotFound
+  if (msgEvolveNoTarget != null) mc.msgEvolveNoTarget = msgEvolveNoTarget
+  if (msgEvolveFail != null) mc.msgEvolveFail = msgEvolveFail
+  if (msgEvolveSuccess != null) mc.msgEvolveSuccess = msgEvolveSuccess
+  if (msgAutoEvolve != null) mc.msgAutoEvolve = msgAutoEvolve
+  let dungeonBossUpdateBlocked = false
+  if (mc._globalDungeonBossActive) {
+    // ⚠️ 관리자가 던전/보스를 통합 관리 중이면, 이 디제이가 보낸 던전/보스 관련 "설정값" 변경은
+    // 무시한다 (멘트 문구는 디제이별로 계속 커스텀 가능하게 그대로 저장돼요).
+    if (bossEnabled != null || bossMonsterName != null || bossPower != null || bossIntervalMin != null || bossJoinWindowSec != null || cmdBossJoin != null || cmdBossRoll != null || bossRollWindowSec != null || dungeons != null || dungeonMinParty != null || dungeonMaxParty != null || dungeonMonstersPerMember != null || dungeonCooldownSec != null) {
+      dungeonBossUpdateBlocked = true
+    }
+  } else {
+    if (bossEnabled != null) mc.bossEnabled = !!bossEnabled
+    if (bossMonsterName != null) mc.bossMonsterName = String(bossMonsterName).trim() || '풀잎'
+    if (bossPower != null) mc.bossPower = Math.max(1, Math.min(1000000, parseInt(bossPower, 10) || 100))
+    if (bossIntervalMin != null) mc.bossIntervalMin = Math.max(1, Math.min(720, parseInt(bossIntervalMin, 10) || 60))
+    if (bossJoinWindowSec != null) mc.bossJoinWindowSec = Math.max(10, Math.min(1800, parseInt(bossJoinWindowSec, 10) || 90))
+    if (cmdBossJoin != null) mc.cmdBossJoin = String(cmdBossJoin).trim() || '!참여'
+    if (cmdBossRoll != null) mc.cmdBossRoll = String(cmdBossRoll).trim() || '!주사위'
+    if (bossRollWindowSec != null) mc.bossRollWindowSec = Math.max(5, Math.min(600, parseInt(bossRollWindowSec, 10) || 30))
+    if (Array.isArray(dungeons)) {
+      mc.dungeons = dungeons.map((d, i) => ({
+        id: d.id && !String(d.id).startsWith('new') ? d.id : ('dg' + Date.now() + Math.floor(Math.random() * 1000) + i),
+        name: String(d.name || '').trim().slice(0, 40) || `던전 ${i + 1}`,
+        floors: Array.isArray(d.floors) ? d.floors.map(f => ({ monsterId: String(f.monsterId || '') })).filter(f => f.monsterId) : [],
+        rewardPoints: Math.max(0, Math.min(999999, parseInt(d.rewardPoints, 10) || 0)),
+      }))
+    }
+    if (dungeonMinParty != null || dungeonMaxParty != null) {
+      let minP = Math.max(1, Math.min(8, parseInt(dungeonMinParty, 10) || 2))
+      let maxP = Math.max(1, Math.min(8, parseInt(dungeonMaxParty, 10) || 4))
+      if (minP > maxP) maxP = minP // 최소가 최대보다 크게 설정되는 걸 막는다
+      mc.dungeonMinParty = minP
+      mc.dungeonMaxParty = maxP
+    }
+    if (dungeonMonstersPerMember != null) mc.dungeonMonstersPerMember = Math.max(1, Math.min(6, parseInt(dungeonMonstersPerMember, 10) || 3))
+    if (dungeonCooldownSec != null) mc.dungeonCooldownSec = Math.max(0, Math.min(3600, parseInt(dungeonCooldownSec, 10) || 0))
+  }
+  // 📢 멘트 문구는 통합 관리 중이어도 디제이별로 계속 커스텀할 수 있다.
+  if (msgBossSpawn != null) mc.msgBossSpawn = msgBossSpawn
+  if (msgBossJoin != null) mc.msgBossJoin = msgBossJoin
+  if (msgBossAlreadyJoined != null) mc.msgBossAlreadyJoined = msgBossAlreadyJoined
+  if (msgBossNoMonsters != null) mc.msgBossNoMonsters = msgBossNoMonsters
+  if (msgBossNoActive != null) mc.msgBossNoActive = msgBossNoActive
+  if (msgBossNoParticipants != null) mc.msgBossNoParticipants = msgBossNoParticipants
+  if (msgBossFail != null) mc.msgBossFail = msgBossFail
+  if (msgBossResult != null) mc.msgBossResult = msgBossResult
+  if (msgBossRollPrompt != null) mc.msgBossRollPrompt = msgBossRollPrompt
+  if (msgBossRollResult != null) mc.msgBossRollResult = msgBossRollResult
+  if (msgBossRollAlready != null) mc.msgBossRollAlready = msgBossRollAlready
+  if (msgBossRollNotParticipant != null) mc.msgBossRollNotParticipant = msgBossRollNotParticipant
+  if (msgBossRollNoOne != null) mc.msgBossRollNoOne = msgBossRollNoOne
+  let monsterUpdateBlocked = false
+  if (Array.isArray(monsters) && mc._globalCatalogActive) {
+    // ⚠️ 관리자가 전체 몬스터 도감을 통합 관리 중이면 개인 몬스터 목록 수정은 무시한다.
+    // (다른 설정값들은 그대로 정상 저장되게, 여기서만 조용히 건너뛰고 응답에 안내만 실어보낸다)
+    monsterUpdateBlocked = true
+  } else if (Array.isArray(monsters)) {
+    mc.monsters = monsters.map((m, i) => ({
+      id: m.id && !String(m.id).startsWith('new') ? m.id : ('mon' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      name: String(m.name || '').trim().slice(0, 40),
+      image: String(m.image || ''),
+      weight: Math.max(1, Math.min(1000, parseInt(m.weight, 10) || 10)),
+      catchRate: Math.max(1, Math.min(100, parseInt(m.catchRate, 10) || 50)),
+      power: Math.max(1, Math.min(9999, parseInt(m.power, 10) || 10)),
+      trait: String(m.trait || '').trim().slice(0, 60),
+      types: Array.isArray(m.types) ? m.types.filter(t => MC_TYPE_NAMES.includes(t)).slice(0, 2) : [],
+      moves: Array.isArray(m.moves)
+        ? m.moves.map(x => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
+        : String(m.moves || '').split(',').map(x => x.trim().slice(0, 30)).filter(Boolean).slice(0, 6),
+      evolvesTo: String(m.evolvesTo || '').trim(),
+      evolveCount: Math.max(1, Math.min(999, parseInt(m.evolveCount, 10) || 10)),
+      legendary: !!m.legendary,
+    })).filter(m => m.name)
+    store.upsertMonsterCatalog(mc.monsters) // 🐾 다른 디제이 방에서도 이름/이미지가 뜨도록 전역 카탈로그에 반영
+  }
+  mcSaveConfig(req.djId, mc)
+  startMonsterCatchTimer(req.djId) // 주기/활성화 값이 바뀌었을 수 있으니 타이머 재시작
+  startBossTimer(req.djId)
+  res.json({
+    success: true,
+    settings: mcConfigOnly(mc),
+    monsterUpdateBlocked,
+    monsterUpdateBlockedMsg: monsterUpdateBlocked ? '⚠️ 관리자가 전체 몬스터 도감을 통합 관리 중이라, 몬스터 목록 변경사항은 반영되지 않았어요. (다른 설정은 정상 저장됐어요)' : undefined,
+    dungeonBossUpdateBlocked,
+    dungeonBossUpdateBlockedMsg: dungeonBossUpdateBlocked ? '⚠️ 관리자가 던전/보스를 통합 관리 중이라, 던전/보스 설정 변경사항은 반영되지 않았어요. (멘트 문구와 다른 설정은 정상 저장됐어요)' : undefined,
+  })
+})
+app.post('/trophyboard/reset-slot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = ''; slot.holderTag = ''; slot.holderAt = null
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true })
+})
+// ✏️ 닉네임에 특수문자가 섞여서 이상하게 보이는 경우 등, DJ가 칸에 기록된 닉네임을 직접
+// 고쳐 쓸 수 있게 해준다. (누가 보냈는지 자체를 바꾸는 게 아니라 표시용 닉네임 텍스트만 수정)
+app.post('/trophyboard/edit-holder', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const board = getTrophyBoardSettings(req.djId, settings)
+  const id = req.body && req.body.id
+  const nickname = String((req.body && req.body.nickname) || '').trim()
+  const slot = board.slots.find(s => s.id === id)
+  if (!slot) return res.json({ success: false, error: '칸을 찾을 수 없어요.' })
+  slot.holderNickname = nickname
+  if (!nickname) { slot.holderTag = ''; slot.holderAt = null }
+  store.saveSettings(req.djId, { trophyBoard: board })
+  broadcast({ type: 'trophyboard', djId: req.djId, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+  res.json({ success: true })
+})
+
+// 📁 (제거됨) 박제판 앨범 — 저장 용량 문제로 기능 자체를 뺐다. 예전에 앨범으로 저장해뒀던
+// 배경 이미지들이 디스크에 고아로 남아있을 수 있어서, 여기서 한 번에 정리하고 기록도 비운다.
+app.post('/trophyboard/albums/purge', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const albums = Array.isArray(settings.trophyBoardAlbums) ? settings.trophyBoardAlbums : []
+  let deletedFiles = 0
+  albums.forEach(a => {
+    if (a.bgImageUrl && a.bgImageUrl.startsWith('/images/')) {
+      const name = path.basename(a.bgImageUrl)
+      if (name.startsWith(`${req.djId}_`)) {
+        try { fs.unlinkSync(path.join(IMAGES_DIR, name)); deletedFiles++ } catch (e) { /* 이미 없으면 무시 */ }
+      }
+    }
+  })
+  store.saveSettings(req.djId, { trophyBoardAlbums: [] })
+  res.json({ success: true, deletedFiles })
+})
+
+// 🏆 박제판 공개 링크 — 로그인 없이 누구나 볼 수 있는 데이터 API + 페이지.
+// 시청자가 방송 소개글이나 채팅으로 공유받은 링크를 열면, 서버 SSE(/events)를 그대로 구독해서
+// 관리자가 화면에서 무언가 바꾸는 즉시(선물 들어와서 닉네임 채워지는 것 포함) 새로고침 없이 갱신된다.
+app.get('/board-data/:djId', (req, res) => {
+  const settings = store.getSettings(req.params.djId) || {}
+  if (!isModuleOn(settings, 'trophyboard', req.params.djId)) return res.status(404).json({ success: false, error: '박제판을 찾을 수 없어요.' })
+  const board = getTrophyBoardSettings(req.params.djId, settings)
+  if (!board.enabled) return res.json({ success: false, error: '아직 박제판이 공개되지 않았어요.' })
+  res.json({ success: true, title: board.title, bgImageUrl: board.bgImageUrl, columns: board.columns, rows: board.rows, cellSize: board.cellSize, gridLeft: board.gridLeft, gridTop: board.gridTop, slots: board.slots })
+})
+app.get('/board/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/board.html')
+})
+
+// 🎵 예전에 djs.json 안에 base64로 직접 저장돼있던 음원들을 실제 파일로 옮기는 1회성 마이그레이션.
+// (이게 쌓여서 메모리 초과로 서버가 죽었던 사고의 근본 원인이었음 — 서버 시작할 때 한 번만 실행됨)
+function migrateSoundDataToFiles() {
+  let migratedCount = 0
+  let bytesFreed = 0
+  for (const djId of store.listDjIds()) {
+    const settings = store.getSettings(djId) || {}
+    let changed = false
+
+    const migrateItem = (item) => {
+      if (!item || !item.soundData || item.soundUrl) return
+      const m = String(item.soundData).match(/^data:([^;]+);base64,(.+)$/)
+      if (!m) { delete item.soundData; changed = true; return }
+      try {
+        const buffer = Buffer.from(m[2], 'base64')
+        const extMatch = String(item.sound || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+        const ext = extMatch ? extMatch[1] : 'mp3'
+        const name = `${djId}_migrated_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+        fs.writeFileSync(path.join(SOUNDS_DIR, name), buffer)
+        bytesFreed += buffer.length
+        item.soundUrl = `/sounds/${name}`
+        delete item.soundData
+        migratedCount++
+        changed = true
+      } catch (e) {
+        console.log(`[음원 마이그레이션] ${djId} 파일 저장 실패:`, e.message)
+      }
+    }
+
+    if (settings.entryData) {
+      ['entry', 'leave', 'like', 'gift', 'follow', 'repeat'].forEach(cat => {
+        (settings.entryData[cat] || []).forEach(migrateItem)
+      })
+    }
+    if (Array.isArray(settings.greetings)) settings.greetings.forEach(migrateItem)
+
+    if (changed) store.saveSettings(djId, { entryData: settings.entryData, greetings: settings.greetings })
+  }
+  if (migratedCount > 0) {
+    console.log(`[음원 마이그레이션] 완료 — ${migratedCount}개 파일을 djs.json 밖으로 옮겼어요 (총 ${(bytesFreed / 1024 / 1024).toFixed(2)}MB 절약)`)
+  }
+}
+
+// 👤 관리자 전용 — 수동으로 계정 생성 (일반 회원가입과 같은 로직이지만, 중복가입 IP/기기 체크는 건너뛴다)
+app.post('/admin/create-account', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { djId, password, djTag, email, trialDays } = req.body || {}
+  const result = store.signup(djId, password, djTag, email, req.ip, null, true)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  // 관리자가 이용기간을 직접 지정했으면(빈 값이면 기본 정책 그대로 둠) 바로 반영한다.
+  if (trialDays !== undefined && trialDays !== null && String(trialDays).trim() !== '') {
+    const days = Number(trialDays)
+    if (!isNaN(days)) {
+      const expiresAt = days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null
+      store.saveSettings(String(djId).trim(), { expiresAt })
+    }
+  }
+  res.json({ success: true, msg: `계정 "${djId}" 생성 완료` })
+})
+
+app.post('/auth/signup', (req, res) => {
+  const { djId, password, djTag, email, deviceId, referrerId } = req.body || {}
+  const signupIp = req.ip
+  const result = store.signup(djId, password, djTag, email, signupIp, deviceId, false, referrerId)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, msg: '가입 완료! 로그인해주세요.' })
+})
+
+// 🎁 초대 이벤트 — 내가 초대한 유저 목록과 결제확인 현황, 내 보상 진행상황을 조회한다.
+app.get('/referral/me', auth.requireAuth, (req, res) => {
+  const summary = store.getReferralSummary(req.djId)
+  res.json({ success: true, ...summary })
+})
+
+// 관리자(sum) 전용 — 중복 가입 체크 자체를 통째로 켜고 끄기 (데이터 유실 복구 등 여러 명이
+// 짧은 시간에 재가입해야 할 때 잠깐 꺼둘 수 있게)
+// 🌐 Base44 외부 백업 — 지금 바로 한 번 테스트해보고 싶을 때 (관리자 전용)
+app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const snapshot = store.getRawSnapshot()
+    const djIds = Object.keys(snapshot)
+    let okCount = 0, failCount = 0, firstErrorText = ''
+    for (const id of djIds) {
+      try {
+        const r = await backupOneDjToBase44(id, snapshot[id])
+        if (r.ok) { okCount++; lastBackupSubsetStr.set(id, JSON.stringify(extractBackupSubset(snapshot[id]))) }
+        else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status} (${r.sizeBytes}바이트) - ${r.errText || ''}` }
+      } catch (e) {
+        failCount++
+        if (!firstErrorText) firstErrorText = `${id}: ${e.message}`
+      }
+    }
+    res.json({ success: failCount === 0, okCount, failCount, total: djIds.length, firstError: firstErrorText || null })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🔄 Base44 복구 1단계 — 미리보기만. 실제로 덮어쓰지 않고, 그 djId로 저장된 백업이 있는지/언제
+// 저장된 건지만 확인한다. (되돌릴 수 없는 작업이라 반드시 미리보기 먼저 거치게 함)
+// 📋 특정 계정의 백업 목록(최신순 최대 20개)을 가져온다 — 여기서 골라서 복구할 수 있게
+app.post('/admin/list-backups-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  try {
+    const { items, raw } = await listBackupsFromBase44(targetDjId)
+    res.json({ success: true, list: items.map(item => ({ timestamp: item.timestamp })), rawDebug: raw ? JSON.stringify(raw).slice(0, 500) : null })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/admin/restore-preview-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  try {
+    const result = await fetchBackupFromBase44(targetDjId)
+    if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
+    res.json({ success: true, timestamp: result.timestamp, hasSettings: !!(result.data && result.data.settings) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+// 🔄 Base44 복구 2단계 — 실제로 덮어쓴다. confirm:true가 명시적으로 와야만 실행.
+// timestamp를 같이 보내면 "목록에서 고른 그 시점"으로, 안 보내면 예전처럼 가장 최근 백업으로 복구한다.
+app.post('/admin/restore-apply-base44', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  const targetTimestamp = (req.body || {}).timestamp || null
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    let picked
+    if (targetTimestamp) {
+      const { items } = await listBackupsFromBase44(targetDjId)
+      picked = items.find(item => item.timestamp === targetTimestamp)
+      if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
+    } else {
+      const result = await fetchBackupFromBase44(targetDjId)
+      if (!result.found) return res.json({ success: false, error: '그 고유닉으로 저장된 백업을 못 찾았어요.' })
+      picked = result
+    }
+    const merged = store.mergeDjBackupSubset(targetDjId, picked.data)
+    if (!merged.ok) return res.json({ success: false, error: merged.error })
+    console.log(`[Base44 복구] ${targetDjId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 복구했어요.`)
+    res.json({ success: true, timestamp: picked.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🌐 R2 전체 백업 복구 — Base44(5개 필드만)와 달리, djs.json 전체(모든 계정)를 통째로
+// 그 시점으로 되돌리는 파괴적인 작업이다. 그래서 (1) 목록 조회 (2) 미리보기 (3) confirm:true로 적용
+// 3단계를 반드시 거치게 한다. 관리자(sum) 전용.
+app.post('/admin/list-backups-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  try {
+    const result = await r2Backup.listSnapshots(30)
+    if (!result.ok) return res.json({ success: false, error: result.error || 'R2가 비활성화되어 있어요' })
+    res.json({ success: true, list: result.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/admin/restore-preview-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  try {
+    const result = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!result.ok) return res.json({ success: false, error: result.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp, accountCount: Object.keys(result.data).length, djIds: Object.keys(result.data).slice(0, 50) })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/admin/restore-apply-r2', auth.requireAuth, async (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요 (목록 조회에서 가져온 값)' })
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  try {
+    const djsResult = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!djsResult.ok) return res.json({ success: false, error: djsResult.error || '그 시점의 백업을 못 찾았어요' })
+    const applied = store.restoreFullDjsSnapshot(djsResult.data)
+    if (!applied.ok) return res.json({ success: false, error: applied.error })
+    const mcResult = await r2Backup.fetchGlobalMonsterDexSnapshot(stamp)
+    if (mcResult.ok) store.restoreGlobalMonsterDexSnapshot(mcResult.data)
+    console.log(`[R2 복구] 전체 데이터를 ${stamp} 시점 백업으로 복구했어요. (계정 ${applied.accountCount}개, 몬스터잡기 데이터 ${mcResult.ok ? '포함' : '없음(스킵)'})`)
+    res.json({ success: true, stamp, accountCount: applied.accountCount, monsterDexRestored: mcResult.ok })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ☁️ 셀프 백업/복구 — 관리자가 아니어도, 로그인한 DJ 본인 계정 데이터만 본인이 직접
+// 백업/복구할 수 있게 한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await backupOneDjToBase44(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status} (요청크기 ${r.sizeBytes}바이트)`, detail: r.errText })
+    lastBackupSubsetStr.set(req.djId, JSON.stringify(extractBackupSubset(record)))
+    res.json({ success: true })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const { items, raw } = await listBackupsFromBase44(req.djId)
+    res.json({ success: true, list: items.map(item => ({ timestamp: item.timestamp })), rawDebug: raw ? JSON.stringify(raw).slice(0, 500) : null })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/restore-preview', auth.requireAuth, async (req, res) => {
+  try {
+    const result = await fetchBackupFromBase44(req.djId)
+    if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
+    res.json({ success: true, timestamp: result.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const targetTimestamp = (req.body || {}).timestamp || null
+  try {
+    let picked
+    if (targetTimestamp) {
+      const { items } = await listBackupsFromBase44(req.djId)
+      picked = items.find(item => item.timestamp === targetTimestamp)
+      if (!picked) return res.json({ success: false, error: '그 시점의 백업을 목록에서 못 찾았어요. 목록을 다시 불러와주세요.' })
+    } else {
+      const result = await fetchBackupFromBase44(req.djId)
+      if (!result.found) return res.json({ success: false, error: '저장된 백업을 못 찾았어요.' })
+      picked = result
+    }
+    const merged = store.mergeDjBackupSubset(req.djId, picked.data)
+    if (!merged.ok) return res.json({ success: false, error: merged.error })
+    console.log(`[셀프복구] ${req.djId} 계정의 룰렛/애청지수/반복문구/단축명령어를 ${picked.timestamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, timestamp: picked.timestamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 셀프서비스 R2 백업/복구 — 위 Base44 방식(5개 필드만)과 달리, 로그인한 DJ 본인의
+// 계정 "전체" 설정(실드/깃발/펀딩/단축키/룰렛/애청지수/입장설정/증권거래소 등 전부)을
+// R2에 저장/복구한다. req.djId(로그인한 본인)로만 동작해서 남의 계정은 절대 못 건드린다.
+app.post('/mydata/r2-backup', auth.requireAuth, async (req, res) => {
+  try {
+    const record = store.getDjRecord(req.djId)
+    if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
+    const r = await r2Backup.backupDjToR2(req.djId, record)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '백업 실패' })
+    res.json({ success: true, stamp: r.stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-list-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listDjBackups(req.djId)
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjBackup(req.djId, stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    store.restoreDjRecord(req.djId, r.data)
+    console.log(`[셀프복구-R2] ${req.djId} 계정 전체를 ${stamp} 시점 백업으로 본인이 직접 복구했어요.`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// ── ☁️ 자동 백업(30분마다, 전체 시스템) 시점에서 "내 계정 데이터만" 골라서 복구 ──
+// 위 /mydata/r2-backup 계열은 본인이 버튼을 직접 눌러야만 그 시점이 생기는데, 여기서는
+// 서버가 30분마다 자동으로 찍어두는 전체 스냅샷(관리자용과 동일한 snapshots/) 목록에서
+// 아무 시점이나 골라, 그 안에서 로그인한 본인(req.djId) 데이터만 뽑아 복구한다.
+// 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
+app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
+  try {
+    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
+    if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
+    res.json({ success: true, list: r.list })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-preview', auth.requireAuth, async (req, res) => {
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    if (!r.data[req.djId]) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요 (가입 전이거나 계정명이 바뀐 경우일 수 있어요)' })
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+app.post('/mydata/r2-system-restore-apply', auth.requireAuth, async (req, res) => {
+  if ((req.body || {}).confirm !== true) return res.json({ success: false, error: '확인 절차가 빠졌어요' })
+  const stamp = String((req.body || {}).stamp || '').trim()
+  if (!stamp) return res.json({ success: false, error: 'stamp를 입력해주세요' })
+  try {
+    const r = await r2Backup.fetchDjsSnapshot(stamp)
+    if (!r.ok) return res.json({ success: false, error: r.error || '그 시점의 백업을 못 찾았어요' })
+    const record = r.data[req.djId]
+    if (!record) return res.json({ success: false, error: '그 시점엔 이 계정 데이터가 없어요' })
+    store.restoreDjRecord(req.djId, record)
+    console.log(`[셀프복구-R2 자동백업] ${req.djId} 계정만 ${stamp} 시점(전체 자동백업)으로 본인이 직접 복구했어요. (다른 계정은 영향 없음)`)
+    res.json({ success: true, stamp })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+
+// 🔍 특정 계정 설정에서 어느 항목이 유독 큰지 진단 (base64 이미지/음원이 박혀있는지 찾기 위함)
+app.get('/admin/diagnose-size/:djId', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const record = store.getDjRecord(req.params.djId)
+  if (!record) return res.json({ success: false, error: '계정을 찾을 수 없어요' })
+  const settings = record.settings || {}
+  const sizes = Object.keys(settings).map(key => ({
+    key,
+    bytes: Buffer.byteLength(JSON.stringify(settings[key]) || '', 'utf-8'),
+  })).sort((a, b) => b.bytes - a.bytes)
+  const totalBytes = Buffer.byteLength(JSON.stringify(record), 'utf-8')
+  res.json({ success: true, totalBytes, sizes: sizes.slice(0, 20) })
+})
+
+app.get('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
+})
+app.post('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setDuplicateCheckEnabled((req.body || {}).enabled)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
+})
+
+// 관리자(sum) 전용 — 중복 가입 체크에서 제외할 IP 목록(피시방/공용 와이파이 등) 관리
+app.get('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
+})
+app.post('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.addDuplicateCheckAllowedIp((req.body || {}).ip)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
+})
+app.post('/admin/duplicate-check-allowed-ips/remove', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.removeDuplicateCheckAllowedIp((req.body || {}).ip)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: store.getDuplicateCheckAllowedIps() })
+})
+
+// 📢 업데이트 공지 — 로그인할 때마다 매번 팝업으로 보여준다. "오늘 하루 보지 않기"를 체크했을 때만
+// (lastSeenAnnouncementId + lastSeenAnnouncementDate가 오늘 날짜로 같이 저장됨) 그날은 안 보이고,
+// 날짜가 바뀌면 다시 뜬다.
+app.get('/announcement', auth.requireAuth, (req, res) => {
+  const announcement = store.getAnnouncement()
+  if (!announcement) return res.json({ success: true, announcement: null })
+  const settings = store.getSettings(req.djId) || {}
+  const seen = settings.lastSeenAnnouncementId === announcement.id && settings.lastSeenAnnouncementDate === todayKST()
+  res.json({ success: true, announcement, seen })
+})
+app.post('/announcement', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { title, content } = req.body || {}
+  if (!String(content || '').trim()) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
+  const result = store.setAnnouncement(title, content)
+  res.json(result.ok ? { success: true, announcement: result.announcement } : { success: false, error: result.error })
+})
+app.post('/announcement/seen', auth.requireAuth, (req, res) => {
+  const announcement = store.getAnnouncement()
+  if (!announcement) return res.json({ success: true })
+  store.saveSettings(req.djId, { lastSeenAnnouncementId: announcement.id, lastSeenAnnouncementDate: todayKST() })
+  res.json({ success: true })
+})
+app.get('/announcement/history', auth.requireAuth, (req, res) => {
+  res.json({ success: true, history: store.getAnnouncementHistory() })
+})
+
+// 🖼️ 이미지 팝업 — 업데이트 공지(텍스트)랑 완전히 독립된 별개 기능. 등록/이력/확인여부를 각각 따로 관리한다.
+app.get('/image-popup', auth.requireAuth, (req, res) => {
+  const popup = store.getImagePopup()
+  if (!popup) return res.json({ success: true, popup: null })
+  const settings = store.getSettings(req.djId) || {}
+  const seen = settings.lastSeenImagePopupId === popup.id
+  res.json({ success: true, popup, seen })
+})
+app.post('/image-popup', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { imageUrl } = req.body || {}
+  const result = store.setImagePopup(imageUrl)
+  res.json(result.ok ? { success: true, popup: result.popup } : { success: false, error: result.error })
+})
+app.post('/image-popup/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.clearImagePopup()
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+app.post('/image-popup/seen', auth.requireAuth, (req, res) => {
+  const popup = store.getImagePopup()
+  if (!popup) return res.json({ success: true })
+  store.saveSettings(req.djId, { lastSeenImagePopupId: popup.id })
+  res.json({ success: true })
+})
+app.get('/image-popup/history', auth.requireAuth, (req, res) => {
+  res.json({ success: true, history: store.getImagePopupHistory() })
+})
+
+// 🎓 처음 오신 분 튜토리얼 — 최초 가입 후 딱 한 번만 자동으로 뜨게 서버(계정) 기준으로 관리한다.
+// localStorage 기준이 아니라서, 다른 기기/브라우저로 로그인해도 이미 본 계정이면 다시 안 뜬다.
+app.get('/tutorial/status', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, shouldShow: settings.tutorialShown === false })
+})
+app.post('/tutorial/seen', auth.requireAuth, (req, res) => {
+  store.saveSettings(req.djId, { tutorialShown: true })
+  res.json({ success: true })
+})
+
+// 🚨 서비스 상태 배너 — 점검/장애 등을 사이드바 상단에 계속 떠있는 배너로 표시
+// 🌡️ 온도 설정 — 지정한 온도에 도달한 시청자에게 자동으로 축하 멘트를 보내는 기능
+app.get('/temp-milestone/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tm = getTempMilestoneSettings(req.djId, settings)
+  res.json({ success: true, settings: { enabled: tm.enabled, items: tm.items } })
+})
+app.post('/temp-milestone/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tm = getTempMilestoneSettings(req.djId, settings)
+  const { enabled, items } = req.body || {}
+  if (enabled != null) tm.enabled = !!enabled
+  if (Array.isArray(items)) {
+    tm.items = items.map((it, i) => ({
+      id: it.id && !String(it.id).startsWith('new') ? it.id : ('tempms' + Date.now() + Math.floor(Math.random() * 1000) + i),
+      temp: Math.max(0, Math.min(9999, Number(it.temp) || 0)),
+      message: String(it.message || '').trim().slice(0, 300),
+    })).filter(it => it.message)
+  }
+  store.saveSettings(req.djId, { tempMilestone: tm })
+  res.json({ success: true, settings: { enabled: tm.enabled, items: tm.items } })
+})
+
+app.get('/status-banner', auth.requireAuth, (req, res) => {
+  res.json({ success: true, banner: store.getStatusBanner() })
+})
+app.post('/status-banner', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { enabled, message, type } = req.body || {}
+  const result = store.setStatusBanner(enabled, message, type)
+  res.json(result.ok ? { success: true, banner: result.banner } : { success: false, error: result.error })
+})
+
+// 📢 전체방 반복 공지
+app.get('/admin/global-announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, data: getGlobalAnnounceSafe() })
+})
+app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  if (typeof store.setGlobalAnnounce !== 'function') {
+    return res.json({ success: false, error: 'store.js에 setGlobalAnnounce 함수가 아직 없어요. 서버 파일을 업데이트해주세요.' })
+  }
+  const result = store.setGlobalAnnounce(req.body || {})
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  startGlobalAnnounceTimer() // 간격/활성화 값이 바뀌었을 수 있으니 타이머 재시작
+  res.json({ success: true, data: result.data })
+})
+
+// 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
+app.get('/session/global-off', auth.requireAuth, (req, res) => {
+  const off = store.getSessionModuleGlobalOff()
+  const allowedUsers = store.getSessionAllowedUsers()
+  const restricted = allowedUsers.length > 0 // 목록이 하나라도 있으면 "지정된 유저만" 모드
+  const explicitlyAllowed = allowedUsers.includes(req.djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기" 토글이 켜져있어도 항상 보이게 한다(그게 이 목록의
+  // 존재 이유이므로). 목록에 없고 목록 자체가 비어있으면 기존처럼 "전체 숨기기" 값만 따른다.
+  const allowedForMe = req.djId === SHARED_TOKEN_DJID || explicitlyAllowed || (!restricted && !off)
+  res.json({ success: true, off, restricted, allowedForMe })
+})
+app.post('/session/global-off', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { off } = req.body || {}
+  const result = store.setSessionModuleGlobalOff(off)
+  res.json(result.ok ? { success: true, off: result.off } : { success: false, error: result.error })
+})
+// 🔑 세션 연결 사용 가능 유저 목록 관리 — 관리자 전용. 이 목록이 비어있으면 (위 전역 OFF 설정을
+// 제외하곤) 제한 없이 모든 디제이가 세션 연결을 쓸 수 있고, 목록에 하나라도 들어있으면 그 목록에
+// 있는 djId(+ 관리자 sum)만 쓸 수 있다.
+app.get('/session/allowed-users', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, users: store.getSessionAllowedUsers() })
+})
+app.post('/session/allowed-users', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { users } = req.body || {}
+  const result = store.setSessionAllowedUsers(users)
+  res.json(result.ok ? { success: true, users: result.users } : { success: false, error: result.error })
+})
+
+// 📝 모듈제작 요청 게시판 — 아무 디제이나 글을 쓸 수 있지만(요청 보내기), 목록 확인은 관리자만 가능하다.
+app.post('/module-request/submit', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const { moduleName, visibility, commands, description } = req.body || {}
+  const name = String(moduleName || '').trim().slice(0, 60)
+  if (!name) return res.json({ success: false, error: '모듈 이름을 입력해주세요.' })
+  const desc = String(description || '').trim().slice(0, 2000)
+  if (!desc) return res.json({ success: false, error: '상세 설명을 입력해주세요.' })
+  // 🙋 작성자 닉네임/프로필 — 지금 방송 연결돼있으면 그 방송의 최신 정보(LiveMetaUpdate)에서
+  // 가져오고, 없으면 그냥 계정 아이디를 이름으로 쓴다.
+  const room = getRoom(djId)
+  const meta = (room && room.lastLiveMeta) || {}
+  const entry = {
+    id: 'mr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    djId,
+    nickname: meta.djNickname || djId,
+    profileUrl: meta.djProfileImageUrl || '',
+    moduleName: name,
+    visibility: visibility === 'private' ? 'private' : 'public',
+    commands: String(commands || '').trim().slice(0, 300),
+    description: desc,
+    createdAt: new Date().toISOString(),
+  }
+  const result = store.addModuleRequest(entry)
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+app.get('/module-request/list', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  store.markModuleRequestsReadForAdmin() // 관리자가 목록을 열어봤으니 "관리자 안읽음" 표시를 끈다
+  res.json({ success: true, requests: store.getModuleRequests() })
+})
+app.post('/module-request/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { id } = req.body || {}
+  const result = store.deleteModuleRequest(id)
+  res.json(result.ok ? { success: true } : { success: false, error: result.error })
+})
+// 📝 내가(로그인한 디제이 본인) 쓴 요청 글만 — 댓글로 관리자랑 주고받을 때 씀
+app.get('/module-request/mine', auth.requireAuth, (req, res) => {
+  store.markModuleRequestsReadForDj(req.djId) // 본인 글 목록을 열어봤으니 "디제이 안읽음" 표시를 끈다
+  res.json({ success: true, requests: store.getMyModuleRequests(req.djId) })
+})
+// 💬 댓글 달기 — 관리자는 아무 글에나, 디제이는 본인이 쓴 글에만 달 수 있다.
+app.post('/module-request/comment', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const { id, text } = req.body || {}
+  const trimmed = String(text || '').trim().slice(0, 1000)
+  if (!trimmed) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const requests = store.getModuleRequests()
+  const target = requests.find(r => r.id === id)
+  if (!target) return res.json({ success: false, error: '존재하지 않는 요청이에요.' })
+  const isAdmin = djId === 'sum'
+  if (!isAdmin && target.djId !== djId) return res.status(403).json({ success: false, error: '본인이 쓴 글에만 댓글을 달 수 있어요.' })
+  const room = getRoom(djId)
+  const meta = (room && room.lastLiveMeta) || {}
+  const comment = {
+    id: 'mc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    role: isAdmin ? 'admin' : 'dj',
+    authorDjId: djId,
+    nickname: isAdmin ? '관리자' : (meta.djNickname || djId),
+    text: trimmed,
+    createdAt: new Date().toISOString(),
+  }
+  const result = store.addModuleRequestComment(id, comment)
+  res.json(result.ok ? { success: true, comment } : { success: false, error: result.error })
+})
+// 🔔 상단 "모듈제작 요청" 메뉴 깜빡임 표시용 — 안 읽은 댓글이 있는지만 가볍게 확인
+app.get('/module-request/unread', auth.requireAuth, (req, res) => {
+  const isAdmin = req.djId === 'sum'
+  res.json({ success: true, unread: store.hasUnreadModuleRequests(req.djId, isAdmin) })
+})
+
+// 📊 관리자 대시보드 요약 통계
+app.get('/admin/stats', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, stats: store.getAdminStats() })
+})
+
+// 🚨 관리자 에러 로그 — 연결 종료(code 1006 등)/하트비트 실패/처리 안 된 예외처럼 관리자가
+// 나중에 꼭 확인해야 하는 이벤트 목록을 조회한다. logAdminError()가 쌓아둔 걸 그대로 반환.
+// (실시간 갱신은 이미 떠 있는 SSE(/events)로 'admin_error' 타입을 그대로 받아서 처리)
+app.get('/admin/error-logs', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const limit = Number(req.query.limit) || 300
+  res.json({ success: true, logs: store.getErrorLog(limit) })
+})
+
+app.post('/admin/error-logs/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  store.clearErrorLog()
+  res.json({ success: true })
+})
+
+// 🔑 비밀번호 찾기 — 가입 시 등록한 이메일이 일치하는지 확인 후, 맞으면 새 비밀번호로 바로 변경한다.
+app.post('/auth/forgot-password', (req, res) => {
+  const { djId, email, newPassword } = req.body || {}
+  const cleanDjId = String(djId || '').trim()
+  if (!cleanDjId) return res.json({ success: false, error: '아이디를 입력해주세요' })
+  const check = store.verifyRecoveryEmail(cleanDjId, email)
+  if (!check.ok) return res.json({ success: false, error: check.error })
+  if (!newPassword) return res.json({ success: true, verified: true }) // 이메일만 먼저 확인하는 단계
+  const result = store.changePassword(cleanDjId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, verified: true, changed: true })
+})
+
+function canAutoJoin(djId) {
+  // 다중감시(자동입장)는 이제 관리자가 개별로 권한을 켜주지 않아도 누구나 기본으로 사용 가능하다.
+  return true
+}
+
+app.post('/auth/login', async (req, res) => {
+  const { djId, password } = req.body || {}
+  const result = await store.login(djId, password)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  const token = auth.issueToken(djId)
+  res.json({ success: true, token, djId, autoJoinEnabled: canAutoJoin(djId) })
+})
+
+app.get('/auth/me', auth.requireAuth, (req, res) => {
+  res.json({ success: true, djId: req.djId, autoJoinEnabled: canAutoJoin(req.djId) })
+})
+
+// 본인 계정 전용 — 비밀번호 변경 (현재 비밀번호 확인 필요)
+app.post('/account/change-password', auth.requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {}
+  if (!currentPassword || !newPassword) return res.json({ success: false, error: '현재 비밀번호와 새 비밀번호를 입력해주세요' })
+  if (!(await store.verifyPassword(req.djId, currentPassword))) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  const result = store.changePassword(req.djId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, msg: '비밀번호가 변경됐어요' })
+})
+
+// 본인 계정 전용 — 아이디 변경 (현재 비밀번호 확인 필요, 관리자 계정 sum은 변경 불가)
+// 아이디가 바뀌면 로그인 키 자체가 바뀌는 것이므로, 방 연결 등 인메모리 상태를 정리하고
+// 새 아이디 기준으로 로그인 토큰을 새로 발급해서 내려준다.
+app.post('/account/change-id', auth.requireAuth, async (req, res) => {
+  const oldId = req.djId
+  const { currentPassword } = req.body || {}
+  const newId = String((req.body || {}).newDjId || '').trim()
+  if (!currentPassword || !newId) return res.json({ success: false, error: '새 아이디와 현재 비밀번호를 입력해주세요' })
+  if (!(await store.verifyPassword(oldId, currentPassword))) return res.json({ success: false, error: '현재 비밀번호가 틀렸어요' })
+  const result = store.renameDjId(oldId, newId)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+
+  // 인메모리 방 연결 상태(WebSocket, 폴링/타이머 등)는 새 아이디로 자동 이전되지 않으므로
+  // 안전하게 정리한다. 자동입장이 켜져 있었다면 새 아이디 기준으로 다시 접속을 시도하게 된다.
+  const room = getRoom(oldId)
+  if (room.ws) { room.ws.terminate() }
+  stopLeavePolling(oldId)
+  stopLottoAutoTimer(oldId)
+  clearReminderTimers(room)
+  clearTtsAccess(room)
+  clearQuizTimers(room)
+  delete rooms[oldId]
+  delete repeatLastSent[oldId]
+
+  const token = auth.issueToken(newId)
+  res.json({ success: true, djId: newId, token, msg: '아이디가 변경됐어요' })
+})
+
+// 본인 계정 전용 — 로컬 에디봇(Electron) 설정 파일을 업로드해서 본인 계정 설정으로 마이그레이션한다.
+// 로그인한 djId 자신에게만 적용되고, 다른 계정 데이터는 절대 건드리지 않는다.
+// 실제 변환 로직은 localMigrate.js에 있고, 관리자용 CLI 스크립트(migrate-local-data.js)와 공유한다.
+app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'migrate', req.djId)) return res.json({ success: false, error: '로컬 데이터 가져오기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const raw = (req.body || {}).data
+  if (!raw || typeof raw !== 'object') return res.json({ success: false, error: '올바른 데이터 파일이 아니에요' })
+  try {
+    const { patch, report } = buildMigrationPatch(raw)
+    store.saveSettings(req.djId, patch)
+    res.json({ success: true, report })
+  } catch (e) {
+    res.json({ success: false, error: '마이그레이션 중 오류: ' + e.message })
+  }
+})
+
+// 본인 계정 전용 — 지금 저장된 모든 봇 설정을 JSON으로 그대로 내보낸다. (백업 / 다른 계정으로 옮길 때 사용)
+app.get('/account/settings-export', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, djId: req.djId, exportedAt: new Date().toISOString(), settings })
+})
+
+// 본인 계정 전용 — settings-export로 받은 JSON을 다시 업로드해서 설정을 통째로 복원한다.
+// 로그인한 djId 자신에게만 적용되고, 다른 계정 데이터는 절대 건드리지 않는다.
+// ⚠️ 이용 만료일(expiresAt/expiryStartAt)과 신규가입 기본 이용기간(defaultTrialDays)은
+// 관리자만 관리하는 값이라, 업로드한 파일에 들어있어도 무시하고 반영하지 않는다.
+// (그렇지 않으면 유저가 만료일을 조작한 파일을 만들어 이용기간을 우회할 수 있음)
+app.post('/account/settings-import', auth.requireAuth, (req, res) => {
+  const incoming = (req.body || {}).settings
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.json({ success: false, error: '올바른 설정 파일이 아니에요' })
+  }
+  const patch = { ...incoming }
+  delete patch.expiresAt
+  delete patch.expiryStartAt
+  delete patch.defaultTrialDays
+  // 🔄 사이드바 "메뉴 표시" 상태는 백업 파일에 들어있어도 같이 가져오지 않는다 — 계정을 새로
+  // 만들고 백업을 복원하는 경우, 예전 계정의 표시 설정이 그대로 딸려와서 신규 가입 기본 메뉴
+  // (9개만 노출)가 무의미해지는 걸 막기 위함. 지금 계정에 이미 저장된 표시 상태를 그대로 둔다.
+  delete patch.moduleVisible
+  store.saveSettings(req.djId, patch)
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — "요청 모듈"(특정 유저만 접근 가능한 제한 메뉴) 목록을 조회/저장한다.
+app.get('/admin/request-modules', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, list: store.getRequestModules() })
+})
+
+app.post('/admin/request-modules', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const raw = (req.body || {}).list
+  if (!Array.isArray(raw)) return res.json({ success: false, error: '목록 형식이 올바르지 않아요' })
+  const seen = new Set()
+  const clean = []
+  for (const m of raw) {
+    const id = String((m && m.id) || '').trim()
+    const title = String((m && m.title) || '').trim()
+    const targetPanel = String((m && m.targetPanel) || '').trim()
+    if (!id || !title || !targetPanel) continue
+    if (seen.has(id)) continue // 아이디 중복 방지
+    seen.add(id)
+    clean.push({
+      id,
+      title,
+      icon: String((m && m.icon) || '🔒').trim() || '🔒',
+      targetPanel,
+      allowedDjIds: Array.isArray(m && m.allowedDjIds) ? [...new Set(m.allowedDjIds.map(x => String(x).trim()).filter(Boolean))] : [],
+    })
+  }
+  const result = store.saveRequestModules(clean)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, list: clean })
+})
+
+// 본인 계정 전용 — 내가 접근 가능한 요청 모듈만 골라서 반환한다 (사이드바 렌더링용).
+// 관리자(sum)는 항상 전체 목록을 받는다.
+app.get('/request-modules', auth.requireAuth, (req, res) => {
+  const all = store.getRequestModules()
+  const mine = req.djId === 'sum' ? all : all.filter(m => (m.allowedDjIds || []).includes(req.djId))
+  res.json({ success: true, list: mine.map(m => ({ id: m.id, title: m.title, icon: m.icon, targetPanel: m.targetPanel })) })
+})
+
+// 관리자(sum) 전용 — 신규 회원가입 시 자동으로 부여되는 기본 이용기간(일수)을 조회/설정한다.
+// 이미 가입한 유저에게는 영향 없고, 이 설정을 바꾼 이후 새로 가입하는 유저부터 적용된다.
+// 0으로 설정하면 신규가입자도 처음부터 무제한으로 시작한다.
+app.get('/admin/default-trial-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, days: store.getDefaultTrialDays() })
+})
+
+app.post('/admin/default-trial-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const result = store.setDefaultTrialDays((req.body || {}).days)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 마지막 접속 후 몇 일 지나면 다중감시(자동입장) 등록 태그를 자동으로 비울지 조회/설정한다.
+// 0으로 설정하면 자동정리 기능 자체가 꺼진다.
+app.get('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, days: store.getAutoJoinCleanupDays() })
+})
+
+app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const result = store.setAutoJoinCleanupDays((req.body || {}).days)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 유튜브 Data API v3 키 조회/등록 (최대 3개). 등록해두면 Railway 환경변수보다
+// 우선해서 쓰이고, 검색 도중 하나가 쿼터를 다 쓰면 자동으로 다음 등록 키로 넘어간다.
+// 조회 응답에는 키를 그대로 노출하지 않고 마스킹해서 내려준다 (앞 6자만 보여줌).
+app.get('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const keys = store.getYoutubeApiKeys()
+  res.json({
+    success: true,
+    count: keys.length,
+    maskedKeys: keys.map(k => k.slice(0, 6) + '••••••••'),
+    usingEnvFallback: keys.length === 0 && !!(process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY),
+  })
+})
+
+app.post('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setYoutubeApiKeys((req.body || {}).keys)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
+})
+
+// 관리자(sum) 전용 — 가입한 디제이 목록 + 상태 조회
+app.get('/admin/users', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const users = store.listDjSummaries().map(u => {
+    const room = getRoom(u.djId)
+    return { ...u, isConnected: room.isConnected }
+  })
+  res.json({ success: true, users })
+})
+
+// 관리자(sum) 전용 — 비밀번호 없이 특정 디제이 계정으로 전환해서 설정을 바로 확인/수정할 수 있게 토큰을 발급한다.
+// 관리자(sum) 전용 — 현재 봇이 접속해있는 모든 디제이의 방송 채팅에 한 번에 공지 메시지를 보낸다.
+app.post('/admin/broadcast-chat', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const rawMsg = String((req.body || {}).message || '').trim()
+  if (!rawMsg) return res.json({ success: false, error: '메시지를 입력해주세요' })
+  const sentTo = []
+  for (const djId of store.listDjIds()) {
+    const room = getRoom(djId)
+    if (room.isConnected) {
+      sendChatToRoom(djId, rawMsg)
+      sentTo.push(djId)
+    }
+  }
+  res.json({ success: true, count: sentTo.length, djIds: sentTo })
+})
+
+app.post('/admin/impersonate', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  if (!targetDjId) return res.json({ success: false, error: '아이디를 입력해주세요' })
+  if (!store.exists(targetDjId)) return res.json({ success: false, error: '존재하지 않는 계정이에요' })
+  const token = auth.issueToken(targetDjId)
+  res.json({ success: true, token, djId: targetDjId })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 비밀번호를 본인 확인 없이 직접 변경한다.
+// (본인이 비밀번호를 잊어버렸을 때 등, 관리자가 대신 초기화해줄 수 있게)
+app.post('/admin/users/:djId/change-password', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  const { newPassword } = req.body || {}
+  const result = store.changePassword(targetId, newPassword)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, msg: `${targetId} 계정의 비밀번호를 변경했어요` })
+})
+
+app.post('/admin/users/:djId/block', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 차단할 수 없어요' })
+  const { blocked } = req.body || {}
+  const ok = store.setBlocked(targetId, !!blocked)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
+app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 삭제할 수 없어요' })
+  const room = getRoom(targetId)
+  if (room.ws) { room.ws.terminate() }
+  delete rooms[targetId]
+  const ok = store.deleteDj(targetId)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 설정 데이터만 초기화(리셋)한다.
+// 아이디/비밀번호/가입일/차단여부/자동입장허용여부 같은 "계정 정보"는 그대로 두고,
+// 실드/깃발/펀딩/신청곡/룰렛/애청지수/명령어/지정인사/입장설정 등 "봇 설정값"만
+// 최초 가입 시 상태로 되돌린다. 방송에 접속되어 있었다면 연결도 함께 정리한다.
+app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  const ok = store.resetSettings(targetId)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const room = getRoom(targetId)
+  cancelReconnect(room)
+  room.autoJoinedFor = ''
+  if (room.ws) { room.ws.terminate(); room.ws = null }
+  room.isConnected = false
+  room.autoJoinedFor = ''
+  room.watchingTag = ''
+  stopLeavePolling(targetId)
+  stopLottoAutoTimer(targetId)
+  clearReminderTimers(room)
+  clearTtsAccess(room)
+  clearQuizTimers(room)
+  if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+  broadcast({ type: 'status', djId: targetId, isConnected: false })
+
+  res.json({ success: true, msg: `${targetId} 계정의 설정이 초기화됐어요` })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 "서버"(봇 연결 상태)만 재부팅한다.
+// 저장된 설정 데이터는 전혀 건드리지 않고, 그 디제이의 방 연결(WebSocket)과 관련된
+// 인메모리 상태(연결 여부, 퇴장감지 폴링, 반복문구 타이머, 퀴즈 타이머, 명령어 쿨타임)를
+// 전부 초기화해서 그 계정만 새로 시작한 것과 같은 상태로 만든다.
+// autoJoinWatch가 켜져 있었다면, 15초 주기로 도는 자동입장 감시 로직이 알아서 재접속을 시도한다.
+app.post('/admin/users/:djId/reboot', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  rebootDjConnection(targetId)
+  res.json({ success: true, msg: `${targetId} 계정의 봇 연결을 재부팅했어요` })
+})
+
+// 본인 계정 전용 — 로그인한 디제이가 스스로 "자동입장" 화면에서 자기 봇 연결만 재부팅한다.
+// 관리자 여부와 무관하게 누구나 자기 자신에 대해서만 사용할 수 있고, 다른 계정에는 전혀 영향이 없다.
+app.post('/bot/reboot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'botreboot', req.djId)) return res.json({ success: false, error: '봇 재부팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  rebootDjConnection(req.djId)
+  res.json({ success: true, msg: '봇 연결을 재부팅했어요' })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 이용 만료일을 설정하거나(expiresAt: ISO 문자열) 해제한다(expiresAt: null).
+// 만료일이 지나면 그 계정은 입장설정/룰렛기록을 제외한 모든 메뉴가 자동으로 잠긴다.
+// ⚠️ 관리자(sum) 자신의 날짜도 여기서 직접 입력/수정할 수 있다 (기록·테스트용). 다만 isAccountExpired()가
+//    djId==='sum'인 경우 항상 예외 처리하므로, 날짜를 지나도 관리자 계정 자체가 잠기는 일은 없다.
+// 관리자(sum) 전용 — 🎁 초대 이벤트: 이 유저의 결제를 확인 처리한다.
+// 이 유저를 초대한 사람(referrerId)이 있고, 그 초대인이 이걸로 2번째 결제확인을 받으면
+// 초대인에게 1개월 무료(일회성)가 자동 지급된다. 한 유저당 최초 1번만 카운트되고,
+// 같은 유저를 다시 눌러도(예: 다음달 재결제) 중복 지급되지 않는다.
+app.post('/admin/users/:djId/confirm-referral-payment', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const result = store.confirmReferralPayment(targetId)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+
+  if (result.reward) {
+    console.log(`[초대이벤트] ${result.reward.referrerId}에게 1개월 무료 보상 자동 지급 (만료일: ${result.reward.newExpiresAt})`)
+    return res.json({ success: true, msg: `${targetId} 결제확인 완료! 🎁 초대인 ${result.reward.referrerId}에게 1개월 무료가 자동 지급됐어요.` })
+  }
+  res.json({ success: true, msg: `${targetId} 결제확인 완료했어요.` })
+})
+
+app.post('/admin/users/:djId/expiry', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (!store.exists(targetId)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+
+  const raw = (req.body || {}).expiresAt
+  if (!raw) {
+    store.saveSettings(targetId, { expiresAt: null, expiryStartAt: null })
+    return res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 해제했어요` })
+  }
+  const parsed = new Date(raw)
+  if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  store.saveSettings(targetId, { expiresAt: parsed.toISOString(), expiryStartAt: new Date().toISOString() })
+  res.json({ success: true, msg: `${targetId} 계정의 이용 만료일을 설정했어요` })
+})
+
+// 관리자(sum) 전용 — 체크박스로 선택한 여러 디제이에게 같은 이용 만료일을 한 번에 설정한다.
+app.post('/admin/users/bulk-expiry', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const djIds = Array.isArray((req.body || {}).djIds) ? [...new Set(req.body.djIds.map(String))] : []
+  if (!djIds.length) return res.json({ success: false, error: '선택된 디제이가 없어요' })
+  const raw = (req.body || {}).expiresAt
+  if (!raw) return res.json({ success: false, error: '만료 일시를 선택해주세요' })
+  const parsed = new Date(raw)
+  if (isNaN(parsed.getTime())) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  const isoExpiresAt = parsed.toISOString()
+  const isoStartAt = new Date().toISOString()
+  const notFound = []
+  let okCount = 0
+  for (const targetId of djIds) {
+    if (!store.exists(targetId)) { notFound.push(targetId); continue }
+    store.saveSettings(targetId, { expiresAt: isoExpiresAt, expiryStartAt: isoStartAt })
+    okCount++
+  }
+  res.json({ success: true, okCount, notFound })
+})
+
+// 관리자(sum) 전용 — 특정 디제이의 자동입장(방입장) 기능 허용/차단
+app.post('/admin/users/:djId/autojoin', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const targetId = req.params.djId
+  if (targetId === 'sum') return res.json({ success: false, error: '관리자 계정은 항상 사용 가능해요' })
+  const { enabled } = req.body || {}
+  const ok = store.setAutoJoinEnabled(targetId, !!enabled)
+  if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  res.json({ success: true })
+})
+
+// 관리자 전용 — 특정 유저의 고유닉 2일 변경 잠금을 즉시 풀어준다 (정당한 사유 있을 때 예외 처리용)
+app.post('/admin/users/:djId/reset-autojoin-lock', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.resetAutoJoinTagLock(req.params.djId)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 디제이별 설정 (로그인 필요)
+app.get('/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  // 🔄 사이드바 "메뉴 표시" 기본값 정리 — 1회성 자동 마이그레이션. 예전 방식(대부분 기본 노출)
+  // 시절에 저장된 moduleVisible이 계정에 남아있으면, 신규가입 기본값(화이트리스트 9개만 노출)
+  // 체계로 딱 한 번 자동으로 정리해준다. 버튼을 눌러야 하는 번거로움 없이, 다음 로그인/새로고침
+  // 때 조용히 한 번만 실행되고 다시는 안 건드린다 (사용자가 그 뒤에 직접 바꾼 설정은 유지됨).
+  if (settings.sidebarVisibilityMigratedV2 !== true) {
+    settings.moduleVisible = {}
+    settings.sidebarVisibilityMigratedV2 = true
+    store.saveSettings(req.djId, { moduleVisible: {}, sidebarVisibilityMigratedV2: true })
+  }
+  res.json({ success: true, settings })
+})
+
+app.get('/roulette/users', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const hist = settings.rouletteHistory || {}
+  const tags = Object.keys(hist)
+  const room = getRoom(req.djId)
+  // 스푼 고유닉은 영문/숫자/밑줄/마침표/하이픈만 쓰인다. 이 형식이 아니면(한글, 공백, 이모지 등)
+  // 예전에 태그 조회가 실패해서 닉네임으로 대신 저장된 "레거시" 기록일 가능성이 높다.
+  const isTagFormat = (s) => /^[a-zA-Z0-9._-]{2,30}$/.test(String(s || ''))
+  const users = await Promise.all(tags.map(async tag => {
+    const nickname = (hist[tag] && hist[tag].nickname) || tag
+    let imgUrl = getCachedProfileUrl(room, null, tag)
+    if (!imgUrl) {
+      // 캐시에 없으면(최근에 채팅/좋아요 등으로 확인된 적 없으면) 스푼 검색 API로 실제 프로필 사진을 직접 조회한다.
+      try {
+        const info = await fetchUserStatusByTag(tag)
+        if (info && info.photoUrl) {
+          imgUrl = info.photoUrl
+          rememberProfileUrl(room, tag, nickname, imgUrl)
+        }
+      } catch (e) { /* 조회 실패 시 그냥 이니셜 아바타로 대체 */ }
+    }
+    return { tag, nickname, imgUrl, looksLikeNickname: !isTagFormat(tag) }
+  }))
+  const nicknameKeyedCount = users.filter(u => u.looksLikeNickname).length
+  res.json({ success: true, tags, users, nicknameKeyedCount })
+})
+
+// ⭐ 애청지수 유저 목록 (랭킹순)
+// 🎁 실시간 지급용 — 현재 방송에 접속 중인 시청자 목록 (여러 페이지까지 조회)
+app.get('/live/members', auth.requireAuth, async (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'autogrant', djId)) return res.json({ success: false, error: '실시간 지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const room = getRoom(djId)
+  if (!room.isConnected || !room.autoJoinedFor) {
+    return res.json({ success: false, error: '현재 방송에 접속되어 있지 않아요' })
+  }
+  try {
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+    const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+    members.forEach(u => {
+      if (u.tag) rememberTagNickname(room, u.tag, u.nickname || u.tag)
+      if (u.imgUrl) rememberProfileUrl(room, u.tag, u.nickname, u.imgUrl)
+    })
+    res.json({ success: true, members })
+  } catch (e) {
+    res.json({ success: false, error: e.message })
+  }
+})
+
+// 🎁 실시간 지급용 — 복권 지급/차감 (기록 없는 유저는 자동 등록, 채팅 명령어와 동일한 정책)
+app.post('/activity/grant-lotto', auth.requireAuth, (req, res) => {
+  const target = String((req.body || {}).target || '').trim()
+  const amount = Number((req.body || {}).amount)
+  if (!target || !amount) return res.json({ success: false, error: '대상과 수량을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'autogrant', req.djId)) return res.json({ success: false, error: '실시간 지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const act = getActivitySettings(req.djId, settings)
+  const existingKey = findActUserKey(act, target)
+  const key = existingKey || target
+  const d = actEnsureUser(act, key, existingKey ? act.users[existingKey].nickname : target, existingKey ? null : target)
+  d.lotto = Math.max(0, (d.lotto || 0) + amount)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true, key, nickname: d.nickname || key, lotto: d.lotto })
+})
+
+app.get('/activity/users', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  let changed = false
+  await Promise.all(Object.entries(act.users).map(async ([key, d]) => {
+    if (d.imgUrl) { rememberProfileUrl(room, d.tag, d.nickname, d.imgUrl); return }
+    let imgUrl = getCachedProfileUrl(room, d.tag, d.nickname)
+    if (!imgUrl && d.tag) {
+      try {
+        const info = await fetchUserStatusByTag(d.tag)
+        if (info && info.photoUrl) imgUrl = info.photoUrl
+      } catch (e) { /* 조회 실패 시 이니셜 아바타로 대체 */ }
+    }
+    if (imgUrl) { d.imgUrl = imgUrl; changed = true; rememberProfileUrl(room, d.tag, d.nickname, imgUrl) }
+  }))
+  if (changed) store.saveSettings(req.djId, { activity: act })
+  const list = Object.entries(act.users).map(([key, d]) => {
+    const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
+    return { key, nickname: d.nickname || key, tag: d.tag || '', exp: d.exp || 0, level, curExp, nextExp, heart: d.heart || 0, chat: d.chat || 0, attend: d.attend || 0, lp: d.lp || 0, lotto: d.lotto || 0, imgUrl: d.imgUrl || '' }
+  }).sort((a, b) => b.exp - a.exp)
+  res.json({ success: true, users: list, lottoExchange: Number(act.lottoExchange) || 22 })
+})
+
+// ⭐ 특정 유저 exp/복권 수동 조정 (웹 화면에서 !상점/!복권지급 대신 쓸 수 있게)
+app.post('/activity/users/:key/adjust', auth.requireAuth, (req, res) => {
+  const { expDelta, lottoDelta } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (expDelta) actGrantExp(req.djId, act, req.params.key, Number(expDelta) || 0)
+  if (lottoDelta) d.lotto = Math.max(0, (d.lotto || 0) + Number(lottoDelta))
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 특정 유저 애청지수 정보 삭제 (DJ가 대신 초기화해줄 때)
+app.post('/activity/users/:key/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  delete act.users[req.params.key]
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 새 유저 수동 추가 (웹 화면 "+ 추가")
+app.post('/activity/users', auth.requireAuth, (req, res) => {
+  const nickname = String((req.body || {}).nickname || '').trim()
+  if (!nickname) return res.json({ success: false, error: '닉네임을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  if (act.users[nickname]) return res.json({ success: false, error: '이미 등록된 닉네임이에요' })
+  actEnsureUser(act, nickname, nickname)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 전체 유저 삭제
+app.post('/activity/users/delete-all', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  act.users = {}
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 유저 점수 수동 편집 (웹 화면 상세 카드의 "수동 점수 편집" 저장 버튼)
+// heart/chat/attend/lp/lotto는 절대값으로 덮어쓰고, expAdd는 기존 EXP에 더하고,
+// setLevel이 있으면(>0) 그 레벨의 시작 EXP로 먼저 맞춘 뒤 expAdd를 추가로 더한다.
+app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
+  const { heart, chat, attend, lp, lotto, expAdd, setLevel, tag, nickname } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (heart != null) d.heart = Math.max(0, Number(heart) || 0)
+  if (chat != null) d.chat = Math.max(0, Number(chat) || 0)
+  if (attend != null) d.attend = Math.max(0, Number(attend) || 0)
+  if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
+  if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
+  if (tag != null) d.tag = String(tag).trim().replace(/^@/, '') || null
+  if (nickname != null) {
+    const n = String(nickname).trim()
+    if (n) d.nickname = n
+  }
+  if (setLevel != null && Number(setLevel) > 0) {
+    const base = Number(act.lvBase) || 100
+    const lvl = Math.max(1, Math.floor(Number(setLevel)))
+    d.exp = base * lvl * (lvl - 1) / 2
+  }
+  if (expAdd) actGrantExp(req.djId, act, req.params.key, Number(expAdd) || 0)
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true })
+})
+
+// ⭐ 유저 닉네임(키) 변경 — 저장된 키가 실제 닉네임과 어긋났을 때 DJ가 직접 고칠 수 있게
+app.post('/activity/users/:key/rename', auth.requireAuth, (req, res) => {
+  const newKey = String((req.body || {}).newKey || '').trim()
+  if (!newKey) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  const d = act.users[req.params.key]
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (newKey !== req.params.key && act.users[newKey]) return res.json({ success: false, error: '이미 그 고유닉으로 등록된 유저가 있어요' })
+  delete act.users[req.params.key]
+  d.tag = newKey
+  act.users[newKey] = d
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true, key: newKey })
+})
+
+// 🧩 퀴즈 문제 목록 + 설정 조회
+app.get('/quiz/questions', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  res.json({
+    success: true,
+    questions: quiz.questions,
+    settings: {
+      intervalMin: quiz.intervalMin, intervalSec: quiz.intervalSec,
+      autoStartOnRestart: quiz.autoStartOnRestart, enabled: quiz.enabled,
+      msgCorrect: quiz.msgCorrect, msgTimeout: quiz.msgTimeout, msgQuestion: quiz.msgQuestion
+    },
+    running: !!(room.quiz && room.quiz.running),
+    current: room.quiz && room.quiz.current ? { question: room.quiz.current.question } : null,
+    nextAt: (room.quiz && room.quiz.nextAt) || null
+  })
+})
+
+app.post('/quiz/questions', auth.requireAuth, (req, res) => {
+  const { question, answer, score, timeLimit } = req.body || {}
+  if (!question || !answer) return res.json({ success: false, error: '문제와 정답을 입력해주세요' })
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (quiz.questions.length >= 100) return res.json({ success: false, error: '문제는 최대 100개까지 등록할 수 있어요' })
+  const id = 'q' + Date.now() + Math.floor(Math.random() * 1000)
+  quiz.questions.push({ id, question, answer, score: Number(score) || 10, timeLimit: Number(timeLimit) || 20 })
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true, id })
+})
+
+app.post('/quiz/questions/:id', auth.requireAuth, (req, res) => {
+  const { question, answer, score, timeLimit } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  const q = quiz.questions.find(x => x.id === req.params.id)
+  if (!q) return res.json({ success: false, error: '문제를 찾을 수 없어요' })
+  if (question != null) q.question = question
+  if (answer != null) q.answer = answer
+  if (score != null) q.score = Number(score) || 0
+  if (timeLimit != null) q.timeLimit = Number(timeLimit) || 20
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/questions/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  quiz.questions = quiz.questions.filter(x => x.id !== req.params.id)
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/settings', auth.requireAuth, (req, res) => {
+  const { intervalMin, intervalSec, autoStartOnRestart } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (intervalMin != null) quiz.intervalMin = Number(intervalMin) || 0
+  if (intervalSec != null) quiz.intervalSec = Number(intervalSec) || 0
+  if (autoStartOnRestart != null) quiz.autoStartOnRestart = !!autoStartOnRestart
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/messages', auth.requireAuth, (req, res) => {
+  const { msgCorrect, msgTimeout, msgQuestion } = req.body || {}
+  const settings = store.getSettings(req.djId) || {}
+  const quiz = getQuizSettings(req.djId, settings)
+  if (msgCorrect != null) quiz.msgCorrect = msgCorrect
+  if (msgTimeout != null) quiz.msgTimeout = msgTimeout
+  if (msgQuestion != null) quiz.msgQuestion = msgQuestion
+  store.saveSettings(req.djId, { quiz })
+  res.json({ success: true })
+})
+
+app.post('/quiz/start', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  if (!room.isConnected) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'quiz', req.djId)) return res.json({ success: false, error: '퀴즈 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const quiz = getQuizSettings(req.djId, settings)
+  if (!quiz.questions.length) return res.json({ success: false, error: '등록된 문제가 없어요. 먼저 문제를 추가해주세요' })
+  startQuiz(req.djId)
+  res.json({ success: true })
+})
+
+app.post('/quiz/stop', auth.requireAuth, (req, res) => {
+  stopQuiz(req.djId)
+  res.json({ success: true })
+})
+
+// 🎟️ 복권 자동 지급 — 설정 조회/저장 + 즉시지급/일시정지/재개
+app.get('/lottoauto/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  res.json({ success: true, settings: cfg, running: !!room.lottoAutoTimer, isConnected: room.isConnected, nextRunHint: lottoAutoNextRunHint(cfg) })
+})
+
+app.post('/lottoauto/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', req.djId)) return res.json({ success: false, error: '복권 자동지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  const { enabled, intervalMin, amount, announceMsg, cmdStatus, cmdNow, cmdPause, cmdResume, cmdRefresh } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (intervalMin != null) cfg.intervalMin = Math.max(1, Math.min(1440, Number(intervalMin) || 30))
+  if (amount != null) cfg.amount = Math.max(1, Math.min(1000, Number(amount) || 1))
+  if (announceMsg != null) cfg.announceMsg = announceMsg
+  if (cmdStatus != null) cfg.cmdStatus = String(cmdStatus).trim() || '!자동복권'
+  if (cmdNow != null) cfg.cmdNow = String(cmdNow).trim() || '!자동복권즉시'
+  if (cmdPause != null) cfg.cmdPause = String(cmdPause).trim() || '!자동복권정지'
+  if (cmdResume != null) cfg.cmdResume = String(cmdResume).trim() || '!자동복권시작'
+  if (cmdRefresh != null) cfg.cmdRefresh = String(cmdRefresh).trim() || '!자동복권갱신'
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  const room = getRoom(req.djId)
+  if (room.isConnected && room.autoJoinedFor) startLottoAutoTimer(req.djId, room.autoJoinedFor)
+  else stopLottoAutoTimer(req.djId)
+  res.json({ success: true })
+})
+
+app.post('/lottoauto/run-now', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottoauto', req.djId)) return res.json({ success: false, error: '복권 자동지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const room = getRoom(req.djId)
+  if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const r = await runLottoAutoOnce(req.djId, room, room.autoJoinedFor, '수동(웹)')
+  if (!r.ok) return res.json({ success: false, error: r.why === 'no_live_users' ? '라이브 접속 중인 시청자가 없어요' : '지급에 실패했어요' })
+  res.json({ success: true, count: r.count, amount: r.amount })
+})
+
+app.post('/lottoauto/pause', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  cfg.paused = true
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  res.json({ success: true })
+})
+
+app.post('/lottoauto/resume', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoAutoSettings(req.djId, settings)
+  cfg.paused = false
+  store.saveSettings(req.djId, { lottoAuto: cfg })
+  const room = getRoom(req.djId)
+  if (room.isConnected && room.autoJoinedFor) startLottoAutoTimer(req.djId, room.autoJoinedFor)
+  res.json({ success: true })
+})
+
+// 🎟️ 복권 차등지급 — 설정 조회/저장
+app.get('/lottorank/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getLottoRankSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+
+app.post('/lottorank/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'lottorank', req.djId)) return res.json({ success: false, error: '복권 차등지급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getLottoRankSettings(req.djId, settings)
+  const { enabled, ranks, delaySec, msgJoinRank, msgGive, msgNoInfo } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (Array.isArray(ranks)) {
+    cfg.ranks = ranks
+      .map(r => ({ rank: Math.max(1, Math.min(999, parseInt(r.rank, 10) || 0)), amount: Math.max(1, Math.min(1000, parseInt(r.amount, 10) || 1)) }))
+      .filter(r => r.rank > 0)
+  }
+  if (delaySec != null) cfg.delaySec = Math.max(5, Math.min(600, Number(delaySec) || 60))
+  if (msgJoinRank != null) cfg.msgJoinRank = msgJoinRank
+  if (msgGive != null) cfg.msgGive = msgGive
+  if (msgNoInfo != null) cfg.msgNoInfo = msgNoInfo
+  store.saveSettings(req.djId, { lottoRankGive: cfg })
+  res.json({ success: true })
+})
+
+// ⏰ 리액션 타이머
+app.get('/reaction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getReminderSettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  const active = (room.reminderTimers || []).map(t => ({ id: t.id, content: t.content, author: t.author, dueAt: t.dueAt }))
+  res.json({ success: true, settings: cfg, active })
+})
+app.post('/reaction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'reactiontimer', req.djId)) return res.json({ success: false, error: '리액션 타이머 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getReminderSettings(req.djId, settings)
+  const { cmd, registerMsg, alertMsg, soundUrl, soundVolume } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!리액션'
+  if (registerMsg != null) cfg.registerMsg = registerMsg
+  if (alertMsg != null) cfg.alertMsg = alertMsg
+  if (soundUrl != null) cfg.soundUrl = String(soundUrl).trim() // 비우면(빈 문자열) 기본 알림음으로 되돌아감
+  if (soundVolume != null) cfg.soundVolume = Math.max(0, Math.min(100, Number(soundVolume) || 0))
+  store.saveSettings(req.djId, { reminderTimer: cfg })
+  res.json({ success: true })
+})
+
+// 🎙️ 보이스체 타이머 시작/종료 알림음 설정
+app.get('/voicetimer/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVoiceTimerSoundSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+app.post('/voicetimer/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVoiceTimerSoundSettings(req.djId, settings)
+  const { startSoundUrl, startSoundVolume, endSoundUrl, endSoundVolume } = req.body || {}
+  if (startSoundUrl != null) cfg.startSoundUrl = String(startSoundUrl).trim()
+  if (startSoundVolume != null) cfg.startSoundVolume = Math.max(0, Math.min(100, Number(startSoundVolume) || 0))
+  if (endSoundUrl != null) cfg.endSoundUrl = String(endSoundUrl).trim()
+  if (endSoundVolume != null) cfg.endSoundVolume = Math.max(0, Math.min(100, Number(endSoundVolume) || 0))
+  store.saveSettings(req.djId, { voiceTimer: cfg })
+  res.json({ success: true })
+})
+
+// 📝 나만의 메모장
+app.get('/mynotes/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  res.json({ success: true, items: cfg.items })
+})
+app.post('/mynotes/add', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mynotes', req.djId)) return res.json({ success: false, error: '나만의 메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const title = String((req.body || {}).title || '').trim() || '제목 없음'
+  const content = String((req.body || {}).content || '')
+  const note = { id: 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), title, content, updatedAt: Date.now() }
+  cfg.items.unshift(note) // 최근에 만든 메모가 위로 오게
+  store.saveSettings(req.djId, { myNotes: cfg })
+  res.json({ success: true, note })
+})
+app.post('/mynotes/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const { id, title, content } = req.body || {}
+  const note = cfg.items.find(n => n.id === id)
+  if (!note) return res.json({ success: false, error: '메모를 찾을 수 없어요' })
+  if (title != null) note.title = String(title).trim() || '제목 없음'
+  if (content != null) note.content = String(content)
+  note.updatedAt = Date.now()
+  store.saveSettings(req.djId, { myNotes: cfg })
+  res.json({ success: true, note })
+})
+app.post('/mynotes/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMyNotesSettings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(n => n.id !== id)
+  store.saveSettings(req.djId, { myNotes: cfg })
+  res.json({ success: true })
+})
+
+// 🔮 사주팔자
+app.get('/saju/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getSajuSettings(req.djId, settings) })
+})
+app.post('/saju/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'saju', req.djId)) return res.json({ success: false, error: '사주팔자 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSajuSettings(req.djId, settings)
+  const { cmd } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!사주'
+  store.saveSettings(req.djId, { saju: cfg })
+  res.json({ success: true })
+})
+
+// 📝 메모2 — !메모 [내용]으로 DJ/매니저가 메모를 남기면, !메모만 입력했을 때 전체 목록을 보여준다.
+app.get('/memo2/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getMemo2Settings(req.djId, settings) })
+})
+app.post('/memo2/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'memo2', req.djId)) return res.json({ success: false, error: '메모2 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getMemo2Settings(req.djId, settings)
+  const { cmd, cmdDelete, perms } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!메모'
+  if (cmdDelete != null) cfg.cmdDelete = String(cmdDelete).trim() || '!메모제거'
+  if (Array.isArray(perms)) cfg.perms = perms.map(t => String(t).replace('@', '').trim()).filter(Boolean).slice(0, 100)
+  store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+app.post('/memo2/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getMemo2Settings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { memo2: cfg })
+  res.json({ success: true })
+})
+
+// 💎 구독자 플랜 월간 지급
+app.get('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const grantsList = Object.entries(cfg.grants || {}).map(([tag, v]) => ({ tag, nickname: v.nickname, month: v.month, level: v.level || null, label: v.label || null })).sort((a, b) => (a.month < b.month ? 1 : -1))
+  res.json({ success: true, settings: { rewardType: cfg.rewardType, rouletteIdx: cfg.rouletteIdx, amount: cfg.amount, message: cfg.message, levelRewards: cfg.levelRewards || [] }, grants: grantsList, thisMonth: thisMonthKST() })
+})
+app.post('/plansub/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'plansub', req.djId)) return res.json({ success: false, error: '구독자 플랜 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const { rewardType, rouletteIdx, amount, message, levelRewards } = req.body || {}
+  if (rewardType === 'lotto' || rewardType === 'roulette') cfg.rewardType = rewardType
+  if (rouletteIdx != null) cfg.rouletteIdx = Math.max(1, parseInt(rouletteIdx, 10) || 1)
+  if (amount != null) cfg.amount = Math.max(1, parseInt(amount, 10) || 1)
+  if (message != null) cfg.message = String(message).trim() || '💎 {nickname}님, 이번 달 구독 감사해요! {보상} 지급해드렸어요.'
+  if (Array.isArray(levelRewards)) {
+    cfg.levelRewards = levelRewards.map(r => ({
+      level: String(r.level || '').trim().slice(0, 30),
+      label: String(r.label || '').trim().slice(0, 30) || null,
+      rewardType: r.rewardType === 'roulette' ? 'roulette' : 'lotto',
+      rouletteIdx: Math.max(1, parseInt(r.rouletteIdx, 10) || 1),
+      amount: Math.max(1, parseInt(r.amount, 10) || 1),
+      message: String(r.message || '').trim(),
+    })).filter(r => r.level)
+  }
+  store.saveSettings(req.djId, { planSub: cfg })
+  res.json({ success: true })
+})
+// 관리자/DJ가 특정 유저의 "이번 달 지급 기록"만 지워서, 다시 지급받게 하고 싶을 때 (테스트용 등)
+app.post('/plansub/reset-grant', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getPlanSubSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().toLowerCase()
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  delete cfg.grants[tag]
+  store.saveSettings(req.djId, { planSub: cfg })
+  res.json({ success: true })
+})
+
+// 🌟 통합 귀빈 등급 시스템
+app.get('/viptier/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getVipTierSettings(req.djId, settings)
+  const counts = {}
+  cfg.tiers.forEach(t => { counts[t.name] = 0 })
+  const userList = Object.entries(cfg.users || {}).map(([tag, v]) => {
+    if (counts[v.tier] == null) counts[v.tier] = 0
+    counts[v.tier]++
+    return { tag, nickname: v.nickname, tier: v.tier, score: v.score, updatedAt: v.updatedAt }
+  }).sort((a, b) => b.score - a.score)
+  res.json({ success: true, cmd: cfg.cmd, weights: cfg.weights, tiers: cfg.tiers, counts, users: userList.slice(0, 100) })
+})
+app.post('/viptier/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'viptier', req.djId)) return res.json({ success: false, error: '귀빈 등급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getVipTierSettings(req.djId, settings)
+  const { cmd, weights, tiers } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!내등급'
+  if (weights && typeof weights === 'object') {
+    ;['subscribe', 'fanRankTop3', 'fanRankTop10', 'vipGradePoint', 'tempTop'].forEach(k => {
+      if (weights[k] != null) cfg.weights[k] = Number(weights[k]) || 0
+    })
+  }
+  if (Array.isArray(tiers) && tiers.length) {
+    cfg.tiers = tiers.map(t => ({
+      name: String(t.name || '').trim().slice(0, 20) || '등급',
+      min: Number(t.min) || 0,
+      expMulti: Math.max(0, Number(t.expMulti) || 1),
+      bonusSpins: Math.max(0, parseInt(t.bonusSpins, 10) || 0),
+    })).sort((a, b) => a.min - b.min)
+  }
+  store.saveSettings(req.djId, { vipTier: cfg })
+  res.json({ success: true })
+})
+
+// 🔄 등급 구간 설정을 바꾼 뒤, 그동안 채팅/입장을 안 해서 옛날 기준 라벨이 그대로 남아있는
+// 사람들을 한 번에 정리한다. 점수는 안 건드리고 등급 이름만 지금 설정 기준으로 다시 매긴다.
+app.post('/viptier/recalculate', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'viptier', req.djId)) return res.json({ success: false, error: '귀빈 등급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getVipTierSettings(req.djId, settings)
+  let changedCount = 0
+  for (const key of Object.keys(cfg.users)) {
+    const rec = cfg.users[key]
+    const tier = getTierForScore(cfg.tiers, rec.score || 0)
+    if (rec.tier !== tier.name) { rec.tier = tier.name; changedCount++ }
+  }
+  store.saveSettings(req.djId, { vipTier: cfg })
+  res.json({ success: true, changedCount, totalCount: Object.keys(cfg.users).length })
+})
+
+// 🗑️ 귀빈 등급 전체 리셋 — 모든 유저의 누적 점수/등급 기록을 완전히 지운다 (되돌릴 수 없음).
+// 등급 구간/가중치 같은 설정 자체는 그대로 유지되고, 쌓인 기록만 지운다.
+app.post('/viptier/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'viptier', req.djId)) return res.json({ success: false, error: '귀빈 등급 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getVipTierSettings(req.djId, settings)
+  const resetCount = Object.keys(cfg.users).length
+  cfg.users = {}
+  store.saveSettings(req.djId, { vipTier: cfg })
+  res.json({ success: true, resetCount })
+})
+
+// 💰 매니저 토큰(매토)
+app.get('/managertoken/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+app.post('/managertoken/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'managertoken', req.djId)) return res.json({ success: false, error: '매니저 토큰 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const { title, content1, content2 } = req.body || {}
+  if (title != null) cfg.title = String(title).trim()
+  if (content1 != null) cfg.content1 = String(content1).trim()
+  if (content2 != null) cfg.content2 = String(content2).trim()
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true })
+})
+app.post('/managertoken/manager/add', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  const nickname = String((req.body || {}).nickname || '').trim() || tag
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  if (cfg.managers.some(m => String(m.tag).toLowerCase() === tag.toLowerCase())) return res.json({ success: false, error: '이미 등록된 매니저예요' })
+  cfg.managers.push({ tag, nickname, score: 0 })
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
+})
+app.post('/managertoken/manager/remove', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  cfg.managers = cfg.managers.filter(m => String(m.tag).toLowerCase() !== tag.toLowerCase())
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
+})
+app.post('/managertoken/manager/score', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getManagerTokenSettings(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace('@', '')
+  const delta = parseInt((req.body || {}).delta, 10) || 0
+  const m = cfg.managers.find(x => String(x.tag).toLowerCase() === tag.toLowerCase())
+  if (!m) return res.json({ success: false, error: '등록되지 않은 매니저예요' })
+  m.score = (m.score || 0) + delta
+  store.saveSettings(req.djId, { managerToken: cfg })
+  res.json({ success: true, managers: cfg.managers })
+})
+
+// 📅 디데이
+app.get('/dday/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDdaySettings(req.djId, settings)
+  const items = cfg.items.map(it => ({ ...it, diff: calcNextDdayDiff(it.date) }))
+  res.json({ success: true, settings: cfg, items })
+})
+app.post('/dday/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dday', req.djId)) return res.json({ success: false, error: '디데이 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDdaySettings(req.djId, settings)
+  const { cmd, registerMsg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!디데이'
+  if (registerMsg != null) cfg.registerMsg = registerMsg
+  store.saveSettings(req.djId, { dday: cfg })
+  res.json({ success: true })
+})
+app.post('/dday/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDdaySettings(req.djId, settings)
+  const { id } = req.body || {}
+  cfg.items = cfg.items.filter(it => it.id !== id)
+  store.saveSettings(req.djId, { dday: cfg })
+  res.json({ success: true })
+})
+
+// 🎁 추첨
+app.get('/raffle/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getRaffleSettings(req.djId, settings) })
+})
+app.post('/raffle/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getRaffleSettings(req.djId, settings)
+  const { cmd, winMsg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!추첨'
+  if (winMsg != null) cfg.winMsg = winMsg
+  store.saveSettings(req.djId, { raffle: cfg })
+  res.json({ success: true })
+})
+app.post('/raffle/run-now', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'raffle', req.djId)) return res.json({ success: false, error: '추첨 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const room = getRoom(req.djId)
+  if (!room.isConnected || !room.autoJoinedFor) return res.json({ success: false, error: '봇이 방송에 접속되어 있지 않아요' })
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(req.djId))
+  const members = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+  if (!members.length) return res.json({ success: false, error: '지금 방송에 접속 중인 시청자가 없어요' })
+  const cfg = getRaffleSettings(req.djId, settings)
+  const winner = members[Math.floor(Math.random() * members.length)]
+  const nickname = winner.nickname || winner.tag
+  const out = (cfg.winMsg || '🎉 축하합니다! 오늘의 당첨자는 [{nickname}]님입니다! 🎊').replace(/\{nickname\}/g, nickname)
+  setTimeout(() => sendChatToRoom(req.djId, out), 400)
+  res.json({ success: true, nickname })
+})
+
+// 🎲 주사위
+app.get('/dice/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getDiceSettings(req.djId, settings) })
+})
+app.post('/dice/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dice', req.djId)) return res.json({ success: false, error: '주사위 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiceSettings(req.djId, settings)
+  const { cmd, msg } = req.body || {}
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!주사위'
+  if (msg != null) cfg.msg = msg
+  store.saveSettings(req.djId, { dice: cfg })
+  res.json({ success: true })
+})
+
+// 🔊 효과음
+app.get('/soundfx/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getSoundEffectSettings(req.djId, settings) })
+})
+app.post('/soundfx/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'soundfx', req.djId)) return res.json({ success: false, error: '효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  const { enabled } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+app.post('/soundfx/items', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'soundfx', req.djId)) return res.json({ success: false, error: '효과음 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  if (cfg.items.length >= SOUNDFX_MAX_ITEMS) return res.json({ success: false, error: `효과음은 최대 ${SOUNDFX_MAX_ITEMS}개까지 등록할 수 있어요.` })
+  const { name, triggerType, triggerValue, matchType, enabled, volume, audioData } = req.body || {}
+  if (!name || !String(name).trim()) return res.json({ success: false, error: '효과음 이름을 입력해주세요' })
+  if (!['sticker', 'amount', 'any'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
+  if (triggerType !== 'any' && !String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
+  if (!audioData || typeof audioData !== 'string' || !audioData.startsWith('data:audio')) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
+  if (audioData.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 1MB 이하 파일로 올려주세요.' })
+  const item = {
+    id: 'sfx' + Date.now() + Math.floor(Math.random() * 1000),
+    name: String(name).trim(),
+    triggerType,
+    triggerValue: triggerType === 'any' ? '' : String(triggerValue).trim(),
+    matchType: triggerType === 'amount' ? (matchType === 'exact' ? 'exact' : 'atLeast') : undefined,
+    enabled: enabled !== false,
+    volume: Math.max(0, Math.min(1, Number(volume) || 1)),
+    audioData,
+  }
+  cfg.items.push(item)
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true, id: item.id })
+})
+app.post('/soundfx/items/:id/toggle', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  const item = cfg.items.find(it => it.id === req.params.id)
+  if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+  const { enabled } = req.body || {}
+  item.enabled = !!enabled
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+app.post('/soundfx/items/:id/volume', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  const item = cfg.items.find(it => it.id === req.params.id)
+  if (!item) return res.json({ success: false, error: '항목을 찾을 수 없어요' })
+  item.volume = Math.max(0, Math.min(1, Number((req.body || {}).volume) || 0))
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+app.post('/soundfx/items/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getSoundEffectSettings(req.djId, settings)
+  cfg.items = cfg.items.filter(it => it.id !== req.params.id)
+  store.saveSettings(req.djId, { soundEffects: cfg })
+  res.json({ success: true })
+})
+
+// 🎙️ TTS
+app.get('/tts/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getTtsSettings(req.djId, settings) })
+})
+app.post('/tts/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getTtsSettings(req.djId, settings)
+  const { enabled, engine, voice, typecastVoiceId, typecastVoiceName, typecastModel, typecastEmotion, rate, triggerAmount, durationMin, maxLen, volume, playChime, chimeUrl } = req.body || {}
+  if (enabled != null) cfg.enabled = !!enabled
+  if (engine != null && ['browser', 'google', 'typecast'].includes(engine)) cfg.engine = engine
+  if (voice != null) cfg.voice = String(voice)
+  if (typecastVoiceId != null) cfg.typecastVoiceId = String(typecastVoiceId)
+  if (typecastVoiceName != null) cfg.typecastVoiceName = String(typecastVoiceName)
+  if (typecastModel != null) cfg.typecastModel = String(typecastModel)
+  if (typecastEmotion != null) cfg.typecastEmotion = String(typecastEmotion)
+  if (rate != null) cfg.rate = Math.max(0.5, Math.min(2, Number(rate) || 1))
+  if (triggerAmount != null) cfg.triggerAmount = Math.max(1, Number(triggerAmount) || 10)
+  if (durationMin != null) cfg.durationMin = Math.max(1, Number(durationMin) || 30)
+  if (maxLen != null) cfg.maxLen = Math.max(1, Math.min(200, Number(maxLen) || 50))
+  if (volume != null) cfg.volume = Math.max(0, Math.min(1, Number(volume)))
+  if (playChime != null) cfg.playChime = !!playChime
+  if (chimeUrl != null) cfg.chimeUrl = String(chimeUrl).slice(0, 300)
+  store.saveSettings(req.djId, { tts: cfg })
+  res.json({ success: true })
+})
+app.get('/tts/active', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  const now = Date.now()
+  const active = []
+  if (room.ttsAccess) {
+    room.ttsAccess.forEach((expiresAt, key) => { if (expiresAt > now) active.push({ nickname: key, expiresAt }) })
+  }
+  res.json({ success: true, active })
+})
+app.post('/tts/reset', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  clearTtsAccess(room)
+  res.json({ success: true })
+})
+app.post('/tts/presets', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getTtsSettings(req.djId, settings)
+  const { tag, voice, typecastVoiceId, typecastVoiceName } = req.body || {}
+  const key = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  if (!key) return res.json({ success: false, error: '고유닉(또는 닉네임)을 입력해주세요' })
+  const hasVoice = voice && String(voice).trim()
+  const hasTypecast = typecastVoiceId && String(typecastVoiceId).trim()
+  if (!hasVoice && !hasTypecast) return res.json({ success: false, error: '목소리를 선택해주세요' })
+  if (!cfg.voicePresets[key] && Object.keys(cfg.voicePresets).length >= 50) return res.json({ success: false, error: '전용 목소리는 최대 50개까지 등록할 수 있어요.' })
+  cfg.voicePresets[key] = {
+    voice: hasVoice ? String(voice) : '',
+    typecastVoiceId: hasTypecast ? String(typecastVoiceId) : '',
+    typecastVoiceName: hasTypecast ? String(typecastVoiceName || typecastVoiceId) : '',
+  }
+  store.saveSettings(req.djId, { tts: cfg })
+  res.json({ success: true })
+})
+app.post('/tts/presets/:tag/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getTtsSettings(req.djId, settings)
+  delete cfg.voicePresets[String(req.params.tag || '').toLowerCase()]
+  store.saveSettings(req.djId, { tts: cfg })
+  res.json({ success: true })
+})
+
+// 🎙️ 구글 보이스 — 서버가 관리자의 구글 API 키로 대신 요청해서, 오디오만 클라이언트에 내려준다.
+// (클라이언트는 API 키를 절대 알 수 없음)
+app.post('/tts/google-speak', auth.requireAuth, async (req, res) => {
+  if (!GOOGLE_TTS_API_KEY) return res.json({ success: false, error: '관리자가 아직 구글 보이스를 설정하지 않았어요. 타입캐스트를 이용해주세요.' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const text = String((req.body || {}).text || '').slice(0, 200)
+  if (!text) return res.json({ success: false, error: '읽을 텍스트가 없어요' })
+  const voiceName = String((req.body || {}).voice || 'ko-KR-Neural2-A')
+  const lang = voiceName.startsWith('en-') ? 'en-US' : voiceName.startsWith('ja-') ? 'ja-JP' : voiceName.startsWith('cmn-') ? 'cmn-CN' : 'ko-KR'
+  const gender = ['A', 'B'].includes(voiceName.slice(-1)) ? 'FEMALE' : 'MALE'
+  try {
+    const upstream = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(GOOGLE_TTS_API_KEY)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text },
+        voice: { languageCode: lang, name: voiceName, ssmlGender: gender },
+        audioConfig: { audioEncoding: 'MP3' },
+      }),
+    })
+    const data = await upstream.json()
+    if (!data.audioContent) return res.json({ success: false, error: (data.error && data.error.message) || '음성 생성 실패' })
+    res.json({ success: true, audioContent: data.audioContent })
+  } catch (e) {
+    console.log('[구글 보이스 오류]', e.message)
+    res.json({ success: false, error: '구글 보이스 요청 중 오류: ' + e.message })
+  }
+})
+
+// 🎙️ 타입캐스트 음성 생성 프록시 — 브라우저에서 직접 호출 시 CORS/권한 문제로 403이 나는 경우가 있어
+// 서버가 대신 호출해준다. API 키는 요청마다 클라이언트가 보내는 값을 그대로 전달만 하고 저장하지 않는다.
+app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'tts', req.djId)) return res.json({ success: false, error: 'TTS 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const { apiKey, voiceId, text, model, emotion, rate } = req.body || {}
+  if (!apiKey) return res.json({ success: false, error: 'Typecast API 키가 없어요' })
+  if (!voiceId) return res.json({ success: false, error: '타입캐스트 목소리를 먼저 선택해주세요' })
+  const cleanText = String(text || '').slice(0, 200)
+  if (!cleanText) return res.json({ success: false, error: '읽을 텍스트가 없어요' })
+  try {
+    const upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'User-Agent': CHROME_UA, 'Accept': 'application/json, audio/*, */*' },
+      body: JSON.stringify({
+        voice_id: voiceId,
+        text: cleanText,
+        model: model || 'ssfm-v30',
+        language: 'kor',
+        prompt: { emotion_type: 'preset', emotion_preset: emotion || 'normal', emotion_intensity: 1.0 },
+        output: { volume: 100, audio_pitch: 0, audio_tempo: Math.max(0.5, Math.min(2, Number(rate) || 1)), audio_format: 'wav' },
+      }),
+    })
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '')
+      console.log('[타입캐스트 오류]', upstream.status, errText.slice(0, 300))
+      return res.json({ success: false, error: `HTTP ${upstream.status}${errText ? ' — ' + errText.slice(0, 150) : ''}` })
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.set('Content-Type', 'audio/wav')
+    res.send(buf)
+  } catch (e) {
+    console.log('[타입캐스트 오류]', e.message)
+    res.json({ success: false, error: '타입캐스트 요청 중 오류: ' + e.message })
+  }
+})
+
+// 📊 대시보드
+app.get('/dashboard/data', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const fundingItems = ((settings.funding || {}).items || []).filter(f => f.title)
+  res.json({ success: true, dashboard: dash, funding: fundingItems })
+})
+app.post('/dashboard/spoon', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dashboard', req.djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag, nickname, amount } = req.body || {}
+  const amt = Number(amount) || 0
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.json({ success: false, error: '날짜 형식이 올바르지 않아요' })
+  const key = String(tag || nickname || '').trim().replace(/^@/, '')
+  const nick = String(nickname || key || '').trim()
+  if (!key || !nick || amt <= 0) return res.json({ success: false, error: '고유닉/닉네임/스푼 개수를 모두 입력해주세요' })
+  if (!dash.spoonLog[date]) dash.spoonLog[date] = { total: 0, byUser: {} }
+  const entry = dash.spoonLog[date]
+  if (!entry.byUser[key]) entry.byUser[key] = { nickname: nick, amount: 0, count: 0 }
+  entry.byUser[key].nickname = nick
+  entry.byUser[key].amount += amt
+  entry.byUser[key].count += 1
+  entry.total = (entry.total || 0) + amt
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/spoon/edit', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag, nickname, amount } = req.body || {}
+  const entry = dash.spoonLog[date]
+  if (!entry || !entry.byUser[tag]) return res.json({ success: false, error: '해당 기록을 찾을 수 없어요' })
+  const amt = Math.max(0, Number(amount) || 0)
+  const diff = amt - (entry.byUser[tag].amount || 0)
+  entry.byUser[tag].nickname = String(nickname || entry.byUser[tag].nickname).trim()
+  entry.byUser[tag].amount = amt
+  entry.total = (entry.total || 0) + diff
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/spoon/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  const { date, tag } = req.body || {}
+  const entry = dash.spoonLog[date]
+  if (!entry || !entry.byUser[tag]) return res.json({ success: false, error: '해당 기록을 찾을 수 없어요' })
+  entry.total = Math.max(0, (entry.total || 0) - (entry.byUser[tag].amount || 0))
+  delete entry.byUser[tag]
+  if (entry.total <= 0 && Object.keys(entry.byUser).length === 0) delete dash.spoonLog[date]
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const dash = getDashboardData(req.djId, settings)
+  dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now() }
+  store.saveSettings(req.djId, { dashboard: dash })
+  res.json({ success: true })
+})
+
+// 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간)
+app.post('/dashboard/rank/scan', auth.requireAuth, async (req, res) => {
+  const r = await scanDashRank()
+  res.json(r)
+})
+app.get('/dashboard/rank/search/:tag', auth.requireAuth, (req, res) => {
+  const r = searchDashRank(req.params.tag)
+  res.json(r)
+})
+// 대시보드에 "본인 고유닉"을 등록 + 즉시 랭킹 조회. 반복문구/단축키의 {nickname}{tag}{rank}
+// {choice_rank}{like_rank}{time_rank} 변수는 전부 여기서 등록한 값을 기준으로 채워진다.
+app.post('/dashboard/rank/register', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'dashboard', req.djId)) return res.json({ success: false, error: '대시보드 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const dash = getDashboardData(req.djId, settings)
+  const tag = String((req.body || {}).tag || '').trim().replace(/^@/, '')
+  if (!tag) return res.json({ success: false, error: '고유닉을 입력해주세요' })
+  dash.djTag = tag
+  store.saveSettings(req.djId, { dashboard: dash })
+  const r = await refreshDashboardRankFor(req.djId, settings)
+  if (!r.success) return res.json({ success: false, error: r.error || '랭킹 조회에 실패했어요', djTag: tag })
+  res.json({ success: true, data: r.data })
+})
+
+// 🎡 돌림판 룰렛
+app.get('/wheel/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getWheelSettings(req.djId, settings) })
+})
+app.post('/wheel/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'wheelroulette', req.djId)) return res.json({ success: false, error: '돌림판 룰렛 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getWheelSettings(req.djId, settings)
+  const { activePage, pages } = req.body || {}
+  if (Number.isInteger(activePage) && activePage >= 0 && activePage < WHEEL_PAGE_COUNT) cfg.activePage = activePage
+  if (Array.isArray(pages)) {
+    cfg.pages = cfg.pages.map((p, i) => {
+      const src = pages[i]
+      if (!src || typeof src !== 'object') return p
+      return {
+        items: Array.isArray(src.items)
+          ? src.items.filter(it => it && typeof it.label === 'string' && it.label.trim()).map(it => ({
+              label: String(it.label).slice(0, 80),
+              weight: Math.max(0, Math.min(10000, Number(it.weight) || 1)),
+              color: (typeof it.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(it.color)) ? it.color : '#888',
+            })).slice(0, 30)
+          : p.items,
+        soundEnabled: src.soundEnabled !== false,
+        ttsEnabled: src.ttsEnabled !== false,
+        spinSeconds: Math.max(2, Math.min(15, Number(src.spinSeconds) || p.spinSeconds || 5)),
+        resultTemplate: (typeof src.resultTemplate === 'string' && src.resultTemplate.trim()) ? src.resultTemplate.slice(0, 300) : p.resultTemplate,
+      }
+    })
+  }
+  store.saveSettings(req.djId, { wheelRoulette: cfg })
+  res.json({ success: true })
+})
+app.post('/wheel/spin-result', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'wheelroulette', req.djId)) return res.json({ success: false, error: '돌림판 룰렛 메뉴가 꺼져있어요.' })
+  const { label, pageIndex, resultTemplate } = req.body || {}
+  const cleanLabel = String(label || '').trim().slice(0, 200)
+  if (!cleanLabel) return res.json({ success: false, error: '결과 값이 없어요' })
+  const tmpl = (typeof resultTemplate === 'string' && resultTemplate.trim()) ? resultTemplate : null
+  let finalTmpl = tmpl
+  if (!finalTmpl) {
+    const cfg = getWheelSettings(req.djId, settings)
+    const idx = Number.isInteger(pageIndex) ? pageIndex : cfg.activePage
+    const page = cfg.pages[idx] || cfg.pages[0]
+    finalTmpl = (page && page.resultTemplate) || '🎡 돌림판 결과: {result}'
+  }
+  const text = finalTmpl.replace('{result}', cleanLabel)
+  setTimeout(() => sendChatToRoom(req.djId, text), 300)
+  res.json({ success: true })
+})
+
+// 🎟️ 쿠폰 확인
+app.get('/coupon/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getCouponCheckSettings(req.djId, settings) })
+})
+app.post('/coupon/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'couponcheck', req.djId)) return res.json({ success: false, error: '쿠폰 확인 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getCouponCheckSettings(req.djId, settings)
+  const { title, footer, showZeroRoulette, cmdCoupon, cmdGive, cmdSync } = req.body || {}
+  if (title != null) cfg.title = String(title).slice(0, 100)
+  if (footer != null) cfg.footer = String(footer).slice(0, 100)
+  if (showZeroRoulette != null) cfg.showZeroRoulette = !!showZeroRoulette
+  if (cmdCoupon != null) cfg.cmdCoupon = String(cmdCoupon).trim() || '!쿠폰'
+  if (cmdGive != null) cfg.cmdGive = String(cmdGive).trim() || '!룰렛지급'
+  if (cmdSync != null) cfg.cmdSync = String(cmdSync).trim() || '!쿠폰동기화'
+  store.saveSettings(req.djId, { couponCheck: cfg })
+  res.json({ success: true })
+})
+
+// 📝 메모장 — 실시간 접속자 목록 + 이미 메모 남긴 유저 목록을 함께 내려준다.
+app.get('/usernotes/data', auth.requireAuth, async (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'usernotes', djId)) return res.json({ success: false, error: '메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const notes = getUserNotesData(djId, settings)
+  let live = []
+  const room = getRoom(djId)
+  if (room.isConnected && room.autoJoinedFor) {
+    try {
+      const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+      live = await fetchLiveMembers(room.autoJoinedFor, accessToken, 5)
+      // 실시간 접속자 API가 프로필 사진을 안 줄 수 있어서, 이미 채팅/좋아요/선물에서
+      // 실제로 확인된 프로필 사진(캐시)이 있으면 그걸 우선 사용한다 — 훨씬 더 잘 맞음.
+      live = live.map(m => ({ ...m, imgUrl: getCachedProfileUrl(room, m.tag, m.nickname) || m.imgUrl || '' }))
+    } catch (e) { live = [] }
+  }
+  res.json({ success: true, notes, live })
+})
+app.post('/usernotes/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'usernotes', req.djId)) return res.json({ success: false, error: '메모장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const notes = getUserNotesData(req.djId, settings)
+  const { tag, nickname, memo, imgUrl } = req.body || {}
+  const key = String(tag || nickname || '').trim().replace(/^@/, '')
+  if (!key) return res.json({ success: false, error: '고유닉/닉네임이 없어요' })
+  if (!notes[key]) notes[key] = { nickname: nickname || key, tag: tag || '', imgUrl: '', memo: '' }
+  if (nickname) notes[key].nickname = nickname
+  if (tag) notes[key].tag = tag
+  if (imgUrl) notes[key].imgUrl = imgUrl
+  notes[key].memo = String(memo || '').slice(0, 2000)
+  notes[key].updatedAt = Date.now()
+  store.saveSettings(req.djId, { userNotes: notes })
+  res.json({ success: true })
+})
+app.post('/usernotes/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const notes = getUserNotesData(req.djId, settings)
+  const key = String((req.body || {}).tag || '').trim()
+  delete notes[key]
+  store.saveSettings(req.djId, { userNotes: notes })
+  res.json({ success: true })
+})
+
+// 🔔 디스코드 방송 알림
+app.get('/discordnotify/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: getDiscordNotifySettings(req.djId, settings), room: { watchingTag: getRoom(req.djId).watchingTag || '', isConnected: getRoom(req.djId).isConnected } })
+})
+app.post('/discordnotify/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'discordnotify', req.djId)) return res.json({ success: false, error: '디스코드 알림 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  const { webhookUrl, manualStreamName, enabled, title, description, streamUrlTemplate, cooldownMinutes } = req.body || {}
+  if (webhookUrl != null) cfg.webhookUrl = String(webhookUrl).trim()
+  if (manualStreamName != null) cfg.manualStreamName = String(manualStreamName).trim().replace(/^@+/, '')
+  if (enabled != null) cfg.enabled = !!enabled
+  if (title != null) cfg.title = String(title).slice(0, 200)
+  if (description != null) cfg.description = String(description).slice(0, 1500)
+  if (streamUrlTemplate != null) cfg.streamUrlTemplate = String(streamUrlTemplate).slice(0, 300)
+  if (cooldownMinutes != null) cfg.cooldownMinutes = Math.max(0, Math.min(1440, Number(cooldownMinutes) || 0))
+  store.saveSettings(req.djId, { discordNotify: cfg })
+  res.json({ success: true })
+})
+app.post('/discordnotify/test', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'discordnotify', req.djId)) return res.json({ success: false, error: '디스코드 알림 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  const room = getRoom(req.djId)
+  const finalName = (cfg.manualStreamName || '').trim().replace(/^@+/, '') || String(room.watchingTag || '').replace(/^@+/, '').trim()
+  const r = await sendDiscordNotify(cfg, finalName)
+  res.json(r.ok ? { success: true } : { success: false, error: r.error })
+})
+app.post('/discordnotify/reset-cooldown', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getDiscordNotifySettings(req.djId, settings)
+  cfg.lastSentAt = 0
+  cfg.lastStreamName = ''
+  store.saveSettings(req.djId, { discordNotify: cfg })
+  res.json({ success: true })
+})
+
+// 🤝 팔로우 자동승인 (관리자 전용 — 채널 ID/팔로우 실행이 전부 관리자 계정 기준이라서)
+app.get('/autofollow/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 설정할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  res.json({ success: true, settings: cfg })
+})
+app.post('/autofollow/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 설정할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  const { channelId, codeLength, expireMinutes, cmd } = req.body || {}
+  if (channelId != null) cfg.channelId = String(channelId).trim().replace(/\D/g, '')
+  if (codeLength != null) cfg.codeLength = Math.max(4, Math.min(16, Number(codeLength) || 8))
+  if (expireMinutes != null) cfg.expireMinutes = Math.max(1, Math.min(1440, Number(expireMinutes) || 60))
+  if (cmd != null) cfg.cmd = String(cmd).trim() || '!팔로우신청'
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+// 🖱️ 웹 화면 "팔로잉 신청" 버튼 — 채팅 없이도 아무 로그인한 DJ가 바로 인증번호를 받을 수 있게 한다.
+app.post('/autofollow/request', auth.requireAuth, (req, res) => {
+  const cfg = getAutoFollowSettings()
+  if (!cfg.channelId) return res.json({ success: false, error: '아직 관리자가 팔로우 자동승인을 설정하지 않았어요.' })
+  const code = generateFollowCode(Number(cfg.codeLength) || 8)
+  cfg.pending[code] = {
+    nickname: req.djId,
+    tag: '',
+    djId: req.djId,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + Math.max(1, Number(cfg.expireMinutes) || 60) * 60000,
+  }
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  const boardUrl = `https://www.spooncast.net/kr/channel/${cfg.channelId}/tab/follower-posts`
+  res.json({ success: true, code, expireMinutes: cfg.expireMinutes || 60, boardUrl })
+})
+// 팬보드 바로가기 링크만 가볍게 조회 (인증번호 발급 전에도 버튼을 바로 보여주기 위함)
+app.get('/autofollow/board-link', auth.requireAuth, (req, res) => {
+  const cfg = getAutoFollowSettings()
+  if (!cfg.channelId) return res.json({ success: false })
+  res.json({ success: true, boardUrl: `https://www.spooncast.net/kr/channel/${cfg.channelId}/tab/follower-posts` })
+})
+app.post('/autofollow/poll-now', auth.requireAuth, async (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  await pollAutoFollowBoard()
+  res.json({ success: true })
+})
+app.post('/autofollow/pending/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  delete cfg.pending[code]
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+app.post('/autofollow/history/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 사용할 수 있어요' })
+  const cfg = getAutoFollowSettings()
+  cfg.history = []
+  store.saveSettings(SHARED_TOKEN_DJID, { autoFollow: cfg })
+  res.json({ success: true })
+})
+
+// 🎣 낚시 게임
+app.get('/stock/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const nextPrice = Math.max(0, Math.round(((stock.nextPriceAt || Date.now()) - Date.now()) / 60000))
+  const nextNews = Math.max(0, Math.round(((stock.nextNewsAt || Date.now()) - Date.now()) / 60000))
+  const nextDividend = Math.max(0, Math.round(((stock.nextDividendAt || Date.now()) - Date.now()) / 60000))
+  const nextEvent = Math.max(0, Math.round(((stock.nextEventAt || Date.now()) - Date.now()) / 60000))
+  res.json({ success: true, config: stock.config, stocks: stock.stocks, jackpot: stock.jackpot, userCount: Object.keys(stock.users).length, nextPrice, nextNews, nextDividend, nextEvent })
+})
+app.post('/stock/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'stock', req.djId)) return res.json({ success: false, error: '증권거래소 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const stock = getStockSettings(req.djId, settings)
+  const body = req.body || {}
+  const numKeys = ['startMoney', 'likeMoney', 'chatMoney', 'spoonMoney', 'attendMoney', 'priceIntervalMin', 'priceMinPct', 'priceMaxPct', 'priceFloor', 'newsIntervalMin', 'dividendIntervalMin', 'eventIntervalMin', 'eventChancePct', 'depositInterestPct', 'depositInterestCap', 'loanLimit', 'loanInterestPct', 'autoLoanAmount', 'jackpotSeed']
+  const cmdKeys = ['cmdStart', 'cmdAttend', 'cmdRule', 'cmdMyInfo', 'cmdMyMoney', 'cmdStockList', 'cmdMyStock', 'cmdRanking', 'cmdJackpot', 'cmdDeposit', 'cmdWithdraw', 'cmdLoan', 'cmdRepay', 'cmdSlot', 'cmdRoulette', 'cmdOddEven', 'cmdDice', 'cmdLotto', 'cmdShop', 'cmdBuy', 'cmdUse', 'cmdStockCreate', 'cmdStockDelete', 'cmdGiveMoney']
+  if (body.enabled != null) stock.config.enabled = !!body.enabled
+  numKeys.forEach(k => { if (body[k] != null) stock.config[k] = Number(body[k]) || 0 })
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) stock.config[k] = v.slice(0, 30) } })
+  if (Array.isArray(body.goodNews)) stock.config.goodNews = body.goodNews.filter(r => Array.isArray(r) && r[0]).map(r => [String(r[0]).slice(0, 60), Number(r[1]) || 0]).slice(0, 50)
+  if (Array.isArray(body.badNews)) stock.config.badNews = body.badNews.filter(r => Array.isArray(r) && r[0]).map(r => [String(r[0]).slice(0, 60), Number(r[1]) || 0]).slice(0, 50)
+  if (Array.isArray(body.items)) stock.config.items = body.items.filter(it => it && it.name).map(it => ({ name: String(it.name).slice(0, 30), price: Number(it.price) || 0, desc: String(it.desc || '').slice(0, 60) })).slice(0, 20)
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+app.post('/stock/stocks', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'stock', req.djId)) return res.json({ success: false, error: '증권거래소 메뉴가 꺼져있어요.' })
+  const stock = getStockSettings(req.djId, settings)
+  const body = req.body || {}
+  const name = String(body.name || '').trim()
+  const price = Number(body.price) || 0
+  if (!name || price <= 0) return res.json({ success: false, error: '종목명과 시작가를 입력해주세요.' })
+  if (stock.stocks.length >= 10) return res.json({ success: false, error: '종목은 최대 10개까지 운영할 수 있어요.' })
+  if (stock.stocks.find(s => s.name === name)) return res.json({ success: false, error: '이미 있는 종목명이에요.' })
+  let divRate = body.dividendRate != null ? Number(body.dividendRate) : NaN
+  if (isNaN(divRate)) divRate = Math.round((0.5 + Math.random() * 2.5) * 2) / 2
+  stock.stocks.push({ name, price, dividendRate: divRate, lastPct: 0 })
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/stocks/:name/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const st = stock.stocks.find(s => s.name === req.params.name)
+  if (!st) return res.json({ success: false, error: '없는 종목이에요.' })
+  const body = req.body || {}
+  if (body.price != null) st.price = Math.max(1, Number(body.price) || st.price)
+  if (body.dividendRate != null) st.dividendRate = Number(body.dividendRate) || 0
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/stocks/:name/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const idx = stock.stocks.findIndex(s => s.name === req.params.name)
+  if (idx < 0) return res.json({ success: false, error: '없는 종목이에요.' })
+  const st = stock.stocks[idx]
+  for (const nick in stock.users) {
+    const u = stock.users[nick]
+    const h = u.holdings[st.name]
+    if (h && h.qty > 0) { u.cash += h.qty * st.price; delete u.holdings[st.name] }
+  }
+  stock.stocks.splice(idx, 1)
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, stocks: stock.stocks })
+})
+app.post('/stock/jackpot', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const amt = Number((req.body || {}).amount)
+  if (!Number.isFinite(amt) || amt < 0) return res.json({ success: false, error: '올바른 금액을 입력해주세요.' })
+  stock.jackpot = amt
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true, jackpot: stock.jackpot })
+})
+// 📋 명령어 보기 — 이 계정에 현재 켜져있는 모든 모듈의 채팅 명령어를 한 번에 모아서 보여준다.
+const FISHING_STATIC_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
+app.get('/commands/list', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const on = (key) => isModuleOn(settings, key, djId)
+  const groups = []
+
+  if (on('shortcuts') && Array.isArray(settings.commands) && settings.commands.length) {
+    groups.push({ key: 'shortcuts', icon: '⌨️', label: '단축키 명령어', items: settings.commands.map(c => ({ cmd: c.trigger, desc: String(c.response || '').slice(0, 40) })).filter(x => x.cmd) })
+  }
+  if (on('request') && settings.songRequest) {
+    const s = settings.songRequest
+    groups.push({
+      key: 'request', icon: '🎵', label: '신청곡 관리', items: [
+        { cmd: s.cmdRequest, desc: '신청곡 접수' }, { cmd: s.cmdRemove, desc: '내 신청곡 취소' }, { cmd: s.cmdReset, desc: '전체 초기화 (DJ/매니저)' },
+        { cmd: s.cmdClose, desc: '접수 마감 (DJ/매니저)' }, { cmd: s.cmdOpen, desc: '접수 재개 (DJ/매니저)' },
+        { cmd: s.cmdPriorityOn, desc: '우선모드 켜기 (DJ/매니저)' }, { cmd: s.cmdPriorityOff, desc: '우선모드 끄기 (DJ/매니저)' },
+        { cmd: s.cmdNameOn, desc: '신청자명 표시 켜기 (DJ/매니저)' }, { cmd: s.cmdNameOff, desc: '신청자명 표시 끄기 (DJ/매니저)' },
+        { cmd: s.cmdRecommend, desc: '멜론 차트 랜덤 추천곡' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('shield') && settings.shield && settings.shield.cmd) {
+    groups.push({ key: 'shield', icon: '🛡️', label: '실드 관리', items: [{ cmd: settings.shield.cmd, desc: '실드 개수 조회/적립' }] })
+  }
+  if (on('funding') && settings.funding && settings.funding.cmd) {
+    groups.push({ key: 'funding', icon: '💰', label: '펀딩 관리', items: [{ cmd: settings.funding.cmd, desc: '펀딩 현황 조회' }] })
+  }
+  if (on('flag') && settings.flags && settings.flags.cmd) {
+    groups.push({ key: 'flag', icon: '🚩', label: '단비 깃발', items: [{ cmd: settings.flags.cmd, desc: '깃발 현황 조회' }] })
+  }
+  if (on('loyalty')) {
+    const act = getActivitySettings(djId, settings)
+    groups.push({
+      key: 'loyalty', icon: '⭐', label: '애청지수', items: [
+        { cmd: act.cmdMyInfo, desc: '내 애청지수 조회' }, { cmd: act.cmdCreate, desc: '애청지수 데이터 생성' }, { cmd: act.cmdDelete, desc: '애청지수 데이터 삭제' },
+        { cmd: act.cmdRank, desc: '랭킹 조회' }, { cmd: act.cmdLotto, desc: '복권 사용' }, { cmd: act.cmdAttend, desc: '출석 체크' },
+        { cmd: act.cmdLottoGive, desc: '복권 지급 (관리자)' }, { cmd: act.cmdLottoTransfer, desc: '복권 양도 (내 복권을 다른 유저에게)' }, { cmd: act.cmdShop, desc: '상점 조회' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('lottoauto')) {
+    const la = getLottoAutoSettings(djId, settings)
+    groups.push({
+      key: 'lottoauto', icon: '🎟️', label: '복권 자동지급', items: [
+        { cmd: la.cmdStatus, desc: '자동지급 상태 확인' }, { cmd: la.cmdNow, desc: '즉시 지급 실행 (관리자)' },
+        { cmd: la.cmdPause, desc: '자동지급 정지 (관리자)' }, { cmd: la.cmdResume, desc: '자동지급 재개 (관리자)' }, { cmd: la.cmdRefresh, desc: '설정 갱신 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('reactiontimer') && settings.reminderTimer && settings.reminderTimer.cmd) {
+    groups.push({ key: 'reactiontimer', icon: '⏰', label: '리액션 타이머', items: [
+      { cmd: settings.reminderTimer.cmd, desc: '[분] [내용] 형식으로 예약 알림 등록 (예약목록은 명령어만 입력)' },
+      { cmd: `${settings.reminderTimer.cmd} 중지 [번호]`, desc: '등록된 타이머 취소 (DJ 전용)' },
+    ] })
+  }
+  if (on('dday') && settings.dday && settings.dday.cmd) {
+    groups.push({ key: 'dday', icon: '📅', label: '디데이', items: [{ cmd: settings.dday.cmd, desc: '디데이 등록/조회' }] })
+  }
+  if (on('saju') && settings.saju && settings.saju.cmd) {
+    groups.push({ key: 'saju', icon: '🔮', label: '사주팔자', items: [{ cmd: settings.saju.cmd, desc: '[명령어] [생년월일] [태어난시(선택)]로 사주팔자 조회 (예: 1995.08.15 14)' }] })
+  }
+  if (on('memo2') && settings.memo2 && settings.memo2.cmd) {
+    groups.push({ key: 'memo2', icon: '📝', label: '메모2', items: [
+      { cmd: settings.memo2.cmd, desc: '등록된 메모 전체 조회' },
+      { cmd: settings.memo2.cmd + ' [내용]', desc: '메모 등록 (DJ/매니저)' },
+      { cmd: (settings.memo2.cmdDelete || '!메모제거') + ' [번호]', desc: '해당 번호 메모 삭제 (DJ/매니저)' },
+    ] })
+  }
+  if (on('raffle') && settings.raffle && settings.raffle.cmd) {
+    groups.push({ key: 'raffle', icon: '🎊', label: '추첨', items: [{ cmd: settings.raffle.cmd, desc: '추첨 실행 (관리자)' }] })
+  }
+  if (on('dice') && settings.dice && settings.dice.cmd) {
+    groups.push({ key: 'dice', icon: '🎲', label: '주사위', items: [{ cmd: settings.dice.cmd, desc: '주사위 굴리기' }] })
+  }
+  if (on('roulette')) {
+    const items = []
+    const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
+    list.forEach((rt, i) => {
+      const idx = i + 1
+      if (rt.enabled === false) return // ⏸ 꺼둔 룰렛은 명령어 안내에서도 숨김
+      const name = rt.name || `룰렛${idx}`
+      items.push({ cmd: `!룰렛${idx}`, desc: `[${name}] 돌리기 (뒤에 숫자 붙이면 여러 번: !룰렛${idx} 3)` })
+      items.push({ cmd: `!룰렛메뉴${idx}`, desc: `[${name}] 항목 목록 확인` })
+      items.push({ cmd: `!룰렛지급${idx}`, desc: `[${name}] 권 지급 (관리자, 예: !룰렛지급${idx} 고유닉 1)` })
+    })
+    const rcmd = getRouletteCmdConfig(settings)
+    items.push(
+      { cmd: rcmd.keep, desc: '내 킵목록 조회 (뒤에 페이지 번호 가능)' },
+      { cmd: rcmd.keep + '확인N', desc: `[고유닉] 다른 사람 킵목록 조회 (예: ${rcmd.keep}확인1 고유닉)` },
+      { cmd: rcmd.keep + '추가', desc: '[고유닉] [내용] 킵 추가 (관리자)' },
+      { cmd: rcmd.keep + '사용', desc: '[번호] [수량] 킵 사용 (관리자)' },
+      { cmd: rcmd.event, desc: '내 이벤트목록 조회' },
+      { cmd: rcmd.event + '확인N', desc: '[고유닉] 다른 사람 이벤트목록 조회' },
+      { cmd: rcmd.event + '사용', desc: '[번호] [수량] 이벤트 항목 사용 (관리자)' },
+      { cmd: rcmd.misc, desc: '내 기타목록 조회' },
+      { cmd: rcmd.misc + '확인N', desc: '[고유닉] 다른 사람 기타목록 조회' },
+      { cmd: rcmd.misc + '사용', desc: '[번호] [수량] 기타 항목 사용 (관리자)' },
+    )
+    groups.push({ key: 'roulette', icon: '🎡', label: '룰렛', items })
+  }
+  if (on('auction') && settings.auction && settings.auction.config) {
+    const acfg = settings.auction.config
+    groups.push({
+      key: 'auction', icon: '🔨', label: '경매', items: [
+        { cmd: acfg.cmd, desc: '진행중인 경매 현황 조회' },
+        { cmd: acfg.cmd + ' 참여', desc: '경매 참여 등록 (참여 후 보내는 선물이 자동 반영됨)' },
+        { cmd: acfg.cmdMyBid, desc: '내 참여 현황/당첨 확률 조회' },
+        { cmd: acfg.cmdEnd, desc: '진행중인 경매 즉시 종료 및 추첨 (관리자)' },
+        { cmd: acfg.cmdCancel, desc: '진행중인 경매 취소 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('pickboard') && settings.pickboard && settings.pickboard.config) {
+    const pcfg = settings.pickboard.config
+    groups.push({
+      key: 'pickboard', icon: '🎁', label: '뽑기판', items: [
+        { cmd: pcfg.cmdBoard, desc: '뽑기판 보기 (페이지: !뽑기판 2)' },
+        { cmd: pcfg.cmdPick + ' 번호', desc: '해당 번호 뽑기 (뽑기권 1개 소모)' },
+        { cmd: pcfg.cmdPick + ' 내정보', desc: '내 보유 뽑기권/포인트 조회' },
+        { cmd: pcfg.cmdPick + ' 가위/바위/보 [수량]', desc: '가위바위보로 뽑기권 걸기 (승리 시 2배)' },
+        { cmd: pcfg.cmdTransfer, desc: '다른 유저에게 뽑기권 양도' },
+        { cmd: pcfg.cmdGive, desc: '뽑기권 지급 (관리자)' },
+        { cmd: pcfg.cmdRemove, desc: '뽑기권 회수 (관리자)' },
+        { cmd: pcfg.cmdReset, desc: '전체 유저 뽑기 정보 초기화 (DJ 전용)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('webpickboard') && settings.webPickboard && settings.webPickboard.config) {
+    const wcfg = settings.webPickboard.config
+    groups.push({
+      key: 'webpickboard', icon: '🌐', label: '웹뽑기판', items: [
+        { cmd: wcfg.cmdAuth + ' 코드6자리', desc: '웹페이지에서 발급받은 인증코드로 계정 연결' },
+        { cmd: wcfg.cmdTicketGive, desc: '[고유닉] [수량] 뽑기권 지급 (관리자)' },
+        { cmd: wcfg.cmdTicketRemove, desc: '[고유닉] [수량] 뽑기권 차감 (관리자)' },
+        { cmd: wcfg.cmdMyTicket, desc: '내 보유 뽑기권 조회' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('mafia') && settings.mafia && settings.mafia.config) {
+    const mcfg = settings.mafia.config
+    groups.push({
+      key: 'mafia', icon: '🎭', label: '마피아 게임', items: [
+        { cmd: mcfg.cmdAuth + ' 코드6자리', desc: '웹페이지에서 발급받은 인증코드로 계정 연결(참가도 자동 처리)' },
+        { cmd: mcfg.cmdJoin, desc: '이번 판 참가 (인증된 계정만)' },
+        { cmd: mcfg.cmdStart, desc: '게임 시작 (관리자)' },
+        { cmd: mcfg.cmdVote + ' 고유닉', desc: '처형 투표 (낮에만)' },
+        { cmd: mcfg.cmdSkip, desc: '투표 기권' },
+        { cmd: mcfg.cmdStatus, desc: '진행 상황 확인' },
+        { cmd: mcfg.cmdForce, desc: '지금 바로 다음 단계로 강제 진행 (관리자)' },
+        { cmd: mcfg.cmdEnd, desc: '게임 종료/초기화 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('couponcheck') && settings.couponCheck) {
+    const cc = settings.couponCheck
+    groups.push({
+      key: 'couponcheck', icon: '🎟️', label: '쿠폰 확인', items: [
+        { cmd: cc.cmdCoupon, desc: '보유 쿠폰 조회' }, { cmd: cc.cmdGive + 'N', desc: '룰렛권 지급 (관리자) — 예: ' + cc.cmdGive + '1 고유닉 5, 전체도 가능' }, { cmd: cc.cmdSync + 'N', desc: '쿠폰 동기화 (관리자)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('fishing')) {
+    groups.push({ key: 'fishing', icon: '🎣', label: '낚시 게임', items: FISHING_STATIC_CMDS.map(c => ({ cmd: c, desc: '' })) })
+  }
+  if (on('stock')) {
+    const stock = getStockSettings(djId, settings)
+    const cfg = stock.config
+    const labelMap = {
+      cmdStart: '게임 시작', cmdAttend: '출석', cmdRule: '룰설명', cmdMyInfo: '내 자산 정보', cmdMyMoney: '내 현금 조회',
+      cmdStockList: '전체 시세 조회', cmdMyStock: '내 포트폴리오', cmdRanking: '자산 랭킹', cmdJackpot: '잭팟 조회',
+      cmdDeposit: '예금', cmdWithdraw: '출금', cmdLoan: '대출', cmdRepay: '대출 상환',
+      cmdSlot: '슬롯머신', cmdRoulette: '룰렛', cmdOddEven: '홀짝', cmdDice: '주사위', cmdLotto: '복권',
+      cmdShop: '아이템 상점', cmdBuy: '아이템 구매', cmdUse: '아이템 사용',
+      cmdStockCreate: '종목 설립 (관리자)', cmdStockDelete: '종목 폐지 (관리자)', cmdGiveMoney: '머니 지급 (관리자)',
+    }
+    groups.push({ key: 'stock', icon: '🍞', label: '증권거래소', items: Object.keys(labelMap).map(k => ({ cmd: cfg[k], desc: labelMap[k] })).filter(x => x.cmd) })
+  }
+  if (on('monstercatch')) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    groups.push({
+      key: 'monstercatch', icon: '🐾', label: '몬스터 잡기', items: [
+        { cmd: mc.cmdCatch || '!잡기', desc: '등장한 몬스터 잡기' },
+        { cmd: '!모험시작', desc: '몬스터잡기 시작 (포획볼 지급)' },
+        { cmd: mc.cmdDex || '!도감', desc: '내 도감 확인 (페이지: !도감2, !도감3...)' },
+        { cmd: mc.cmdRanking || '!랭킹', desc: '가장 강한 몬스터 공격력 기준 트레이너 랭킹 TOP5 (전체/이 방)' },
+        { cmd: '!포획볼구매', desc: '포획볼 구매' },
+        { cmd: mc.cmdEvolve || '!진화', desc: '[몬스터이름] 진화시키기' },
+        { cmd: mc.cmdBattle || '!배틀', desc: '[고유닉] 다른 유저와 몬스터 배틀' },
+        { cmd: mc.cmdUserReset || '!리셋', desc: '[고유닉] 특정 유저 정보 초기화 (DJ/매니저)' },
+        { cmd: mc.cmdBallGive || '!볼지급', desc: '[고유닉] [수량] 포획볼 지급/차감 (DJ/매니저)' },
+        { cmd: mc.cmdBossJoin || '!참여', desc: '풀 타입 보스 몬스터 등장 시 참여 (참여자 총 공격력에 비례해 자동 처치, MVP는 이로치 획득)' },
+      ].filter(x => x.cmd)
+    })
+  }
+  if (on('swordgame')) {
+    groups.push({
+      key: 'swordgame', icon: '⚔️', label: '검키우기', items: [
+        { cmd: '!강화', desc: '검 강화 시도' }, { cmd: '!프로필', desc: '내 정보 조회' }, { cmd: '!출석', desc: '출석 체크' },
+        { cmd: '!배틀', desc: '다른 유저와 배틀' }, { cmd: '!판매', desc: '아이템 판매' }, { cmd: '!창고', desc: '내 인벤토리 조회' },
+        { cmd: '!검랭킹', desc: '전체 검 랭킹 조회' }, { cmd: '!검버전', desc: '검키우기 버전 정보' },
+        { cmd: '!저장', desc: '현재 데이터를 서버에 저장' }, { cmd: '!로드', desc: '서버에서 최신 데이터 불러오기' },
+        { cmd: '!도움말', desc: '검키우기 전체 명령어 안내' },
+      ]
+    })
+  }
+
+  const total = groups.reduce((s, g) => s + g.items.length, 0)
+  res.json({ success: true, groups, total })
+})
+
+// ── 🔨 경매 시스템 API ──
+// ── 🎁 랜덤박스 API ──
+// ── ⚔️ 검키우기 설정 API (관리자 sum 계정 아래 공용 설정) ──
+app.get('/swordgame/settings', auth.requireAuth, (req, res) => {
+  ensureSwordSettingsLoaded()
+  res.json({ success: true, settings: localSettings, userCount: localUsers.size })
+})
+app.post('/swordgame/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'swordgame', req.djId)) return res.json({ success: false, error: '검키우기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  ensureSwordSettingsLoaded()
+  const b = req.body || {}
+  const numKeys = ['initial_gold', 'daily_money', 'like_reward', 'spoon_to_gold_rate', 'enhance_cooldown', 'battle_cooldown', 'dungeon_cooldown', 'sell_price_multiplier', 'battle_reward_base']
+  if (b.enabled != null) localSettings.enabled = !!b.enabled
+  numKeys.forEach(k => { if (b[k] != null) localSettings[k] = Number(b[k]) || 0 })
+  if (Array.isArray(b.enhance_success_rates)) {
+    localSettings.enhance_success_rates = b.enhance_success_rates.map(r => ({
+      level: Number(r.level) || 0, cost: Number(r.cost) || 0,
+      success_rate: Number(r.success_rate) || 0, fail_rate: Number(r.fail_rate) || 0,
+      down_rate: Number(r.down_rate) || 0, destroy_rate: Number(r.destroy_rate) || 0,
+    }))
+  }
+  if (Array.isArray(b.weapon_names)) {
+    localSettings.weapon_names = b.weapon_names.map(w => ({ level: Number(w.level) || 0, name: String(w.name || '').slice(0, 30) }))
+  }
+  persistSwordSettings()
+  res.json({ success: true, settings: localSettings })
+})
+app.post('/swordgame/reset-defaults', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'swordgame', req.djId)) return res.json({ success: false, error: '검키우기 메뉴가 꺼져있어요.' })
+  localSettings = null
+  initializeSettings()
+  persistSwordSettings()
+  res.json({ success: true, settings: localSettings })
+})
+
+app.get('/randombox/list', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/create', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'randombox', req.djId)) return res.json({ success: false, error: '랜덤박스 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const b = req.body || {}
+  const name = String(b.name || '').trim() || `랜덤박스${rb.list.length + 1}`
+  const box = {
+    name,
+    triggerMode: ['exact', 'combo', 'distribute', 'sticker'].includes(b.triggerMode) ? b.triggerMode : 'exact',
+    triggerAmount: Math.max(1, Number(b.triggerAmount) || 10),
+    triggerSticker: String(b.triggerSticker || '').trim(),
+    triggerStickerPayout: ['exact', 'combo', 'distribute'].includes(b.triggerStickerPayout) ? b.triggerStickerPayout : 'combo',
+    triggerStickerCount: Math.max(1, Number(b.triggerStickerCount) || 1),
+    resultTemplate: String(b.resultTemplate || '').trim() || '🎁 [{박스명}] {닉네임}님의 결과 👉 {결과}',
+    items: [],
+  }
+  rb.list.push(box)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/:idx/update', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const idx = parseInt(req.params.idx, 10)
+  const box = rb.list[idx]
+  if (!box) return res.json({ success: false, error: '없는 랜덤박스예요.' })
+  const b = req.body || {}
+  if (b.name != null) box.name = String(b.name).trim() || box.name
+  if (b.triggerMode != null && ['exact', 'combo', 'distribute', 'sticker'].includes(b.triggerMode)) box.triggerMode = b.triggerMode
+  if (b.triggerAmount != null) box.triggerAmount = Math.max(1, Number(b.triggerAmount) || 10)
+  if (b.triggerSticker != null) box.triggerSticker = String(b.triggerSticker).trim()
+  if (b.triggerStickerPayout != null && ['exact', 'combo', 'distribute'].includes(b.triggerStickerPayout)) box.triggerStickerPayout = b.triggerStickerPayout
+  if (b.triggerStickerCount != null) box.triggerStickerCount = Math.max(1, Number(b.triggerStickerCount) || 1)
+  if (b.resultTemplate != null) box.resultTemplate = String(b.resultTemplate).trim() || box.resultTemplate
+  if (Array.isArray(b.items)) box.items = b.items.filter(it => it && it.name).map(it => ({ name: String(it.name).slice(0, 60), percent: Math.max(0.01, Number(it.percent) || 1) })).slice(0, 100)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+app.post('/randombox/:idx/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const rb = getRandomBoxSettings(req.djId, settings)
+  const idx = parseInt(req.params.idx, 10)
+  if (!rb.list[idx]) return res.json({ success: false, error: '없는 랜덤박스예요.' })
+  rb.list.splice(idx, 1)
+  store.saveSettings(req.djId, { randomBox: rb })
+  res.json({ success: true, list: rb.list })
+})
+
+app.get('/auction/list', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const list = [...a.list].sort((x, y) => {
+    if (x.status === 'active' && y.status !== 'active') return -1
+    if (x.status !== 'active' && y.status === 'active') return 1
+    return y.createdAt - x.createdAt
+  }).map(x => ({ ...x, participantCount: Object.keys(x.bids || {}).length }))
+  res.json({ success: true, config: a.config, list })
+})
+app.post('/auction/create', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const a = getAuctionSettings(req.djId, settings)
+  if (auctionActive(a)) return res.json({ success: false, error: '이미 진행중인 경매가 있어요. 먼저 종료하거나 취소한 뒤에 새 경매를 등록해주세요.' })
+  const b = req.body || {}
+  const itemName = String(b.itemName || '').trim()
+  const endAt = Number(b.endAt)
+  if (!itemName) return res.json({ success: false, error: '물건 이름을 입력해주세요' })
+  if (!endAt || endAt <= Date.now()) return res.json({ success: false, error: '종료 시간을 미래로 설정해주세요' })
+  const visibility = ['public', 'price_blind', 'info_blind', 'full_blind'].includes(b.visibility) ? b.visibility : 'public'
+  const auc = {
+    id: a.nextId++, itemName, status: 'active', visibility,
+    endAt, createdAt: Date.now(), joined: {}, bids: {}, winner: null,
+  }
+  a.list.push(auc)
+  saveAuction(req.djId, a)
+  res.json({ success: true, auction: auc })
+})
+app.post('/auction/:id/end', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const auc = a.list.find(x => x.id === id)
+  if (!auc) return res.json({ success: false, error: '없는 경매예요.' })
+  if (auc.status !== 'active') return res.json({ success: false, error: '이미 종료되었거나 취소된 경매예요.' })
+  auctionEnd(req.djId, a, id, 'ended')
+  res.json({ success: true })
+})
+app.post('/auction/:id/cancel', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const auc = a.list.find(x => x.id === id)
+  if (!auc) return res.json({ success: false, error: '없는 경매예요.' })
+  if (auc.status !== 'active') return res.json({ success: false, error: '이미 종료되었거나 취소된 경매예요.' })
+  auctionEnd(req.djId, a, id, 'cancelled')
+  res.json({ success: true })
+})
+app.post('/auction/:id/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const a = getAuctionSettings(req.djId, settings)
+  const id = parseInt(req.params.id, 10)
+  const idx = a.list.findIndex(x => x.id === id)
+  if (idx < 0) return res.json({ success: false, error: '없는 경매예요.' })
+  if (a.list[idx].status === 'active') return res.json({ success: false, error: '진행중인 경매는 먼저 종료/취소해주세요.' })
+  a.list.splice(idx, 1)
+  saveAuction(req.djId, a)
+  res.json({ success: true })
+})
+app.post('/auction/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'auction', req.djId)) return res.json({ success: false, error: '경매 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const a = getAuctionSettings(req.djId, settings)
+  const b = req.body || {}
+  if (b.enabled != null) a.config.enabled = !!b.enabled
+  if (b.announceOnBid != null) a.config.announceOnBid = !!b.announceOnBid
+  const cmdKeys = ['cmd', 'cmdMyBid', 'cmdEnd', 'cmdCancel']
+  cmdKeys.forEach(k => { if (b[k] != null) { let v = String(b[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) a.config[k] = v.slice(0, 30) } })
+  saveAuction(req.djId, a)
+  res.json({ success: true })
+})
+
+app.get('/stock/leaderboard', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const list = Object.values(stock.users).filter(u => u.started).map(u => ({ tag: u.tag, nickname: u.nickname, total: stkTotalAssets(stock, u), cash: u.cash || 0, loan: u.loan || 0, creditBad: !!u.creditBad })).sort((a, b) => b.total - a.total).slice(0, 20)
+  res.json({ success: true, users: list })
+})
+app.post('/stock/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  stock.users = {}
+  stock.chatAccrual = {}
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+
+// ── 🍞 증권거래소 유저 관리 화면 (전부 고유닉 기준) ──
+app.get('/stock/users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const q = String(req.query.q || '').trim().toLowerCase()
+  let list = Object.values(stock.users).map(u => ({
+    tag: u.tag, nickname: u.nickname,
+    cash: u.cash || 0, deposit: u.deposit || 0, loan: u.loan || 0,
+    stockValue: (() => { let v = 0; for (const name in u.holdings) { const h = u.holdings[name]; const st = stock.stocks.find(s => s.name === name); if (st && h) v += h.qty * st.price }; return v })(),
+    total: stkTotalAssets(stock, u),
+    started: !!u.started, creditBad: !!u.creditBad,
+  }))
+  if (q) list = list.filter(u => u.tag.includes(q) || String(u.nickname || '').toLowerCase().includes(q))
+  list.sort((a, b) => b.total - a.total)
+  res.json({ success: true, users: list, count: list.length })
+})
+app.post('/stock/users/:tag/adjust', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const tag = String(req.params.tag || '').trim().toLowerCase()
+  const delta = Number((req.body || {}).delta)
+  if (!tag || !Number.isFinite(delta) || delta === 0) return res.json({ success: false, error: '올바른 금액을 입력해주세요.' })
+  const u = stock.users[tag]
+  if (!u) return res.json({ success: false, error: '없는 유저예요.' })
+  u.cash = Math.max(0, (u.cash || 0) + delta)
+  store.saveSettings(req.djId, { stock })
+  setTimeout(() => sendChatToRoom(req.djId, `🎁 [운영자] ${u.nickname}님(@${u.tag}) 잔액이 ${delta > 0 ? '+' : ''}${delta.toLocaleString()}원 조정됐어요. (현재 현금: ${Math.round(u.cash).toLocaleString()}원)`), 300)
+  res.json({ success: true, user: u })
+})
+app.delete('/stock/users/:tag', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const stock = getStockSettings(req.djId, settings)
+  const tag = String(req.params.tag || '').trim().toLowerCase()
+  if (!stock.users[tag]) return res.json({ success: false, error: '없는 유저예요.' })
+  delete stock.users[tag]
+  delete stock.chatAccrual[tag]
+  store.saveSettings(req.djId, { stock })
+  res.json({ success: true })
+})
+
+app.get('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  res.json({ success: true, config: fishing.config, userCount: Object.keys(fishing.users).length })
+})
+app.post('/fishing/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'fishing', req.djId)) return res.json({ success: false, error: '낚시 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const fishing = getFishingSettings(req.djId, settings)
+  const body = req.body || {}
+  const numKeys = ['fishingCooldown', 'dailyMoney', 'slotMinBet', 'diceWinExp', 'diceLoseExp', 'creditTier1Points', 'creditTier1Loan', 'creditTier2Points', 'creditTier2Loan', 'creditTier3Points', 'creditTier3Loan', 'theftBaseRate', 'theftLevelBonus', 'theftMaxRate']
+  const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags']
+  if (body.enabled != null) fishing.config.enabled = !!body.enabled
+  numKeys.forEach(k => { if (body[k] != null) fishing.config[k] = Number(body[k]) || 0 })
+  textKeys.forEach(k => { if (body[k] != null) fishing.config[k] = String(body[k]).slice(0, 20000) })
+  store.saveSettings(req.djId, { fishing })
+  res.json({ success: true })
+})
+app.get('/fishing/leaderboard', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const fishing = getFishingSettings(req.djId, settings)
+  const list = Object.values(fishing.users).sort((a, b) => (b.balance || 0) - (a.balance || 0)).slice(0, 20)
+    .map(u => ({ tag: u.tag, nickname: u.nickname, balance: u.balance || 0, level: u.level || 1, total_fish_count: u.total_fish_count || 0 }))
+  res.json({ success: true, users: list })
+})
+app.post('/fishing/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (req.djId !== SHARED_TOKEN_DJID) {
+    // 관리자가 아니어도 본인 계정 방송 데이터는 리셋 가능 (자기 방송이니까)
+  }
+  const fishing = getFishingSettings(req.djId, settings)
+  fishing.users = {}
+  store.saveSettings(req.djId, { fishing })
+  res.json({ success: true })
+})
+
+// ── 🎣 팝블리네 낚시대회 (fishing 게임과 별개의 독립 모듈) ──
+// 🎁 뽑기판
+app.get('/pickboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, config: pb.config, items: pb.items, quiz: pb.quiz, userCount: Object.keys(pb.users).length })
+})
+app.post('/pickboard/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  const body = req.body || {}
+
+  const boolKeys = ['authenticated', 'gameEnabled', 'quizEnabled']
+  boolKeys.forEach(k => { if (body[k] != null) pb.config[k] = !!body[k] })
+
+  const numKeys = ['tableSize', 'boardPageSize', 'heartNeed', 'giftNeed', 'chatNeed', 'quizNeed', 'giveHeart', 'giveGiftRate', 'giveChat', 'giveHeartPresent', 'gameWinRate', 'quizIntervalMin', 'quizTimeoutSec', 'quizReward']
+  numKeys.forEach(k => { if (body[k] != null) pb.config[k] = Number(body[k]) || 0 })
+
+  if (body.placementMode === 'mixed' || body.placementMode === 'fixedOnly') pb.config.placementMode = body.placementMode
+
+  const textKeys = ['emptyText', 'winPrefix', 'losePrefix', 'openPopupMessage', 'cmdBoard', 'cmdPick', 'cmdGive', 'cmdRemove', 'cmdTransfer', 'cmdReset']
+  textKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (['cmdBoard', 'cmdPick', 'cmdGive', 'cmdRemove', 'cmdTransfer', 'cmdReset'].includes(k) && v && !v.startsWith('!')) v = '!' + v; if (v) pb.config[k] = v.slice(0, 40) } })
+
+  if (Array.isArray(body.items)) pb.items = body.items
+  if (Array.isArray(body.quiz)) pb.quiz = pbNormalizeQuiz(body.quiz)
+
+  const tableSize = Math.max(1, Math.min(500, Number(pb.config.tableSize) || 60))
+  pb.config.tableSize = tableSize
+  pb.config.boardPageSize = Math.max(1, Math.min(500, Number(pb.config.boardPageSize) || tableSize))
+
+  pbRecalcBoard(pb) // 상품/배치방식/판 크기가 바뀌었을 수 있으니 저장할 때마다 다시 배치
+  savePickboard(req.djId, pb)
+  res.json({ success: true, config: pb.config, items: pb.items })
+})
+app.get('/pickboard/board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, board: pb.board, items: pb.items, config: pb.config })
+})
+app.get('/pickboard/winners', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pb = getPickboardSettings(req.djId, settings)
+  res.json({ success: true, winners: pb.winners.slice(0, 100) })
+})
+app.post('/pickboard/reset-board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  pbRecalcBoard(pb)
+  pb.winners = []
+  savePickboard(req.djId, pb)
+  res.json({ success: true })
+})
+app.post('/pickboard/reset-users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'pickboard', req.djId)) return res.json({ success: false, error: '뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const pb = getPickboardSettings(req.djId, settings)
+  pb.users = {}
+  savePickboard(req.djId, pb)
+  res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 관리자(DJ) 전용 설정 API. /webpickboard-admin 접두사를 써서 아래의 공개(비로그인)
+// API인 /webpickboard/:djId/* 와 경로가 겹치지 않게 분리했다.
+app.get('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({
+    success: true,
+    config: wpb.config,
+    grid: wpb.grid,
+    picked: wpb.picked,
+    userCount: Object.keys(wpb.users).length,
+    linkedCount: Object.keys(wpb.webUsers).length,
+    publicUrl: `/webpickboard/${req.djId}`,
+  })
+})
+app.post('/webpickboard-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const body = req.body || {}
+
+  // 🔒 가로는 항상 10칸으로 고정 — 클라이언트가 뭘 보내든 무시한다. 세로만 최대 80까지 가변.
+  wpb.config.cols = WPB_FIXED_COLS
+  if (body.rows != null) wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(body.rows) || 7))
+  if (Array.isArray(body.ranks)) wpb.config.ranks = wpbNormalizeRanks(body.ranks)
+
+  const cmdKeys = ['cmdAuth', 'cmdTicketGive', 'cmdTicketRemove', 'cmdMyTicket']
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) wpb.config[k] = v.slice(0, 40) } })
+
+  wpb.grid = wpbBuildGrid(wpb.config) // 판 크기/등수 구성이 바뀌었을 수 있으니 저장할 때마다 다시 배치
+  wpb.picked = {} // 재배치되면 기존 "뽑힌 칸" 표시는 의미가 없어지므로 초기화
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+
+app.post('/webpickboard-admin/preset/save', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const name = String((req.body || {}).name || '').trim().slice(0, 15)
+  if (!name) return res.json({ success: false, error: '프리셋 이름을 입력해주세요' })
+  const preset = { id: 'preset_' + Date.now() + '_' + Math.random().toString(16).slice(2), name, cols: wpb.config.cols, rows: wpb.config.rows, ranks: wpb.config.ranks }
+  wpb.config.presets.push(preset)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/load', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  wpb.config.cols = WPB_FIXED_COLS // 🔒 옛날 프리셋에 다른 가로 값이 저장돼있어도 항상 10으로 고정
+  wpb.config.rows = Math.max(1, Math.min(WPB_MAX_ROWS, Number(preset.rows) || 7))
+  wpb.config.ranks = wpbNormalizeRanks(preset.ranks)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true, config: wpb.config, grid: wpb.grid })
+})
+app.post('/webpickboard-admin/preset/rename', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const { id, name } = req.body || {}
+  const preset = wpb.config.presets.find(p => p.id === id)
+  if (!preset) return res.json({ success: false, error: '프리셋을 찾을 수 없어요' })
+  const clean = String(name || '').trim().slice(0, 15)
+  if (!clean) return res.json({ success: false, error: '이름을 입력해주세요' })
+  preset.name = clean
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+app.post('/webpickboard-admin/preset/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const id = String((req.body || {}).id || '')
+  wpb.config.presets = wpb.config.presets.filter(p => p.id !== id)
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true, presets: wpb.config.presets })
+})
+
+app.post('/webpickboard-admin/reset-board', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.grid = wpbBuildGrid(wpb.config)
+  wpb.picked = {}
+  wpb.winners = []
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-reload', djId: req.djId })
+  res.json({ success: true })
+})
+app.post('/webpickboard-admin/reset-users', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  wpb.users = {}
+  wpb.webUsers = {}
+  wpb.authKeys = {}
+  saveWebPickboard(req.djId, wpb)
+  res.json({ success: true })
+})
+app.get('/webpickboard-admin/winners', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  res.json({ success: true, winners: wpb.winners.slice(0, 100) })
+})
+// 관리자가 웹 화면에서 직접 특정 고유닉에게 뽑기권을 지급/차감 (채팅 명령어와 별개의 편의 기능)
+app.post('/webpickboard-admin/ticket', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', req.djId)) return res.json({ success: false, error: '웹뽑기판 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const wpb = getWebPickboardSettings(req.djId, settings)
+  const target = String((req.body || {}).tag || '').replace(/^@/, '').trim()
+  const delta = Number((req.body || {}).delta) || 0
+  if (!target || !delta) return res.json({ success: false, error: '고유닉과 수량을 입력해주세요' })
+  const user = wpbGetUser(wpb, target)
+  wpbSetUser(wpb, target, user.nickname || target, user.tickets + delta)
+  saveWebPickboard(req.djId, wpb)
+  broadcast({ type: 'webpickboard-ticket', djId: req.djId, tag: target, tickets: wpb.users[target].tickets })
+  res.json({ success: true, tickets: wpb.users[target].tickets })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎯 웹뽑기판 — 공개(로그인 없음) API. 시청자용 웹페이지가 아래 엔드포인트로 등록/인증확인/조회/뽑기를 진행한다.
+app.get('/webpickboard/:djId/board', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.status(404).json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  res.json({
+    success: true,
+    cols: wpb.config.cols,
+    rows: wpb.config.rows,
+    ranks: wpb.config.ranks.map(r => ({ rank: r.rank, name: r.name })),
+    picked: wpb.picked,
+    total: wpb.grid.length,
+  })
+})
+app.post('/webpickboard/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  wpbCleanExpiredKeys(wpb)
+  // 🔁 이 브라우저가 이미 발급받은(아직 채팅 인증 전인) webUserId를 갖고 있다면 그대로 재사용하고,
+  // 그 아이디로 예전에 발급했던 코드는 지금 새로 만드는 코드로 교체(삭제)한다. 이렇게 안 하면
+  // "코드 다시 발급받기"를 누른 뒤 화면에는 새 코드가 떠 있는데 사람이 예전에 복사해둔 옛날
+  // 코드를 채팅에 치는 바람에, 화면에는 안 보이는(이미 버려진) 세션에 엉뚱하게 연결되는 사고가 난다.
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !wpb.webUsers[webUserId]) {
+    for (const code of Object.keys(wpb.authKeys)) {
+      if (wpb.authKeys[code].webUserId === webUserId) delete wpb.authKeys[code]
+    }
+  } else {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = wpbGenAuthKey(wpb)
+  wpb.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + WPB_AUTH_KEY_TTL_MS }
+  saveWebPickboard(djId, wpb)
+  res.json({ success: true, webUserId, code, cmd: wpb.config.cmdAuth, expiresInSec: WPB_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/webpickboard/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = wpb.webUsers[webUserId]
+  if (tag) {
+    const user = wpbGetUser(wpb, tag)
+    return res.json({ success: true, linked: true, tag, nickname: user.nickname || tag, tickets: user.tickets })
+  }
+  wpbCleanExpiredKeys(wpb)
+  for (const [code, entry] of Object.entries(wpb.authKeys)) {
+    if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+  }
+  res.json({ success: true, linked: false, expired: true })
+})
+app.post('/webpickboard/:djId/pick', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'webpickboard', djId)) return res.json({ success: false, error: '웹뽑기판을 찾을 수 없어요.' })
+  const wpb = getWebPickboardSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const idx = Number((req.body || {}).index)
+  const tag = wpb.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 유저등록 및 채팅 인증을 완료해주세요.' })
+  if (!Number.isInteger(idx) || idx < 0 || idx >= wpb.grid.length) return res.json({ success: false, error: '잘못된 칸이에요.' })
+  if (wpb.picked[idx]) return res.json({ success: false, error: '이미 다른 분이 뽑은 칸이에요.' })
+  const user = wpbGetUser(wpb, tag)
+  if (user.tickets < 1) return res.json({ success: false, error: '보유한 뽑기권이 없어요.' })
+
+  const rankNum = wpb.grid[idx]
+  const rankInfo = wpb.config.ranks.find(r => r.rank === rankNum) || { rank: rankNum, name: '' }
+  const nickname = user.nickname || tag
+  wpbSetUser(wpb, tag, nickname, user.tickets - 1)
+  wpb.picked[idx] = { rank: rankInfo.rank, name: rankInfo.name, nickname, tag, at: Date.now() }
+  wpb.winners.unshift({ time: Date.now(), nickname, tag, index: idx, rank: rankInfo.rank, name: rankInfo.name })
+  if (wpb.winners.length > 300) wpb.winners.length = 300
+  saveWebPickboard(djId, wpb)
+  broadcast({ type: 'webpickboard-pick', djId, index: idx, rank: rankInfo.rank, name: rankInfo.name, nickname })
+  // 🔔 웹에서 뽑은 결과도 방송 채팅창에 그대로 안내해서, 시청자들이 누가 몇 등을 뽑았는지 같이 볼 수 있게 한다.
+  const prizeText = rankInfo.name ? `[${rankInfo.name}]` : ''
+  sendChatSplit(djId, `🎯 ${nickname}님이 웹뽑기판에서 ${rankInfo.rank}등 ${prizeText} 당첨!`, 150, 300)
+  res.json({ success: true, rank: rankInfo.rank, name: rankInfo.name, tickets: wpb.users[tag].tickets })
+})
+// 공개 웹뽑기판 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// board·register·me·pick 같은 하위 경로를 가로채지 않는다.
+app.get('/webpickboard/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/webpickboard.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🎭 마피아 게임 — 관리자(DJ) 전용 설정/제어 API
+app.get('/mafia-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  res.json({
+    success: true,
+    config: mf.config,
+    game: {
+      phase: mf.game.phase,
+      poolCount: Object.keys(mf.game.pool).length,
+      totalSlots: mfTotalSlots(mf.config),
+      round: mf.game.round,
+      aliveCount: mfAliveTags(mf.game).length,
+      playerCount: Object.keys(mf.game.players).length,
+      phaseEndsAt: mf.game.phaseEndsAt,
+      lastResult: mf.game.lastResult,
+    },
+    publicUrl: `/mafia/${req.djId}`,
+  })
+})
+app.post('/mafia-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mafia', req.djId)) return res.json({ success: false, error: '마피아 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mf = getMafiaSettings(req.djId, settings)
+  const body = req.body || {}
+  if (Array.isArray(body.roles)) mf.config.roles = mfNormalizeRoles(body.roles)
+  if (body.nightSec != null) mf.config.nightSec = Math.max(10, Math.min(600, Number(body.nightSec) || 60))
+  if (body.daySec != null) mf.config.daySec = Math.max(10, Math.min(600, Number(body.daySec) || 90))
+  const cmdKeys = ['cmdAuth', 'cmdJoin', 'cmdStart', 'cmdVote', 'cmdSkip', 'cmdStatus', 'cmdEnd', 'cmdForce']
+  cmdKeys.forEach(k => { if (body[k] != null) { let v = String(body[k]).trim(); if (v && !v.startsWith('!')) v = '!' + v; if (v) mf.config[k] = v.slice(0, 40) } })
+  saveMafia(req.djId, mf)
+  res.json({ success: true, config: mf.config })
+})
+app.post('/mafia-admin/start', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'mafia', req.djId)) return res.json({ success: false, error: '마피아 게임 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const mf = getMafiaSettings(req.djId, settings)
+  if (mf.game.phase !== 'waiting') return res.json({ success: false, error: '이미 게임이 진행 중이에요.' })
+  const result = mfStartGame(req.djId, mf)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+app.post('/mafia-admin/reset', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  mf.game = mfDefaultGame()
+  saveMafia(req.djId, mf)
+  broadcast({ type: 'mafia-phase', djId: req.djId, phase: 'waiting' })
+  res.json({ success: true })
+})
+// DJ가 밤/낮 타이머를 안 기다리고 지금 바로 다음 단계로 강제 진행
+app.post('/mafia-admin/force-phase', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  const result = mfForcePhase(req.djId, mf)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+// 관리자는 진행 상황 확인용으로 전체 참가자의 역할까지 볼 수 있다 (시청자 웹페이지는 본인 것만 노출)
+app.get('/mafia-admin/state', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const mf = getMafiaSettings(req.djId, settings)
+  res.json({
+    success: true,
+    phase: mf.game.phase,
+    round: mf.game.round,
+    pool: mf.game.pool,
+    players: mf.game.players,
+    lastResult: mf.game.lastResult,
+    phaseEndsAt: mf.game.phaseEndsAt,
+  })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎭 마피아 게임 — 공개(로그인 없음) API. 시청자용 웹페이지가 아래 엔드포인트로 등록/인증확인/
+// 참가/밤행동을 진행한다. 웹뽑기판과 동일한 register→code→채팅인증 패턴을 그대로 재사용한다.
+app.post('/mafia/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  mfCleanExpiredKeys(mf)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !mf.webUsers[webUserId]) {
+    for (const code of Object.keys(mf.authKeys)) { if (mf.authKeys[code].webUserId === webUserId) delete mf.authKeys[code] }
+  } else if (!webUserId || mf.webUsers[webUserId]) {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = mfGenAuthKey(mf)
+  mf.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MF_AUTH_KEY_TTL_MS }
+  saveMafia(djId, mf)
+  res.json({ success: true, webUserId, code, cmd: mf.config.cmdAuth, expiresInSec: MF_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/mafia/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const game = mf.game
+  const base = {
+    success: true,
+    phase: game.phase,
+    round: game.round,
+    phaseEndsAt: game.phaseEndsAt,
+    totalSlots: mfTotalSlots(mf.config),
+    poolCount: Object.keys(game.pool).length,
+    aliveList: mfAliveTags(game).map(t => game.players[t].nickname),
+    lastResult: game.lastResult,
+  }
+  if (!webUserId) return res.json({ ...base, linked: false })
+
+  const tag = mf.webUsers[webUserId]
+  if (!tag) {
+    mfCleanExpiredKeys(mf)
+    for (const [code, entry] of Object.entries(mf.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ ...base, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ ...base, linked: false, expired: true })
+  }
+
+  const inPool = !!game.pool[tag]
+  const player = game.players[tag]
+  const resp = { ...base, linked: true, tag, nickname: (player && player.nickname) || game.pool[tag] || tag, inPool }
+  if (player) {
+    resp.role = { name: player.roleName, team: player.team, nightAction: player.nightAction, alive: player.alive }
+    // 🕵️ 경찰 조사 결과 — 밤에 조사를 지목하면, 그 결과는 "다음날 낮"에 확인하는 거라서 phase가
+    // day로 넘어간 뒤에도 내려줘야 한다. 예전엔 이 블록이 night 분기 안에만 있어서, 결과가 실제로
+    // 계산되는 시점(밤이 끝나고 낮이 된 직후)엔 이미 phase가 'day'라 조건에 안 걸려 한 번도
+    // 내려간 적이 없었다 — 그래서 "조사결과가 안 뜬다"는 문제가 있었다.
+    if (player.nightAction === 'investigate' && game.investigateResults[tag]) resp.investigateResult = game.investigateResults[tag]
+    // 🤝 마피아 팀원 공개 — 마피아끼리는 서로 누가 마피아인지 알아야 밤에 같은 사람을 지목해서
+    // 팀킬(마피아가 마피아를 죽임)하는 걸 피할 수 있다.
+    if (player.team === 'mafia') {
+      resp.mafiaTeammates = Object.entries(game.players)
+        .filter(([t, p]) => p.team === 'mafia' && t !== tag)
+        .map(([t, p]) => ({ tag: t, nickname: p.nickname, alive: p.alive }))
+    }
+    if (game.phase === 'night') {
+      resp.myNightAction = game.nightActions[tag] || null
+      // 치료(heal) 역할은 본인도 지목 대상에 포함시켜야 자가 치료가 가능하다.
+      let candidates = mfAliveTags(game)
+      if (player.nightAction !== 'heal') candidates = candidates.filter(t => t !== tag)
+      resp.targetableAlive = candidates.map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    } else if (game.phase === 'day') {
+      resp.myVote = game.votes[tag] || null
+      resp.targetableAlive = mfAliveTags(game).filter(t => t !== tag).map(t => ({ tag: t, nickname: game.players[t].nickname }))
+    }
+  }
+  res.json(resp)
+})
+app.post('/mafia/:djId/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  if (mf.game.phase !== 'waiting') return res.json({ success: false, error: '지금은 참가할 수 없어요.' })
+  // 웹 "참가하기" 버튼으로 처음 들어오는 경우, 저장된 닉네임이 없으면 태그가 그대로 이름으로
+  // 보이는 문제가 있었다 — 방에서 최근에 확인된 실제 닉네임으로 채워준다.
+  const room = getRoom(djId)
+  mf.game.pool[tag] = mf.game.pool[tag] || resolveNicknameFromInput(room, tag)
+  saveMafia(djId, mf)
+  broadcast({ type: 'mafia-pool', djId, count: Object.keys(mf.game.pool).length })
+  res.json({ success: true, poolCount: Object.keys(mf.game.pool).length })
+})
+app.post('/mafia/:djId/night-action', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const targetTag = String((req.body || {}).targetTag || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const game = mf.game
+  if (game.phase !== 'night') return res.json({ success: false, error: '지금은 밤이 아니에요.' })
+  const player = game.players[tag]
+  if (!player || !player.alive) return res.json({ success: false, error: '생존한 참가자만 행동할 수 있어요.' })
+  if (player.nightAction === 'none') return res.json({ success: false, error: '이 역할은 밤 능력이 없어요.' })
+  if (!targetTag || !game.players[targetTag]) return res.json({ success: false, error: '대상을 선택해주세요.' })
+  if (player.nightAction !== 'heal' && targetTag === tag) return res.json({ success: false, error: '본인은 지목할 수 없어요.' })
+  game.nightActions[tag] = targetTag
+  saveMafia(djId, mf)
+  res.json({ success: true })
+})
+// 낮 처형 투표를 웹에서 클릭으로도 할 수 있게 하는 공개 API (방송 채팅 명령어와 동일하게 동작)
+app.post('/mafia/:djId/vote', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'mafia', djId)) return res.json({ success: false, error: '마피아 게임을 찾을 수 없어요.' })
+  const mf = getMafiaSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const targetTag = String((req.body || {}).targetTag || '').trim()
+  const tag = mf.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const game = mf.game
+  if (game.phase !== 'day') return res.json({ success: false, error: '지금은 투표 시간이 아니에요.' })
+  const voter = game.players[tag]
+  if (!voter || !voter.alive) return res.json({ success: false, error: '생존한 참가자만 투표할 수 있어요.' })
+  if (!targetTag || !game.players[targetTag] || !game.players[targetTag].alive) return res.json({ success: false, error: '대상을 선택해주세요 (생존자만 지목할 수 있어요).' })
+  game.votes[tag] = targetTag
+  saveMafia(djId, mf)
+  res.json({ success: true })
+})
+
+// 공개 마피아 게임 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// register·me·join·night-action 같은 하위 경로를 가로채지 않는다.
+app.get('/mafia/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/mafia.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 👤 내정보 웹페이지 — 공개(로그인 없음) API. 웹뽑기판/마피아/몬스터도감과 같은
+// register→code→채팅인증 패턴을 그대로 재사용한다.
+app.post('/myinfo/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  miCleanExpiredKeys(mi)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !mi.webUsers[webUserId]) {
+    for (const code of Object.keys(mi.authKeys)) { if (mi.authKeys[code].webUserId === webUserId) delete mi.authKeys[code] }
+  } else if (!webUserId || mi.webUsers[webUserId]) {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = miGenAuthKey(mi)
+  mi.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MI_AUTH_KEY_TTL_MS }
+  saveMyInfo(djId, mi)
+  res.json({ success: true, webUserId, code, cmd: mi.cmdAuth, expiresInSec: MI_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/myinfo/:djId/me', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = mi.webUsers[webUserId]
+  if (!tag) {
+    miCleanExpiredKeys(mi)
+    for (const [code, entry] of Object.entries(mi.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ success: true, linked: false, expired: true })
+  }
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, linked: true, tag, ...profile })
+})
+// 🎡 이 방에 등록된 룰렛들의 이름과 항목 목록 — 채팅 명령어 "!룰렛메뉴N"과 같은 정보를 웹에서도
+// 로그인 없이 볼 수 있게 공개한다 (확률/가중치는 빼고 항목 이름만 노출).
+// 🎁 킵/이벤트/기타목록 항목 사용 — 채팅 명령어 "!킵사용 [번호] [수량]"과 같은 로직을, 웹에서
+// 버튼 한 번으로 처리한다. 항상 1개만 사용(요청 수량이 여러 개여도 목록에서 딱 하나만 차감)하고,
+// 방송 채팅창에는 그대로 사용 완료 알림을 보낸다.
+app.post('/myinfo/:djId/use-item', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const section = String((req.body || {}).section || '').trim() // 'keep' | 'event' | 'misc'
+  const name = String((req.body || {}).name || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!name) return res.json({ success: false, error: '잘못된 요청이에요.' })
+  const fieldMap = { keep: 'keepList', event: 'eventList', misc: 'miscList' }
+  const field = fieldMap[section]
+  if (!field) return res.json({ success: false, error: '잘못된 목록이에요.' })
+
+  const rec = settings.rouletteHistory && settings.rouletteHistory[tag]
+  const data = rec && rec[field]
+  if (!data || !data[name]) return res.json({ success: false, error: '이미 사용했거나 없는 항목이에요.' })
+
+  data[name] -= 1 // 수량이 여러 개여도 한 번에 딱 1개만 차감
+  const remaining = data[name]
+  if (data[name] <= 0) delete data[name]
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const displayName = rec.nickname || tag
+  setTimeout(() => sendChatToRoom(djId, `✅ ${displayName}님의 [${name}] 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 300)
+  addVoiceTimerUsage(djId, getRoom(djId), name, 1)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, ...profile })
+})
+
+// 🎡 룰렛권 사용 — 채팅 명령어 "!룰렛N"의 시청자 본인 사용 분기(handleRouletteCommand)와 동일한 로직을
+// 웹 버튼 한 번으로 처리한다. 항상 1장만 사용하고(킵목록 "사용" 버튼과 동일한 원칙), 당첨 결과는
+// 이 응답으로 웹 화면에도 보여주고, 방송 채팅창에도 사용 알림 + 당첨 결과를 그대로 올린다.
+app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'roulette', djId)) return res.json({ success: false, error: '룰렛 기능이 꺼져있어요.' })
+
+  const idx = parseInt((req.body || {}).idx, 10)
+  const rl = settings.roulette
+  const rt = rl && rl.list && rl.list[idx - 1]
+  if (!rt || rt.enabled === false || !rt.items || !rt.items.length) return res.json({ success: false, error: '잘못된 룰렛이에요.' })
+
+  const existingRec = settings.rouletteHistory && settings.rouletteHistory[tag]
+  const nickname = (existingRec && existingRec.nickname) || tag
+  const hist = getHistoryRecByIdentity(settings, tag, nickname)
+
+  const have = Number(hist.coupons[idx] || 0)
+  if (have < 1) return res.json({ success: false, error: '보유한 룰렛권이 없어요.' })
+  hist.coupons[idx] = have - 1
+
+  const won = percentPick(rt.items)
+  const resultName = won ? won.name : ''
+  if (won) {
+    if (!won.skipHistory) {
+      hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
+      addRouletteWinToList(hist, won.saveTo, won.name)
+    }
+    applySpecialRouletteItem(djId, settings, tag, nickname, won.name)
+  }
+  store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
+  broadcast({ type: 'roulette', djId, tag })
+
+  const useMsg = (rl.couponUseTemplate || '🎡 {닉네임}님이 룰렛{번호} 권 {수량}개를 사용했습니다! (잔여: {잔여}개)')
+    .replace(/{닉네임}/g, nickname).replace(/{번호}/g, idx).replace(/{수량}/g, 1).replace(/{잔여}/g, hist.coupons[idx])
+  const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, nickname)
+  setTimeout(() => sendChatToRoom(djId, useMsg), 300)
+  setTimeout(() => sendChatToRoom(djId, `${header}\n👉 ${resultName}`), 900)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, rouletteName: rt.name, result: resultName, ...profile })
+})
+
+// 🎰 복권 사용 — 채팅 명령어 "!복권"(단일 사용 분기)과 동일한 3자리 맞히기 추첨 로직을 웹 버튼
+// 한 번으로 처리한다. 항상 1장만 사용하고, 결과는 이 응답으로 웹 화면에도 보여주고 방송
+// 채팅창에도 그대로 올린다.
+// 🎰 복권 사용 — 채팅 명령어 "!복권"을 인자 없이 쳤을 때와 완전히 동일하게 동작한다: 보유한 복권을
+// 전부(최대 100장) 한 번에 써서 등수별 결과를 집계하고, 그만큼의 EXP를 한꺼번에 지급한다.
+app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!isModuleOn(settings, 'loyalty', djId)) return res.json({ success: false, error: '애청지수 기능이 꺼져있어요.' })
+
+  const act = getActivitySettings(djId, settings)
+  const key = actResolveKey(act, null, tag)
+  const d = key ? act.users[key] : null
+  if (!d) return res.json({ success: false, error: '애청지수에 등록되어 있지 않아요. 방송 채팅에서 !내정보 생성을 먼저 입력해주세요.' })
+  if ((d.lotto || 0) < 1) return res.json({ success: false, error: '보유한 복권이 없어요.' })
+
+  const exp1st = Number(act.lotto1st) || 3000
+  const exp2nd = Number(act.lotto2nd) || 500
+  const exp3rd = Number(act.lotto3rd) || 100
+  const expFail = Number(act.lottoFail) || 1
+  const useCount = Math.min(d.lotto || 0, 100) // ⚠️ !복권 명령어와 동일하게, 아무리 많이 갖고 있어도 한 번에 최대 100장까지만
+  d.lotto -= useCount
+  let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
+  for (let i = 0; i < useCount; i++) {
+    const win = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const my = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3)
+    const m = my.filter(n => win.includes(n)).length
+    if (m === 3) cnt1++; else if (m === 2) cnt2++; else if (m === 1) cnt3++; else cntFail++
+  }
+  const totalExp = cnt1 * exp1st + cnt2 * exp2nd + cnt3 * exp3rd + cntFail * expFail
+  actGrantExp(djId, act, key, totalExp)
+  store.saveSettings(djId, { activity: act })
+
+  const nickname = d.nickname || tag
+  const top = actFormat(act.msgLottoAutoHeader, { nickname, count: useCount })
+  const bottom = '━━━━━━━━━━━━━━\n' +
+    `🥇 1등(3개): ${cnt1}회 (+${exp1st} EXP)\n` +
+    `🥈 2등(2개): ${cnt2}회 (+${exp2nd} EXP)\n` +
+    `🥉 3등(1개): ${cnt3}회 (+${exp3rd} EXP)\n` +
+    `💀 꽝(0개): ${cntFail}회 (+${expFail} EXP)\n` +
+    '━━━━━━━━━━━━━━\n' + actFormat(act.msgLottoTotal, { totalExp })
+  setTimeout(() => sendChatToRoom(djId, top), 400)
+  setTimeout(() => sendChatToRoom(djId, bottom), 900)
+
+  const profile = await miBuildProfile(djId, settings, tag)
+  res.json({ success: true, useCount, cnt1, cnt2, cnt3, cntFail, totalExp, ...profile })
+})
+
+app.get('/myinfo/:djId/roulettes', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
+  const roulettes = list
+    .map((rt, i) => ({ rt, idx: i + 1 }))
+    .filter(x => x.rt.enabled !== false)
+    .map(x => ({ idx: x.idx, name: x.rt.name || `룰렛${x.idx}`, items: (x.rt.items || []).map(it => it.name).filter(Boolean) }))
+    .filter(rt => rt.items.length)
+  res.json({ success: true, roulettes })
+})
+
+// 📋 포스트 — DJ가 관리자 페이지에서 만들어둔 이벤트/공지 게시물을 내정보 웹페이지의 "포스트" 탭에서
+// 스푼 앱 게시물과 비슷한 카드 형태로 보여준다. 로그인 없이 목록은 누구나 볼 수 있고, 좋아요/댓글은
+// 킵목록과 동일한 웹인증(webUserId↔tag) 방식으로 본인 확인을 한다.
+app.get('/myinfo/:djId/posts', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const myTag = webUserId ? mi.webUsers[webUserId] : ''
+  const dash = settings.dashboard || {}
+  const room = getRoom(djId)
+  const author = { nickname: (dash.rankData && dash.rankData.nickname) || djId, imgUrl: room.djProfileUrl || '' }
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(p => ({
+    id: p.id,
+    title: p.title || '',
+    imageUrl: p.imageUrl || '',
+    dateStart: p.dateStart || '',
+    dateEnd: p.dateEnd || '',
+    createdAt: p.createdAt || 0,
+    likeCount: (p.likes || []).length,
+    liked: !!(myTag && (p.likes || []).includes(myTag)),
+    comments: (p.comments || []).slice(-50),
+    commentCount: (p.comments || []).length,
+  }))
+  res.json({ success: true, posts, author })
+})
+
+// ✍️ 내정보 웹페이지에서 DJ 본인이 직접 글쓰기 — 관리자 패널 로그인과 완전히 같은 계정/비밀번호
+// 인증(auth.requireAuth)을 그대로 재사용한다. URL의 djId와 로그인한 토큰의 djId가 다르면(다른
+// DJ 계정으로 남의 방 포스트를 건드리려는 경우) 막는다.
+app.get('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const settings = store.getSettings(djId) || {}
+  const posts = (settings.posts || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  res.json({ success: true, posts })
+})
+app.post('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
+  const djId = req.params.djId
+  if (req.djId !== djId) return res.json({ success: false, error: '본인 방의 포스트만 관리할 수 있어요.' })
+  const posts = (req.body || {}).posts
+  if (!Array.isArray(posts)) return res.json({ success: false, error: '잘못된 요청이에요.' })
+  store.saveSettings(djId, { posts })
+  res.json({ success: true })
+})
+
+app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  if (!post.likes) post.likes = []
+  const idx = post.likes.indexOf(tag)
+  let liked
+  if (idx >= 0) { post.likes.splice(idx, 1); liked = false } else { post.likes.push(tag); liked = true }
+  store.saveSettings(djId, { posts: settings.posts })
+  // 🎰 좋아요를 "누른" 순간(취소가 아니라)만 첫 참여 보상 대상 — 좋아요 취소는 보상 지급 안 함
+  const bonusLotto = liked ? grantFirstPostRewardIfEligible(djId, settings, mi, tag) : 0
+  res.json({ success: true, liked, likeCount: post.likes.length, bonusLotto })
+})
+
+app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const mi = getMyInfoSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const text = String((req.body || {}).text || '').trim().slice(0, 300)
+  const tag = webUserId ? mi.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '인증이 필요해요.' })
+  if (!text) return res.json({ success: false, error: '댓글 내용을 입력해주세요.' })
+  const post = (settings.posts || []).find(p => p.id === req.params.postId)
+  if (!post) return res.json({ success: false, error: '포스트를 찾을 수 없어요.' })
+  const act = getActivitySettings(djId, settings)
+  const actKey = actResolveKey(act, null, tag)
+  const nickname = (actKey && act.users[actKey] && act.users[actKey].nickname) || (settings.rouletteHistory && settings.rouletteHistory[tag] && settings.rouletteHistory[tag].nickname) || tag
+  if (!post.comments) post.comments = []
+  const comment = { id: 'c' + Date.now() + Math.floor(Math.random() * 1000), tag, nickname, text, createdAt: Date.now() }
+  post.comments.push(comment)
+  store.saveSettings(djId, { posts: settings.posts })
+  // 🎰 댓글을 남기면 첫 참여 보상 대상 (좋아요와 마찬가지로 딱 한 번만)
+  const bonusLotto = grantFirstPostRewardIfEligible(djId, settings, mi, tag)
+  res.json({ success: true, comment, commentCount: post.comments.length, bonusLotto })
+})
+
+// 📅 캘린더 — DJ가 등록한 행사/방송 일정을 로그인 없이 누구나 볼 수 있게 공개한다 (룰렛정보 탭과
+// 동일하게 조회 전용 · 웹인증 불필요).
+app.get('/myinfo/:djId/calendar', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'myinfo', djId)) return res.json({ success: false, error: '내정보 웹페이지를 찾을 수 없어요.' })
+  const events = (settings.calendarEvents || []).slice().sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)).map(e => ({
+    id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
+  }))
+  const img = settings.calendarImage || {}
+  const overlay = img.overlay || {}
+  res.json({
+    success: true, events, imageUrl: img.url || '', hideGrid: !!img.hideGrid,
+    overlay: {
+      enabled: !!overlay.enabled, year: overlay.year || null, month: overlay.month || null,
+      top: Number(overlay.top) || 0, left: Number(overlay.left) || 0,
+      width: Number(overlay.width) || 100, height: Number(overlay.height) || 100,
+    },
+  })
+})
+
+// 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
+// 파라미터가 하위 경로를 가로채지 않는다.
+app.get('/myinfo/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/myinfo.html')
+})
+
+// 🎨 내정보 웹페이지 테마 색상 — DJ가 관리자 페이지에서 고른 accent 색상을 로그인/인증 여부와
+// 상관없이 누구나 조회할 수 있어야 페이지가 열리자마자(인증 전에도) 바로 적용할 수 있다.
+// 저장 안 해뒀으면 기존 기본 핑크색을 그대로 돌려준다.
+// 🔤 내정보 웹페이지 글자 폰트 — 관리자(sum)가 /admin/myinfo-fonts 로 등록해둔 목록 중에서만
+// 디제이가 고를 수 있다. 'default'는 목록에 없어도 항상 허용되는 특수값(시스템 기본 폰트, 커스텀 미적용).
+
+app.get('/myinfo/:djId/theme', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const color = (settings.myinfoTheme && settings.myinfoTheme.color) || '#ff8fab'
+  // 배경 연하기 비율 — 디제이가 저장한 값이 있으면 그대로, 없으면(구버전 데이터 포함) 기존 고정값 0.30
+  const bgRatioRaw = settings.myinfoTheme && settings.myinfoTheme.bgRatio
+  const bgRatio = (typeof bgRatioRaw === 'number' && bgRatioRaw >= 0 && bgRatioRaw <= 0.7) ? bgRatioRaw : 0.30
+  const fontId = (settings.myinfoTheme && settings.myinfoTheme.font) || 'default'
+  // 인증 전에도 누구나 조회하는 공개 endpoint라, family/url까지 그대로 내려줘야 myinfo.html이
+  // 별도 요청 없이 바로 <style>에 적용하고 필요하면 웹폰트 링크를 붙일 수 있다.
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  // 🔖 상단 탭 아이콘 — 디제이가 안 바꿨으면 기본 이모지 그대로 내려간다.
+  const defaultTabIcons = { post: '📋', keep: '🎁', game: '🎮', roulette: '🎡', cal: '📅', board: '🏆', size: 16 }
+  const savedTabIcons = settings.myinfoTabIcons || {}
+  const tabIcons = { ...defaultTabIcons, ...savedTabIcons }
+  // 🔘 상단 탭 노출 — 디제이가 안 껐으면 6개 다 기본으로 보여준다.
+  const defaultMenuVisible = { post: true, keep: true, game: true, roulette: true, cal: true, board: true }
+  const savedMenuVisible = settings.myinfoMenuVisible || {}
+  const menuVisible = { ...defaultMenuVisible, ...savedMenuVisible }
+  // 🔀 상단 탭 순서 — 디제이가 안 바꿨으면 기존 기본 순서 그대로.
+  const defaultMenuOrder = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
+  const savedMenuOrder = Array.isArray(settings.myinfoMenuOrder) ? settings.myinfoMenuOrder : null
+  const menuOrder = (savedMenuOrder && defaultMenuOrder.every(k => savedMenuOrder.includes(k)) && savedMenuOrder.length === defaultMenuOrder.length) ? savedMenuOrder : defaultMenuOrder
+  res.json({ success: true, color, bgRatio, font, tabIcons, menuVisible, menuOrder })
+})
+
+// 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 맨 위 배너용. 테마 색상/폰트와 동일하게
+// 인증 여부와 상관없이 누구나 조회 가능해야 페이지가 열리자마자(그리고 3초마다 폴링할 때마다)
+// 바로 최신 문구로 반영된다. 폰트는 myinfoTheme과 같은 목록(store.getMyinfoFonts())을 재사용하되,
+// 페이지 전체가 아니라 공지 텍스트에만 적용된다(myinfo.html의 applyNoticeFont 참고).
+app.get('/myinfo/:djId/notice', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const notice = settings.myinfoNotice || {}
+  const text = String(notice.text || '').trim()
+  const fontId = notice.font || 'default'
+  let font = { id: 'default', name: '기본', family: '', url: '' }
+  if (fontId !== 'default') {
+    const found = store.getMyinfoFonts().find(f => f.id === fontId)
+    if (found) font = found
+  }
+  res.json({ success: true, text, font })
+})
+
+// 디제이 전용(로그인 필요) — 관리자가 등록해둔 폰트 목록을 본인 내정보 설정 화면에서 고를 수 있게 조회
+app.get('/myinfo-fonts', auth.requireAuth, (req, res) => {
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+
+// 관리자(sum) 전용 — 내정보 웹페이지에서 디제이들이 고를 수 있는 폰트 목록을 등록/조회
+app.get('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, fonts: store.getMyinfoFonts() })
+})
+app.post('/admin/myinfo-fonts', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setMyinfoFonts((req.body || {}).fonts)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, count: result.count })
+})
+
+// 🔤 폰트 파일 직접 첨부 — 링크가 없는 폰트를 쓰고 싶을 때, woff2/woff/ttf/otf 파일 자체를
+// 업로드해서 /fonts/파일명 으로 서빙한다. sounds/images 업로드와 동일한 base64 방식.
+const MYINFO_FONT_ALLOWED_EXT = ['woff2', 'woff', 'ttf', 'otf']
+app.post('/fonts/upload', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { dataUrl, filename } = req.body || {}
+  if (!dataUrl || typeof dataUrl !== 'string') return res.json({ success: false, error: '파일 데이터가 없어요' })
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return res.json({ success: false, error: '올바른 파일 형식이 아니에요' })
+  const extMatch = String(filename || '').match(/\.([a-zA-Z0-9]{1,8})$/)
+  const ext = extMatch ? extMatch[1].toLowerCase() : ''
+  if (!MYINFO_FONT_ALLOWED_EXT.includes(ext)) return res.json({ success: false, error: '폰트 파일(.woff2, .woff, .ttf, .otf)만 업로드할 수 있어요' })
+  const buffer = Buffer.from(m[2], 'base64')
+  if (buffer.length > 15 * 1024 * 1024) return res.json({ success: false, error: '15MB 이하 파일만 업로드할 수 있어요' })
+  const name = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
+  try {
+    fs.writeFileSync(path.join(FONTS_DIR, name), buffer)
+  } catch (e) {
+    return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message })
+  }
+  res.json({ success: true, url: `/fonts/${name}`, filename: String(filename || name) })
+})
+// 더 이상 안 쓰는 폰트 파일 삭제(첨부 제거/교체 시 호출).
+app.post('/fonts/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const url = (req.body || {}).url
+  if (!url || typeof url !== 'string' || !url.startsWith('/fonts/')) return res.json({ success: true })
+  const name = path.basename(url)
+  try { fs.unlinkSync(path.join(FONTS_DIR, name)) } catch (e) { /* 이미 없으면 무시 */ }
+  res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 🎑 추석 팀배틀 이벤트 — 공개(로그인 없음) 웹 페이지. 포스터 이미지 + 실시간 팀 스코어를
+// 보여주고, 시청자는 마피아/몬스터도감과 같은 방식으로 채팅 인증코드를 쳐서 본인 참여 현황을
+// 확인할 수 있다. 반드시 :djId 정적 페이지 라우트보다 앞에 register/me를 둬야 하위 경로가
+// 가로채이지 않는다.
+app.get('/chuseok/:djId/state', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const r = ev.rounds[ev.currentRound - 1]
+  const scoreA = chuseokTeamMembers(ev, ev.currentRound, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
+  const scoreB = chuseokTeamMembers(ev, ev.currentRound, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
+  const top = (side) => chuseokTeamMembers(ev, ev.currentRound, side).slice(0, 5).map(m => ({ nickname: m.nickname, score: m.score }))
+  res.json({
+    success: true,
+    title: ev.title,
+    posterImageUrl: ev.posterImageUrl,
+    active: ev.active,
+    currentRound: ev.currentRound,
+    teamA: r.teamA, teamB: r.teamB,
+    scoreA, scoreB,
+    topA: top('A'), topB: top('B'),
+  })
+})
+app.post('/chuseok/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  if (!webUserId) return res.json({ success: false, error: '잘못된 요청이에요' })
+  chuseokCleanExpiredKeys(ev)
+  for (const code of Object.keys(ev.authKeys)) { if (ev.authKeys[code].webUserId === webUserId) delete ev.authKeys[code] }
+  const code = chuseokGenAuthKey(ev)
+  const expiresAt = Date.now() + CHUSEOK_AUTH_KEY_TTL_MS
+  ev.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt }
+  store.saveSettings(djId, { chuseokEvent: ev })
+  res.json({ success: true, code, expiresAt })
+})
+app.get('/chuseok/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isRequestModuleAllowed('chuseokevent', djId)) return res.json({ success: false, error: '진행중인 추석 이벤트를 찾을 수 없어요.' })
+  const ev = getChuseokSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  if (!webUserId) return res.json({ success: true, linked: false })
+
+  const tag = ev.webUsers[webUserId]
+  if (!tag) {
+    chuseokCleanExpiredKeys(ev)
+    for (const [code, entry] of Object.entries(ev.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ success: true, linked: false })
+  }
+
+  const key = 't:' + tag
+  const member = ev.members[key]
+  if (!member) return res.json({ success: true, linked: true, tag, participating: false })
+  const r = ev.rounds[member.round - 1]
+  const teamName = member.team === 'A' ? r.teamA : r.teamB
+  const list = chuseokTeamMembers(ev, member.round, member.team)
+  const rank = list.findIndex(m => m === member) + 1
+  res.json({
+    success: true, linked: true, tag, participating: true,
+    round: member.round, team: member.team, teamName, score: member.score,
+    rank, teamCount: list.length,
+    isCurrentRound: member.round === ev.currentRound,
+  })
+})
+app.get('/chuseok/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/chuseok.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🐾 몬스터 웹 도감 — 공개(로그인 없음) API. 몬스터잡기는 디제이 구분 없는 전체 공용 시스템이라
+// 이 라우트들도 특정 djId 설정에 안 묶이고(URL의 djId는 "어느 방 채팅에 인증코드를 쳐야 하는지"
+// 안내하는 용도로만 쓰인다), mcGetWebData()의 전역 파일 하나만 본다.
+function mcCatalog(djId) {
+  // 전역 몬스터 카탈로그는 디제이별 settings.monsterCatch.monsters에 저장돼있지만 다 같은
+  // 목록을 공유하므로, 이 djId가 켜져있으면 그 카탈로그를 그대로 쓴다. 못 찾으면 다른 아무
+  // djId나 monstercatch가 켜진 곳에서라도 카탈로그를 찾아본다(다들 같은 목록이라 안전).
+  const settings = store.getSettings(djId) || {}
+  if (isModuleOn(settings, 'monstercatch', djId)) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    if (mc.monsters && mc.monsters.length) return mc.monsters
+  }
+  for (const otherId of store.listDjIds()) {
+    const s = store.getSettings(otherId) || {}
+    if (!isModuleOn(s, 'monstercatch', otherId)) continue
+    const mc = getMonsterCatchSettings(otherId, s)
+    if (mc.monsters && mc.monsters.length) return mc.monsters
+  }
+  return []
+}
+// 🌍 관리자(sum) 전용 카탈로그 조회 — mcCatalog와 달리 admin(sum) 계정 자체의 monstercatch 모듈이
+// 꺼져있어도(관리자는 직접 몬스터게임을 안 할 수도 있음) 항상 admin 계정의 몬스터 목록(전체 통합
+// 관리가 켜져있으면 그 목록, 아니면 기본 1세대 목록)을 그대로 돌려준다. 월드보스/거다이맥스 설정처럼
+// "다른 아무 디제이가 monstercatch를 켰는지"에 의존하면 안 되는 관리자 전용 화면에서 쓴다.
+function mcAdminCatalog() {
+  const settings = store.getSettings(SHARED_TOKEN_DJID) || {}
+  const mc = getMonsterCatchSettings(SHARED_TOKEN_DJID, settings)
+  return mc.monsters || []
+}
+app.post('/monsterdex/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  // 리버시가 이 인증(!도감인증) 시스템을 그대로 재사용하고 있어서, 몬스터잡기가 꺼져있어도
+  // 리버시만 켜져있으면 인증은 동작해야 한다.
+  if (!isModuleOn(settings, 'monstercatch', djId) && !isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '이 페이지에 필요한 기능이 꺼져있어요.' })
+  const d = mcGetWebData()
+  mcCleanExpiredKeys(d)
+  const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
+  let webUserId = requestedWebUserId
+  if (webUserId && !d.webUsers[webUserId]) {
+    for (const code of Object.keys(d.authKeys)) { if (d.authKeys[code].webUserId === webUserId) delete d.authKeys[code] }
+  } else {
+    webUserId = 'wu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+  }
+  const code = mcGenAuthKey(d)
+  d.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MC_AUTH_KEY_TTL_MS }
+  mcSaveWebData()
+  res.json({ success: true, webUserId, code, cmd: '!도감인증', expiresInSec: MC_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/monsterdex/:djId/data', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId) && !isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '이 페이지에 필요한 기능이 꺼져있어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const d = mcGetWebData()
+  const catalog = mcCatalog(djId)
+  const base = { success: true }
+  if (!webUserId) return res.json({ ...base, linked: false })
+  const tag = d.webUsers[webUserId]
+  if (!tag) {
+    mcCleanExpiredKeys(d)
+    for (const [code, entry] of Object.entries(d.authKeys)) {
+      if (entry.webUserId === webUserId) return res.json({ ...base, linked: false, code, expiresAt: entry.expiresAt })
+    }
+    return res.json({ ...base, linked: false, expired: true })
+  }
+  const collection = mc_collectionsForTag(djId, tag)
+  const owned = collection || {}
+  const dex = catalog.map(m => {
+    const shinyId = MC_SHINY_PREFIX + m.id
+    const gmaxId = MC_GMAX_PREFIX + m.id
+    const count = owned[m.id] || 0
+    const shinyCount = owned[shinyId] || 0
+    const gmaxCount = owned[gmaxId] || 0
+    // 🐾 "지금 몇 마리 있는지"(count)와 "한 번이라도 잡아본 적 있는지"(discovered)는 다르다.
+    // 분해해서 0마리가 돼도 discovered는 계속 true로 남아있어서 도감 이미지가 안 사라진다.
+    const discovered = Object.prototype.hasOwnProperty.call(owned, m.id)
+    const shinyDiscovered = Object.prototype.hasOwnProperty.call(owned, shinyId)
+    const gmaxDiscovered = Object.prototype.hasOwnProperty.call(owned, gmaxId)
+    const level = mcMonsterLevel(tag, m.id)
+    const shinyLevel = mcMonsterLevel(tag, shinyId)
+    const gmaxLevel = mcMonsterLevel(tag, gmaxId)
+    const resolved = discovered ? mcResolveMonster(m.id, catalog, tag) : null
+    const shinyResolved = shinyDiscovered ? mcResolveMonster(shinyId, catalog, tag) : null
+    const gmaxResolved = gmaxDiscovered ? mcResolveMonster(gmaxId, catalog, tag) : null
+    const basePower = Number(m.power) || 10
+    return {
+      id: m.id, name: m.name, image: m.image || '', legendary: !!m.legendary,
+      count, level, power: resolved ? resolved.power : null, discovered,
+      shinyCount, shinyLevel, shinyPower: shinyResolved ? shinyResolved.power : null, shinyDiscovered,
+      gmaxCount, gmaxLevel, gmaxPower: gmaxResolved ? gmaxResolved.power : null, gmaxDiscovered,
+      selected: d.selected[tag] === String(m.id) || d.selected[tag] === m.id,
+      shinySelected: d.selected[tag] === shinyId,
+      gmaxSelected: d.selected[tag] === gmaxId,
+      dismantlePoints: mcDismantlePoints(basePower, false, false), // 🔨 마리당 분해 시 얻는 포인트 — 팝업/일괄분해 미리보기용
+      shinyDismantlePoints: mcDismantlePoints(basePower, true, false),
+      gmaxDismantlePoints: mcDismantlePoints(basePower, false, true),
+    }
+  })
+  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
+})
+// mc.collections는 djId별 settings 안에 있지만 실제로는 전역 공유 객체를 참조하고 있어서
+// (getMonsterCatchSettings 안에서 store.loadGlobalMonsterDex()로 채워짐), 아무 djId나
+// monstercatch가 켜진 곳에서 조회해도 같은 값을 본다.
+function mc_collectionsForTag(djId, tag) {
+  const settings = store.getSettings(djId) || {}
+  let mc = isModuleOn(settings, 'monstercatch', djId) ? getMonsterCatchSettings(djId, settings) : null
+  if (!mc) {
+    for (const otherId of store.listDjIds()) {
+      const s = store.getSettings(otherId) || {}
+      if (!isModuleOn(s, 'monstercatch', otherId)) continue
+      mc = getMonsterCatchSettings(otherId, s)
+      break
+    }
+  }
+  return mc ? mc.collections[tag] : null
+}
+app.post('/monsterdex/:djId/select', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  d.selected[tag] = String(monsterId)
+  mcSaveWebData()
+  res.json({ success: true })
+})
+app.post('/monsterdex/:djId/dismantle', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const count = Math.max(1, Number((req.body || {}).count) || 1)
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mcSettings = (() => {
+    let s = store.getSettings(djId) || {}
+    return isModuleOn(s, 'monstercatch', djId) ? getMonsterCatchSettings(djId, s) : null
+  })()
+  if (!mcSettings) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const collection = mcSettings.collections[tag] || {}
+  const owned = collection[monsterId] || 0
+  if (owned < count) return res.json({ success: false, error: '보유 수량이 부족해요.' })
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  if (!resolved) return res.json({ success: false, error: '알 수 없는 몬스터예요.' })
+  const basePower = Number(resolved.monster.power) || 10
+  const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
+  // 🐾 0마리가 돼도 도감 항목 자체는 지우지 않는다(0으로만 남겨둔다) — 그래야 "한 번이라도
+  // 잡았던 기록"이 도감에 계속 남아서, 이미지가 다시 안 사라지고 "분해 불가"로만 표시된다.
+  collection[monsterId] = owned - count
+  mcSettings.collections[tag] = collection
+  store.saveSettings(djId, { monsterCatch: mcSettings })
+  d.points[tag] = (d.points[tag] || 0) + gained
+  mcSaveWebData()
+  res.json({ success: true, gained, points: d.points[tag], remaining: collection[monsterId] || 0 })
+})
+// 🔨 여러 종류의 몬스터를 한 번에 골라서 한 번에 분해 — 각 항목을 검증해서, 하나라도 보유
+// 수량이 부족하면(다른 항목도 포함해서) 전부 취소하고 아무것도 안 깎는다(부분 실패 방지).
+app.post('/monsterdex/:djId/dismantle-batch', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const items = Array.isArray((req.body || {}).items) ? (req.body || {}).items : []
+  if (!items.length) return res.json({ success: false, error: '분해할 몬스터를 선택해주세요.' })
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mcSettings = (() => {
+    let s = store.getSettings(djId) || {}
+    return isModuleOn(s, 'monstercatch', djId) ? getMonsterCatchSettings(djId, s) : null
+  })()
+  if (!mcSettings) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const catalog = mcCatalog(djId)
+  const collection = mcSettings.collections[tag] || {}
+
+  // 먼저 전체를 검증 — 하나라도 문제가 있으면 아무것도 반영하지 않고 바로 실패로 반환한다.
+  const plan = []
+  for (const it of items) {
+    const monsterId = it && it.monsterId
+    const count = Math.max(1, Number(it && it.count) || 1)
+    const owned = collection[monsterId] || 0
+    if (owned < count) return res.json({ success: false, error: `${monsterId} 보유 수량이 부족해요.` })
+    const resolved = mcResolveMonster(monsterId, catalog, tag)
+    if (!resolved) return res.json({ success: false, error: `알 수 없는 몬스터예요. (${monsterId})` })
+    const basePower = Number(resolved.monster.power) || 10
+    const gained = mcDismantlePoints(basePower, resolved.shiny, resolved.gmax) * count
+    plan.push({ monsterId, count, gained, name: resolved.name })
+  }
+
+  let totalGained = 0
+  plan.forEach(p => {
+    // 🐾 여기서도 마찬가지로 0이 되어도 항목을 지우지 않고 0으로 남겨서 도감 기록을 유지한다.
+    collection[p.monsterId] = (collection[p.monsterId] || 0) - p.count
+    totalGained += p.gained
+  })
+  mcSettings.collections[tag] = collection
+  store.saveSettings(djId, { monsterCatch: mcSettings })
+  d.points[tag] = (d.points[tag] || 0) + totalGained
+  mcSaveWebData()
+  res.json({ success: true, totalGained, points: d.points[tag], results: plan })
+})
+app.post('/monsterdex/:djId/levelup', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  const curLevel = mcMonsterLevel(tag, monsterId)
+  const cost = mcLevelUpCost(curLevel)
+  const points = d.points[tag] || 0
+  if (points < cost) return res.json({ success: false, error: `포인트가 부족해요. (필요 ${cost} / 보유 ${points})` })
+  if (!d.levels[tag]) d.levels[tag] = {}
+  d.levels[tag][monsterId] = { level: curLevel + 1, exp: 0 }
+  d.points[tag] = points - cost
+  mcSaveWebData()
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  res.json({ success: true, level: curLevel + 1, points: d.points[tag], power: resolved ? resolved.power : null, gainedPower: MC_LEVEL_ATTACK_BONUS })
+})
+// 🗺️ 던전 목록 — 웹 도감 "탐험" 화면에서 던전 목록(이름/층 수/보상 포인트)과 파티 최소/최대
+// 인원, 지금 쿨타임이 남았는지를 보여주기 위한 조회용 API.
+app.get('/monsterdex/:djId/dungeons', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const mc = getMonsterCatchSettings(djId, settings)
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  let cooldownRemainSec = 0
+  if (tag) {
+    const lastAt = mcDungeonCooldownMap.get(tag) || 0
+    const cooldownSec = Math.max(0, parseInt(mc.dungeonCooldownSec, 10) || 0)
+    const remainMs = cooldownSec * 1000 - (Date.now() - lastAt)
+    if (remainMs > 0) cooldownRemainSec = Math.ceil(remainMs / 1000)
+  }
+  const catalog = mcCatalog(djId)
+  res.json({
+    success: true,
+    minParty: mc.dungeonMinParty || 2,
+    maxParty: mc.dungeonMaxParty || 4,
+    monstersPerMember: mc.dungeonMonstersPerMember || 3,
+    cooldownRemainSec,
+    dungeons: (mc.dungeons || []).map(x => ({
+      id: x.id,
+      name: x.name,
+      rewardPoints: x.rewardPoints,
+      floorCount: (x.floors || []).length,
+      // 🗺️ 층별 미리보기(이름/이미지/타입/체력=공격력*2) — 파티 꾸리기 전에 어떤 몬스터들이
+      // 나오는지 미리 보여주기 위함. 실제 전투 계산도 서버가 항상 이 카탈로그를 다시 조회해서 한다.
+      floors: (x.floors || []).map(f => {
+        const base = catalog.find(m => m.id === f.monsterId)
+        if (!base) return null
+        return { monsterId: f.monsterId, name: base.name, image: base.image, types: base.types || [], hp: Math.round((Number(base.power) || 10) * 2) }
+      }).filter(Boolean),
+    })),
+  })
+})
+
+// 🗺️ 던전 파티 — 2~4명이 코드 하나로 모여서, 각자 정해진 마리 수(dungeonMonstersPerMember, 기본 3마리)씩
+// 몬스터를 데려가 함께 도전한다. 파티 정보는 디스크에 저장하지 않고 인메모리로만 관리한다(대결
+// 쿨타임과 같은 방식) — 파티는 원래 몇 분 안에 만들고 바로 끝내는 휘발성 로비라 서버 재시작 시
+// 사라져도 괜찮다. 코드는 djId+dungeonId까지 같이 저장해서, 다른 방/다른 던전 코드가 우연히
+// 겹쳐 섞이는 일이 없게 한다.
+const mcDungeonParties = new Map() // code -> { code, djId, dungeonId, members:[{webUserId,tag,nickname,monsterIds:[]}], result, createdAt }
+const MC_DUNGEON_PARTY_TTL_MS = 30 * 60 * 1000 // 30분 넘게 방치된 로비는 정리
+function mcGenPartyCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcDungeonParties.has(code))
+  return code
+}
+function mcCleanDungeonParties() {
+  const now = Date.now()
+  for (const [code, p] of mcDungeonParties.entries()) {
+    if (now - p.createdAt > MC_DUNGEON_PARTY_TTL_MS) mcDungeonParties.delete(code)
+  }
+}
+// 몬스터 id 배열을 보유 여부까지 검증해서 정리한다 (인당 최대 마리 수 초과분은 잘라냄).
+function mcSanitizeMonsterIds(collection, monsterIds, maxCount) {
+  const out = []
+  for (const id of (Array.isArray(monsterIds) ? monsterIds : [])) {
+    if (out.length >= maxCount) break
+    if (collection && collection[id] > 0) out.push(String(id))
+  }
+  return out
+}
+// 파티 상태를 클라이언트에 보낼 형태로 가공 — 멤버별 몬스터 이름/공격력까지 미리 계산해서 같이 내려준다.
+function mcSerializeParty(djId, party) {
+  const catalog = mcCatalog(djId)
+  return {
+    code: party.code,
+    dungeonId: party.dungeonId,
+    members: party.members.map(m => {
+      const monsters = (m.monsterIds || []).map(id => {
+        const resolved = mcResolveMonster(id, catalog, m.tag)
+        return { monsterId: id, name: resolved ? resolved.name : '', power: resolved ? resolved.power : null }
+      })
+      return { webUserId: m.webUserId, nickname: m.nickname, monsterIds: m.monsterIds || [], monsters }
+    }),
+    result: party.result || null,
+  }
+}
+app.post('/monsterdex/:djId/dungeon/party/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  mcCleanDungeonParties()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const dungeonId = (req.body || {}).dungeonId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const dungeon = (mc.dungeons || []).find(x => x.id === dungeonId)
+  if (!dungeon) return res.json({ success: false, error: '존재하지 않는 던전이에요.' })
+  const code = mcGenPartyCode()
+  const party = { code, djId, dungeonId, members: [{ webUserId, tag, nickname: tag, monsterIds: [] }], result: null, createdAt: Date.now() }
+  mcDungeonParties.set(code, party)
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+app.post('/monsterdex/:djId/dungeon/party/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: false, error: '이미 진행이 끝난 파티예요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const maxParty = Math.max(1, parseInt(mc.dungeonMaxParty, 10) || 4)
+  const existing = party.members.find(m => m.webUserId === webUserId)
+  if (!existing && party.members.length >= maxParty) return res.json({ success: false, error: `파티 정원(최대 ${maxParty}명)이 꽉 찼어요.` })
+  if (!existing) party.members.push({ webUserId, tag, nickname: tag, monsterIds: [] })
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+// 🐾 파티원 본인의 몬스터 선택을 통째로 교체한다 — 인당 정해진 마리 수(dungeonMonstersPerMember)까지
+// 클라이언트가 원하는 조합을 한 번에 보내면, 보유 여부만 검증해서 그대로 반영한다.
+app.post('/monsterdex/:djId/dungeon/party/pick', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const monsterIds = Array.isArray((req.body || {}).monsterIds) ? (req.body || {}).monsterIds : []
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: false, error: '이미 진행이 끝난 파티예요.' })
+  const member = party.members.find(m => m.webUserId === webUserId)
+  if (!member) return res.json({ success: false, error: '이 파티의 멤버가 아니에요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const perMember = Math.max(1, parseInt(mc.dungeonMonstersPerMember, 10) || 3)
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  const clean = mcSanitizeMonsterIds(collection, monsterIds, perMember)
+  if (!clean.length) return res.json({ success: false, error: '보유한 몬스터 중에서 골라주세요.' })
+  member.monsterIds = clean
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+// 🙋 지금 열려있는(아직 결과 안 난) 파티 목록 — 코드를 몰라도 목록에서 바로 골라 참가할 수 있게.
+// 정원이 찬 파티도 같이 보여주되(가득 찼는지 여부는 클라이언트에서 표시), 이미 결과가 난 파티는 뺀다.
+app.get('/monsterdex/:djId/dungeon/parties', (req, res) => {
+  const djId = req.params.djId
+  mcCleanDungeonParties()
+  const list = []
+  for (const party of mcDungeonParties.values()) {
+    if (party.djId !== djId || party.result) continue
+    list.push({ code: party.code, dungeonId: party.dungeonId, memberCount: party.members.length, memberNicknames: party.members.map(m => m.nickname) })
+  }
+  res.json({ success: true, parties: list })
+})
+app.post('/monsterdex/:djId/dungeon/party/leave', (req, res) => {
+  const djId = req.params.djId
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: true }) // 이미 없는 파티면 조용히 성공 처리
+  party.members = party.members.filter(m => m.webUserId !== webUserId)
+  if (!party.members.length) mcDungeonParties.delete(code)
+  res.json({ success: true })
+})
+app.get('/monsterdex/:djId/dungeon/party/:code', (req, res) => {
+  const djId = req.params.djId
+  const code = String(req.params.code || '').trim().toUpperCase()
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+// ⚔️ 파티 총 피해량(타입 상성 반영) vs 층 체력(카탈로그 공격력*2)을 층 순서대로 비교해서 진행한다.
+// 한 층이라도 못 넘으면 그 자리에서 실패, 전 층을 다 넘으면 던전 클리어.
+function mcRunDungeonFloors(djId, dungeon, members) {
+  const catalog = mcCatalog(djId)
+  // 🐾 인당 여러 마리를 데려갈 수 있어서, "파티 몬스터"는 사람이 아니라 마리 단위로 펼쳐서 다룬다.
+  const partyMonsters = []
+  members.forEach(m => {
+    (m.monsterIds || []).forEach(monsterId => {
+      const resolved = mcResolveMonster(monsterId, catalog, m.tag)
+      partyMonsters.push({
+        tag: m.tag, nickname: m.nickname, monsterId,
+        name: resolved ? resolved.name : '(알 수 없음)',
+        types: resolved ? (resolved.monster.types || []) : [],
+        power: resolved ? resolved.power : 0,
+      })
+    })
+  })
+  const floorLogs = []
+  let cleared = true
+  for (const floor of (dungeon.floors || [])) {
+    const base = catalog.find(m => m.id === floor.monsterId)
+    if (!base) continue // 관리자가 나중에 지운 몬스터를 참조 중이면 그 층은 건너뜀
+    const hp = Math.round((Number(base.power) || 10) * 2) // 🗺️ 던전 몬스터는 일반 출현 개체보다 공격력 2배
+    const floorTypes = base.types || []
+    let totalDamage = 0
+    const hits = partyMonsters.map(pm => {
+      const mult = mcTypeMultiplier(pm.types, floorTypes)
+      const dmg = Math.round(pm.power * mult)
+      totalDamage += dmg
+      return { nickname: pm.nickname, monster: pm.name, damage: dmg, typeMultiplier: mult }
+    })
+    const win = totalDamage >= hp
+    floorLogs.push({ floorName: base.name, floorImage: base.image, floorTypes, hp, totalDamage, win, hits })
+    if (!win) { cleared = false; break }
+  }
+  return { cleared, floorLogs, party: partyMonsters }
+}
+// 🗺️ 던전 탐험 실행 — 파티원 아무나 눌러서 시작할 수 있다. 최소/최대 인원을 만족해야 하고, 전원이
+// 정해진 마리 수(dungeonMonstersPerMember)만큼 몬스터를 골라둔 상태여야 한다. 성공하면 던전의
+// rewardPoints를 파티원 수만큼 균등하게 나눠 각자 도감 포인트(레벨업에 쓰는 그 포인트)에 더해준다.
+app.post('/monsterdex/:djId/dungeon/party/start', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const party = mcDungeonParties.get(code)
+  if (!party || party.djId !== djId) return res.json({ success: false, error: '존재하지 않는 파티 코드예요.' })
+  if (party.result) return res.json({ success: true, party: mcSerializeParty(djId, party) }) // 이미 끝난 파티면 그 결과 그대로 다시 보여줌 (중복 시작 방지)
+  if (!party.members.find(m => m.webUserId === webUserId)) return res.json({ success: false, error: '이 파티의 멤버가 아니에요.' })
+  const mc = getMonsterCatchSettings(djId, settings)
+  const dungeon = (mc.dungeons || []).find(x => x.id === party.dungeonId)
+  if (!dungeon) return res.json({ success: false, error: '존재하지 않는 던전이에요.' })
+  const minParty = Math.max(1, parseInt(mc.dungeonMinParty, 10) || 2)
+  const maxParty = Math.max(minParty, parseInt(mc.dungeonMaxParty, 10) || 4)
+  const perMember = Math.max(1, parseInt(mc.dungeonMonstersPerMember, 10) || 3)
+  if (party.members.length < minParty) return res.json({ success: false, error: `최소 ${minParty}명이 모여야 시작할 수 있어요. (현재 ${party.members.length}명)` })
+  if (party.members.length > maxParty) return res.json({ success: false, error: `파티 정원(최대 ${maxParty}명)을 초과했어요.` })
+  if (party.members.some(m => (m.monsterIds || []).length < perMember)) return res.json({ success: false, error: `전원이 몬스터를 ${perMember}마리씩 데려가야 시작할 수 있어요.` })
+
+  // ⏱ 쿨타임 체크 — 파티원 중 한 명이라도 쿨타임 중이면 시작 불가 (다 같이 파밍하는 걸 막기 위함).
+  const cooldownSec = Math.max(0, parseInt(mc.dungeonCooldownSec, 10) || 0)
+  if (cooldownSec > 0) {
+    for (const m of party.members) {
+      const lastAt = mcDungeonCooldownMap.get(m.tag) || 0
+      const remainMs = cooldownSec * 1000 - (Date.now() - lastAt)
+      if (remainMs > 0) return res.json({ success: false, error: `${m.nickname}님이 아직 쿨타임이에요. (${Math.ceil(remainMs / 1000)}초 후 재시도)` })
+    }
+  }
+
+  const { cleared, floorLogs, party: partyMonsters } = mcRunDungeonFloors(djId, dungeon, party.members)
+
+  // 실제로 전투가 진행된 시점부터 파티원 전원의 쿨타임을 시작한다.
+  if (cooldownSec > 0) party.members.forEach(m => mcDungeonCooldownMap.set(m.tag, Date.now()))
+
+  let rewardPoints = 0, sharePerMember = 0
+  if (cleared) {
+    rewardPoints = Math.max(0, parseInt(dungeon.rewardPoints, 10) || 0)
+    sharePerMember = Math.floor(rewardPoints / party.members.length) // ✂️ 파티원 수만큼 균등 분배(둘이면 반반)
+    if (sharePerMember > 0) {
+      party.members.forEach(m => { d.points[m.tag] = (d.points[m.tag] || 0) + sharePerMember })
+      mcSaveWebData()
+    }
+  }
+  party.result = {
+    cleared, floorLogs, dungeonName: dungeon.name, rewardPoints, sharePerMember,
+    party: partyMonsters.map(pm => ({ nickname: pm.nickname, name: pm.name, power: pm.power, points: d.points[pm.tag] || 0 })),
+  }
+  res.json({ success: true, party: mcSerializeParty(djId, party) })
+})
+
+// 🎮 리버시(오델로) — 몬스터 도감 웹페이지에서 시청자/디제이 누구나 1:1로 두는 미니게임.
+// 웹 도감이랑 완전히 같은 인증(webUserId ↔ 고유닉)을 그대로 재사용한다 — 이미 !도감인증으로
+// 로그인된 사람이면 별도 절차 없이 바로 방을 만들거나 코드로 참가할 수 있다.
+// 방(room)은 던전 파티(mcDungeonParties)와 같은 이유로 디스크에 저장하지 않고 인메모리로만
+// 관리한다 — 몇 분~몇십 분 안에 끝나는 휘발성 대국이라 서버 재시작 시 사라져도 괜찮다.
+function reversiInitialBoard() {
+  const b = Array.from({ length: 8 }, () => Array(8).fill(0))
+  b[3][3] = 2; b[3][4] = 1; b[4][3] = 1; b[4][4] = 2 // 1=흑, 2=백
+  return b
+}
+const REVERSI_DIRS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]
+function reversiFlipsForMove(board, color, row, col) {
+  if (row < 0 || row > 7 || col < 0 || col > 7 || board[row][col] !== 0) return []
+  const opp = color === 1 ? 2 : 1
+  const allFlips = []
+  for (const [dr, dc] of REVERSI_DIRS) {
+    let r = row + dr, c = col + dc
+    const line = []
+    while (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r][c] === opp) {
+      line.push([r, c])
+      r += dr; c += dc
+    }
+    if (line.length && r >= 0 && r < 8 && c >= 0 && c < 8 && board[r][c] === color) allFlips.push(...line)
+  }
+  return allFlips
+}
+function reversiValidMoves(board, color) {
+  const moves = []
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if (board[r][c] !== 0) continue
+    if (reversiFlipsForMove(board, color, r, c).length) moves.push([r, c])
+  }
+  return moves
+}
+function reversiApplyMove(board, color, row, col) {
+  const flips = reversiFlipsForMove(board, color, row, col)
+  if (!flips.length) return null
+  const next = board.map(row => row.slice())
+  next[row][col] = color
+  for (const [r, c] of flips) next[r][c] = color
+  return next
+}
+function reversiCount(board) {
+  let black = 0, white = 0
+  for (const row of board) for (const cell of row) { if (cell === 1) black++; else if (cell === 2) white++ }
+  return { black, white }
+}
+
+const mcReversiRooms = new Map() // code -> { code, djId, players:[{webUserId,tag,nickname,color}], board, turn, status, winner, statsRecorded, createdAt, lastMoveAt, turnStartedAt }
+const MC_REVERSI_ROOM_TTL_MS = 30 * 60 * 1000 // 30분 넘게 움직임 없는 방은 정리
+const REVERSI_TURN_LIMIT_MS = 30 * 1000 // ⏱️ 30초 안에 안 두면 자동으로 턴이 넘어간다
+function mcGenReversiCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcReversiRooms.has(code))
+  return code
+}
+function mcCleanReversiRooms() {
+  const now = Date.now()
+  for (const [code, r] of mcReversiRooms.entries()) {
+    if (now - (r.lastMoveAt || r.createdAt) > MC_REVERSI_ROOM_TTL_MS) mcReversiRooms.delete(code)
+  }
+}
+// ⏱️ 방을 조회/조작하는 요청이 들어올 때마다(=폴링/두기 시점) 지금 턴이 30초를 넘겼는지 검사한다.
+// 별도 서버 타이머(setInterval)를 안 두고 이렇게 "접근 시점에 검사"하는 방식은, mcCleanExpiredKeys
+// 등 이 파일의 다른 휘발성 데이터 정리 로직과 같은 패턴이다.
+function reversiCheckTimeout(room) {
+  if (room.status !== 'playing') return
+  if (!room.turnStartedAt) { room.turnStartedAt = Date.now(); return }
+  if (Date.now() - room.turnStartedAt < REVERSI_TURN_LIMIT_MS) return
+  const opp = room.turn === 1 ? 2 : 1
+  if (reversiValidMoves(room.board, opp).length) {
+    room.turn = opp
+    room.turnStartedAt = Date.now()
+  } else if (reversiValidMoves(room.board, room.turn).length) {
+    room.turnStartedAt = Date.now() // 상대가 둘 곳이 없으면 턴 유지, 타이머만 재시작
+  } else {
+    const counts = reversiCount(room.board)
+    reversiEndRoom(room, counts.black === counts.white ? 'draw' : (counts.black > counts.white ? 1 : 2))
+  }
+}
+// 🏆 몇승몇패 — tag 기준으로 누적 전적을 기록한다. 웹 도감 데이터 파일에 같이 저장해서
+// 서버 재시작에도 유지된다(방 자체는 휘발성이지만 전적은 영구 기록).
+function reversiEndRoom(room, winner) {
+  room.status = 'ended'
+  room.winner = winner
+  if (room.statsRecorded) return
+  room.statsRecorded = true
+  if (winner == null || room.players.length < 2) return // 참가자 1명뿐이면(대결 성립 전 나감) 전적 기록 안 함
+  const d = mcGetWebData()
+  if (!d.reversiStats) d.reversiStats = {}
+  for (const p of room.players) {
+    if (!d.reversiStats[p.tag]) d.reversiStats[p.tag] = { wins: 0, losses: 0, draws: 0 }
+    const stat = d.reversiStats[p.tag]
+    if (winner === 'draw') stat.draws++
+    else if (winner === p.color) stat.wins++
+    else stat.losses++
+  }
+  mcSaveWebData()
+}
+function mcSerializeReversiRoom(room, forWebUserId) {
+  const me = room.players.find(p => p.webUserId === forWebUserId)
+  const isSpectator = !me && (room.spectators || []).some(s => s.webUserId === forWebUserId)
+  const validMoves = (room.status === 'playing' && me && me.color === room.turn)
+    ? reversiValidMoves(room.board, room.turn).map(([r, c]) => ({ row: r, col: c }))
+    : []
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  const stats = d.reversiStats || {}
+  const turnRemainSec = room.status === 'playing' && room.turnStartedAt
+    ? Math.max(0, Math.ceil((room.turnStartedAt + REVERSI_TURN_LIMIT_MS - Date.now()) / 1000))
+    : REVERSI_TURN_LIMIT_MS / 1000
+  return {
+    success: true,
+    code: room.code,
+    status: room.status, // waiting(상대 기다림) | playing | ended
+    board: room.board,
+    turn: room.turn,
+    turnRemainSec,
+    turnLimitSec: REVERSI_TURN_LIMIT_MS / 1000,
+    players: room.players.map(p => ({
+      nickname: p.nickname, color: p.color, isMe: p.webUserId === forWebUserId, profileUrl: profiles[p.tag] || '',
+      record: stats[p.tag] || { wins: 0, losses: 0, draws: 0 },
+    })),
+    myColor: me ? me.color : null,
+    isSpectator,
+    spectatorCount: (room.spectators || []).length,
+    validMoves,
+    counts: reversiCount(room.board),
+    winner: room.winner || null, // 1 | 2 | 'draw' | null
+  }
+}
+app.post('/monsterdex/:djId/reversi/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '리버시 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanReversiRooms()
+  const code = mcGenReversiCode()
+  const room = {
+    code, djId,
+    players: [{ webUserId, tag, nickname: tag, color: 1 }],
+    board: reversiInitialBoard(),
+    turn: 1,
+    status: 'waiting',
+    winner: null,
+    statsRecorded: false,
+    createdAt: Date.now(),
+    lastMoveAt: Date.now(),
+    turnStartedAt: Date.now(),
+  }
+  mcReversiRooms.set(code, room)
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/reversi/rooms', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '리버시 게임을 찾을 수 없어요.' })
+  mcCleanReversiRooms()
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  // 🌐 방은 특정 디제이 방송에 안 갇혀있다 — 어느 디제이 방에서 만들었든 전체 목록에 다 뜨고,
+  // 다른 방송을 보고 있는 시청자도 그 방에 참가/관전할 수 있다. originDjId는 표시용으로만 쓴다.
+  const rooms = Array.from(mcReversiRooms.values())
+    .filter(r => r.status !== 'ended')
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(r => ({
+      code: r.code,
+      originDjId: r.djId,
+      status: r.status, // waiting | playing
+      players: r.players.map(p => ({ nickname: p.nickname, color: p.color, profileUrl: profiles[p.tag] || '' })),
+      spectatorCount: (r.spectators || []).length,
+    }))
+  res.json({ success: true, rooms })
+})
+app.post('/monsterdex/:djId/reversi/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '리버시 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanReversiRooms()
+  const room = mcReversiRooms.get(code) // 🌐 방이 어느 디제이 방송에서 만들어졌는지는 안 따진다 — 코드만 맞으면 참가 가능
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  const already = room.players.find(p => p.webUserId === webUserId)
+  if (already) return res.json(mcSerializeReversiRoom(room, webUserId)) // 새로고침 등으로 재접속
+  if (room.players.length >= 2) return res.json({ success: false, error: '이미 두 명이 꽉 찬 방이에요. 관전은 가능해요.' })
+  if (room.players.some(p => p.tag === tag)) return res.json({ success: false, error: '본인이 만든 방에는 참가할 수 없어요.' })
+  room.players.push({ webUserId, tag, nickname: tag, color: 2 })
+  room.status = 'playing'
+  room.lastMoveAt = Date.now()
+  room.turnStartedAt = Date.now()
+  // 참가자가 됐으면 관전자 목록에는 안 남아있게 정리
+  if (room.spectators) room.spectators = room.spectators.filter(s => s.webUserId !== webUserId)
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+// 👀 관전 — 정원(2명) 다 찬 방이든 대기 중인 방이든, 누구나 인증만 돼있으면 구경할 수 있다.
+// 관전자는 players 배열에 안 들어가서 대국 자체엔 관여 못 하고, 보드 상태만 그대로 받아본다.
+app.post('/monsterdex/:djId/reversi/spectate', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'reversi', djId)) return res.json({ success: false, error: '리버시 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const room = mcReversiRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (room.players.some(p => p.webUserId === webUserId)) return res.json(mcSerializeReversiRoom(room, webUserId)) // 이미 참가자면 그대로 대국 화면
+  if (!room.spectators) room.spectators = []
+  if (!room.spectators.some(s => s.webUserId === webUserId)) room.spectators.push({ webUserId, tag, nickname: tag })
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/reversi/state', (req, res) => {
+  const webUserId = String(req.query.webUserId || '').trim()
+  const code = String(req.query.code || '').trim().toUpperCase()
+  const room = mcReversiRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  reversiCheckTimeout(room)
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/reversi/move', (req, res) => {
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const row = Number((req.body || {}).row)
+  const col = Number((req.body || {}).col)
+  const room = mcReversiRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  reversiCheckTimeout(room)
+  if (room.status !== 'playing') return res.json({ success: false, error: '아직 시작 전이거나 이미 끝난 게임이에요.' })
+  const me = room.players.find(p => p.webUserId === webUserId)
+  if (!me) return res.json({ success: false, error: '이 방의 참가자가 아니에요.' })
+  if (me.color !== room.turn) return res.json({ success: false, error: '상대 차례예요.' })
+  const next = reversiApplyMove(room.board, me.color, row, col)
+  if (!next) return res.json({ success: false, error: '둘 수 없는 자리예요.' })
+  room.board = next
+  room.lastMoveAt = Date.now()
+  const opp = me.color === 1 ? 2 : 1
+  if (reversiValidMoves(next, opp).length) {
+    room.turn = opp
+    room.turnStartedAt = Date.now()
+  } else if (reversiValidMoves(next, me.color).length) {
+    room.turn = me.color // 상대가 둘 곳이 없으면 턴 안 넘기고 한 번 더
+    room.turnStartedAt = Date.now()
+  } else {
+    const counts = reversiCount(next)
+    reversiEndRoom(room, counts.black === counts.white ? 'draw' : (counts.black > counts.white ? 1 : 2))
+  }
+  res.json(mcSerializeReversiRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/reversi/leave', (req, res) => {
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const room = mcReversiRooms.get(code)
+  if (room) {
+    const isPlayer = room.players.some(p => p.webUserId === webUserId)
+    if (isPlayer && room.status !== 'ended') {
+      const other = room.players.find(p => p.webUserId !== webUserId)
+      reversiEndRoom(room, other ? other.color : null) // 상대가 나가면 남은 사람 승리 처리
+    } else if (room.spectators) {
+      room.spectators = room.spectators.filter(s => s.webUserId !== webUserId) // 관전자는 그냥 관전 목록에서만 빠짐
+    }
+  }
+  res.json({ success: true })
+})
+
+// 🎮 오목 — 리버시랑 완전히 같은 구조(웹 도감 인증 재사용, 코드로 초대, 관전 지원)를 그대로
+// 복사해서 규칙만 오목으로 바꿨다. 15x15 보드에 번갈아 돌을 놓고, 가로/세로/대각선 어느 방향으로든
+// 같은 색이 5개 이상 이어지면 승리한다(장목도 승리로 인정하는 자유규칙 — 렌주룰 금수는 적용 안 함).
+const OMOK_SIZE = 15
+function omokEmptyBoard() {
+  return Array.from({ length: OMOK_SIZE }, () => Array(OMOK_SIZE).fill(0))
+}
+const OMOK_WIN_DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]]
+function omokCheckWin(board, row, col, color) {
+  for (const [dr, dc] of OMOK_WIN_DIRS) {
+    let count = 1
+    let r = row + dr, c = col + dc
+    while (r >= 0 && r < OMOK_SIZE && c >= 0 && c < OMOK_SIZE && board[r][c] === color) { count++; r += dr; c += dc }
+    r = row - dr; c = col - dc
+    while (r >= 0 && r < OMOK_SIZE && c >= 0 && c < OMOK_SIZE && board[r][c] === color) { count++; r -= dr; c -= dc }
+    if (count >= 5) return true
+  }
+  return false
+}
+function omokBoardFull(board) {
+  return board.every(row => row.every(cell => cell !== 0))
+}
+function omokApplyMove(board, color, row, col) {
+  if (row < 0 || row >= OMOK_SIZE || col < 0 || col >= OMOK_SIZE || board[row][col] !== 0) return null
+  const next = board.map(r => r.slice())
+  next[row][col] = color
+  return next
+}
+function omokCount(board) {
+  let black = 0, white = 0
+  for (const row of board) for (const cell of row) { if (cell === 1) black++; else if (cell === 2) white++ }
+  return { black, white }
+}
+
+const mcOmokRooms = new Map() // code -> { code, djId, players:[{webUserId,tag,nickname,color}], board, turn, status, winner, statsRecorded, createdAt, lastMoveAt, turnStartedAt, lastMove, spectators }
+const MC_OMOK_ROOM_TTL_MS = 30 * 60 * 1000 // 30분 넘게 움직임 없는 방은 정리
+const OMOK_TURN_LIMIT_MS = 30 * 1000 // ⏱️ 30초 안에 안 두면 자동으로 그 사람이 진 걸로 처리 (오목은 리버시와 달리 "패스"가 없어서, 턴 넘기는 대신 기권패로 처리한다)
+function mcGenOmokCode() {
+  let code
+  do { code = Math.random().toString(36).slice(2, 7).toUpperCase() } while (mcOmokRooms.has(code))
+  return code
+}
+function mcCleanOmokRooms() {
+  const now = Date.now()
+  for (const [code, r] of mcOmokRooms.entries()) {
+    if (now - (r.lastMoveAt || r.createdAt) > MC_OMOK_ROOM_TTL_MS) mcOmokRooms.delete(code)
+  }
+}
+function omokCheckTimeout(room) {
+  if (room.status !== 'playing') return
+  if (!room.turnStartedAt) { room.turnStartedAt = Date.now(); return }
+  if (Date.now() - room.turnStartedAt < OMOK_TURN_LIMIT_MS) return
+  const opp = room.turn === 1 ? 2 : 1
+  omokEndRoom(room, opp) // 시간 초과 = 기권패
+}
+function omokEndRoom(room, winner) {
+  room.status = 'ended'
+  room.winner = winner
+  if (room.statsRecorded) return
+  room.statsRecorded = true
+  if (winner == null || room.players.length < 2) return // 참가자 1명뿐이면(대결 성립 전 나감) 전적 기록 안 함
+  const d = mcGetWebData()
+  if (!d.omokStats) d.omokStats = {}
+  for (const p of room.players) {
+    if (!d.omokStats[p.tag]) d.omokStats[p.tag] = { wins: 0, losses: 0, draws: 0 }
+    const stat = d.omokStats[p.tag]
+    if (winner === 'draw') stat.draws++
+    else if (winner === p.color) stat.wins++
+    else stat.losses++
+  }
+  mcSaveWebData()
+}
+function mcSerializeOmokRoom(room, forWebUserId) {
+  const me = room.players.find(p => p.webUserId === forWebUserId)
+  const isSpectator = !me && (room.spectators || []).some(s => s.webUserId === forWebUserId)
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  const stats = d.omokStats || {}
+  const turnRemainSec = room.status === 'playing' && room.turnStartedAt
+    ? Math.max(0, Math.ceil((room.turnStartedAt + OMOK_TURN_LIMIT_MS - Date.now()) / 1000))
+    : OMOK_TURN_LIMIT_MS / 1000
+  return {
+    success: true,
+    code: room.code,
+    size: OMOK_SIZE,
+    status: room.status, // waiting(상대 기다림) | playing | ended
+    board: room.board,
+    turn: room.turn,
+    turnRemainSec,
+    turnLimitSec: OMOK_TURN_LIMIT_MS / 1000,
+    players: room.players.map(p => ({
+      nickname: p.nickname, color: p.color, isMe: p.webUserId === forWebUserId, profileUrl: profiles[p.tag] || '',
+      record: stats[p.tag] || { wins: 0, losses: 0, draws: 0 },
+    })),
+    myColor: me ? me.color : null,
+    isSpectator,
+    spectatorCount: (room.spectators || []).length,
+    canMove: room.status === 'playing' && !!me && me.color === room.turn,
+    lastMove: room.lastMove || null, // {row,col} — 클라이언트에서 직전 수를 강조 표시하는 용도
+    counts: omokCount(room.board),
+    winner: room.winner || null, // 1 | 2 | 'draw' | null
+  }
+}
+// 🧪 관리자(sum) 전용 테스트 인증 — 실제 시청자는 채팅으로 !도감인증 코드를 쳐야 하지만,
+// 개발/테스트할 땐 그 절차 없이 바로 웹유저를 발급받을 수 있게 관리자 로그인 세션(auth.requireAuth)
+// 으로만 게이트를 건 우회 경로를 하나 둔다. mcGetWebData().webUsers를 그대로 같이 쓰기 때문에
+// 실제 인증 흐름과 완전히 동일하게 취급된다 — 게임 진행 로직 쪽엔 아무 차이가 없다.
+app.post('/monsterdex/:djId/omok/test-auth', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.json({ success: false, error: '관리자 계정에서만 쓸 수 있어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim() || ('test_' + Math.random().toString(36).slice(2, 10))
+  const tag = String((req.body || {}).tag || '').trim() || ('테스트' + Math.floor(1000 + Math.random() * 9000))
+  const d = mcGetWebData()
+  d.webUsers[webUserId] = tag
+  mcSaveWebData()
+  res.json({ success: true, webUserId, tag })
+})
+app.post('/monsterdex/:djId/omok/create', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanOmokRooms()
+  const code = mcGenOmokCode()
+  const room = {
+    code, djId,
+    players: [{ webUserId, tag, nickname: tag, color: 1 }],
+    board: omokEmptyBoard(),
+    turn: 1,
+    status: 'waiting',
+    winner: null,
+    statsRecorded: false,
+    createdAt: Date.now(),
+    lastMoveAt: Date.now(),
+    turnStartedAt: Date.now(),
+    lastMove: null,
+  }
+  mcOmokRooms.set(code, room)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/omok/rooms', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  mcCleanOmokRooms()
+  const d = mcGetWebData()
+  const profiles = d.profiles || {}
+  // 🌐 방은 특정 디제이 방송에 안 갇혀있다 — 리버시와 마찬가지로 어느 디제이 방에서 만들었든
+  // 전체 목록에 다 뜨고, 다른 방송을 보고 있는 시청자도 그 방에 참가/관전할 수 있다.
+  const rooms = Array.from(mcOmokRooms.values())
+    .filter(r => r.status !== 'ended')
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(r => ({
+      code: r.code,
+      originDjId: r.djId,
+      status: r.status, // waiting | playing
+      players: r.players.map(p => ({ nickname: p.nickname, color: p.color, profileUrl: profiles[p.tag] || '' })),
+      spectatorCount: (r.spectators || []).length,
+    }))
+  res.json({ success: true, rooms })
+})
+app.post('/monsterdex/:djId/omok/join', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  mcCleanOmokRooms()
+  const room = mcOmokRooms.get(code) // 🌐 방이 어느 디제이 방송에서 만들어졌는지는 안 따진다 — 코드만 맞으면 참가 가능
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  const already = room.players.find(p => p.webUserId === webUserId)
+  if (already) return res.json(mcSerializeOmokRoom(room, webUserId)) // 새로고침 등으로 재접속
+  if (room.players.length >= 2) return res.json({ success: false, error: '이미 두 명이 꽉 찬 방이에요. 관전은 가능해요.' })
+  if (room.players.some(p => p.tag === tag)) return res.json({ success: false, error: '본인이 만든 방에는 참가할 수 없어요.' })
+  room.players.push({ webUserId, tag, nickname: tag, color: 2 })
+  room.status = 'playing'
+  room.lastMoveAt = Date.now()
+  room.turnStartedAt = Date.now()
+  // 참가자가 됐으면 관전자 목록에는 안 남아있게 정리
+  if (room.spectators) room.spectators = room.spectators.filter(s => s.webUserId !== webUserId)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+// 👀 관전 — 정원(2명) 다 찬 방이든 대기 중인 방이든, 누구나 인증만 돼있으면 구경할 수 있다.
+// 관전자는 players 배열에 안 들어가서 대국 자체엔 관여 못 하고, 보드 상태만 그대로 받아본다.
+app.post('/monsterdex/:djId/omok/spectate', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'omok', djId)) return res.json({ success: false, error: '오목 게임을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  if (room.players.some(p => p.webUserId === webUserId)) return res.json(mcSerializeOmokRoom(room, webUserId)) // 이미 참가자면 그대로 대국 화면
+  if (!room.spectators) room.spectators = []
+  if (!room.spectators.some(s => s.webUserId === webUserId)) room.spectators.push({ webUserId, tag, nickname: tag })
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.get('/monsterdex/:djId/omok/state', (req, res) => {
+  const webUserId = String(req.query.webUserId || '').trim()
+  const code = String(req.query.code || '').trim().toUpperCase()
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  omokCheckTimeout(room)
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/omok/move', (req, res) => {
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const row = Number((req.body || {}).row)
+  const col = Number((req.body || {}).col)
+  const room = mcOmokRooms.get(code)
+  if (!room) return res.json({ success: false, error: '존재하지 않는 방이에요.' })
+  omokCheckTimeout(room)
+  if (room.status !== 'playing') return res.json({ success: false, error: '아직 시작 전이거나 이미 끝난 게임이에요.' })
+  const me = room.players.find(p => p.webUserId === webUserId)
+  if (!me) return res.json({ success: false, error: '이 방의 참가자가 아니에요.' })
+  if (me.color !== room.turn) return res.json({ success: false, error: '상대 차례예요.' })
+  const next = omokApplyMove(room.board, me.color, row, col)
+  if (!next) return res.json({ success: false, error: '둘 수 없는 자리예요.' })
+  room.board = next
+  room.lastMove = { row, col }
+  room.lastMoveAt = Date.now()
+  if (omokCheckWin(next, row, col, me.color)) {
+    omokEndRoom(room, me.color)
+  } else if (omokBoardFull(next)) {
+    omokEndRoom(room, 'draw')
+  } else {
+    room.turn = me.color === 1 ? 2 : 1
+    room.turnStartedAt = Date.now()
+  }
+  res.json(mcSerializeOmokRoom(room, webUserId))
+})
+app.post('/monsterdex/:djId/omok/leave', (req, res) => {
+  const code = String((req.body || {}).code || '').trim().toUpperCase()
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const room = mcOmokRooms.get(code)
+  if (room) {
+    const isPlayer = room.players.some(p => p.webUserId === webUserId)
+    if (isPlayer && room.status !== 'ended') {
+      const other = room.players.find(p => p.webUserId !== webUserId)
+      omokEndRoom(room, other ? other.color : null) // 상대가 나가면 남은 사람 승리 처리
+    } else if (room.spectators) {
+      room.spectators = room.spectators.filter(s => s.webUserId !== webUserId) // 관전자는 그냥 관전 목록에서만 빠짐
+    }
+  }
+  res.json({ success: true })
+})
+
+// 공개 몬스터 웹 도감 페이지 (로그인 불필요) — 위의 API 라우트들보다 뒤에 둬야 /:djId 파라미터가
+// register·data·select·dismantle·levelup 같은 하위 경로를 가로채지 않는다.
+app.get('/monsterdex/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/monsterdex.html')
+})
+// 🗼 무한의 탑 — 웹페이지용 API. 리버시/오목처럼 몬스터 웹 도감 인증(webUserId ↔ 고유닉)을
+// 그대로 재사용한다. 채팅 명령어(!탑/!탑강화)랑 진행 데이터(settings.tower.users)를 완전히
+// 같이 쓰기 때문에, 채팅으로 확인하다가 웹으로 봐도, 그 반대로 해도 항상 같은 진행상황이다.
+// 🗼 웹페이지 응답 공용 직렬화 — 진행상황(state/upgrade/equip)이 다 같은 모양을 내려주게 통일
+function towerSerializeState(user, cfg, result, now) {
+  const totalPower = towerEffectivePower(user)
+  const requiredPower = user.floor * (cfg.powerPerFloor || 8)
+  const clearSec = (cfg.baseSeconds || 60) + (user.floor - 1) * (cfg.perFloorSeconds || 10)
+  const elapsedSec = (now - new Date(user.lastCheckAt).getTime()) / 1000
+  return {
+    success: true,
+    floor: user.floor, basePower: user.power, equipmentBonus: towerEquipmentBonus(user), power: totalPower,
+    gold: user.gold, totalGoldEarned: user.totalGoldEarned || 0, upgradeCount: user.upgradeCount || 0,
+    stuck: result.stuck, requiredPower,
+    remainSec: result.stuck ? null : Math.max(0, Math.ceil(clearSec - elapsedSec)),
+    clearSec,
+    upgradeCost: towerUpgradeCost(cfg, user.upgradeCount),
+    upgradePowerGain: cfg.upgradePowerGain || 5,
+    justClimbed: result.floorsClimbed, justEarned: result.goldEarned,
+    justItems: (result.itemsDropped || []).map(it => ({ name: it.name, slot: it.slot, powerBonus: it.powerBonus, rarity: it.rarity })),
+    items: (user.items || []).map(it => ({ id: it.id, name: it.name, slot: it.slot, powerBonus: it.powerBonus, rarity: it.rarity, equipped: user.equipped[it.slot] === it.id })),
+    equipped: user.equipped,
+  }
+}
+app.get('/monsterdex/:djId/tower/state', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String(req.query.webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  const result = towerResolveProgress(user, cfg, now)
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, result, now))
+})
+app.post('/monsterdex/:djId/tower/upgrade', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  towerResolveProgress(user, cfg, now)
+  const cost = towerUpgradeCost(cfg, user.upgradeCount)
+  if (user.gold < cost) { saveTowerUser(djId, tower); return res.json({ success: false, error: '골드가 부족해요.' }) }
+  user.gold -= cost
+  user.power += (cfg.upgradePowerGain || 5)
+  user.upgradeCount++
+  const after = towerResolveProgress(user, cfg, now)
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, after, now))
+})
+// 🎒 아이템 장착 — 인벤토리 화면에서 번호가 아니라 itemId로 지정한다(웹은 목록이 실시간으로 안 바뀌니
+// 채팅 명령어의 "번호"보다 id가 더 안전하다).
+app.post('/monsterdex/:djId/tower/equip', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'tower', djId)) return res.json({ success: false, error: '무한의 탑을 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const itemId = String((req.body || {}).itemId || '').trim()
+  const d = mcGetWebData()
+  const tag = webUserId ? d.webUsers[webUserId] : ''
+  if (!tag) return res.json({ success: false, error: '먼저 도감 인증을 완료해주세요.' })
+  const tower = getTowerSettings(djId, settings)
+  const cfg = tower.config
+  const user = getTowerUser(tower, tag, tag)
+  const now = Date.now()
+  const result = towerResolveProgress(user, cfg, now)
+  const item = (user.items || []).find(i => i.id === itemId)
+  if (!item) { saveTowerUser(djId, tower); return res.json({ success: false, error: '존재하지 않는 아이템이에요.' }) }
+  user.equipped[item.slot] = item.id
+  saveTowerUser(djId, tower)
+  res.json(towerSerializeState(user, cfg, result, now))
+})
+app.get('/tower/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/tower.html')
+})
+
+// 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
+// /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
+app.get('/reversi/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/reversi.html')
+})
+// 🎮 오목 게임 페이지 (로그인 불필요) — 리버시와 똑같이 몬스터 웹 도감의 인증을 재사용하고,
+// 실제 대국 API만 /monsterdex/:djId/omok/*로 따로 둔다.
+app.get('/omok/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/omok.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🏠 시청자용 허브 페이지 — 웹뽑기판/마피아처럼 "로그인 없는 시청자 웹페이지"를 가진 기능들을
+// 개별 링크로 따로 공유하지 않고, 하나의 허브 링크(/play/:djId)에서 켜져있는 기능만 모아서
+// 보여준다. 앞으로 이런 웹 기능을 새로 추가할 때는 이 목록에 한 줄만 추가하면 자동으로
+// 허브에도 반영된다 (module 키가 꺼져있으면 그 카드는 목록에서 자동으로 빠진다).
+const WEB_HUB_FEATURES = [
+  { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
+  { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
+  { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
+  { key: 'reversi', path: 'reversi', icon: '⚫⚪', title: '리버시 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임이에요' },
+  { key: 'omok', path: 'omok', icon: '⚪⚫', title: '오목 게임', desc: '시청자·디제이 누구나 방을 만들고 코드로 초대해서 1:1로 두는 오목 게임이에요. 관전도 가능해요' },
+  { key: 'trophyboard', path: 'board', icon: '🏆', title: '박제판', desc: '정해진 선물을 보내면 그 칸에 내 닉네임이 새겨지는 전시판이에요' },
+  { key: 'myinfo', path: 'myinfo', icon: '👤', title: '내정보', desc: '애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인할 수 있어요' },
+]
+app.get('/play/:djId/list', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const items = WEB_HUB_FEATURES
+    .map(f => ({ icon: f.icon, title: f.title, desc: f.desc, url: `/${f.path}/${djId}`, enabled: isModuleOn(settings, f.key, djId) }))
+  res.json({ success: true, djId, items })
+})
+app.get('/play/:djId', (req, res) => {
+  res.sendFile(__dirname + '/public/play.html')
+})
+
+// ══════════════════════════════════════════════════════
+// 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 기본은 "자동입장"에 등록해둔 고유닉을 그대로
+// 재사용하고, 수동으로 다른 고유닉을 등록해두면 그걸 우선해서 쓴다.
+app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const lr = getLiveRankSettings(req.djId, settings)
+  const autoTag = settings.autoJoinTag || (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags[0]) || ''
+  res.json({ success: true, djTag: getLiveRankDjTag(settings), manualTag: lr.manualTag, autoTag, historyCount: lr.history.length })
+})
+app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const lr = getLiveRankSettings(req.djId, settings)
+  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  if (newTag !== lr.manualTag) lr.history = [] // 기준 고유닉이 바뀌면 예전 순위 기록은 의미가 없으니 초기화
+  lr.manualTag = newTag
+  store.saveSettings(req.djId, { liveRank: lr })
+  res.json({ success: true, djTag: getLiveRankDjTag(settings) })
+})
+app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
+  const scanResult = await scanDashRank()
+  if (scanResult.success) {
+    const settings = store.getSettings(req.djId) || {}
+    const lr = getLiveRankSettings(req.djId, settings)
+    recordLiveRankHistory(req.djId, lr, getLiveRankDjTag(settings))
+  }
+  res.json(scanResult)
+})
+
+// 🏆 월간 DJ 컷랭킹 — /liverank/:djId/data 는 관리자 화면(liverank 패널)이 인증된 상태에서
+// fetch로 불러다 그 자리에서 바로 그려주는 용도의 JSON API. 예전엔 시청자용 공개 페이지
+// (/liverank/:djId, liverank.html)로도 열 수 있었지만, 이제 외부에서 여는 방식은 없애고
+// 관리자 화면 안에서만 보이도록 정리했다.
+app.get('/liverank/:djId/data', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
+  const lr = getLiveRankSettings(djId, settings)
+  const djTag = getLiveRankDjTag(settings)
+  if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) {
+      console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
+      return res.json({ success: false, error: scanResult.error })
+    }
+  }
+  const snap = buildLiveRankSnapshot(djTag)
+  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
+})
+
+app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  res.json({ success: true, config: ft.config, userCount: Object.keys(ft.users).length })
+})
+app.post('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'fishtournament', req.djId)) return res.json({ success: false, error: '팝블리네 낚시대회 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const body = req.body || {}
+  const textKeys = ['shopTitle', 'startCommand', 'shopCommand', 'voucherCommand', 'myCatchCommand', 'giveCommand', 'listCommand', 'resetCommand', 'logCommand', 'helpCommand', 'rankCommand', 'rankTitle']
+  for (let i = 1; i <= FT_KEEP_SLOTS; i++) textKeys.push('keep' + i + 'Name')
+  if (body.enabled != null) ft.config.enabled = !!body.enabled
+  if (body.giveAdminOnly != null) ft.config.giveAdminOnly = !!body.giveAdminOnly
+  if (body.staffFreeSpin != null) ft.config.staffFreeSpin = !!body.staffFreeSpin
+  if (body.rankTopN != null) ft.config.rankTopN = Number(body.rankTopN) || 5
+  textKeys.forEach(k => { if (body[k] != null) ft.config[k] = String(body[k]).slice(0, 20000) })
+  if (Array.isArray(body.baits)) {
+    ft.config.baits = body.baits.slice(0, 200).map(b => ({
+      name: String(b.name || '').slice(0, 60),
+      cmd: String(b.cmd || '').slice(0, 60),
+      priceLabel: String(b.priceLabel || '').slice(0, 60),
+      rouletteIdx: Math.min(FT_ROULETTE_SLOTS, Math.max(1, parseInt(b.rouletteIdx, 10) || 1)),
+    })).filter(b => b.name && b.cmd)
+  }
+  for (let i = 1; i <= FT_ROULETTE_SLOTS; i++) {
+    const key = 'roulette' + i
+    if (Array.isArray(body[key])) {
+      ft.config[key] = body[key].slice(0, 200).map(r => ({
+        content: String(r.content || '').slice(0, 60),
+        score: parseInt(r.score, 10) || 0,
+        chance: parseFloat(r.chance) || 0,
+        keepIdx: Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(r.keepIdx, 10) || 1)),
+        note: String(r.note || '').slice(0, 200),
+      })).filter(r => r.content)
+    }
+  }
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true })
+})
+app.get('/fishtournament/leaderboard', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const list = Object.values(ft.users).map(u => ({
+    tag: u.tag, nickname: u.nickname,
+    total: Object.values(u.tanks || {}).reduce((s, t) => s + (t.total || 0), 0),
+    vouchers: Object.values(u.vouchers || {}).reduce((s, n) => s + (n || 0), 0),
+  })).sort((a, b) => b.total - a.total).slice(0, 20)
+  res.json({ success: true, users: list })
+})
+// 닉네임/고유닉으로 검색 가능한 등록 유저 목록. 유저 관리/유저 어항 탭에서 사용.
+app.get('/fishtournament/users', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const q = String(req.query.q || '').trim().toLowerCase()
+  let list = Object.values(ft.users)
+  if (q) list = list.filter(u => String(u.nickname || '').toLowerCase().includes(q) || String(u.tag || '').toLowerCase().includes(q))
+  list = list.map(u => ({
+    tag: u.tag,
+    nickname: u.nickname,
+    vouchers: u.vouchers || {},
+    voucherTotal: Object.values(u.vouchers || {}).reduce((s, n) => s + (n || 0), 0),
+    tanks: u.tanks || {},
+    total: Object.values(u.tanks || {}).reduce((s, t) => s + (t.total || 0), 0),
+    registeredAt: u.registeredAt,
+  })).sort((a, b) => String(a.nickname || '').localeCompare(String(b.nickname || '')))
+  res.json({ success: true, users: list, count: list.length })
+})
+app.post('/fishtournament/give', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag, nickname, baitName, count } = req.body || {}
+  if (!tag || !baitName) return res.json({ success: false, error: '대상과 미끼이름이 필요합니다.' })
+  const baits = _ftGetBaitList(ft.config)
+  const bait = _ftFindBaitByName(baits, baitName)
+  if (!bait) return res.json({ success: false, error: '해당 이름의 미끼를 찾을 수 없습니다.' })
+  const user = getFtUser(ft, String(tag).replace(/^@/, ''), nickname)
+  const key = bait.cmd.toLowerCase()
+  user.vouchers[key] = (user.vouchers[key] || 0) + (Number(count) || 1)
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true, voucherCount: user.vouchers[key] })
+})
+app.post('/fishtournament/reset', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag } = req.body || {}
+  if (tag) {
+    const u = ft.users[String(tag).replace(/^@/, '')]
+    if (u) { u.vouchers = {}; u.tanks = {} }
+  } else {
+    ft.users = {}
+  }
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true })
+})
+// 👤 유저 어항: DJ가 특정 유저의 어항 기록을 수동으로 추가/삭제 (룰렛 결과 보정용)
+app.post('/fishtournament/tank/add', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag, nickname, keepIdx, content, score, qty } = req.body || {}
+  const name = String(content || '').trim()
+  if (!tag || !name) return res.json({ success: false, error: '대상과 물고기 이름이 필요합니다.' })
+  const idx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(keepIdx, 10) || 1))
+  const cnt = Math.max(1, parseInt(qty, 10) || 1)
+  const sc = parseInt(score, 10) || 0
+  const user = getFtUser(ft, String(tag).replace(/^@/, ''), nickname)
+  const tank = _ftEnsureTank(user, idx)
+  if (!tank.items[name]) tank.items[name] = { score: sc, qty: 0 }
+  tank.items[name].score = sc
+  tank.items[name].qty += cnt
+  tank.total = Object.values(tank.items).reduce((s, it) => s + (it.score || 0) * (it.qty || 0), 0)
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true, tank })
+})
+app.post('/fishtournament/tank/remove', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ft = getFishTournamentSettings(req.djId, settings)
+  const { tag, keepIdx, content, qty } = req.body || {}
+  const name = String(content || '').trim()
+  const idx = Math.min(FT_KEEP_SLOTS, Math.max(1, parseInt(keepIdx, 10) || 1))
+  const user = ft.users[String(tag || '').replace(/^@/, '')]
+  const tank = user && user.tanks[String(idx)]
+  if (!tank || !tank.items[name]) return res.json({ success: false, error: '해당 항목을 찾을 수 없습니다.' })
+  const removeCnt = qty == null ? tank.items[name].qty : Math.max(1, parseInt(qty, 10) || 1)
+  tank.items[name].qty -= removeCnt
+  if (tank.items[name].qty <= 0) delete tank.items[name]
+  tank.total = Object.values(tank.items).reduce((s, it) => s + (it.score || 0) * (it.qty || 0), 0)
+  saveFishTournament(req.djId, ft)
+  res.json({ success: true, tank })
+})
+
+app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const tag = String(req.params.tag || '').trim().toLowerCase()
+  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
+  res.json({ success: true, tag, record: rec, roulette: settings.roulette })
+})
+
+// 시청자를 기록 목록에 수동으로 추가(빈 기록 생성)
+app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
+  const nickname = String((req.body || {}).nickname || '').trim()
+  const rec = getHistoryRec(settings, cleanTag)
+  if (nickname) rec.nickname = nickname // 수동 추가 시 표시용 닉네임을 같이 입력했으면 바로 반영
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true })
+})
+
+app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
+  if (settings.rouletteHistory) delete settings.rouletteHistory[cleanTag]
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
+  res.json({ success: true })
+})
+
+// 체크박스로 여러 명 한번에 삭제 — 개별 삭제 API를 여러 번 부르는 대신 한 번에 처리한다.
+app.post('/roulette/history/bulk-delete', auth.requireAuth, (req, res) => {
+  const { tags } = req.body || {}
+  if (!Array.isArray(tags) || !tags.length) return res.json({ success: false, error: '삭제할 대상이 없어요' })
+  const settings = store.getSettings(req.djId) || {}
+  let deleted = 0
+  if (settings.rouletteHistory) {
+    for (const raw of tags) {
+      const cleanTag = String(raw || '').trim().toLowerCase()
+      if (cleanTag && settings.rouletteHistory[cleanTag]) { delete settings.rouletteHistory[cleanTag]; deleted++ }
+    }
+  }
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
+  res.json({ success: true, deleted })
+})
+
+app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
+  const { idx, delta } = req.body || {}
+  if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
+  const settings = store.getSettings(req.djId) || {}
+  const rec = getHistoryRec(settings, req.params.tag)
+  rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true, coupons: rec.coupons })
+})
+
+// 킵목록/기타목록/이벤트목록 관리 (add / remove / clear)
+app.post('/roulette/history/:tag/list', auth.requireAuth, (req, res) => {
+  const { listType, action, text, amount } = req.body || {}
+  const key = listType === 'keep' ? 'keepList' : listType === 'event' ? 'eventList' : 'miscList'
+  const settings = store.getSettings(req.djId) || {}
+  const rec = getHistoryRec(settings, req.params.tag)
+  if (action === 'add' && text) rec[key][text] = (rec[key][text] || 0) + 1
+  else if (action === 'inc' && text) rec[key][text] = (rec[key][text] || 0) + 1
+  else if (action === 'dec' && text) {
+    if (rec[key][text] != null) {
+      rec[key][text] -= 1
+      if (rec[key][text] <= 0) delete rec[key][text]
+    }
+  }
+  else if (action === 'set' && text) {
+    const n = Math.max(0, Math.floor(Number(amount) || 0))
+    if (n <= 0) delete rec[key][text]
+    else rec[key][text] = n
+  }
+  else if (action === 'remove' && text) delete rec[key][text]
+  else if (action === 'clear') rec[key] = {}
+  store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
+  res.json({ success: true, list: rec[key] })
+})
+
+app.post('/roulette/history/reset', auth.requireAuth, (req, res) => {
+  store.saveSettings(req.djId, { rouletteHistory: {} })
+  res.json({ success: true })
+})
+
+app.post('/settings', auth.requireAuth, (req, res) => {
+  const { joinMessages, likeMessages, leaveMessages, entryData, entryCooldown, likeHeartTypes, funding, shield, flags, commands, greetings, songRequest, roulette, rouletteHistory, activity, moduleEnabled, moduleVisible, useDefaultEntryMessages, blindDate, posts, calendarEvents, calendarImage, myinfoTheme, myinfoNotice, myinfoTabIcons, myinfoMenuVisible, myinfoMenuOrder } = req.body || {}
+  const patch = {}
+  if (joinMessages) patch.joinMessages = joinMessages
+  if (likeMessages) patch.likeMessages = likeMessages
+  if (leaveMessages) patch.leaveMessages = leaveMessages
+  if (entryData) patch.entryData = entryData
+  if (typeof entryCooldown === 'number') patch.entryCooldown = entryCooldown
+  if (likeHeartTypes) patch.likeHeartTypes = likeHeartTypes
+  if (funding) patch.funding = funding
+  if (shield) patch.shield = shield
+  if (flags) patch.flags = flags
+  if (commands) patch.commands = commands
+  if (greetings) patch.greetings = greetings
+  if (songRequest) patch.songRequest = songRequest
+  if (roulette) patch.roulette = roulette
+  if (rouletteHistory) patch.rouletteHistory = rouletteHistory
+  if (blindDate) patch.blindDate = blindDate
+  if (posts) patch.posts = posts
+  if (calendarEvents) patch.calendarEvents = calendarEvents
+  if (calendarImage) patch.calendarImage = calendarImage
+  // 🎨 내정보 웹페이지 테마 색상 — 형식이 올바른 HEX 색상 코드(#RRGGBB)일 때만 저장한다.
+  //    bgRatio(배경 연하기 비율, 0~0.7)도 함께 저장 — 디제이가 직접 조절 가능. 값이 없거나
+  //    범위를 벗어나면 기존 고정값이었던 0.30으로 대체.
+  // 🔤 글자 폰트 — 관리자가 등록해둔 목록(store.getMyinfoFonts())에 있는 id이거나 'default'일 때만 저장.
+  //    페이지 전체 폰트(myinfoTheme.font)와 공지 전용 폰트(myinfoNotice.font)가 같은 목록을 공유한다.
+  const availableFontIds = store.getMyinfoFonts().map(f => f.id)
+  if (myinfoTheme && /^#[0-9a-fA-F]{6}$/.test(String(myinfoTheme.color || ''))) {
+    let bgRatio = Number(myinfoTheme.bgRatio)
+    if (isNaN(bgRatio) || bgRatio < 0 || bgRatio > 0.7) bgRatio = 0.30
+    const font = (myinfoTheme.font === 'default' || availableFontIds.includes(myinfoTheme.font)) ? myinfoTheme.font : 'default'
+    patch.myinfoTheme = { color: String(myinfoTheme.color).toLowerCase(), bgRatio, font }
+  }
+  // 📢 내정보 웹페이지 실시간 공지 — 포스트 탭 상단 배너 문구와 전용 폰트.
+  if (myinfoNotice) {
+    const font = (myinfoNotice.font === 'default' || availableFontIds.includes(myinfoNotice.font)) ? myinfoNotice.font : 'default'
+    patch.myinfoNotice = { text: String(myinfoNotice.text || '').trim(), font }
+  }
+  // 🔖 상단 탭 아이콘 — 이모지 텍스트 또는 업로드한 이미지 경로(/images/...) 둘 다 허용.
+  if (myinfoTabIcons) {
+    const clampIcon = v => String(v == null ? '' : v).trim().slice(0, 300)
+    let size = Number(myinfoTabIcons.size)
+    if (!Number.isFinite(size) || size <= 0) size = 16
+    size = Math.max(10, Math.min(60, size))
+    patch.myinfoTabIcons = {
+      post: clampIcon(myinfoTabIcons.post),
+      keep: clampIcon(myinfoTabIcons.keep),
+      game: clampIcon(myinfoTabIcons.game),
+      roulette: clampIcon(myinfoTabIcons.roulette),
+      cal: clampIcon(myinfoTabIcons.cal),
+      board: clampIcon(myinfoTabIcons.board),
+      size,
+    }
+  }
+  // 🔘 상단 탭 노출 — 6개 탭(포스트/킵목록/게임/룰렛정보/캘린더/박제판) 중 필요한 것만 켜둘 수 있게.
+  //    최소 1개는 켜져있어야 한다(다 꺼버리면 페이지에 아무것도 안 보이는 사고 방지).
+  if (myinfoMenuVisible) {
+    const norm = {
+      post: myinfoMenuVisible.post !== false,
+      keep: myinfoMenuVisible.keep !== false,
+      game: myinfoMenuVisible.game !== false,
+      roulette: myinfoMenuVisible.roulette !== false,
+      cal: myinfoMenuVisible.cal !== false,
+      board: myinfoMenuVisible.board !== false,
+    }
+    if (Object.values(norm).some(Boolean)) patch.myinfoMenuVisible = norm
+  }
+  // 🔀 상단 탭 순서 — 6개 키가 정확히 한 번씩만 들어있는 배열일 때만 저장(순서 뒤섞임/중복/누락 방지).
+  if (Array.isArray(myinfoMenuOrder)) {
+    const validKeys = ['post', 'keep', 'game', 'roulette', 'cal', 'board']
+    const cleaned = myinfoMenuOrder.map(k => String(k)).filter(k => validKeys.includes(k))
+    const isValidPermutation = cleaned.length === validKeys.length && validKeys.every(k => cleaned.includes(k))
+    if (isValidPermutation) patch.myinfoMenuOrder = cleaned
+  }
+  if (activity) patch.activity = activity
+  if (moduleEnabled) patch.moduleEnabled = moduleEnabled
+  if (moduleVisible) patch.moduleVisible = moduleVisible
+  if (typeof useDefaultEntryMessages === 'boolean') patch.useDefaultEntryMessages = useDefaultEntryMessages
+  store.saveSettings(req.djId, patch)
+  // 🐾 사이드바에서 "몬스터 잡기" 모듈을 껐다/켰다 하면, 몬스터잡기 설정 페이지에 따로 안
+  // 들어가도 바로 스폰 타이머가 다시 계산되도록 여기서도 재시작해준다. (끄면 알아서 멈추고,
+  // 켜면 그 즉시 설정값 그대로 다시 돈다 — 방송 이미 켜진 상태에서 모듈만 켜도 동작해야 함)
+  if (moduleEnabled && Object.prototype.hasOwnProperty.call(moduleEnabled, 'monstercatch')) {
+    console.log(`[몬스터잡기][${req.djId}] 모듈 토글 감지됨 — moduleEnabled.monstercatch=${moduleEnabled.monstercatch}, 타이머 재시작 시도`)
+    startMonsterCatchTimer(req.djId)
+    startBossTimer(req.djId)
+  }
+  res.json({ success: true })
+})
+
+// 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 로컬봇과 동일하게 검색은
+// 미리 해두지 않고, 나중에 재생 버튼을 누르는 순간에 한다.
+app.post('/songrequest/manual-add', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'request', djId)) return res.json({ success: false, error: '신청곡 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const sr = getSongRequestSettings(djId, settings)
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목을 입력해주세요.' })
+  const item = { id: 'sr' + Date.now() + Math.floor(Math.random() * 1000), artist: artist || title, title: title || artist, requester: '(직접추가)' }
+  if (sr.priorityMode) sr.items.unshift(item); else sr.items.push(item)
+  store.saveSettings(djId, { songRequest: sr })
+  broadcast({ type: 'songrequest', djId, items: sr.items })
+  res.json({ success: true, items: sr.items })
+})
+
+// 🎬 신청곡 유튜브 재생 후보 검색 — 로컬봇의 playSongOnYoutube()와 동일하게, DJ가 재생 버튼을
+// 누른 "그 순간"에 검색해서 점수순 후보 목록을 돌려준다. 재생 실패 시 프론트에서 다음 후보로
+// 자동 전환한다. itemId가 오고 그 항목에 접수 시점에 캐싱해둔 후보(ytCandidates)가 있으면,
+// 똑같은 검색을 또 하지 않고 그 캐시를 그대로 재사용한다 (유튜브 API 쿼터 절약).
+app.post('/songrequest/play-youtube', auth.requireAuth, async (req, res) => {
+  const artist = String((req.body && req.body.artist) || '').trim()
+  const title = String((req.body && req.body.title) || '').trim()
+  const itemId = req.body && req.body.itemId
+  if (!artist && !title) return res.json({ success: false, error: '가수/곡제목이 없어요.' })
+
+  if (itemId) {
+    const settings = store.getSettings(req.djId) || {}
+    const sr = getSongRequestSettings(req.djId, settings)
+    const cached = sr.items.find(it => it.id === itemId)
+    if (cached && Array.isArray(cached.ytCandidates) && cached.ytCandidates.length) {
+      return res.json({ success: true, candidates: cached.ytCandidates })
+    }
+  }
+
+  const yt = await searchYoutubeVideo(artist, title)
+  if (!yt) return res.json({ success: false, error: '곡을 찾을 수 없어요.' })
+  res.json({ success: true, candidates: yt.candidates.map(c => ({ id: c.videoId, title: c.title })) })
+})
+
+// 등록해둔 여러 고유닉 중 방송 중인 곳을 찾아 자동으로 입장한다. 모든 유저에게 동작하며,
+// 각자 본인 계정을 연결해뒀으면 그 계정으로, 아니면 관리자(sum) 공용 계정으로 입장한다.
+async function checkAdminAutoJoin() {
+  for (const djId of store.listDjIds()) {
+    if (!canAutoJoin(djId)) continue
+    if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) continue // 이 계정(본인 것 또는 관리자 공용)에 아직 발급된 토큰이 없으면 건너뜀
+
+    const settings = store.getSettings(djId)
+    if (!settings || !settings.autoJoinWatch) continue
+    if (!isModuleOn(settings, 'autojoin', djId)) continue
+    const tagList = (settings.autoJoinTags && settings.autoJoinTags.length) ? settings.autoJoinTags : (settings.autoJoinTag ? [settings.autoJoinTag] : [])
+    if (!tagList.length) continue
+
+    const room = getRoom(djId)
+    if (room.checking) continue
+    if (room.reconnectTimer) continue // 🔁 자동 재접속이 예약돼 있으면 그쪽에 맡긴다 (동시에 두 번 붙지 않게)
+    room.checking = true
+
+    try {
+      // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지 확인만 하고 유지 (끝났으면 연결 해제)
+      if (room.isConnected && room.watchingTag) {
+        const cur = await fetchUserStatusByTag(room.watchingTag)
+        if (!cur || !cur.is_live || !cur.current_live_id) {
+          console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
+          cancelReconnect(room) // 🔁 방송이 끝난 거니 재접속 예약은 취소
+          room.autoJoinedFor = '' // terminate 전에 비워서 close 핸들러가 재접속을 예약하지 않게 한다
+          if (room.ws) { room.ws.terminate(); room.ws = null }
+          room.isConnected = false
+          room.autoJoinedFor = ''
+          room.watchingTag = ''
+          stopLeavePolling(djId)
+          stopLottoAutoTimer(djId)
+          stopStockTimers(djId)
+          clearReminderTimers(room)
+          clearTtsAccess(room)
+          broadcast({ type: 'status', djId, isConnected: false })
+          broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
+        }
+        continue
+      }
+
+      for (const tag of tagList) {
+        const status = await fetchUserStatusByTag(tag)
+        if (status && status.is_live && status.current_live_id) {
+          // 🚫 이 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 이 계정은 입장시키지
+          // 않고 경고만 보낸 뒤 다음 고유닉으로 넘어간다.
+          const dupDjId = findActiveDjIdUsingTag(tag, djId)
+          if (dupDjId) {
+            console.log(`[자동입장:${djId}] @${tag} 는 이미 다른 계정에서 사용 중이라 건너뜀`)
+            broadcast({ type: 'autojoin', djId, status: 'duplicate', tag })
+            continue
+          }
+          const liveId = String(status.current_live_id)
+          broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
+          const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+          room.autoJoinedFor = liveId
+          room.watchingTag = tag
+          await connectSpoonForDj(djId, liveId, roomToken || '')
+          broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId })
+          break
+        }
+      }
+    } catch (e) {
+      console.log(`[자동입장:${djId} 오류]`, e.message)
+    } finally {
+      room.checking = false
+    }
+  }
+}
+
+setInterval(checkAdminAutoJoin, 15000)
+
+// 관리자 전용 — 봇 응답 전체 on/off (꺼두면 어떤 명령어에도 반응하지 않는 순수 시청 모드)
+app.post('/bot/toggle', auth.requireAuth, (req, res) => {
+  const { enabled } = req.body || {}
+  store.saveSettings(req.djId, { botEnabled: !!enabled })
+  res.json({ success: true, msg: enabled ? '봇 기능 켜짐' : '봇 기능 꺼짐 (순수 시청 모드)' })
+})
+
+// 🔒 자동입장/수동입장에 등록하는 고유닉이 계속 바뀌면서 봇이 다른 사람 방을 들락거리게
+// 되는 걸 막는 장치. 처음 등록한 고유닉(들)을 "본인 방"으로 잠가두고, 다른 고유닉으로
+// 바꾸려면 마지막 변경 후 2일이 지나야 허용한다. 관리자(sum)는 예외.
+// 자동입장(다중감시, 여러 개)이랑 수동입장(1회성, 1개)은 별개 기능이지만 이 잠금은 공유한다 —
+// 안 그러면 한쪽이 막혀도 다른 쪽으로 우회해서 다른 방에 들어갈 수 있기 때문.
+const AUTOJOIN_TAG_CHANGE_COOLDOWN_MS = 2 * 24 * 60 * 60 * 1000 // 2일
+function checkAutoJoinTagChangeAllowed(djId, settings, newTags) {
+  if (djId === 'sum') return { ok: true }
+  const lockedTags = Array.isArray(settings.autoJoinLockedTags) ? settings.autoJoinLockedTags : []
+  const lockedSet = new Set(lockedTags)
+  const newSet = new Set(newTags)
+  const isSameSet = lockedSet.size === newSet.size && [...newSet].every(t => lockedSet.has(t))
+  if (!lockedTags.length || isSameSet) return { ok: true }
+
+  const remain = AUTOJOIN_TAG_CHANGE_COOLDOWN_MS - (Date.now() - (settings.autoJoinTagLockedAt || 0))
+  if (remain > 0) {
+    const hours = Math.max(1, Math.ceil(remain / (60 * 60 * 1000)))
+    return { ok: false, error: `다른 계정 보호를 위해, 등록한 고유닉은 마지막 변경 후 2일이 지나야 바꿀 수 있어요. (약 ${hours}시간 후 가능)` }
+  }
+  return { ok: true }
+}
+function commitAutoJoinTagLock(djId, settings, newTags) {
+  if (djId === 'sum') return
+  const lockedTags = Array.isArray(settings.autoJoinLockedTags) ? settings.autoJoinLockedTags : []
+  const lockedSet = new Set(lockedTags)
+  const newSet = new Set(newTags)
+  const isSameSet = lockedSet.size === newSet.size && [...newSet].every(t => lockedSet.has(t))
+  if (!lockedTags.length || !isSameSet) {
+    store.saveSettings(djId, { autoJoinLockedTags: [...newSet], autoJoinTagLockedAt: Date.now() })
+  }
+}
+
+// 🚫 같은 고유닉(스푼 계정)을 서로 다른 두 에디봇 계정이 동시에 "입장중" 상태로 물고 있는
+// 상황을 막기 위한 체크. A 계정이 이미 그 고유닉의 방에 접속해 입장중이면, B 계정이 같은
+// 고유닉으로 (수동/자동)입장을 시도할 때 여기서 걸려서 B에게는 경고만 뜨고 입장은 막힌다.
+// 대소문자 차이는 같은 고유닉으로 취급한다.
+function findActiveDjIdUsingTag(tag, excludeDjId) {
+  const norm = String(tag || '').toLowerCase().trim()
+  if (!norm) return null
+  for (const djId of store.listDjIds()) {
+    if (djId === excludeDjId) continue
+    const room = getRoom(djId)
+    if (room.isConnected && room.watchingTag && String(room.watchingTag).toLowerCase().trim() === norm) {
+      return djId
+    }
+  }
+  return null
+}
+
+// 관리자 또는 자동입장 허용된 디제이 — 등록 고유닉 목록 자동감시 on/off
+app.post('/autojoin/watch', auth.requireAuth, (req, res) => {
+  if (!canAutoJoin(req.djId)) return res.status(403).json({ success: false, error: '관리자가 자동입장 권한을 켜줘야 사용할 수 있어요' })
+  const djId = req.djId
+  const { enabled, tags } = req.body || {}
+  const settingsForCheck = store.getSettings(djId) || {}
+  if (enabled && !isModuleOn(settingsForCheck, 'autojoin', djId)) return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const cleanTags = Array.isArray(tags) ? tags.map(t => String(t).replace('@', '').trim()).filter(Boolean) : []
+
+  if (enabled && !cleanTags.length) return res.json({ success: false, error: 'DJ 고유닉을 한 줄에 하나씩 입력해주세요' })
+
+  if (cleanTags.length) {
+    const check = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, cleanTags)
+    if (!check.ok) return res.json({ success: false, error: check.error })
+  }
+
+  store.saveSettings(djId, { autoJoinTags: cleanTags, autoJoinWatch: !!enabled })
+  if (cleanTags.length) commitAutoJoinTagLock(djId, settingsForCheck, cleanTags)
+  if (!enabled) {
+    const room = getRoom(djId)
+    room.autoJoinedFor = ''
+  }
+  broadcast({ type: 'autojoin', djId, status: enabled ? 'watching' : 'off', tags: cleanTags })
+  res.json({ success: true, msg: enabled ? `${cleanTags.length}개 고유닉 감시 시작` : '감시 중지됨' })
+})
+
+app.post('/autojoin', auth.requireAuth, async (req, res) => {
+  const { tag } = req.body || {}
+  const djId = req.djId
+  const room = getRoom(djId)
+  const cleanTag = String(tag || '').replace('@', '').trim()
+
+  const settingsForCheck = store.getSettings(djId) || {}
+  if (!isModuleOn(settingsForCheck, 'autojoin', djId)) {
+    return res.json({ success: false, error: '자동입장 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  }
+  if (!cleanTag) {
+    return res.json({ success: false, error: 'DJ 고유닉을 입력해주세요' })
+  }
+  if (!tokenManager.getAccessToken(tokenDjIdFor(djId))) {
+    return res.json({ success: false, error: '스푼 계정이 아직 연결되지 않았어요. 먼저 세션 연결을 진행해주세요.' })
+  }
+  const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
+  if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
+
+  store.saveSettings(djId, { autoJoinTag: cleanTag })
+  commitAutoJoinTagLock(djId, settingsForCheck, [cleanTag])
+  broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
+
+  try {
+    const status = await fetchUserStatusByTag(cleanTag)
+    if (!status || !status.is_live || !status.current_live_id) {
+      broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
+      return res.json({ success: false, error: '현재 방송 중이 아니에요' })
+    }
+
+    // 🚫 같은 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 입장을 막고 경고를 보낸다.
+    const dupDjId = findActiveDjIdUsingTag(cleanTag, djId)
+    if (dupDjId) {
+      broadcast({ type: 'autojoin', djId, status: 'duplicate', tag: cleanTag })
+      return res.json({ success: false, error: `⚠️ @${cleanTag} 고유닉은 이미 다른 계정에서 사용 중이에요. 동시에 같은 고유닉을 사용할 수 없어요.` })
+    }
+
+    const liveId = String(status.current_live_id)
+    const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+    room.autoJoinedFor = liveId
+    room.watchingTag = cleanTag
+    await connectSpoonForDj(djId, liveId, roomToken || '')
+    broadcast({ type: 'autojoin', djId, status: 'joined', tag: cleanTag, liveId })
+    res.json({ success: true, msg: `@${cleanTag} 방 입장 완료` })
+  } catch (e) {
+    broadcast({ type: 'autojoin', djId, status: 'error', tag: cleanTag, msg: e.message })
+    res.json({ success: false, error: '입장 중 오류: ' + e.message })
+  }
+})
+
+// 감시(자동입장)는 계속 켜둔 채로, 지금 들어가 있는 방에서만 즉시 나가기.
+// (방송이 계속 켜져 있어도 재입장하지 않도록 autoJoinedFor를 비우지 않고 그대로 유지)
+app.post('/room/leave', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const room = getRoom(djId)
+  cancelReconnect(room) // 🔁 직접 나간 거니까 자동 재접속은 하지 않는다
+  room.autoJoinedFor = '' // terminate 전에 먼저 비워서 close 핸들러가 재접속을 예약하지 않게 한다
+  if (room.ws) { room.ws.terminate(); room.ws = null }
+  room.isConnected = false
+  room.autoJoinedFor = ''
+  room.watchingTag = ''
+  stopLeavePolling(djId)
+  stopLottoAutoTimer(djId)
+  stopStockTimers(djId)
+  clearReminderTimers(room)
+  clearTtsAccess(room)
+  broadcast({ type: 'status', djId, isConnected: false })
+  res.json({ success: true, msg: '현재 방에서 나갔어요' })
+})
+
+app.get('/status', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  const settings = store.getSettings(req.djId)
+  res.json({
+    isConnected: room.isConnected,
+    autoJoinTag: settings?.autoJoinTag || '',
+    hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
+    hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
+    usingOwnAccount: tokenManager.hasCookies(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
+  })
+})
+
+app.post('/chat', auth.requireAuth, async (req, res) => {
+  const { message } = req.body || {}
+  if (!message) return res.json({ error: '메시지 없음' })
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'chat', req.djId)) return res.json({ success: false, error: '채팅 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  await sendChatToRoom(req.djId, message)
+  res.json({ success: true })
+})
+
+// 🏆 채팅 화면 하단 "오늘의 MVP" — 선물/좋아요/채팅 각 1명씩
+app.get('/chat/today-mvp', auth.requireAuth, (req, res) => {
+  const room = getRoom(req.djId)
+  const bucket = getTodayMvpBucket(room)
+  const topOf = (map) => {
+    const entries = Object.values(map)
+    if (!entries.length) return null
+    return entries.reduce((a, b) => (b.value > a.value ? b : a))
+  }
+  res.json({ success: true, gift: topOf(bucket.gift), like: topOf(bucket.like), chat: topOf(bucket.chat) })
+})
+
+// 📢 관리자 실시간 공지 — djId를 안 붙이고 브로드캐스트해서, 지금 접속해있는 모든 DJ의
+// 웹 화면(채팅창)에 전부 나타나게 한다. (SSE 필터 로직상 djId가 없는 메시지는 전체에게 전달됨)
+app.post('/admin/announce', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 공지를 보낼 수 있어요' })
+  const message = String((req.body || {}).message || '').trim()
+  if (!message) return res.json({ success: false, error: '공지 내용을 입력해주세요' })
+  broadcast({ type: 'announce', message, ts: Date.now() })
+  res.json({ success: true })
+})
+
+// ══════════════════════════════════════════════════════
+// 스푼 세션 쿠키 업로드 — 로그인한 DJ 본인 계정에 연결된다. (djId별 멀티 계정 구조)
+// 본인 계정 세션을 올린 DJ는 그때부터 봇이 그 계정으로 동작하고, 안 올린 DJ는 지금까지처럼
+// 관리자(sum) 공용 계정을 그대로 쓴다 (tokenDjIdFor가 자동으로 갈라줌).
+app.post('/session/upload', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const allowedUsers = store.getSessionAllowedUsers()
+  const explicitlyAllowed = allowedUsers.includes(djId)
+  // 🔑 지정된 유저 목록에 있으면 "전체 숨기기"가 켜져있어도 항상 통과시킨다 — 목록에 없을 때만
+  // 전체 숨기기 값과 "지정된 유저만" 제한을 순서대로 적용한다.
+  if (djId !== SHARED_TOKEN_DJID && !explicitlyAllowed) {
+    if (store.getSessionModuleGlobalOff()) return res.json({ success: false, error: '세션 연결 기능이 잠시 꺼져있어요. 관리자에게 문의해주세요.' })
+    if (allowedUsers.length > 0) return res.json({ success: false, error: '세션 연결 권한이 없는 계정이에요. 관리자에게 문의해주세요.' })
+  }
+  if (!isModuleOn(settings, 'session', djId)) return res.json({ success: false, error: '세션 연결 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const { cookies, localStorage, sessionStorage } = req.body
+  if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
+    return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
+  }
+  tokenManager.setCookies(djId, { cookies, localStorage, sessionStorage })
+  // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
+  // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
+  // (타이머 자체는 30분마다 깨어나지만, PC가 최근 1시간 안에 동기화했으면 그냥 건너뛰기만 하는
+  // 가벼운 체크라서 자주 돌아도 서버 부담이 거의 없다 — PC가 꺼지면 최대 30분 안에 서버가 이어받는다)
+  tokenManager.ensureAutoRefresh(djId, 30)
+  console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
+  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
+})
+
+// 인증 없이도 확인 가능한 "관리자 공용 계정" 상태 체크 (로그인 전 랜딩 화면 등에서 사용).
+// 본인 계정을 연결한 DJ의 상태는 /status(인증 필요)에서 tokenDjIdFor로 정확히 보여준다.
+app.get('/session/status', (req, res) => {
+  res.json({ hasSession: tokenManager.hasCookies(SHARED_TOKEN_DJID), hasToken: !!tokenManager.getAccessToken(SHARED_TOKEN_DJID) })
+})
+
+// 🔎 관리자(sum) 전용 — 공용 계정 풀이 실제로 어떤 상태인지(세션 연결 여부/토큰 발급 여부/
+// 지금 그 계정으로 몇 명 붙어있는지) 로그 안 뒤지고 바로 확인하려고 만든 진단용 엔드포인트.
+app.get('/admin/token-pool-status', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '관리자만 볼 수 있어요' })
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId),
+    connected: countConnectedOnToken(tokenDjId),
+    capacity: SHARED_TOKEN_CAPACITY,
+  }))
+  res.json({ success: true, pool })
+})
+
+// 🎯 일반 DJ 전용 — 입장설정 화면에서 "어떤 공용 계정(sum/sum2/sum3...)으로 들어갈지" 직접 고를 수 있게
+// 풀 목록(계정 id + 세션/토큰 상태만, 동접 인원 같은 민감한 값은 제외)과 현재 선택값을 내려준다.
+app.get('/session/pool-options', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const pool = SHARED_TOKEN_POOL.map(tokenDjId => ({
+    djId: tokenDjId,
+    hasSession: tokenManager.hasCookies(tokenDjId),
+    hasToken: !!tokenManager.getAccessToken(tokenDjId), // 세션은 있어도 토큰이 만료/미발급 상태면 실제로는 못 씀
+  }))
+  res.json({ success: true, pool, preferredTokenDjId: settings.preferredTokenDjId || '' })
+})
+
+app.post('/session/preferred-token', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'entrysettings', djId)) return res.json({ success: false, error: '입장 설정 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const val = String((req.body || {}).preferredTokenDjId || '').trim()
+  if (val && !SHARED_TOKEN_POOL.includes(val)) return res.json({ success: false, error: '등록되지 않은 계정이에요' })
+  store.saveSettings(djId, { preferredTokenDjId: val })
+  // 이미 만들어진 room이 있으면, 다음 tokenDjIdFor 호출 때 새 선택값이 바로 반영되도록 캐시를 지워둔다.
+  if (rooms[djId]) delete rooms[djId].tokenDjId
+  res.json({ success: true })
+})
+
+app.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+  sseClients.push(res)
+  req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
+})
+
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html')
+})
+
+// 🩺 헬스체크 — Railway가 이 주소로 주기적으로 접속해봐서, 응답이 없으면(서버가 멈췄으면)
+// 자동으로 재시작하게 만드는 용도. 지금까지는 "가끔 접속 안 될 때 수동으로 재시작"해야 했는데,
+// 이 경로를 Railway 설정(Settings → Healthcheck Path)에 등록해두면 Railway가 알아서 감지하고
+// 재시작해준다 (사람이 직접 안 눌러도 됨).
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() })
+})
+
+// 어떤 라우트에서도 처리되지 못한 오류(예: 업로드 파일이 body 용량 제한을 넘어서 express.json이
+// 자체적으로 거부하는 경우 등)가 나면, Express 기본 HTML 에러 페이지 대신 JSON으로 내려준다.
+// 이게 없으면 프론트엔드에서 "Unexpected token '<', <!DOCTYPE..." 같은 혼란스러운 에러만 보이게 된다.
+app.use((err, req, res, next) => {
+  console.log('[처리되지 않은 오류]', err && err.message)
+  if (res.headersSent) return next(err)
+  const status = (err && err.status) || (err && err.statusCode) || 500
+  const msg = status === 413
+    ? '업로드한 파일이 너무 커요. 20MB 이하로 줄여서 다시 시도해주세요.'
+    : ((err && err.message) || '서버 오류가 발생했어요')
+  res.status(status).json({ success: false, error: msg })
+})
+
+const PORT = process.env.PORT || 3001
+app.listen(PORT, () => {
+  console.log(`서버 실행 중: ${PORT}`)
+  // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
+  startGlobalAnnounceTimer()
+  // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
+  startWorldBossTimer()
+
+  // ⚠️ 진단용 로그: DATA_DIR이 영구 Volume을 가리키고 있는지 배포 로그에서 바로 확인할 수 있게.
+  // "재배포할 때마다 입장설정/자동입장 등이 초기화된다"는 증상이 반복되면, 여기 djCount가
+  // 재배포 후에도 이전과 같은 숫자로 나오는지 확인해보면 된다 — 매번 0(또는 훨씬 적은 수)로
+  // 나온다면 djs.json이 Volume이 아닌 컨테이너 안(재배포 시 사라지는 곳)에 저장되고 있다는 뜻.
+  try {
+    const djCount = store.listDjIds().length
+    console.log(`[데이터 경로 진단] DATA_DIR=${process.env.DATA_DIR || '(미설정 → 코드 폴더 안, 재배포 시 초기화될 수 있음)'} / 불러온 계정 수=${djCount}`)
+  } catch (e) { console.log('[데이터 경로 진단] 실패', e.message) }
+
+  // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
+  try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
+
+  // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
+  const loadedDjIds = tokenManager.initFromDisk()
+  if (loadedDjIds.length) {
+    console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
+    tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
+  }
+
+  // 🕐 마지막 접속(lastLoginAt) 기준 아래 일수 이상 안 들어온 계정은 다중감시(자동입장) 고유닉을 자동으로 비운다.
+  // 서버 시작 직후 1회 + 이후 24시간마다 반복 (관리자 sum 계정은 제외).
+  // 기준 일수는 관리자 페이지(유저 관리)에서 직접 설정할 수 있고, 0으로 설정하면 자동정리가 꺼진다.
+  // (실행할 때마다 최신 설정값을 다시 읽어서, 관리자가 값을 바꾸면 재배포 없이 바로 반영된다)
+  const runAutoJoinCleanup = () => {
+    try {
+      const days = store.getAutoJoinCleanupDays()
+      const affected = store.cleanupInactiveAutoJoinTags(days)
+      if (affected.length) console.log(`[다중감시 자동정리] ${days}일 이상 미접속 ${affected.length}개 계정의 감시 고유닉을 비웠어요:`, affected.join(', '))
+    } catch (e) { console.log('[다중감시 자동정리] 실패', e.message) }
+  }
+  runAutoJoinCleanup()
+  setInterval(runAutoJoinCleanup, 24 * 60 * 60 * 1000)
+
+  // 🗂️ 2시간마다 djs.json 백업 스냅샷을 남긴다 (최근 20개 보관, 그 이상은 자동 삭제).
+  // 서버 시작 5분 뒤에 첫 백업(막 시작한 시점엔 아직 캐시가 덜 안정적일 수 있어 살짝 늦춤).
+  setTimeout(() => { try { store.createBackupSnapshot() } catch (e) {} }, 5 * 60 * 1000)
+  setInterval(() => { try { store.createBackupSnapshot() } catch (e) {} }, 2 * 60 * 60 * 1000)
+
+  // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
+  setTimeout(backupToBase44, 60 * 1000)
+  setInterval(backupToBase44, 30 * 60 * 1000)
+
+  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
+  // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
+  // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
+  // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
+  setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
+  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+
+  // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
+  setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
+  setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
+
+  // 🧹 선물캡처판 배경 이미지 자동 삭제 — 등록한 지 하루 지난 배경을 1시간마다 확인
+  setTimeout(cleanupOldGiftCaptureBackgrounds, 10 * 60 * 1000)
+  setInterval(cleanupOldGiftCaptureBackgrounds, 60 * 60 * 1000)
+})
+
+// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
+// (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
+function gracefulShutdown() {
+  try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
+  process.exit(0)
+}
+process.on('SIGTERM', gracefulShutdown)
+process.on('SIGINT', gracefulShutdown)
