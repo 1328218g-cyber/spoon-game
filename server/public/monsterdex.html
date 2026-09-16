@@ -73,7 +73,7 @@
   .stepper button{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:#fff;font-size:16px;cursor:pointer}
   .stepper .n{font-size:18px;font-weight:800;min-width:40px;text-align:center}
   .empty{text-align:center;color:var(--text-dim);font-size:13px;padding:40px 20px}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#fff;color:#111;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
+  .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(20,24,40,.96);color:#fff;border:1px solid var(--border);padding:14px 20px;border-radius:14px;font-size:13.5px;line-height:1.5;opacity:0;transition:opacity .25s;pointer-events:none;z-index:80;max-width:82%;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.4)}
   .toast.show{opacity:1}
 </style>
 </head>
@@ -105,7 +105,10 @@
         <div style="font-size:14px;font-weight:700" id="myNickLabel"></div>
         <div style="display:flex;align-items:center;gap:8px">
           <button id="aceBtn" onclick="mdShowAce()" style="background:var(--surface2, #1c2440);border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">⚔️ 대표 몬스터: 미설정</button>
-          <div class="points-pill" id="couponPill" style="background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;cursor:pointer" onclick="mdOpenResetCoupon()">🎟️ <span id="myResetCoupons">0</span>장</div>
+          <div class="points-pill" id="couponPill" style="background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="mdOpenResetCoupon()">
+            <span>🎟️ 초기화권 <span id="myResetCoupons">0</span>장</span>
+            <span onclick="event.stopPropagation();mdOpenCouponInfo()" style="background:rgba(255,255,255,.22);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800">?</span>
+          </div>
           <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
         </div>
       </div>
@@ -159,6 +162,26 @@
       <div id="levelUpDetailBox" style="background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:12px;margin:6px 0"></div>
       <button class="btn btn-gray" onclick="mdLevelUp()">⬆️ 레벨업</button>
     </div>
+  </div>
+</div>
+
+<!-- 🎟️ 초기화권 안내 모달 — 획득/사용 방법 상세 설명 -->
+<div class="modal-bg" id="couponInfoModalBg" onclick="if(event.target===this)mdCloseCouponInfo()">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:flex-end"><button class="modal-close" onclick="mdCloseCouponInfo()">✕</button></div>
+    <div style="font-weight:800;font-size:16px;margin-bottom:8px">🎟️ 초기화권 안내</div>
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-top:6px">획득 방법</div>
+    <div class="hint" style="margin-top:4px">아래 세 가지를 <b>모두</b> 채우면 초기화권 1장을 받아요.</div>
+    <div class="hint" style="margin:4px 0 0">💛 무료 좋아요 10번 클릭</div>
+    <div class="hint" style="margin:2px 0 0">💬 채팅 500번</div>
+    <div class="hint" style="margin:2px 0 0">🎁 선물(스푼) 100스푼</div>
+    <div class="hint" style="margin-top:6px">방송 하나가 아니라 <b>어느 방송이든 합산</b>해서 채워지고, 세 조건을 다 채울 때마다 반복해서 지급돼요.</div>
+    <div style="font-weight:700;font-size:13px;color:var(--gold);margin-top:14px">사용 방법</div>
+    <div class="hint" style="margin-top:4px">포인트 옆 <b>초기화권</b> 버튼을 누르면, 레벨 2 이상인 보유 몬스터 목록이 떠요. 그중 하나를 골라 "초기화"를 누르면:</div>
+    <div class="hint" style="margin:2px 0 0">⬇️ 그 몬스터의 레벨이 1로 되돌아가요</div>
+    <div class="hint" style="margin:2px 0 0">✨ 그동안 레벨업에 쓴 포인트의 70%를 돌려받아요</div>
+    <div class="hint" style="margin:2px 0 0">🎟️ 초기화권 1장이 소모돼요</div>
+    <button class="btn" style="margin-top:14px" onclick="mdCloseCouponInfo()">확인</button>
   </div>
 </div>
 
@@ -612,6 +635,12 @@ async function mdLevelUp(){
 
 // 🎟️ 초기화쿠폰 — 포인트 옆 쿠폰 pill을 누르면 레벨 2 이상인 보유 몬스터 목록(일반/이로치/거다이맥스 통틀어)을 보여주고,
 // 하나 골라 "초기화"를 누르면 서버가 레벨을 1로 되돌리고 그동안 든 포인트의 70%를 돌려준다.
+function mdOpenCouponInfo(){
+  document.getElementById('couponInfoModalBg').classList.add('show');
+}
+function mdCloseCouponInfo(){
+  document.getElementById('couponInfoModalBg').classList.remove('show');
+}
 function mdOpenResetCoupon(){
   if(myResetCoupons < 1){ showToast('보유한 초기화쿠폰이 없어요 (무료 좋아요 10번·채팅 500번·선물 100스푼을 모두 채우면 1장 생겨요)'); return; }
   renderResetCouponList();
