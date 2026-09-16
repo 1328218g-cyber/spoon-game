@@ -105,10 +105,12 @@
         <div style="font-size:14px;font-weight:700" id="myNickLabel"></div>
         <div style="display:flex;align-items:center;gap:8px">
           <button id="aceBtn" onclick="mdShowAce()" style="background:var(--surface2, #1c2440);border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">⚔️ 대표 몬스터: 미설정</button>
+          <div class="points-pill" id="couponPill" style="background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;cursor:pointer" onclick="mdOpenResetCoupon()">🎟️ <span id="myResetCoupons">0</span>장</div>
           <div class="points-pill">✨ <span id="myPoints">0</span>P</div>
         </div>
       </div>
       <div class="hint" style="margin:0">P는 몬스터 분해로 얻는 포인트예요. 레벨업에 사용해요.</div>
+      <div class="hint" style="margin:2px 0 0">🎟️ 초기화쿠폰: 무료 좋아요 10번 · 채팅 500번 · 선물 100스푼을 모두 채우면 1장 지급돼요 (어느 방송이든 합산).</div>
       <button class="btn" style="margin-top:12px;background:linear-gradient(135deg,#2b6cb0,#38a6ff)" onclick="mdOpenDungeon()">🗺️ 던전 탐험 (2~4인 파티)</button>
     </div>
 
@@ -157,6 +159,16 @@
       <div id="levelUpDetailBox" style="background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:12px;margin:6px 0"></div>
       <button class="btn btn-gray" onclick="mdLevelUp()">⬆️ 레벨업</button>
     </div>
+  </div>
+</div>
+
+<!-- 🎟️ 초기화쿠폰 사용 모달 — 레벨 2 이상인 보유 몬스터 중 하나를 골라서 레벨1로 되돌리고 포인트 70% 환급 -->
+<div class="modal-bg" id="resetModalBg" onclick="if(event.target===this)mdCloseResetCoupon()">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:flex-end"><button class="modal-close" onclick="mdCloseResetCoupon()">✕</button></div>
+    <div style="font-weight:800;font-size:16px;margin-bottom:4px">🎟️ 초기화쿠폰 사용</div>
+    <div class="hint" style="margin-top:0">고른 몬스터의 레벨을 1로 되돌리고, 그 몬스터 레벨업에 쓴 포인트의 70%를 돌려받아요. (쿠폰 1장 소모)</div>
+    <div id="resetCouponList" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
   </div>
 </div>
 
@@ -225,7 +237,7 @@ const SERVER = location.origin;
 const LS_KEY = 'md_webuserid_' + DJ_ID;
 
 let webUserId = localStorage.getItem(LS_KEY) || '';
-let myTag = '', myPoints = 0, dexList = [];
+let myTag = '', myPoints = 0, myResetCoupons = 0, dexList = [];
 let levelBonus = 3; // 서버가 알려주는 실제 값으로 매 새로고침마다 갱신됨
 let pollTimer = null;
 let selectedMonster = null;
@@ -304,8 +316,10 @@ async function checkMe(){
     }
     clearInterval(pollTimer); pollTimer=null;
     myTag = d.tag; myPoints = d.points; dexList = d.dex; levelBonus = d.levelBonus || 3;
+    myResetCoupons = d.resetCoupons || 0;
     document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
     document.getElementById('myPoints').textContent = myPoints;
+    document.getElementById('myResetCoupons').textContent = myResetCoupons;
     let aceMon = dexList.find(m=>m.selected);
     let aceVariant = 'normal';
     if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceVariant = 'shiny'; }
@@ -592,6 +606,52 @@ async function mdLevelUp(){
     const d = await res.json();
     if(!d.success){ showToast(d.error||'실패'); return; }
     showToast(`⬆️ Lv.${d.level} 달성! 공격력 +${d.gainedPower} → 현재 ${d.power} (남은 ${d.points}P)`);
+    checkMe();
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+// 🎟️ 초기화쿠폰 — 포인트 옆 쿠폰 pill을 누르면 레벨 2 이상인 보유 몬스터 목록(일반/이로치/거다이맥스 통틀어)을 보여주고,
+// 하나 골라 "초기화"를 누르면 서버가 레벨을 1로 되돌리고 그동안 든 포인트의 70%를 돌려준다.
+function mdOpenResetCoupon(){
+  if(myResetCoupons < 1){ showToast('보유한 초기화쿠폰이 없어요 (무료 좋아요 10번·채팅 500번·선물 100스푼을 모두 채우면 1장 생겨요)'); return; }
+  renderResetCouponList();
+  document.getElementById('resetModalBg').classList.add('show');
+}
+function mdCloseResetCoupon(){
+  document.getElementById('resetModalBg').classList.remove('show');
+}
+function renderResetCouponList(){
+  const wrap = document.getElementById('resetCouponList');
+  const items = [];
+  dexList.forEach(m=>{
+    if(m.discovered && m.count>0 && m.level>1) items.push(buildSelectedMonsterObj(m,'normal'));
+    if(m.shinyDiscovered && m.shinyCount>0 && m.shinyLevel>1) items.push(buildSelectedMonsterObj(m,'shiny'));
+    if(m.gmaxDiscovered && m.gmaxCount>0 && m.gmaxLevel>1) items.push(buildSelectedMonsterObj(m,'gmax'));
+  });
+  if(!items.length){ wrap.innerHTML = '<div class="empty">초기화할 수 있는(레벨 2 이상) 몬스터가 없어요.</div>'; return; }
+  wrap.innerHTML = items.map(m=>{
+    const spent = 10*(m.level-1)*m.level/2;
+    const refund = Math.round(spent*0.7);
+    return `<div style="display:flex;align-items:center;gap:10px;background:#1c2440;border:1px solid var(--border);border-radius:10px;padding:10px">
+      <img src="${escapeHtml(m.image)}" style="width:40px;height:40px;object-fit:contain" onerror="this.style.display='none'">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700">${escapeHtml(m.name)}</div>
+        <div class="hint" style="margin:2px 0 0">Lv.${m.level} → Lv.1 · 환급 ${refund}P</div>
+      </div>
+      <button class="btn" style="width:auto;margin:0;padding:8px 12px;font-size:12px" onclick="mdUseResetCoupon('${escapeHtml(m.id)}')">초기화</button>
+    </div>`;
+  }).join('');
+}
+async function mdUseResetCoupon(effId){
+  try{
+    const res = await fetch(`${SERVER}/monsterdex/${DJ_ID}/reset`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ webUserId, monsterId: effId })
+    });
+    const d = await res.json();
+    if(!d.success){ showToast(d.error||'초기화에 실패했어요'); return; }
+    showToast(`🎟️ 레벨이 1로 초기화됐어요! +${d.refund}P 환급 (남은 쿠폰 ${d.resetCoupons}장)`);
+    mdCloseResetCoupon();
     checkMe();
   }catch(e){ showToast('오류: '+e.message); }
 }

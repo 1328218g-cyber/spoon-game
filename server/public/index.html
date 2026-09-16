@@ -5926,6 +5926,7 @@ function selectPanel(name){
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
+  if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }

@@ -823,6 +823,13 @@ async function sendChatToRoom(djId, message) {
       return false
     }
     console.log(`[채팅:${djId}]`, message, '응답:', res.status)
+    // 🪪 자기 자신(에디봇 릴레이 계정) 학습용 — 방금 보낸 문구를 잠깐 기억해뒀다가, 이 문구 그대로
+    // ChatMessage 이벤트로 되돌아오면 그 이벤트의 generator.id를 "이 방에서 나 자신"으로 확정한다.
+    // (릴레이 계정은 djId마다, 심지어 재접속마다 다른 계정/닉네임을 쓰는 것으로 보여서 하드코딩이 불가능하다 —
+    //  이 계정이 실시간 접속자 명단 폴링에 들쭉날쭉 잡히면서 스스로에게 입장/퇴장 인사를 반복하는 문제가 있었음)
+    if (!room._recentSentTexts) room._recentSentTexts = []
+    room._recentSentTexts.push({ text: message, ts: Date.now() })
+    if (room._recentSentTexts.length > 12) room._recentSentTexts.shift()
     return true
   } catch (e) {
     console.log(`[채팅:${djId} 오류]`, e.message)
@@ -3069,7 +3076,49 @@ function mcGetWebData() {
   if (!mcWebDataCache.authKeys) mcWebDataCache.authKeys = {} // { code: { webUserId, expiresAt } }
   if (!mcWebDataCache.profiles) mcWebDataCache.profiles = {} // { tag: profileImageUrl } — 인증 시점에 채팅 이벤트에서 캡처
   if (!mcWebDataCache.reversiStats) mcWebDataCache.reversiStats = {} // { tag: { wins, losses, draws } } — 리버시 누적 전적
+  if (!mcWebDataCache.resetCouponProgress) mcWebDataCache.resetCouponProgress = {} // { tag: { heart, chat, gift } } — 초기화쿠폰 획득 조건 누적치(어느 방이든 합산)
+  if (!mcWebDataCache.resetCoupons) mcWebDataCache.resetCoupons = {} // { tag: number } — 보유 초기화쿠폰 수
   return mcWebDataCache
+}
+// 🎟️ 초기화쿠폰 — 무료 좋아요/채팅/선물(스푼)을 어느 방이든 합쳐서(전체 공용) 각각 기준치만큼
+// 채워야 1장이 나온다. 세 조건 중 하나만 채운다고 지급되지 않고, 셋 다 동시에 기준을 넘겨야
+// 그 순간 1장 지급되며, 지급된 만큼 세 카운터에서 기준치를 차감한다(그래서 반복 지급 가능).
+const MC_RESET_COUPON_HEART_THRESHOLD = 10
+const MC_RESET_COUPON_CHAT_THRESHOLD = 500
+const MC_RESET_COUPON_GIFT_THRESHOLD = 100 // 스푼
+const MC_RESET_COUPON_REFUND_RATE = 0.7
+function mcAddResetCouponProgress(tag, type, amount) {
+  if (!tag || !(amount > 0)) return
+  const key = String(tag).toLowerCase()
+  const d = mcGetWebData()
+  if (!d.resetCouponProgress[key]) d.resetCouponProgress[key] = { heart: 0, chat: 0, gift: 0 }
+  const p = d.resetCouponProgress[key]
+  p[type] = (p[type] || 0) + amount
+  while (p.heart >= MC_RESET_COUPON_HEART_THRESHOLD && p.chat >= MC_RESET_COUPON_CHAT_THRESHOLD && p.gift >= MC_RESET_COUPON_GIFT_THRESHOLD) {
+    p.heart -= MC_RESET_COUPON_HEART_THRESHOLD
+    p.chat -= MC_RESET_COUPON_CHAT_THRESHOLD
+    p.gift -= MC_RESET_COUPON_GIFT_THRESHOLD
+    d.resetCoupons[key] = (d.resetCoupons[key] || 0) + 1
+  }
+  mcSaveWebData()
+}
+// 채팅 1회 = 진행도 +1 (몬스터잡기가 켜진 방에서만 집계 — 채팅 명령어 처리부에서 호출)
+function handleMonsterDexResetCouponChatHook(djId, settings, actTag) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  if (!actTag) return
+  mcAddResetCouponProgress(actTag, 'chat', 1)
+}
+// 무료 좋아요 1회 = 진행도 +1 (LiveFreeLike 이벤트에서 호출 — 유료/구독 하트는 포함 안 됨)
+function handleMonsterDexResetCouponLikeHook(djId, settings, tag) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  if (!tag) return
+  mcAddResetCouponProgress(tag, 'heart', 1)
+}
+// 선물(스푼) 받은 만큼(콤보 포함 총 스푼 수) 진행도 누적
+function handleMonsterDexResetCouponGiftHook(djId, settings, tag, totalAmount) {
+  if (!isModuleOn(settings, 'monstercatch', djId)) return
+  if (!tag) return
+  mcAddResetCouponProgress(tag, 'gift', totalAmount)
 }
 function mcSaveWebData() {
   // 🐌 이 파일은 도감/분해/레벨업/월드보스 보상 등 아주 자주 호출되는데, 매번 동기(blocking)로
@@ -3700,6 +3749,17 @@ function resolveBoss(djId) {
   // 🎲 격파 성공 — 누가 보상을 가져갈지는 대미지(공격력) 순이 아니라, 참여자들이 채팅으로
   // 주사위를 굴려서 가장 높은 눈이 나온 사람이 가져간다. 여기서 바로 보상을 지급하지 않고,
   // 주사위를 굴릴 수 있는 시간(cmdBossRoll 창)을 연 뒤 resolveBossLoot()에서 최종 지급한다.
+  // 🎲 격파 성공 — 만약 이전 보스전의 주사위 창이 아직 안 끝났는데(월드보스처럼 등장 주기가
+  // 짧아서 겹칠 수 있음) 여기서 곧바로 새 판을 열면, room.bossLootRoll이 그냥 덮어써지면서
+  // 이전 판에 실제로 들어온 주사위 기록이 통째로 사라진다("분명 굴렸는데 씹힘"). 게다가 이전
+  // 판의 타이머(bossLootRollTimeout)는 안 지워진 채로 남아있다가, 나중에 원래 예정 시각에
+  // 발동하면서 이미 덮어써진(새 판의) 데이터를 대신 정산해버려 "아무도 안 굴렸어요"처럼 잘못된
+  // 결과가 나온다. → 새 판을 열기 전에 이전 판이 남아있으면 먼저 정상적으로 정산부터 한다.
+  if (room.bossLootRoll && room.bossLootRollTimeout) {
+    clearTimeout(room.bossLootRollTimeout)
+    room.bossLootRollTimeout = null
+    try { resolveBossLoot(djId) } catch (e) { console.log(`[보스몬스터][${djId}] 이전 주사위 판 조기 정산 중 오류:`, e && e.stack || e) }
+  }
   const rollWindowSec = Math.max(5, Math.min(600, parseInt(mc.bossRollWindowSec, 10) || 30))
   room.bossLootRoll = {
     boss, participants: boss.participants, rolls: {}, totalPower, resolvedAt: Date.now() + rollWindowSec * 1000,
@@ -16196,6 +16256,9 @@ function startLeavePolling(djId, liveId) {
 
       const currentMembers = new Map()
       for (const u of users) {
+        // 🪪 릴레이 계정(에디봇 자기 자신)은 접속자 명단에 들쭉날쭉 잡히면서 스스로에게 입장/퇴장
+        // 인사가 반복 나가는 원인이 됐다 — 학습된 self id면 명단 자체에서 아예 제외한다.
+        if (room._selfGeneratorId != null && u.id != null && Number(u.id) === room._selfGeneratorId) continue
         const key = (u.tag || u.nickname || '').toString().toLowerCase()
         if (!key) continue
         currentMembers.set(key, u)
@@ -16543,6 +16606,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
         const text = eventPayload.message || ''
 
+        // 🪪 자기 자신(에디봇 릴레이 계정) 학습 — 방금 우리가 보낸 문구가 그대로 echo되어 돌아온 거면
+        // 이 이벤트의 authorId를 "이 방에서 나 자신"으로 기록한다. sendJoinMessage/퇴장 폴링에서
+        // 이 id를 걸러내는 데 쓰인다 (릴레이 계정 자신에게 입장/퇴장 인사가 반복 나가는 걸 방지).
+        if (authorId != null && room._recentSentTexts && room._recentSentTexts.length) {
+          const now = Date.now()
+          const matched = room._recentSentTexts.some(r => r.text === text && (now - r.ts) < 10000)
+          if (matched) room._selfGeneratorId = authorId
+        }
+
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
         let ttsEligible = false
         if (isModuleOn(settings, 'tts', djId)) {
@@ -16596,6 +16668,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMonsterCatchHelpCommand(djId, settings, text)
           handleMonsterCatchChatBallHook(djId, settings, author, actTag)
           handleMonsterCatchChatCountHook(djId, settings, author, actTag)
+          handleMonsterDexResetCouponChatHook(djId, settings, actTag)
           handleMonsterBattleCommand(djId, room, settings, author, actTag, text)
           handleMonsterEvolveCommand(djId, room, settings, author, actTag, text)
           handleBossJoinCommand(djId, room, settings, author, actTag, text)
@@ -16644,6 +16717,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const authorId = gen.id != null ? Number(gen.id)
           : (eventPayload.userId != null ? Number(eventPayload.userId)
             : (eventPayload.user_id != null ? Number(eventPayload.user_id) : null))
+        // 🪪 릴레이 계정(에디봇 자기 자신)이 채팅 전송 때문에 방에 잠깐 걸리면서 발생하는 RoomJoin은
+        // 스스로에게 입장 인사를 하게 만드니 여기서 걸러낸다.
+        if (room._selfGeneratorId != null && authorId === room._selfGeneratorId) {
+          // 아무 것도 안 함 — 자기 자신의 입장 이벤트
+        } else {
         broadcast({ type: 'join', djId, nick: author })
 
         // 퇴장 감지 스냅샷에도 즉시 등록 (폴링 주기 사이에 짧게 머든 유저도 잡히도록)
@@ -16662,6 +16740,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (tag) registerJoinSnapshot(room, author, tag, joinSnapshotKey) // 태그 알아내면 스냅샷 키를 태그 기준으로 갱신 (이전 닉네임 키 정리)
           sendJoinMessage(djId, settings, author, tag, gen)
         }
+        }
 
       } else if (eventName === 'LiveFreeLike' || eventName === 'live_like') {
         const gen = eventPayload.generator || {}
@@ -16677,6 +16756,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleStockHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
+        if (!isLurker) handleMonsterDexResetCouponLikeHook(djId, settings, likeTag)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         if (!isLurker) sendLikeHeartMessage(djId, settings, 'free', author, likeTag)
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
@@ -16778,6 +16858,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleChuseokDonationHook(djId, settings, author, donationTag, amount, comboCount)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
+          handleMonsterDexResetCouponGiftHook(djId, settings, donationTag, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -21762,7 +21843,35 @@ app.get('/monsterdex/:djId/data', (req, res) => {
       gmaxDismantlePoints: mcDismantlePoints(basePower, false, true),
     }
   })
-  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, dex })
+  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, resetCoupons: d.resetCoupons[tag] || 0, dex })
+})
+// 🎟️ 초기화쿠폰 사용 — 고른 몬스터의 레벨을 1로 되돌리고, 그 몬스터 레벨업에 들어간 포인트의 70%를 환급한다.
+// (마리당 레벨업 비용은 mcLevelUpCost(level)=level*10이라, 1→L까지 누적 비용은 10*(L-1)*L/2)
+app.post('/monsterdex/:djId/reset', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'monstercatch', djId)) return res.json({ success: false, error: '몬스터잡기를 찾을 수 없어요.' })
+  const webUserId = String((req.body || {}).webUserId || '').trim()
+  const monsterId = (req.body || {}).monsterId
+  const d = mcGetWebData()
+  const tag = d.webUsers[webUserId]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const coupons = d.resetCoupons[tag] || 0
+  if (coupons < 1) return res.json({ success: false, error: '보유한 초기화쿠폰이 없어요.' })
+  const collection = mc_collectionsForTag(djId, tag) || {}
+  if (!(collection[monsterId] > 0)) return res.json({ success: false, error: '보유하지 않은 몬스터예요.' })
+  const curLevel = mcMonsterLevel(tag, monsterId)
+  if (curLevel <= 1) return res.json({ success: false, error: '이미 레벨 1이라 초기화할 필요가 없어요.' })
+  const totalSpent = 10 * (curLevel - 1) * curLevel / 2
+  const refund = Math.round(totalSpent * MC_RESET_COUPON_REFUND_RATE)
+  d.resetCoupons[tag] = coupons - 1
+  if (!d.levels[tag]) d.levels[tag] = {}
+  d.levels[tag][monsterId] = { level: 1, exp: 0 }
+  d.points[tag] = (d.points[tag] || 0) + refund
+  mcSaveWebData()
+  const catalog = mcCatalog(djId)
+  const resolved = mcResolveMonster(monsterId, catalog, tag)
+  res.json({ success: true, level: 1, refund, points: d.points[tag], resetCoupons: d.resetCoupons[tag], power: resolved ? resolved.power : null })
 })
 // mc.collections는 djId별 settings 안에 있지만 실제로는 전역 공유 객체를 참조하고 있어서
 // (getMonsterCatchSettings 안에서 store.loadGlobalMonsterDex()로 채워짐), 아무 djId나
@@ -23006,9 +23115,13 @@ app.post('/fishtournament/tank/remove', auth.requireAuth, requireRequestModuleAc
 
 app.get('/roulette/history/:tag', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  const tag = String(req.params.tag || '').trim().toLowerCase()
-  const rec = (settings.rouletteHistory && settings.rouletteHistory[tag]) || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
-  res.json({ success: true, tag, record: rec, roulette: settings.roulette })
+  const rawTag = String(req.params.tag || '')
+  const cleanTag = rawTag.trim().toLowerCase()
+  // ⚠️ 예전 닉네임 기반 레거시 기록(백업 복원 등으로 들어온 것 포함)은 원본 그대로(대소문자/공백 보존)의
+  // 키로 저장돼 있을 수 있어서, 소문자로 정규화한 키로 못 찾으면 원본 키로도 한 번 더 찾아본다.
+  const hist = settings.rouletteHistory || {}
+  const rec = hist[cleanTag] || hist[rawTag] || { coupons: {}, wins: [], keepList: {}, miscList: {}, eventList: {} }
+  res.json({ success: true, tag: rawTag, record: rec, roulette: settings.roulette })
 })
 
 // 시청자를 기록 목록에 수동으로 추가(빈 기록 생성)
@@ -23024,8 +23137,14 @@ app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
 
 app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
-  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
-  if (settings.rouletteHistory) delete settings.rouletteHistory[cleanTag]
+  const rawTag = String(req.params.tag || '')
+  const cleanTag = rawTag.trim().toLowerCase()
+  // ⚠️ 정규화된 키로 못 찾으면(레거시 닉네임 키는 원본 그대로 저장돼 있어서 대소문자/공백이 다를 수 있음)
+  // 원본 키로도 시도한다 — 이게 없으면 목록엔 뜨는데 삭제 버튼이 아무 반응 없는 것처럼 보였다.
+  if (settings.rouletteHistory) {
+    if (settings.rouletteHistory[cleanTag] !== undefined) delete settings.rouletteHistory[cleanTag]
+    else if (settings.rouletteHistory[rawTag] !== undefined) delete settings.rouletteHistory[rawTag]
+  }
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
   res.json({ success: true })
 })
@@ -23038,8 +23157,10 @@ app.post('/roulette/history/bulk-delete', auth.requireAuth, (req, res) => {
   let deleted = 0
   if (settings.rouletteHistory) {
     for (const raw of tags) {
-      const cleanTag = String(raw || '').trim().toLowerCase()
-      if (cleanTag && settings.rouletteHistory[cleanTag]) { delete settings.rouletteHistory[cleanTag]; deleted++ }
+      const rawTag = String(raw || '')
+      const cleanTag = rawTag.trim().toLowerCase()
+      if (cleanTag && settings.rouletteHistory[cleanTag] !== undefined) { delete settings.rouletteHistory[cleanTag]; deleted++ }
+      else if (rawTag && settings.rouletteHistory[rawTag] !== undefined) { delete settings.rouletteHistory[rawTag]; deleted++ }
     }
   }
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory || {} })
