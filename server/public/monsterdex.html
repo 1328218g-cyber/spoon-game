@@ -114,6 +114,7 @@
       </div>
       <div class="hint" style="margin:0">P는 몬스터 분해로 얻는 포인트예요. 레벨업에 사용해요.</div>
       <div class="hint" style="margin:2px 0 0">🎟️ 초기화쿠폰: 무료 좋아요 10번 · 채팅 500번 · 선물 100스푼을 모두 채우면 1장 지급돼요 (어느 방송이든 합산).</div>
+      <div class="hint" id="resetProgressLine" style="margin:2px 0 0"></div>
       <button class="btn" style="margin-top:12px;background:linear-gradient(135deg,#2b6cb0,#38a6ff)" onclick="mdOpenDungeon()">🗺️ 던전 탐험 (2~4인 파티)</button>
     </div>
 
@@ -343,6 +344,10 @@ async function checkMe(){
     document.getElementById('myNickLabel').textContent = d.nickname + '님의 도감';
     document.getElementById('myPoints').textContent = myPoints;
     document.getElementById('myResetCoupons').textContent = myResetCoupons;
+    // 🎟️ 초기화쿠폰 진행도 — 좋아요/채팅/선물 세 조건 중 지금까지 얼마나 채웠는지 보여준다 (어느 방송이든 합산치)
+    const rp = d.resetProgress || {heart:0, chat:0, gift:0};
+    document.getElementById('resetProgressLine').textContent =
+      `📊 진행도 — 좋아요 ${rp.heart}/10 · 채팅 ${rp.chat}/500 · 선물 ${rp.gift}/100스푼`;
     let aceMon = dexList.find(m=>m.selected);
     let aceVariant = 'normal';
     if(!aceMon){ aceMon = dexList.find(m=>m.shinySelected); aceVariant = 'shiny'; }

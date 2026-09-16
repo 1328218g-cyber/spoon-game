@@ -21859,7 +21859,8 @@ app.get('/monsterdex/:djId/data', (req, res) => {
       gmaxDismantlePoints: mcDismantlePoints(basePower, false, true),
     }
   })
-  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, resetCoupons: d.resetCoupons[tag] || 0, dex })
+  const resetProgress = d.resetCouponProgress[tag] || { heart: 0, chat: 0, gift: 0 }
+  res.json({ ...base, linked: true, tag, nickname: tag, points: d.points[tag] || 0, levelBonus: MC_LEVEL_ATTACK_BONUS, resetCoupons: d.resetCoupons[tag] || 0, resetProgress, dex })
 })
 // 🎟️ 초기화쿠폰 사용 — 고른 몬스터의 레벨을 1로 되돌리고, 그 몬스터 레벨업에 들어간 포인트의 70%를 환급한다.
 // (마리당 레벨업 비용은 mcLevelUpCost(level)=level*10이라, 1→L까지 누적 비용은 10*(L-1)*L/2)
