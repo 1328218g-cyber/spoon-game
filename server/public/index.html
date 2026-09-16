@@ -159,10 +159,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .log-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)}
 .log-avatar.placeholder{display:flex;align-items:center;justify-content:center;font-size:14px}
 .log-body{flex:1;min-width:0;padding-top:2px}
-.log-text{color:var(--text);word-break:break-word}
+.log-text{color:var(--text);word-break:break-word;white-space:pre-line}
 .nick{color:var(--accent);font-weight:600;margin-right:4px}
 .nick.bot{color:var(--accent2)}
 .nick.sys{color:var(--muted)}
+.role-badge{display:inline-block;font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:5px;margin-right:5px;vertical-align:1px}
+.role-badge.dj{background:#ff5c72;color:#fff}
+.role-badge.manager{background:#3ddc84;color:#0a2818}
 .log-line.log-donation{background:linear-gradient(90deg,rgba(251,191,36,.16),transparent);border-radius:8px;padding:6px 8px;margin-left:-8px;margin-right:-8px}
 .log-gift-img{width:56px;height:56px;object-fit:contain;display:block}
 .panel[data-panel="chat"]{max-width:100%}
@@ -18458,7 +18461,7 @@ function setStatus(on){
   document.getElementById('statusText').textContent=on?'온라인':'오프라인';
 }
 
-function addLog(nick,text,type='user',profileUrl){
+function addLog(nick,text,type='user',profileUrl,roleInfo){
   const log=document.getElementById('chatLog');
   const line=document.createElement('div');line.className='log-line';
   const safeNick=escapeHtml(nick||'');
@@ -18467,7 +18470,9 @@ function addLog(nick,text,type='user',profileUrl){
   const avatarHtml=profileUrl
     ? `<img class="log-avatar" src="${escapeAttr(profileUrl)}" onerror="this.outerHTML='<div class=&quot;log-avatar placeholder&quot;>${emoji}</div>'">`
     : `<div class="log-avatar placeholder">${emoji}</div>`;
-  line.innerHTML=avatarHtml+'<div class="log-body"><span class="nick '+type+'">'+safeNick+'</span><span class="log-text">'+safeText+'</span></div>';
+  // 🏷️ 실제 스푼 채팅처럼 DJ/매니저 뱃지를 닉네임 앞에 붙여준다 (ChatMessage 핸들러가 넘겨주는 isDj/isManager 기준)
+  const badgeHtml=roleInfo&&roleInfo.isDj ? '<span class="role-badge dj">DJ</span>' : (roleInfo&&roleInfo.isManager ? '<span class="role-badge manager">매니저</span>' : '');
+  line.innerHTML=avatarHtml+'<div class="log-body"><span class="nick '+type+'">'+badgeHtml+safeNick+'</span><span class="log-text">'+safeText+'</span></div>';
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 
@@ -18508,7 +18513,7 @@ function startSSE(){
     const d=JSON.parse(e.data);
     // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
     if(d.type!=='session' && d.djId && d.djId!==djId) return;
-    if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl,{isDj:d.isDj,isManager:d.isManager}); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
