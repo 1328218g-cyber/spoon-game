@@ -23179,7 +23179,7 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   const rt = settings.roulette && settings.roulette.list && settings.roulette.list[Number(idx) - 1]
   const rouletteLabel = `룰렛${idx}` + (rt && rt.name ? ` (${rt.name})` : '')
-  const displayName = String(req.params.tag || '')
+  const displayName = resolveNicknameFromInput(getRoom(req.djId), req.params.tag)
   const amt = Number(delta)
   if (amt > 0) sendChatSplit(req.djId, `🎡 ${displayName}님께 ${rouletteLabel} ${amt}장을 지급했어요! (보유 ${rec.coupons[idx]}장)`, 150, 300)
   else sendChatSplit(req.djId, `🎡 ${displayName}님의 ${rouletteLabel} ${Math.abs(amt)}장을 차감했어요. (보유 ${rec.coupons[idx]}장)`, 150, 300)
