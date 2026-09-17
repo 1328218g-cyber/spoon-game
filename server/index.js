@@ -21906,6 +21906,114 @@ function mc_collectionsForTag(djId, tag) {
   }
   return mc ? mc.collections[tag] : null
 }
+// 🔍 전체 몬스터 도감 유저 통합 관리 (관리자(sum) 전용) — 검색/고유닉 변경/포인트·쿠폰 수동 편집/삭제.
+// 몬스터잡기 자체가 djId 구분 없는 전역 공유 시스템이라, 이 관리 화면도 djId 상관없이 전체 유저를 다룬다.
+function mcAllKnownTags() {
+  const d = mcGetWebData()
+  const tags = new Set([
+    ...Object.keys(d.points || {}),
+    ...Object.keys(d.resetCoupons || {}),
+    ...Object.keys(d.levels || {}),
+    ...Object.keys(d.reversiStats || {}),
+    ...Object.keys(d.resetCouponProgress || {}),
+  ])
+  return tags
+}
+// 어느 djId든 monstercatch가 켜진 곳 하나를 찾아 전역 공유 collections 객체를 돌려준다 (mc_collectionsForTag와 같은 방식).
+function mcAnyCollections() {
+  for (const djId of store.listDjIds()) {
+    const s = store.getSettings(djId) || {}
+    if (!isModuleOn(s, 'monstercatch', djId)) continue
+    return getMonsterCatchSettings(djId, s).collections || {}
+  }
+  return {}
+}
+app.get('/admin/monsterdex/users', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const q = String(req.query.q || '').trim().toLowerCase()
+  const d = mcGetWebData()
+  const webUserOf = {} // tag -> webUserId (역참조, 첫 번째 매칭)
+  Object.entries(d.webUsers).forEach(([wid, tag]) => { if (tag && !webUserOf[tag]) webUserOf[tag] = wid })
+  const collections = mcAnyCollections()
+  let tags = Array.from(mcAllKnownTags())
+  if (q) tags = tags.filter(t => t.toLowerCase().includes(q))
+  tags.sort((a, b) => (d.points[b] || 0) - (d.points[a] || 0))
+  const total = tags.length
+  tags = tags.slice(0, 100)
+  const users = tags.map(tag => {
+    const progress = d.resetCouponProgress[tag] || { heart: 0, chat: 0, gift: 0 }
+    return {
+      tag,
+      points: d.points[tag] || 0,
+      resetCoupons: d.resetCoupons[tag] || 0,
+      progress,
+      monsterCount: Object.keys(d.levels[tag] || {}).length,
+      caughtCount: Object.keys(collections[tag] || {}).length,
+      reversiWins: (d.reversiStats[tag] || {}).wins || 0,
+      reversiLosses: (d.reversiStats[tag] || {}).losses || 0,
+      linked: !!webUserOf[tag],
+      profileUrl: d.profiles[tag] || ''
+    }
+  })
+  res.json({ success: true, users, total })
+})
+app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const tag = req.params.tag
+  const { points, resetCoupons } = req.body || {}
+  const d = mcGetWebData()
+  if (!mcAllKnownTags().has(tag)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (points != null) d.points[tag] = Math.max(0, Number(points) || 0)
+  if (resetCoupons != null) d.resetCoupons[tag] = Math.max(0, Number(resetCoupons) || 0)
+  mcSaveWebData()
+  res.json({ success: true })
+})
+app.post('/admin/monsterdex/users/:tag/rename', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const oldTag = req.params.tag
+  const newTag = String((req.body || {}).newTag || '').trim().replace(/^@/, '')
+  if (!newTag) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
+  if (newTag === oldTag) return res.json({ success: false, error: '기존과 같은 고유닉이에요' })
+  if (mcAllKnownTags().has(newTag)) return res.json({ success: false, error: '이미 그 고유닉으로 등록된 유저가 있어요' })
+  const d = mcGetWebData()
+  const moveKey = (obj) => { if (obj && obj[oldTag] !== undefined) { obj[newTag] = obj[oldTag]; delete obj[oldTag] } }
+  moveKey(d.points); moveKey(d.resetCoupons); moveKey(d.resetCouponProgress); moveKey(d.levels); moveKey(d.selected); moveKey(d.reversiStats); moveKey(d.profiles)
+  Object.keys(d.webUsers).forEach(wid => { if (d.webUsers[wid] === oldTag) d.webUsers[wid] = newTag })
+  // 🐾 잡은 몬스터 목록(collections)은 djId별 settings 파일에 저장돼있어서, 전역 공유라도 실제로
+  // 존재하는 모든 djId의 settings를 순회하며 각각 옮겨줘야 한다 (mc.collections/bags/greatBags/chatCounts).
+  store.listDjIds().forEach(djId => {
+    const s = store.getSettings(djId) || {}
+    if (!isModuleOn(s, 'monstercatch', djId)) return
+    const mc = getMonsterCatchSettings(djId, s)
+    let changed = false
+    ;[mc.collections, mc.bags, mc.greatBags, mc.chatCounts].forEach(obj => {
+      if (obj && obj[oldTag] !== undefined) { obj[newTag] = obj[oldTag]; delete obj[oldTag]; changed = true }
+    })
+    if (changed) store.saveSettings(djId, { monsterCatch: mc })
+  })
+  mcSaveWebData()
+  res.json({ success: true, tag: newTag })
+})
+app.post('/admin/monsterdex/users/:tag/delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const tag = req.params.tag
+  const d = mcGetWebData()
+  delete d.points[tag]; delete d.resetCoupons[tag]; delete d.resetCouponProgress[tag]
+  delete d.levels[tag]; delete d.selected[tag]; delete d.reversiStats[tag]; delete d.profiles[tag]
+  Object.keys(d.webUsers).forEach(wid => { if (d.webUsers[wid] === tag) delete d.webUsers[wid] })
+  store.listDjIds().forEach(djId => {
+    const s = store.getSettings(djId) || {}
+    if (!isModuleOn(s, 'monstercatch', djId)) return
+    const mc = getMonsterCatchSettings(djId, s)
+    let changed = false
+    ;[mc.collections, mc.bags, mc.greatBags, mc.chatCounts].forEach(obj => {
+      if (obj && obj[tag] !== undefined) { delete obj[tag]; changed = true }
+    })
+    if (changed) store.saveSettings(djId, { monsterCatch: mc })
+  })
+  mcSaveWebData()
+  res.json({ success: true })
+})
 app.post('/monsterdex/:djId/select', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}

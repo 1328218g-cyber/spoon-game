@@ -1154,6 +1154,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
 
         <div class="card">
+          <div class="card-title"><span>👤 유저 정보 관리 (전체 도감)</span></div>
+          <p class="hint" style="margin-bottom:12px">몬스터잡기는 디제이 구분 없는 전체 공용 시스템이라, 여기서 검색되는 유저는 어느 방에서 활동했든 다 나와요. 고유닉(태그)을 검색해서 포인트/초기화쿠폰을 직접 고치거나, 고유닉이 잘못 저장된 경우 변경할 수 있어요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="mcuSearchInput" placeholder="고유닉(태그) 검색" onkeydown="if(event.key==='Enter')loadMcUsers()" style="flex:1">
+            <button class="btn-connect" style="width:auto;padding:11px 16px" onclick="loadMcUsers()">🔍 검색</button>
+          </div>
+          <div id="mcuListWrap" style="margin-top:12px;max-height:360px;overflow-y:auto"></div>
+          <div id="mcuDetailWrap" style="margin-top:14px"></div>
+        </div>
+
+        <div class="card">
           <div class="card-title"><span>🌟 거다이맥스 가능 몬스터 설정</span></div>
           <p class="hint" style="margin-bottom:12px">체크된 몬스터만 잡기/상자열기에서 거다이맥스로 나올 수 있고, 월드보스 처치 보상의 "🌟 거다이맥스 몬스터"에서도 이 목록 안에서만 고를 수 있어요.</p>
           <div id="gmaxMonsterListWrap" style="margin-top:4px;max-height:420px;overflow-y:auto"></div>
@@ -12967,6 +12978,73 @@ async function saveGmcMonsters(){
     if(d.success){ showToast('통합 몬스터 목록을 저장했어요.'); loadGlobalMonsterCatalog(); }
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 👤 관리자(sum) 전용 — 몬스터잡기 유저 정보 통합 관리 ── */
+let mcuSelectedTag=null, mcuListCache=[];
+async function loadMcUsers(){
+  const q=document.getElementById('mcuSearchInput').value.trim();
+  const wrap=document.getElementById('mcuListWrap');
+  wrap.innerHTML='<p class="hint">검색 중...</p>';
+  try{
+    const res=await fetch(SERVER+'/admin/monsterdex/users?q='+encodeURIComponent(q),{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ wrap.innerHTML=`<p class="hint">${escapeHtml(d.error||'실패')}</p>`; return; }
+    mcuListCache=d.users;
+    if(!d.users.length){ wrap.innerHTML='<p class="hint">검색 결과가 없어요.'+(q?'':' 고유닉을 입력하고 검색해보세요.')+'</p>'; return; }
+    wrap.innerHTML=d.users.map(u=>`
+      <div class="nav-item ${mcuSelectedTag===u.tag?'active':''}" style="margin:2px 0" onclick="selectMcUser('${escapeAttr(u.tag)}')">
+        <span class="lbl" style="line-height:1.3">${escapeHtml(u.tag)}${u.linked?'':' <span style="font-size:11px;color:var(--muted)">(미인증)</span>'}<br><span style="font-size:11px;color:var(--muted)">✨${u.points}P · 🎟️${u.resetCoupons}장 · 🐾${u.caughtCount}종 · 🎮${u.reversiWins}승${u.reversiLosses}패</span></span>
+      </div>`).join('');
+    if(d.total>d.users.length) wrap.insertAdjacentHTML('beforeend',`<p class="hint" style="margin-top:6px">총 ${d.total}명 중 ${d.users.length}명만 표시 — 검색어를 더 구체적으로 입력해보세요.</p>`);
+  }catch(e){ wrap.innerHTML=`<p class="hint">오류: ${escapeHtml(e.message)}</p>`; }
+}
+function selectMcUser(tag){
+  mcuSelectedTag=tag;
+  const u=mcuListCache.find(x=>x.tag===tag);
+  if(!u)return;
+  const wrap=document.getElementById('mcuDetailWrap');
+  wrap.innerHTML=`
+    <div class="card" style="margin-bottom:0;background:var(--surface2, #1c2440)">
+      <div class="card-title" style="font-size:14px"><span>🆔 ${escapeHtml(u.tag)}</span></div>
+      <div class="hint" style="margin:0 0 10px">🐾 도감 ${u.caughtCount}종 보유 · 🎮 리버시 ${u.reversiWins}승 ${u.reversiLosses}패 · 진행도(좋아요${u.progress.heart}/10·채팅${u.progress.chat}/500·선물${u.progress.gift}/100)</div>
+      <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
+        <div><label>✨ 포인트</label><input type="number" id="mcuEditPoints" value="${u.points}"></div>
+        <div><label>🎟️ 초기화쿠폰</label><input type="number" id="mcuEditCoupons" value="${u.resetCoupons}"></div>
+      </div>
+      <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+        <button class="btn-gray" onclick="renameMcUser('${escapeAttr(u.tag)}')">🆔 고유닉 변경</button>
+        <button class="btn-connect" onclick="saveMcUserEdit('${escapeAttr(u.tag)}')">💾 저장</button>
+      </div>
+      <button class="btn-shield-reset" style="width:100%;margin-top:10px" onclick="deleteMcUser('${escapeAttr(u.tag)}')">🗑️ 삭제 (도감/포인트/쿠폰 전부)</button>
+    </div>`;
+}
+async function saveMcUserEdit(tag){
+  const body={ points:Number(document.getElementById('mcuEditPoints').value)||0, resetCoupons:Number(document.getElementById('mcuEditCoupons').value)||0 };
+  try{
+    const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(tag)+'/edit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(d.success){ showToast('저장했어요'); loadMcUsers(); } else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function renameMcUser(tag){
+  const next=prompt('새 고유닉을 입력하세요',tag);
+  if(!next||!next.trim())return;
+  try{
+    const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
+    const d=await res.json();
+    if(d.success){ showToast('고유닉이 변경됐어요'); mcuSelectedTag=d.tag; document.getElementById('mcuSearchInput').value=d.tag; loadMcUsers(); document.getElementById('mcuDetailWrap').innerHTML=''; }
+    else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function deleteMcUser(tag){
+  if(!confirm(`${tag}님의 몬스터잡기 정보(도감/포인트/쿠폰)를 전부 삭제할까요? 되돌릴 수 없어요.`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(tag)+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('삭제했어요'); document.getElementById('mcuDetailWrap').innerHTML=''; loadMcUsers(); }
+    else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 /* ── 🌟 관리자(sum) 전용 — 거다이맥스 가능 몬스터 설정 ── */
