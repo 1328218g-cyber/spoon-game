@@ -1240,7 +1240,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="debuglog">
         <div class="card">
           <div class="card-title"><span>🎯 지정 디제이 집중 로그</span></div>
-          <p class="hint" style="margin-bottom:12px">디제이를 최대 5명까지 지정할 수 있어요. 지정된 디제이 관련 로그 줄만 서버 파일에 각각 따로 계속 이어붙여서 저장해요 — 줄 수 제한이 없어서 몇 시간을 켜놔도 안 잘려요. 화면에 실시간으로 뿌려주지 않고 개수만 보여주니까(브라우저 안 느려짐), 나중에 디제이별로 "다운로드"해서 확인하면 돼요.</p>
+          <p class="hint" style="margin-bottom:12px">디제이를 최대 5명까지 지정할 수 있어요. 지정된 디제이가 방송을 켤 때마다(재접속 말고 진짜 새 방송) 로그가 자동으로 새 파일로 나뉘어서 저장돼요 — 방송 하나 골라서 다운로드하면 그 방송에서 무슨 일이 있었는지만 볼 수 있어요.</p>
           <div style="display:flex;gap:8px">
             <input type="text" id="focusLogDjIdInput" placeholder="djId (예: May)" style="flex:1" onkeydown="if(event.key==='Enter')setFocusLogWatch()">
             <button class="btn-connect" style="width:auto;padding:11px 16px" onclick="setFocusLogWatch()">➕ 추가</button>
@@ -7928,35 +7928,47 @@ async function loadFocusLog(){
     const d=await res.json();
     if(!d.success){ wrap.innerHTML=`<p class="hint">${escapeHtml(d.error||'실패')}</p>`; return; }
     if(!d.targets.length){ wrap.innerHTML=`<p class="hint">지정된 디제이가 없어요. (최대 ${d.max}명)</p>`; return; }
-    wrap.innerHTML=d.targets.map(t=>`
-      <div style="display:flex;align-items:center;gap:8px;background:var(--surface2, #1c2440);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px">🎯 ${escapeHtml(t.djId)}</div>
-          <div class="hint" style="margin:2px 0 0">${t.total}줄 저장됨</div>
+    wrap.innerHTML=d.targets.map(t=>{
+      const sessionsHtml=t.sessions.length
+        ? t.sessions.map(s=>{
+            const when=s.startedAt?new Date(s.startedAt).toLocaleString('ko-KR',{hour12:false}):'(시각 불명)';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px">${when}${s.isCurrent?' <span style="color:var(--accent)">● 지금 방송 중</span>':''}</div>
+                <div class="hint" style="margin:1px 0 0">${s.total}줄</div>
+              </div>
+              <button class="btn-gray" style="width:auto;padding:5px 9px;font-size:11.5px" onclick="downloadFocusLog('${escapeAttr(t.djId)}','${escapeAttr(s.session)}')">⬇️</button>
+              <button class="btn-shield-reset" style="width:auto;padding:5px 9px;font-size:11.5px" onclick="clearFocusLogSession('${escapeAttr(t.djId)}','${escapeAttr(s.session)}')">🗑️</button>
+            </div>`;
+          }).join('')
+        : '<div class="hint" style="padding:6px 0;border-top:1px solid var(--border)">아직 쌓인 방송 로그가 없어요.</div>';
+      return `<div style="background:var(--surface2, #1c2440);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;font-weight:700;font-size:13px">🎯 ${escapeHtml(t.djId)}</div>
+          <button class="btn-shield-reset" style="width:auto;padding:6px 10px;font-size:12px" onclick="unwatchFocusLog('${escapeAttr(t.djId)}')">✕ 해제</button>
         </div>
-        <button class="btn-gray" style="width:auto;padding:6px 10px;font-size:12px" onclick="downloadFocusLog('${escapeAttr(t.djId)}')">⬇️ 다운로드</button>
-        <button class="btn-gray" style="width:auto;padding:6px 10px;font-size:12px" onclick="clearFocusLog('${escapeAttr(t.djId)}')">🗑️ 지우기</button>
-        <button class="btn-shield-reset" style="width:auto;padding:6px 10px;font-size:12px" onclick="unwatchFocusLog('${escapeAttr(t.djId)}')">✕ 해제</button>
-      </div>`).join('')+`<p class="hint" style="margin-top:4px">${d.targets.length} / ${d.max}명 지정됨</p>`;
+        ${sessionsHtml}
+      </div>`;
+    }).join('')+`<p class="hint" style="margin-top:4px">${d.targets.length} / ${d.max}명 지정됨 · 방송(입장)마다 로그가 자동으로 따로 저장돼요</p>`;
   }catch(e){ wrap.innerHTML=`<p class="hint">오류: ${escapeHtml(e.message)}</p>`; }
 }
-async function clearFocusLog(djId){
-  if(!confirm(`${djId}의 저장된 집중 로그를 전부 지울까요?`))return;
+async function clearFocusLogSession(djId,session){
+  if(!confirm(`${djId}의 이 방송 로그를 지울까요?`))return;
   try{
-    const res=await fetch(SERVER+'/admin/focus-log/clear',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId})});
+    const res=await fetch(SERVER+'/admin/focus-log/clear',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId,session})});
     const d=await res.json();
     if(d.success){ showToast('지웠어요'); loadFocusLog(); } else showToast(d.error||'실패');
   }catch(e){ showToast('오류: '+e.message); }
 }
-async function downloadFocusLog(djId){
+async function downloadFocusLog(djId,session){
   try{
-    const res=await fetch(SERVER+'/admin/focus-log/download?djId='+encodeURIComponent(djId),{headers:authHeaders()});
+    const res=await fetch(SERVER+'/admin/focus-log/download?djId='+encodeURIComponent(djId)+'&session='+encodeURIComponent(session),{headers:authHeaders()});
     if(!res.ok){ showToast('다운로드 실패'); return; }
     const text=await res.text();
     const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href=url; a.download=`focuslog_${djId}_${Date.now()}.txt`;
+    a.href=url; a.download=`focuslog_${djId}_${session}.txt`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }catch(e){ showToast('오류: '+e.message); }

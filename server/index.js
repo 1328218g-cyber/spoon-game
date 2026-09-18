@@ -401,13 +401,16 @@ function broadcast(data) {
 // 줄만 서버 디스크에 계속 쌓인다. 방송 한 번에 수만 줄까지도 나올 수 있어서(예: 4시간 방송),
 // 매번 배열 전체를 JSON으로 다시 쓰는 대신 한 줄씩 파일에 이어붙이는 방식(NDJSON append)을 쓴다 —
 // 이러면 줄 수가 아무리 많아져도 디스크에 쓰는 비용이 늘어나지 않고, 저장 줄 수 제한도 없다.
-// 여러 명을 동시에 볼 수 있게, 대상마다 별도 파일(디렉터리 안에 djId별로 하나씩)에 나눠 쓴다.
+// 방송을 여러 번 켰다 껐다 하면 로그가 다 한 파일에 섞여서 "몇 번째 방송에서 끊겼는지" 찾기 힘드니,
+// connectSpoonForDj에서 진짜 새 방송(liveId가 바뀜, 단순 재접속이 아님)이 감지될 때마다 그 djId의
+// 로그 파일을 자동으로 새로 시작한다 — djId별 디렉터리 안에 방송 시작 시각 이름의 파일이 하나씩 쌓인다.
 const FOCUS_LOG_MAX_TARGETS = 5
 const FOCUS_LOG_META_FILE = path.join(store.DATA_DIR, 'focusDebugLog.meta.json')
 const FOCUS_LOG_DIR = path.join(store.DATA_DIR, 'focusDebugLogs')
 let focusLogMeta = null
 let focusLogPendingAppend = {} // { djId: [entry, ...] } — 아직 디스크에 안 쓴 최근 몇 초치
 let focusLogFlushTimer = null
+let focusLogSessionStamp = {} // { djId: '2026-09-18T12-34-56-789Z' } — 지금 로그가 쌓이고 있는 세션(방송) 파일 이름
 function getFocusLogMeta() {
   if (focusLogMeta) return focusLogMeta
   try { focusLogMeta = JSON.parse(fs.readFileSync(FOCUS_LOG_META_FILE, 'utf8')) } catch (e) { focusLogMeta = { djIds: [] } }
@@ -418,13 +421,36 @@ function saveFocusLogMeta() {
   try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }) } catch (e) {}
   try { fs.writeFileSync(FOCUS_LOG_META_FILE, JSON.stringify(focusLogMeta)) } catch (e) { _originalConsoleLog('[집중로그] meta 저장 실패:', e.message) }
 }
-// djId를 그대로 파일명에 쓰면 위험한 문자가 섞일 수 있어서, 영문/숫자/일부 기호만 남기고 나머지는 인코딩한다.
-function focusLogFileFor(djId) {
-  const safe = String(djId || '').replace(/[^a-zA-Z0-9_.\-@]/g, c => '_' + c.charCodeAt(0).toString(16) + '_')
-  return path.join(FOCUS_LOG_DIR, safe + '.ndjson')
+// djId를 그대로 파일/폴더명에 쓰면 위험한 문자가 섞일 수 있어서, 영문/숫자/일부 기호만 남기고 나머지는 인코딩한다.
+function focusLogSanitize(djId) {
+  return String(djId || '').replace(/[^a-zA-Z0-9_.\-@]/g, c => '_' + c.charCodeAt(0).toString(16) + '_')
 }
-function focusLogCountOnDisk(djId) {
-  try { return fs.readFileSync(focusLogFileFor(djId), 'utf8').split('\n').filter(Boolean).length } catch (e) { return 0 }
+function focusLogDirFor(djId) {
+  return path.join(FOCUS_LOG_DIR, focusLogSanitize(djId))
+}
+// 이 djId가 "지금 쌓고 있는" 세션 파일 경로. 아직 세션이 시작된 적 없으면(서버 재시작 등) 새로 하나 연다.
+function focusLogCurrentSessionFile(djId) {
+  if (!focusLogSessionStamp[djId]) focusLogSessionStamp[djId] = new Date().toISOString().replace(/[:.]/g, '-')
+  return path.join(focusLogDirFor(djId), focusLogSessionStamp[djId] + '.ndjson')
+}
+// connectSpoonForDj에서 진짜 새 방송이 감지될 때마다 호출됨 — 지정 안 된 djId면 그냥 무시.
+function focusLogStartNewSession(djId) {
+  if (!getFocusLogMeta().djIds.includes(djId)) return
+  saveFocusLogNow() // 이전 세션에 남아있던 버퍼부터 먼저 그 세션 파일에 써서 마무리
+  focusLogSessionStamp[djId] = new Date().toISOString().replace(/[:.]/g, '-')
+  try { fs.mkdirSync(focusLogDirFor(djId), { recursive: true }); fs.writeFileSync(focusLogCurrentSessionFile(djId), '') } catch (e) {}
+}
+// djId 폴더 안의 세션 파일 목록 — 최신 순으로, 각자 줄 수와 방송 시작 시각을 같이 준다.
+function focusLogListSessions(djId) {
+  let files = []
+  try { files = fs.readdirSync(focusLogDirFor(djId)).filter(f => f.endsWith('.ndjson')) } catch (e) { return [] }
+  return files.map(f => {
+    const stamp = f.replace(/\.ndjson$/, '')
+    let total = 0
+    try { total = fs.readFileSync(path.join(focusLogDirFor(djId), f), 'utf8').split('\n').filter(Boolean).length } catch (e) {}
+    const startedAt = new Date(stamp.replace(/T(\d\d)-(\d\d)-(\d\d)-(\d\d\d)Z$/, 'T$1:$2:$3.$4Z')).getTime() || null
+    return { session: stamp, total, startedAt, isCurrent: focusLogSessionStamp[djId] === stamp }
+  }).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
 }
 function focusLogAddTarget(djId) {
   const meta = getFocusLogMeta()
@@ -432,7 +458,8 @@ function focusLogAddTarget(djId) {
   if (meta.djIds.length >= FOCUS_LOG_MAX_TARGETS) return { success: false, error: `최대 ${FOCUS_LOG_MAX_TARGETS}명까지만 지정할 수 있어요` }
   meta.djIds.push(djId)
   saveFocusLogMeta()
-  try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }); fs.writeFileSync(focusLogFileFor(djId), '') } catch (e) {}
+  focusLogSessionStamp[djId] = null
+  try { fs.mkdirSync(focusLogDirFor(djId), { recursive: true }); fs.writeFileSync(focusLogCurrentSessionFile(djId), '') } catch (e) {}
   return { success: true, djIds: meta.djIds }
 }
 function focusLogRemoveTarget(djId) {
@@ -442,20 +469,22 @@ function focusLogRemoveTarget(djId) {
   delete focusLogPendingAppend[djId]
   return meta.djIds
 }
-function focusLogClear(djId) {
-  try { fs.writeFileSync(focusLogFileFor(djId), '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) }
-  focusLogPendingAppend[djId] = []
+function focusLogClearSession(djId, session) {
+  const file = path.join(focusLogDirFor(djId), focusLogSanitize(session) + '.ndjson')
+  try { fs.unlinkSync(file) } catch (e) { _originalConsoleLog('[집중로그] 세션 삭제 실패:', e.message) }
+  if (focusLogSessionStamp[djId] === session) { focusLogSessionStamp[djId] = null; focusLogPendingAppend[djId] = [] }
 }
-function focusLogReadRecent(djId, limit) {
+function focusLogReadSession(djId, session, limit) {
+  const file = path.join(focusLogDirFor(djId), focusLogSanitize(session) + '.ndjson')
   let raw = ''
-  try { raw = fs.readFileSync(focusLogFileFor(djId), 'utf8') } catch (e) { return { entries: [], total: 0 } }
+  try { raw = fs.readFileSync(file, 'utf8') } catch (e) { return { entries: [], total: 0 } }
   const lines = raw.split('\n').filter(Boolean)
   const tail = limit ? lines.slice(-limit) : lines
   const entries = tail.map(l => { try { return JSON.parse(l) } catch (e) { return null } }).filter(Boolean)
   return { entries, total: lines.length }
 }
 // console.log 한 줄마다 호출됨 — 지정된 djId 각각에 대해 이 줄이 그 djId 로그인지 확인하고,
-// 맞으면 그 djId 전용 버퍼에 쌓아둔다. 로그량이 많아서(초당 여러 줄) 디스크 쓰기는 5초 간격으로 몰아서 한다.
+// 맞으면 그 djId의 "지금 세션" 버퍼에 쌓아둔다. 로그량이 많아서(초당 여러 줄) 디스크 쓰기는 5초 간격으로 몰아서 한다.
 function focusLogMaybeCapture(message) {
   const meta = getFocusLogMeta()
   if (!meta.djIds.length) return
@@ -476,7 +505,7 @@ function saveFocusLogNow() {
     if (!pending || !pending.length) return
     const chunk = pending.map(e => JSON.stringify(e)).join('\n') + '\n'
     focusLogPendingAppend[id] = []
-    try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }); fs.appendFileSync(focusLogFileFor(id), chunk) } catch (e) { _originalConsoleLog('[집중로그] 저장 실패:', e.message) }
+    try { fs.mkdirSync(focusLogDirFor(id), { recursive: true }); fs.appendFileSync(focusLogCurrentSessionFile(id), chunk) } catch (e) { _originalConsoleLog('[집중로그] 저장 실패:', e.message) }
   })
 }
 function scheduleFocusLogFlush() {
@@ -528,18 +557,20 @@ app.get('/admin/focus-log', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   saveFocusLogNow() // 아직 디스크에 안 쌓인 최근 몇 초치도 개수에 포함해서 보여준다
   const djIds = getFocusLogMeta().djIds
-  const targets = djIds.map(id => ({ djId: id, total: focusLogCountOnDisk(id) }))
+  const targets = djIds.map(id => ({ djId: id, sessions: focusLogListSessions(id) }))
   res.json({ success: true, targets, max: FOCUS_LOG_MAX_TARGETS })
 })
 app.get('/admin/focus-log/download', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const djId = String(req.query.djId || '').trim()
+  const session = String(req.query.session || '').trim()
   if (!djId || !getFocusLogMeta().djIds.includes(djId)) return res.status(400).json({ success: false, error: '지정되지 않은 djId예요' })
+  if (!session) return res.status(400).json({ success: false, error: '어떤 방송(세션)인지 지정해주세요' })
   saveFocusLogNow()
-  const { entries } = focusLogReadRecent(djId, 0)
+  const { entries } = focusLogReadSession(djId, session, 0)
   const text = entries.map(e => `[${new Date(e.ts).toLocaleString('ko-KR', { hour12: false })}] ${e.message}`).join('\n')
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-  res.setHeader('Content-Disposition', `attachment; filename="focuslog_${djId}_${Date.now()}.txt"`)
+  res.setHeader('Content-Disposition', `attachment; filename="focuslog_${djId}_${session}.txt"`)
   res.send(text)
 })
 app.post('/admin/focus-log/watch', auth.requireAuth, (req, res) => {
@@ -559,8 +590,10 @@ app.post('/admin/focus-log/unwatch', auth.requireAuth, (req, res) => {
 app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const djId = String((req.body || {}).djId || '').trim()
+  const session = String((req.body || {}).session || '').trim()
   if (!djId || !getFocusLogMeta().djIds.includes(djId)) return res.json({ success: false, error: '지정되지 않은 djId예요' })
-  focusLogClear(djId)
+  if (!session) return res.json({ success: false, error: '어떤 방송(세션)인지 지정해주세요' })
+  focusLogClearSession(djId, session)
   res.json({ success: true })
 })
 
@@ -16599,6 +16632,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   // "재접속"이지 "새 방송 시작"이 아니다. 예전엔 이 구분 없이 매번 복권 차등지급 등수 카운터를
   // 0으로 되돌려서, 재접속 직후 다음 입장자가 무조건 1등으로 다시 집계되며 복권이 중복 지급됐다.
   const isNewLiveSession = room.liveId !== liveId
+  if (isNewLiveSession) focusLogStartNewSession(djId) // 🎯 집중 로그 지정된 djId라면, 진짜 새 방송(liveId가 바뀜)일 때만 로그 파일을 새로 나눈다 (단순 재접속은 같은 파일 유지)
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
