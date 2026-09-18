@@ -1240,17 +1240,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="debuglog">
         <div class="card">
           <div class="card-title"><span>🎯 지정 디제이 집중 로그</span></div>
-          <p class="hint" style="margin-bottom:12px">여기에 디제이를 지정해두면, 그 디제이 관련 로그 줄만 서버 파일에 계속 이어붙여서 저장해요 — 줄 수 제한이 없어서 몇 시간을 켜놔도 안 잘려요. 화면에 실시간으로 뿌려주지 않고 개수만 보여주니까(브라우저 안 느려짐), 나중에 "전체 다운로드"로 한 번에 받아서 확인하면 돼요.</p>
+          <p class="hint" style="margin-bottom:12px">디제이를 최대 5명까지 지정할 수 있어요. 지정된 디제이 관련 로그 줄만 서버 파일에 각각 따로 계속 이어붙여서 저장해요 — 줄 수 제한이 없어서 몇 시간을 켜놔도 안 잘려요. 화면에 실시간으로 뿌려주지 않고 개수만 보여주니까(브라우저 안 느려짐), 나중에 디제이별로 "다운로드"해서 확인하면 돼요.</p>
           <div style="display:flex;gap:8px">
-            <input type="text" id="focusLogDjIdInput" placeholder="djId (예: May)" style="flex:1">
-            <button class="btn-connect" style="width:auto;padding:11px 16px" onclick="setFocusLogWatch()">🎯 지정</button>
+            <input type="text" id="focusLogDjIdInput" placeholder="djId (예: May)" style="flex:1" onkeydown="if(event.key==='Enter')setFocusLogWatch()">
+            <button class="btn-connect" style="width:auto;padding:11px 16px" onclick="setFocusLogWatch()">➕ 추가</button>
           </div>
-          <div class="hint" id="focusLogStatusHint" style="margin-top:8px"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn-gray" style="padding:9px 16px" onclick="loadFocusLog()">🔄 새로고침</button>
-            <button class="btn-connect" style="padding:9px 16px" onclick="downloadFocusLog()">⬇️ 전체 다운로드</button>
-            <button class="btn-shield-reset" style="padding:9px 16px" onclick="clearFocusLog()">🗑️ 저장된 로그 지우기</button>
-          </div>
+          <div id="focusLogListWrap" style="margin-top:12px;display:flex;flex-direction:column;gap:8px"></div>
         </div>
         <div class="card">
           <div class="card-title"><span>🩺 디버그 로그</span></div>
@@ -5968,7 +5963,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
-  if(name==='debuglog'&&document.getElementById('focusLogStatusHint'))loadFocusLog();
+  if(name==='debuglog'&&document.getElementById('focusLogListWrap'))loadFocusLog();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
@@ -7908,37 +7903,56 @@ function clearEventViewerLog(){
 
 /* ── 🎯 지정 디제이 집중 로그 (서버 디스크에 계속 쌓이는 로그, 화면 안 보고 있어도 안 사라짐) ── */
 async function setFocusLogWatch(){
-  const djId=document.getElementById('focusLogDjIdInput').value.trim();
+  const input=document.getElementById('focusLogDjIdInput');
+  const djId=input.value.trim();
+  if(!djId)return;
   try{
     const res=await fetch(SERVER+'/admin/focus-log/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId})});
     const d=await res.json();
-    if(d.success){ showToast(d.djId?`${d.djId} 로그를 모으기 시작했어요`:'집중 로그를 껐어요'); loadFocusLog(); }
+    if(d.success){ showToast(`${djId} 로그를 모으기 시작했어요`); input.value=''; loadFocusLog(); }
     else showToast(d.error||'실패');
   }catch(e){ showToast('오류: '+e.message); }
 }
+async function unwatchFocusLog(djId){
+  if(!confirm(`${djId} 집중 로그 지정을 해제할까요? (저장된 로그 파일은 남아있고, 다운로드는 계속 가능해요)`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/focus-log/unwatch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId})});
+    const d=await res.json();
+    if(d.success){ showToast('해제했어요'); loadFocusLog(); } else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
 async function loadFocusLog(){
+  const wrap=document.getElementById('focusLogListWrap');
   try{
     const res=await fetch(SERVER+'/admin/focus-log',{headers:authHeaders()});
     const d=await res.json();
-    if(!d.success){ document.getElementById('focusLogStatusHint').textContent=d.error||'실패'; return; }
-    document.getElementById('focusLogDjIdInput').value=d.djId||'';
-    document.getElementById('focusLogStatusHint').textContent=d.djId?`🎯 현재 "${d.djId}" 로그를 모으는 중 (전체 ${d.total}줄 저장됨)`:'지정된 디제이가 없어요.';
-  }catch(e){ document.getElementById('focusLogStatusHint').textContent='오류: '+e.message; }
+    if(!d.success){ wrap.innerHTML=`<p class="hint">${escapeHtml(d.error||'실패')}</p>`; return; }
+    if(!d.targets.length){ wrap.innerHTML=`<p class="hint">지정된 디제이가 없어요. (최대 ${d.max}명)</p>`; return; }
+    wrap.innerHTML=d.targets.map(t=>`
+      <div style="display:flex;align-items:center;gap:8px;background:var(--surface2, #1c2440);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">🎯 ${escapeHtml(t.djId)}</div>
+          <div class="hint" style="margin:2px 0 0">${t.total}줄 저장됨</div>
+        </div>
+        <button class="btn-gray" style="width:auto;padding:6px 10px;font-size:12px" onclick="downloadFocusLog('${escapeAttr(t.djId)}')">⬇️ 다운로드</button>
+        <button class="btn-gray" style="width:auto;padding:6px 10px;font-size:12px" onclick="clearFocusLog('${escapeAttr(t.djId)}')">🗑️ 지우기</button>
+        <button class="btn-shield-reset" style="width:auto;padding:6px 10px;font-size:12px" onclick="unwatchFocusLog('${escapeAttr(t.djId)}')">✕ 해제</button>
+      </div>`).join('')+`<p class="hint" style="margin-top:4px">${d.targets.length} / ${d.max}명 지정됨</p>`;
+  }catch(e){ wrap.innerHTML=`<p class="hint">오류: ${escapeHtml(e.message)}</p>`; }
 }
-async function clearFocusLog(){
-  if(!confirm('저장된 집중 로그를 전부 지울까요?'))return;
+async function clearFocusLog(djId){
+  if(!confirm(`${djId}의 저장된 집중 로그를 전부 지울까요?`))return;
   try{
-    const res=await fetch(SERVER+'/admin/focus-log/clear',{method:'POST',headers:authHeaders()});
+    const res=await fetch(SERVER+'/admin/focus-log/clear',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId})});
     const d=await res.json();
     if(d.success){ showToast('지웠어요'); loadFocusLog(); } else showToast(d.error||'실패');
   }catch(e){ showToast('오류: '+e.message); }
 }
-async function downloadFocusLog(){
+async function downloadFocusLog(djId){
   try{
-    const res=await fetch(SERVER+'/admin/focus-log/download',{headers:authHeaders()});
+    const res=await fetch(SERVER+'/admin/focus-log/download?djId='+encodeURIComponent(djId),{headers:authHeaders()});
     if(!res.ok){ showToast('다운로드 실패'); return; }
     const text=await res.text();
-    const djId=document.getElementById('focusLogDjIdInput').value.trim()||'unknown';
     const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -14050,18 +14064,36 @@ function ttsEnqueue(nickname,text){
   if(!clean||clean.startsWith('!'))return;
   const maxLen=ttsData.maxLen||50;
   const msg=clean.slice(0,maxLen);
-  ttsQueue.push({nickname,text:msg});
+  ttsQueue.push({nickname,text:msg,ts:Date.now()});
   ttsLogEntries.unshift({nick:nickname,text:msg,time:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})});
   if(ttsLogEntries.length>50)ttsLogEntries.pop();
   renderTtsLog();
   ttsPlayNext();
 }
 
+// TTS 한 개가 재생 중 어떤 이유로든(오디오 오류를 못 잡거나, 브라우저 탭이 백그라운드로 밀려서
+// speechSynthesis/setTimeout이 심하게 지연되는 등) afterPlay()가 영영 안 불리면 큐 전체가
+// 멈춰버려서, 뒤에 쌓인 선물 TTS들이 몇 분~몇십 분씩 밀려서 늦게 나오는 문제가 있었다.
+// → 재생 시작하고 일정 시간이 지나도 안 끝나면 강제로 다음으로 넘어가게 하는 안전장치를 둔다.
+const TTS_WATCHDOG_MS=20000;
+// 큐에 너무 오래(기본 2분 이상) 밀려있던 항목은 이제 와서 늦게 읽어봐야 맥락도 안 맞고 의미가
+// 없으니, 재생 직전에 스킵하고 최신 항목부터 읽는다 — "선물 후 20분 뒤에 TTS가 나온다"는
+// 문제의 핵심 원인(밀린 큐를 순서대로 다 읽으려던 것)을 없앤다.
+const TTS_STALE_MS=120000;
 async function ttsPlayNext(){
-  if(ttsPlaying||ttsQueue.length===0)return;
+  if(ttsPlaying)return;
+  while(ttsQueue.length&&(Date.now()-(ttsQueue[0].ts||0))>TTS_STALE_MS){
+    const skipped=ttsQueue.shift();
+    ttsLogEntries.unshift({nick:skipped.nickname,text:'(너무 오래 밀려서 건너뜀) '+skipped.text,time:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})});
+    if(ttsLogEntries.length>50)ttsLogEntries.pop();
+  }
+  renderTtsLog();
+  if(ttsQueue.length===0)return;
   ttsPlaying=true;
   const item=ttsQueue.shift();
-  const afterPlay=()=>{ ttsPlaying=false; setTimeout(ttsPlayNext,150); };
+  let done=false;
+  const watchdog=setTimeout(()=>{ if(!done) afterPlay(); },TTS_WATCHDOG_MS);
+  const afterPlay=()=>{ if(done)return; done=true; clearTimeout(watchdog); ttsPlaying=false; setTimeout(ttsPlayNext,150); };
   const preset=ttsResolvePreset(item.nickname);
   if('mediaSession' in navigator){
     try{
@@ -14136,7 +14168,7 @@ async function ttsPlayNext(){
 }
 
 function ttsTest(){
-  ttsQueue.unshift({nickname:'테스트',text:'안녕하세요, 에디봇 TTS 테스트입니다. 목소리와 속도가 괜찮은지 확인해주세요.'});
+  ttsQueue.unshift({nickname:'테스트',text:'안녕하세요, 에디봇 TTS 테스트입니다. 목소리와 속도가 괜찮은지 확인해주세요.',ts:Date.now()});
   ttsPlayNext();
 }
 
@@ -14210,7 +14242,7 @@ function previewTtsPresetByTag(tag){
 
 function previewTtsPreset(preset){
   if(preset.typecastVoiceId){
-    ttsQueue.unshift({nickname:'__preview__',text:'안녕하세요, 이 목소리로 읽어드릴게요.'});
+    ttsQueue.unshift({nickname:'__preview__',text:'안녕하세요, 이 목소리로 읽어드릴게요.',ts:Date.now()});
     const saved=Object.assign({},ttsData);
     ttsData=Object.assign({},ttsData,{engine:'typecast',typecastVoiceId:preset.typecastVoiceId});
     ttsPlayNext();

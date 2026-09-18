@@ -396,64 +396,88 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
-// 🎯 지정 디제이 집중 로그 — 위 디버그 로그는 브라우저 메모리에만 최근 1000개 보관돼서, 화면을
-// 안 보고 있으면 그냥 사라진다. 특정 djId를 "집중 로그 대상"으로 지정해두면, 그 djId 관련 로그
+// 🎯 지정 디제이 집중 로그 (최대 5명) — 위 디버그 로그는 브라우저 메모리에만 최근 1000개 보관돼서,
+// 화면을 안 보고 있으면 그냥 사라진다. djId를 "집중 로그 대상"으로 지정해두면, 그 djId 관련 로그
 // 줄만 서버 디스크에 계속 쌓인다. 방송 한 번에 수만 줄까지도 나올 수 있어서(예: 4시간 방송),
 // 매번 배열 전체를 JSON으로 다시 쓰는 대신 한 줄씩 파일에 이어붙이는 방식(NDJSON append)을 쓴다 —
 // 이러면 줄 수가 아무리 많아져도 디스크에 쓰는 비용이 늘어나지 않고, 저장 줄 수 제한도 없다.
-// API로 화면에 뿌려줄 때만 최근 N줄로 잘라서 주고, 전체는 다운로드로 받을 수 있게 한다.
+// 여러 명을 동시에 볼 수 있게, 대상마다 별도 파일(디렉터리 안에 djId별로 하나씩)에 나눠 쓴다.
+const FOCUS_LOG_MAX_TARGETS = 5
 const FOCUS_LOG_META_FILE = path.join(store.DATA_DIR, 'focusDebugLog.meta.json')
-const FOCUS_LOG_DATA_FILE = path.join(store.DATA_DIR, 'focusDebugLog.ndjson')
+const FOCUS_LOG_DIR = path.join(store.DATA_DIR, 'focusDebugLogs')
 let focusLogMeta = null
-let focusLogPendingAppend = []
+let focusLogPendingAppend = {} // { djId: [entry, ...] } — 아직 디스크에 안 쓴 최근 몇 초치
 let focusLogFlushTimer = null
-let focusLogTotalCount = 0
 function getFocusLogMeta() {
   if (focusLogMeta) return focusLogMeta
-  try { focusLogMeta = JSON.parse(fs.readFileSync(FOCUS_LOG_META_FILE, 'utf8')) } catch (e) { focusLogMeta = { djId: null } }
+  try { focusLogMeta = JSON.parse(fs.readFileSync(FOCUS_LOG_META_FILE, 'utf8')) } catch (e) { focusLogMeta = { djIds: [] } }
+  if (!Array.isArray(focusLogMeta.djIds)) focusLogMeta.djIds = []
   return focusLogMeta
 }
-function focusLogCountOnDisk() {
-  try { return fs.readFileSync(FOCUS_LOG_DATA_FILE, 'utf8').split('\n').filter(Boolean).length } catch (e) { return 0 }
+function saveFocusLogMeta() {
+  try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }) } catch (e) {}
+  try { fs.writeFileSync(FOCUS_LOG_META_FILE, JSON.stringify(focusLogMeta)) } catch (e) { _originalConsoleLog('[집중로그] meta 저장 실패:', e.message) }
 }
-function focusLogSwitchTarget(djId) {
+// djId를 그대로 파일명에 쓰면 위험한 문자가 섞일 수 있어서, 영문/숫자/일부 기호만 남기고 나머지는 인코딩한다.
+function focusLogFileFor(djId) {
+  const safe = String(djId || '').replace(/[^a-zA-Z0-9_.\-@]/g, c => '_' + c.charCodeAt(0).toString(16) + '_')
+  return path.join(FOCUS_LOG_DIR, safe + '.ndjson')
+}
+function focusLogCountOnDisk(djId) {
+  try { return fs.readFileSync(focusLogFileFor(djId), 'utf8').split('\n').filter(Boolean).length } catch (e) { return 0 }
+}
+function focusLogAddTarget(djId) {
   const meta = getFocusLogMeta()
-  meta.djId = djId || null
-  try { fs.writeFileSync(FOCUS_LOG_META_FILE, JSON.stringify(meta)) } catch (e) { _originalConsoleLog('[집중로그] meta 저장 실패:', e.message) }
-  try { fs.writeFileSync(FOCUS_LOG_DATA_FILE, '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) } // 대상이 바뀌면 이전 로그와 안 섞이게 비운다
-  focusLogPendingAppend = []
-  focusLogTotalCount = 0
+  if (meta.djIds.includes(djId)) return { success: true, djIds: meta.djIds } // 이미 지정돼있으면 그대로 둠(초기화 안 함)
+  if (meta.djIds.length >= FOCUS_LOG_MAX_TARGETS) return { success: false, error: `최대 ${FOCUS_LOG_MAX_TARGETS}명까지만 지정할 수 있어요` }
+  meta.djIds.push(djId)
+  saveFocusLogMeta()
+  try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }); fs.writeFileSync(focusLogFileFor(djId), '') } catch (e) {}
+  return { success: true, djIds: meta.djIds }
 }
-function focusLogClear() {
-  try { fs.writeFileSync(FOCUS_LOG_DATA_FILE, '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) }
-  focusLogPendingAppend = []
-  focusLogTotalCount = 0
+function focusLogRemoveTarget(djId) {
+  const meta = getFocusLogMeta()
+  meta.djIds = meta.djIds.filter(id => id !== djId)
+  saveFocusLogMeta()
+  delete focusLogPendingAppend[djId]
+  return meta.djIds
 }
-function focusLogReadRecent(limit) {
+function focusLogClear(djId) {
+  try { fs.writeFileSync(focusLogFileFor(djId), '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) }
+  focusLogPendingAppend[djId] = []
+}
+function focusLogReadRecent(djId, limit) {
   let raw = ''
-  try { raw = fs.readFileSync(FOCUS_LOG_DATA_FILE, 'utf8') } catch (e) { return { entries: [], total: 0 } }
+  try { raw = fs.readFileSync(focusLogFileFor(djId), 'utf8') } catch (e) { return { entries: [], total: 0 } }
   const lines = raw.split('\n').filter(Boolean)
   const tail = limit ? lines.slice(-limit) : lines
   const entries = tail.map(l => { try { return JSON.parse(l) } catch (e) { return null } }).filter(Boolean)
   return { entries, total: lines.length }
 }
-// console.log 한 줄마다 호출됨 — 로그량이 많아서(초당 여러 줄) 디스크 쓰기는 5초 간격으로 몰아서 한다.
+// console.log 한 줄마다 호출됨 — 지정된 djId 각각에 대해 이 줄이 그 djId 로그인지 확인하고,
+// 맞으면 그 djId 전용 버퍼에 쌓아둔다. 로그량이 많아서(초당 여러 줄) 디스크 쓰기는 5초 간격으로 몰아서 한다.
 function focusLogMaybeCapture(message) {
   const meta = getFocusLogMeta()
-  if (!meta.djId) return
-  const id = meta.djId
-  // 실제 로그 포맷이 [djId], [djId 뭐뭐], [라벨:djId] 등으로 제각각이라 대괄호 안에 djId가
-  // 단어 경계로 등장하는지만 넓게 확인한다.
-  if (!(message.includes(`[${id}]`) || message.includes(`[${id} `) || message.includes(`:${id}]`) || message.includes(`:${id} `))) return
-  focusLogPendingAppend.push({ ts: Date.now(), message })
-  scheduleFocusLogFlush()
+  if (!meta.djIds.length) return
+  let matched = false
+  meta.djIds.forEach(id => {
+    // 실제 로그 포맷이 [djId], [djId 뭐뭐], [라벨:djId] 등으로 제각각이라 대괄호 안에 djId가
+    // 단어 경계로 등장하는지만 넓게 확인한다.
+    if (!(message.includes(`[${id}]`) || message.includes(`[${id} `) || message.includes(`:${id}]`) || message.includes(`:${id} `))) return
+    if (!focusLogPendingAppend[id]) focusLogPendingAppend[id] = []
+    focusLogPendingAppend[id].push({ ts: Date.now(), message })
+    matched = true
+  })
+  if (matched) scheduleFocusLogFlush()
 }
 function saveFocusLogNow() {
-  if (!focusLogPendingAppend.length) return
-  const chunk = focusLogPendingAppend.map(e => JSON.stringify(e)).join('\n') + '\n'
-  focusLogTotalCount += focusLogPendingAppend.length
-  focusLogPendingAppend = []
-  try { fs.appendFileSync(FOCUS_LOG_DATA_FILE, chunk) } catch (e) { _originalConsoleLog('[집중로그] 저장 실패:', e.message) }
+  Object.keys(focusLogPendingAppend).forEach(id => {
+    const pending = focusLogPendingAppend[id]
+    if (!pending || !pending.length) return
+    const chunk = pending.map(e => JSON.stringify(e)).join('\n') + '\n'
+    focusLogPendingAppend[id] = []
+    try { fs.mkdirSync(FOCUS_LOG_DIR, { recursive: true }); fs.appendFileSync(focusLogFileFor(id), chunk) } catch (e) { _originalConsoleLog('[집중로그] 저장 실패:', e.message) }
+  })
 }
 function scheduleFocusLogFlush() {
   if (focusLogFlushTimer) return
@@ -503,14 +527,17 @@ console.log = function (...args) {
 app.get('/admin/focus-log', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   saveFocusLogNow() // 아직 디스크에 안 쌓인 최근 몇 초치도 개수에 포함해서 보여준다
-  res.json({ success: true, djId: getFocusLogMeta().djId, total: focusLogCountOnDisk() })
+  const djIds = getFocusLogMeta().djIds
+  const targets = djIds.map(id => ({ djId: id, total: focusLogCountOnDisk(id) }))
+  res.json({ success: true, targets, max: FOCUS_LOG_MAX_TARGETS })
 })
 app.get('/admin/focus-log/download', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const djId = String(req.query.djId || '').trim()
+  if (!djId || !getFocusLogMeta().djIds.includes(djId)) return res.status(400).json({ success: false, error: '지정되지 않은 djId예요' })
   saveFocusLogNow()
-  const { entries } = focusLogReadRecent(0)
+  const { entries } = focusLogReadRecent(djId, 0)
   const text = entries.map(e => `[${new Date(e.ts).toLocaleString('ko-KR', { hour12: false })}] ${e.message}`).join('\n')
-  const djId = getFocusLogMeta().djId || 'unknown'
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="focuslog_${djId}_${Date.now()}.txt"`)
   res.send(text)
@@ -518,12 +545,22 @@ app.get('/admin/focus-log/download', auth.requireAuth, (req, res) => {
 app.post('/admin/focus-log/watch', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const targetDjId = String((req.body || {}).djId || '').trim()
-  focusLogSwitchTarget(targetDjId)
-  res.json({ success: true, djId: getFocusLogMeta().djId })
+  if (!targetDjId) return res.json({ success: false, error: 'djId를 입력해주세요' })
+  const result = focusLogAddTarget(targetDjId)
+  if (!result.success) return res.json(result)
+  res.json({ success: true, djIds: result.djIds })
+})
+app.post('/admin/focus-log/unwatch', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  const djIds = focusLogRemoveTarget(targetDjId)
+  res.json({ success: true, djIds })
 })
 app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
-  focusLogClear()
+  const djId = String((req.body || {}).djId || '').trim()
+  if (!djId || !getFocusLogMeta().djIds.includes(djId)) return res.json({ success: false, error: '지정되지 않은 djId예요' })
+  focusLogClear(djId)
   res.json({ success: true })
 })
 
