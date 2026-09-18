@@ -366,6 +366,18 @@ let sseClients = []
 // 세션 쿠키 기반 accessToken 자동 갱신 (기본은 관리자 공용 계정, 본인 계정 연결한 DJ는 그 계정으로 개별 갱신)
 tokenManager.setOnTokenUpdate((djId) => {
   broadcast({ type: 'session', djId, status: 'connected' })
+  // 🔁 accessToken 갱신(Puppeteer로 완전히 새 브라우저 세션을 만드는 방식)이 기존에 입장해있던
+  // 방의 roomToken(채팅방 join 세션)까지 같이 깨뜨리는 것으로 보여서, 채팅 전송이 실패하고 나서야
+  // 뒤늦게 재동기화하는 대신 여기서 미리 조용히 재동기화해둔다. (기존 _roomTokenRefreshPromise
+  // 가드를 그대로 재사용해서, 마침 채팅 실패로 이미 재발급이 진행 중이면 중복 실행하지 않는다)
+  Object.values(rooms).forEach(room => {
+    if (room.tokenDjId !== djId || !room.autoJoinedFor || !room.isConnected) return
+    if (room._roomTokenRefreshPromise) return
+    room._roomTokenRefreshPromise = tokenManager.fetchRoomToken(djId, room.autoJoinedFor)
+      .then(rt => { if (rt) room.roomToken = rt; return rt })
+      .catch(e => { console.log(`[${djId}] accessToken 갱신 후 roomToken 재동기화 실패:`, e.message); return null })
+      .finally(() => { room._roomTokenRefreshPromise = null })
+  })
 })
 tokenManager.setOnSessionExpired((djId) => {
   broadcast({ type: 'session', djId, status: 'expired' })
@@ -384,7 +396,70 @@ function broadcast(data) {
   sseClients.forEach(c => c.write(msg))
 }
 
-// 🩺 디버그 로그 실시간 방송 — console.log를 가로채서, 서버 로그(Railway)로 나가는 그대로
+// 🎯 지정 디제이 집중 로그 — 위 디버그 로그는 브라우저 메모리에만 최근 1000개 보관돼서, 화면을
+// 안 보고 있으면 그냥 사라진다. 특정 djId를 "집중 로그 대상"으로 지정해두면, 그 djId 관련 로그
+// 줄만 서버 디스크에 계속 쌓인다. 방송 한 번에 수만 줄까지도 나올 수 있어서(예: 4시간 방송),
+// 매번 배열 전체를 JSON으로 다시 쓰는 대신 한 줄씩 파일에 이어붙이는 방식(NDJSON append)을 쓴다 —
+// 이러면 줄 수가 아무리 많아져도 디스크에 쓰는 비용이 늘어나지 않고, 저장 줄 수 제한도 없다.
+// API로 화면에 뿌려줄 때만 최근 N줄로 잘라서 주고, 전체는 다운로드로 받을 수 있게 한다.
+const FOCUS_LOG_META_FILE = path.join(store.DATA_DIR, 'focusDebugLog.meta.json')
+const FOCUS_LOG_DATA_FILE = path.join(store.DATA_DIR, 'focusDebugLog.ndjson')
+let focusLogMeta = null
+let focusLogPendingAppend = []
+let focusLogFlushTimer = null
+let focusLogTotalCount = 0
+function getFocusLogMeta() {
+  if (focusLogMeta) return focusLogMeta
+  try { focusLogMeta = JSON.parse(fs.readFileSync(FOCUS_LOG_META_FILE, 'utf8')) } catch (e) { focusLogMeta = { djId: null } }
+  return focusLogMeta
+}
+function focusLogCountOnDisk() {
+  try { return fs.readFileSync(FOCUS_LOG_DATA_FILE, 'utf8').split('\n').filter(Boolean).length } catch (e) { return 0 }
+}
+function focusLogSwitchTarget(djId) {
+  const meta = getFocusLogMeta()
+  meta.djId = djId || null
+  try { fs.writeFileSync(FOCUS_LOG_META_FILE, JSON.stringify(meta)) } catch (e) { _originalConsoleLog('[집중로그] meta 저장 실패:', e.message) }
+  try { fs.writeFileSync(FOCUS_LOG_DATA_FILE, '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) } // 대상이 바뀌면 이전 로그와 안 섞이게 비운다
+  focusLogPendingAppend = []
+  focusLogTotalCount = 0
+}
+function focusLogClear() {
+  try { fs.writeFileSync(FOCUS_LOG_DATA_FILE, '') } catch (e) { _originalConsoleLog('[집중로그] 파일 초기화 실패:', e.message) }
+  focusLogPendingAppend = []
+  focusLogTotalCount = 0
+}
+function focusLogReadRecent(limit) {
+  let raw = ''
+  try { raw = fs.readFileSync(FOCUS_LOG_DATA_FILE, 'utf8') } catch (e) { return { entries: [], total: 0 } }
+  const lines = raw.split('\n').filter(Boolean)
+  const tail = limit ? lines.slice(-limit) : lines
+  const entries = tail.map(l => { try { return JSON.parse(l) } catch (e) { return null } }).filter(Boolean)
+  return { entries, total: lines.length }
+}
+// console.log 한 줄마다 호출됨 — 로그량이 많아서(초당 여러 줄) 디스크 쓰기는 5초 간격으로 몰아서 한다.
+function focusLogMaybeCapture(message) {
+  const meta = getFocusLogMeta()
+  if (!meta.djId) return
+  const id = meta.djId
+  // 실제 로그 포맷이 [djId], [djId 뭐뭐], [라벨:djId] 등으로 제각각이라 대괄호 안에 djId가
+  // 단어 경계로 등장하는지만 넓게 확인한다.
+  if (!(message.includes(`[${id}]`) || message.includes(`[${id} `) || message.includes(`:${id}]`) || message.includes(`:${id} `))) return
+  focusLogPendingAppend.push({ ts: Date.now(), message })
+  scheduleFocusLogFlush()
+}
+function saveFocusLogNow() {
+  if (!focusLogPendingAppend.length) return
+  const chunk = focusLogPendingAppend.map(e => JSON.stringify(e)).join('\n') + '\n'
+  focusLogTotalCount += focusLogPendingAppend.length
+  focusLogPendingAppend = []
+  try { fs.appendFileSync(FOCUS_LOG_DATA_FILE, chunk) } catch (e) { _originalConsoleLog('[집중로그] 저장 실패:', e.message) }
+}
+function scheduleFocusLogFlush() {
+  if (focusLogFlushTimer) return
+  focusLogFlushTimer = setTimeout(() => { focusLogFlushTimer = null; saveFocusLogNow() }, 5000)
+}
+
 // 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
 // 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
 // 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
@@ -421,8 +496,36 @@ console.log = function (...args) {
       try { return JSON.stringify(a) } catch (e) { return String(a) }
     }).join(' ')
     broadcast({ type: 'debuglog', message, ts: Date.now() })
+    focusLogMaybeCapture(message)
   } catch (e) { /* 로그 방송 자체가 실패해도 원래 로그 출력에는 영향 없게 무시 */ }
 }
+
+app.get('/admin/focus-log', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  saveFocusLogNow() // 아직 디스크에 안 쌓인 최근 몇 초치도 개수에 포함해서 보여준다
+  res.json({ success: true, djId: getFocusLogMeta().djId, total: focusLogCountOnDisk() })
+})
+app.get('/admin/focus-log/download', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  saveFocusLogNow()
+  const { entries } = focusLogReadRecent(0)
+  const text = entries.map(e => `[${new Date(e.ts).toLocaleString('ko-KR', { hour12: false })}] ${e.message}`).join('\n')
+  const djId = getFocusLogMeta().djId || 'unknown'
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="focuslog_${djId}_${Date.now()}.txt"`)
+  res.send(text)
+})
+app.post('/admin/focus-log/watch', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const targetDjId = String((req.body || {}).djId || '').trim()
+  focusLogSwitchTarget(targetDjId)
+  res.json({ success: true, djId: getFocusLogMeta().djId })
+})
+app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  focusLogClear()
+  res.json({ success: true })
+})
 
 async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
@@ -806,9 +909,17 @@ async function sendChatToRoom(djId, message) {
       if (res.status === 404 && body && body.errorCode === 11001) {
         console.log(`[${djId}] 채팅 전송 404 (Not Join Chat Room) — 방송은 살아있는 것으로 보여 소켓은 유지하고 roomToken만 재발급 시도합니다.`)
         if (room.autoJoinedFor) {
-          tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
-            .then(rt => { if (rt) { room.roomToken = rt; console.log(`[${djId}] roomToken 재발급 성공`) } })
-            .catch(e => console.log(`[${djId}] roomToken 재발급 실패:`, e.message))
+          // 🔁 roomToken 재발급은 Puppeteer로 실제 방송 페이지에 접속하는 방식이라, 스푼 쪽에서는
+          // 진짜 재입장으로 처리돼서 "OOO님이 입장했어요" 배너가 뜬다. 채팅 전송 실패가 비슷한
+          // 시점에 여러 건 몰리면(예: 여러 명이 동시에 입장해서 인사가 한꺼번에 실패) 예전엔 실패한
+          // 만큼 각자 따로 재발급을 시작해서 그 횟수만큼 배너가 반복해서 떴다 — 이미 재발급이
+          // 진행 중이면 새로 시작하지 않고 그 결과를 같이 기다리게 해서 한 번만 재입장하도록 한다.
+          if (!room._roomTokenRefreshPromise) {
+            room._roomTokenRefreshPromise = tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
+              .then(rt => { if (rt) { room.roomToken = rt; console.log(`[${djId}] roomToken 재발급 성공`) } return rt })
+              .catch(e => { console.log(`[${djId}] roomToken 재발급 실패:`, e.message); return null })
+              .finally(() => { room._roomTokenRefreshPromise = null })
+          }
         }
       } else if (res.status === 404 && room.ws) {
         // ⚠️ 404는 "이 방송(streamName)이 더 이상 존재하지 않는다"는 뜻이다 — 방송이 이미
@@ -21971,7 +22082,7 @@ app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
 app.post('/admin/monsterdex/users/:tag/rename', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const oldTag = req.params.tag
-  const newTag = String((req.body || {}).newTag || '').trim().replace(/^@/, '')
+  const newTag = String((req.body || {}).newTag || '').trim().replace(/^@/, '').toLowerCase()
   if (!newTag) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
   if (newTag === oldTag) return res.json({ success: false, error: '기존과 같은 고유닉이에요' })
   if (mcAllKnownTags().has(newTag)) return res.json({ success: false, error: '이미 그 고유닉으로 등록된 유저가 있어요' })

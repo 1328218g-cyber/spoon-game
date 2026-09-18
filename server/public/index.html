@@ -1239,6 +1239,20 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <!-- 🩺 디버그 로그 -->
       <div class="panel" data-panel="debuglog">
         <div class="card">
+          <div class="card-title"><span>🎯 지정 디제이 집중 로그</span></div>
+          <p class="hint" style="margin-bottom:12px">여기에 디제이를 지정해두면, 그 디제이 관련 로그 줄만 서버 파일에 계속 이어붙여서 저장해요 — 줄 수 제한이 없어서 몇 시간을 켜놔도 안 잘려요. 화면에 실시간으로 뿌려주지 않고 개수만 보여주니까(브라우저 안 느려짐), 나중에 "전체 다운로드"로 한 번에 받아서 확인하면 돼요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="focusLogDjIdInput" placeholder="djId (예: May)" style="flex:1">
+            <button class="btn-connect" style="width:auto;padding:11px 16px" onclick="setFocusLogWatch()">🎯 지정</button>
+          </div>
+          <div class="hint" id="focusLogStatusHint" style="margin-top:8px"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn-gray" style="padding:9px 16px" onclick="loadFocusLog()">🔄 새로고침</button>
+            <button class="btn-connect" style="padding:9px 16px" onclick="downloadFocusLog()">⬇️ 전체 다운로드</button>
+            <button class="btn-shield-reset" style="padding:9px 16px" onclick="clearFocusLog()">🗑️ 저장된 로그 지우기</button>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🩺 디버그 로그</span></div>
           <p class="hint" style="margin-bottom:12px">서버 콘솔(Railway 로그)에 찍히는 모든 <code>console.log</code>를 실시간으로 그대로 보여줘요. Railway에 직접 안 들어가도, 여기서 <code>[룰렛디버그:djId]</code>나 <code>[입장디버그:djId]</code> 같은 걸 바로 검색할 수 있어요. (전체 서버 로그를 다 받는 거라 다른 방 로그도 섞여 나와요 — 아래 필터로 원하는 djId만 걸러보세요)</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -5954,6 +5968,7 @@ function selectPanel(name){
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
+  if(name==='debuglog'&&document.getElementById('focusLogStatusHint'))loadFocusLog();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
@@ -7889,6 +7904,48 @@ function clearEventViewerLog(){
   if(wrap){ wrap.innerHTML='<p class="hint">이벤트를 기다리는 중... (방송에 접속된 봇이 있어야 이벤트가 들어와요)</p>'; delete wrap.dataset.hasEvents; }
   const countEl=document.getElementById('evCount');
   if(countEl) countEl.textContent='0';
+}
+
+/* ── 🎯 지정 디제이 집중 로그 (서버 디스크에 계속 쌓이는 로그, 화면 안 보고 있어도 안 사라짐) ── */
+async function setFocusLogWatch(){
+  const djId=document.getElementById('focusLogDjIdInput').value.trim();
+  try{
+    const res=await fetch(SERVER+'/admin/focus-log/watch',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId})});
+    const d=await res.json();
+    if(d.success){ showToast(d.djId?`${d.djId} 로그를 모으기 시작했어요`:'집중 로그를 껐어요'); loadFocusLog(); }
+    else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function loadFocusLog(){
+  try{
+    const res=await fetch(SERVER+'/admin/focus-log',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ document.getElementById('focusLogStatusHint').textContent=d.error||'실패'; return; }
+    document.getElementById('focusLogDjIdInput').value=d.djId||'';
+    document.getElementById('focusLogStatusHint').textContent=d.djId?`🎯 현재 "${d.djId}" 로그를 모으는 중 (전체 ${d.total}줄 저장됨)`:'지정된 디제이가 없어요.';
+  }catch(e){ document.getElementById('focusLogStatusHint').textContent='오류: '+e.message; }
+}
+async function clearFocusLog(){
+  if(!confirm('저장된 집중 로그를 전부 지울까요?'))return;
+  try{
+    const res=await fetch(SERVER+'/admin/focus-log/clear',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(d.success){ showToast('지웠어요'); loadFocusLog(); } else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+async function downloadFocusLog(){
+  try{
+    const res=await fetch(SERVER+'/admin/focus-log/download',{headers:authHeaders()});
+    if(!res.ok){ showToast('다운로드 실패'); return; }
+    const text=await res.text();
+    const djId=document.getElementById('focusLogDjIdInput').value.trim()||'unknown';
+    const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=`focuslog_${djId}_${Date.now()}.txt`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){ showToast('오류: '+e.message); }
 }
 
 /* ── 🩺 디버그 로그 (서버 console.log 실시간 스트림) ── */
