@@ -22103,12 +22103,7 @@ function mcAllKnownTags() {
 }
 // 어느 djId든 monstercatch가 켜진 곳 하나를 찾아 전역 공유 collections 객체를 돌려준다 (mc_collectionsForTag와 같은 방식).
 function mcAnyCollections() {
-  for (const djId of store.listDjIds()) {
-    const s = store.getSettings(djId) || {}
-    if (!isModuleOn(s, 'monstercatch', djId)) continue
-    return getMonsterCatchSettings(djId, s).collections || {}
-  }
-  return {}
+  try { return store.loadGlobalMonsterDex().collections || {} } catch (e) { return {} }
 }
 app.get('/admin/monsterdex/users', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -22156,23 +22151,42 @@ app.post('/admin/monsterdex/users/:tag/rename', auth.requireAuth, (req, res) => 
   const newTag = String((req.body || {}).newTag || '').trim().replace(/^@/, '').toLowerCase()
   if (!newTag) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
   if (newTag === oldTag) return res.json({ success: false, error: '기존과 같은 고유닉이에요' })
-  if (mcAllKnownTags().has(newTag)) return res.json({ success: false, error: '이미 그 고유닉으로 등록된 유저가 있어요' })
   const d = mcGetWebData()
-  const moveKey = (obj) => { if (obj && obj[oldTag] !== undefined) { obj[newTag] = obj[oldTag]; delete obj[oldTag] } }
-  moveKey(d.points); moveKey(d.resetCoupons); moveKey(d.resetCouponProgress); moveKey(d.levels); moveKey(d.selected); moveKey(d.reversiStats); moveKey(d.profiles)
+  // ⚠️ newTag 쪽에 이미 데이터가 있어도(예: 예전에 한 번 옮겼는데 도감/포획볼만 예전 고유닉에
+  // 남아있던 경우) 막지 않고 합친다 — 숫자는 더하고, {몬스터id: 수량} 같은 맵은 종류별로 더하고,
+  // 그 외(레벨/프로필 등 합칠 의미가 없는 것)는 newTag 쪽 값을 우선하고 oldTag 값은 버린다.
+  const mergeNumeric = (obj) => { if (obj && obj[oldTag] !== undefined) { obj[newTag] = (Number(obj[newTag]) || 0) + (Number(obj[oldTag]) || 0); delete obj[oldTag] } }
+  const mergeCountMap = (obj) => {
+    if (!obj || obj[oldTag] === undefined) return
+    if (!obj[newTag]) obj[newTag] = {}
+    Object.entries(obj[oldTag] || {}).forEach(([k, v]) => { obj[newTag][k] = (Number(obj[newTag][k]) || 0) + (Number(v) || 0) })
+    delete obj[oldTag]
+  }
+  const mergeStatsObj = (obj) => {
+    if (!obj || obj[oldTag] === undefined) return
+    if (!obj[newTag]) { obj[newTag] = obj[oldTag] } else {
+      const a = obj[newTag], b = obj[oldTag]
+      Object.keys(b).forEach(k => { a[k] = (Number(a[k]) || 0) + (Number(b[k]) || 0) })
+    }
+    delete obj[oldTag]
+  }
+  const preferExisting = (obj) => { if (obj && obj[oldTag] !== undefined) { if (obj[newTag] === undefined) obj[newTag] = obj[oldTag]; delete obj[oldTag] } }
+  mergeNumeric(d.points); mergeNumeric(d.resetCoupons); mergeStatsObj(d.resetCouponProgress)
+  preferExisting(d.levels); preferExisting(d.selected); mergeStatsObj(d.reversiStats); preferExisting(d.profiles)
   Object.keys(d.webUsers).forEach(wid => { if (d.webUsers[wid] === oldTag) d.webUsers[wid] = newTag })
-  // 🐾 잡은 몬스터 목록(collections)은 djId별 settings 파일에 저장돼있어서, 전역 공유라도 실제로
-  // 존재하는 모든 djId의 settings를 순회하며 각각 옮겨줘야 한다 (mc.collections/bags/greatBags/chatCounts).
-  store.listDjIds().forEach(djId => {
-    const s = store.getSettings(djId) || {}
-    if (!isModuleOn(s, 'monstercatch', djId)) return
-    const mc = getMonsterCatchSettings(djId, s)
-    let changed = false
-    ;[mc.collections, mc.bags, mc.greatBags, mc.chatCounts].forEach(obj => {
-      if (obj && obj[oldTag] !== undefined) { obj[newTag] = obj[oldTag]; delete obj[oldTag]; changed = true }
-    })
-    if (changed) store.saveSettings(djId, { monsterCatch: mc })
-  })
+  // 🐾 잡은 몬스터(collections)/포획볼(bags)/채팅카운트는 디제이별 settings가 아니라
+  // globalMonsterDex.json 딱 하나에만 있다(getMonsterCatchSettings가 그 객체를 그대로 참조해서
+  // 씀) — 그래서 store.saveSettings(djId, ...)가 아니라 store.saveGlobalMonsterDex()로 저장해야
+  // 한다. (예전엔 djId별로 순회하며 saveSettings를 불러서, 메모리상으로는 바뀌어도 디스크에
+  // 실제로 반영이 안 됐다가 서버 재시작하면 원래 고유닉으로 되돌아가버리는 버그가 있었다.)
+  const globalDex = store.loadGlobalMonsterDex()
+  mergeCountMap(globalDex.collections); mergeNumeric(globalDex.bags); mergeNumeric(globalDex.greatBags)
+  // 채팅카운트는 "N번마다 지급" 카운터라 더하면 이상해지니, 마이그레이션 때와 같은 방식으로 더 큰 값을 사용
+  if (globalDex.chatCounts && globalDex.chatCounts[oldTag] !== undefined) {
+    globalDex.chatCounts[newTag] = Math.max(Number(globalDex.chatCounts[newTag]) || 0, Number(globalDex.chatCounts[oldTag]) || 0)
+    delete globalDex.chatCounts[oldTag]
+  }
+  store.saveGlobalMonsterDex()
   mcSaveWebData()
   res.json({ success: true, tag: newTag })
 })
@@ -22183,16 +22197,9 @@ app.post('/admin/monsterdex/users/:tag/delete', auth.requireAuth, (req, res) => 
   delete d.points[tag]; delete d.resetCoupons[tag]; delete d.resetCouponProgress[tag]
   delete d.levels[tag]; delete d.selected[tag]; delete d.reversiStats[tag]; delete d.profiles[tag]
   Object.keys(d.webUsers).forEach(wid => { if (d.webUsers[wid] === tag) delete d.webUsers[wid] })
-  store.listDjIds().forEach(djId => {
-    const s = store.getSettings(djId) || {}
-    if (!isModuleOn(s, 'monstercatch', djId)) return
-    const mc = getMonsterCatchSettings(djId, s)
-    let changed = false
-    ;[mc.collections, mc.bags, mc.greatBags, mc.chatCounts].forEach(obj => {
-      if (obj && obj[tag] !== undefined) { delete obj[tag]; changed = true }
-    })
-    if (changed) store.saveSettings(djId, { monsterCatch: mc })
-  })
+  const globalDex = store.loadGlobalMonsterDex()
+  delete globalDex.collections[tag]; delete globalDex.bags[tag]; delete globalDex.greatBags[tag]; delete globalDex.chatCounts[tag]
+  store.saveGlobalMonsterDex()
   mcSaveWebData()
   res.json({ success: true })
 })

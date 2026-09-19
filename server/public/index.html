@@ -1162,6 +1162,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
           <div id="mcuListWrap" style="margin-top:12px;max-height:360px;overflow-y:auto"></div>
           <div id="mcuDetailWrap" style="margin-top:14px"></div>
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+            <div class="hint" style="margin:0 0 8px">🔧 수동 이동 — 도감/포획볼 데이터가 검색에 안 뜨는 특정 고유닉에 남아있을 때, 검색 없이 바로 옮길 수 있어요.</div>
+            <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:0">
+              <div><label>기존 고유닉</label><input type="text" id="mcuManualOldTag" placeholder="예: 예전닉네임"></div>
+              <div><label>새 고유닉</label><input type="text" id="mcuManualNewTag" placeholder="예: 새닉네임"></div>
+            </div>
+            <button class="btn-gray" style="width:100%;margin-top:8px" onclick="renameMcUserManual()">🆔 수동으로 고유닉 이동</button>
+          </div>
         </div>
 
         <div class="card">
@@ -13117,6 +13125,19 @@ async function renameMcUser(tag){
     const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
     const d=await res.json();
     if(d.success){ showToast('고유닉이 변경됐어요'); mcuSelectedTag=d.tag; document.getElementById('mcuSearchInput').value=d.tag; loadMcUsers(); document.getElementById('mcuDetailWrap').innerHTML=''; }
+    else showToast(d.error||'실패');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+// 검색 목록(포인트/쿠폰 등)에는 이미 옮겨졌지만 도감/포획볼 데이터가 예전 고유닉에 남아있는 경우처럼,
+// 검색으로 안 잡히는 고유닉도 직접 입력해서 옮길 수 있게 한 수동 버전.
+async function renameMcUserManual(){
+  const oldTag=document.getElementById('mcuManualOldTag').value.trim();
+  const newTag=document.getElementById('mcuManualNewTag').value.trim();
+  if(!oldTag||!newTag)return showToast('기존/새 고유닉을 둘 다 입력해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(oldTag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag})});
+    const d=await res.json();
+    if(d.success){ showToast('고유닉이 변경됐어요'); document.getElementById('mcuManualOldTag').value=''; document.getElementById('mcuManualNewTag').value=''; document.getElementById('mcuSearchInput').value=d.tag; loadMcUsers(); }
     else showToast(d.error||'실패');
   }catch(e){ showToast('오류: '+e.message); }
 }
