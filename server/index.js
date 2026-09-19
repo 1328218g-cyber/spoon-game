@@ -16371,6 +16371,19 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   if (!room._greetedKeys) room._greetedKeys = new Set()
   const greetKey = String(tag || author || '').trim().toLowerCase()
   if (greetKey && room._greetedKeys.has(greetKey)) { console.log(`[입장디버그:${djId}] greetKey=${greetKey} 이미 인사 처리된 키라서 건너뜀`); return } // 이미 다른 경로(웹소켓/폴링)에서 인사 나감
+  // ⏱ 최근 인사 쿨다운 — 퇴장 감지가 되면 위 greetedKeys 기록이 지워져서(재입장하면 다시 인사하도록),
+  // 접속이 불안정해서 짧은 시간 안에 퇴장→재입장이 반복되면(특히 봇 자기 자신 계정이 명단 폴링에
+  // 들쭉날쭉 잡히는 경우) 그때마다 greetedKeys가 매번 새로 뚫려서 인사가 계속 반복 전송되는 문제가
+  // 있었다. 자기 자신 학습(room._selfGeneratorIds)이 아직 안 됐을 때도 보호되도록, 같은 사람에게는
+  // 최소 이 시간 안에는 텍스트 인사를 다시 안 보내게 별도로 막는다.
+  if (!room._lastGreetTextAt) room._lastGreetTextAt = new Map()
+  const GREET_TEXT_COOLDOWN_MS = 60000
+  const lastGreetTextAt = greetKey ? (room._lastGreetTextAt.get(greetKey) || 0) : 0
+  if (greetKey && (Date.now() - lastGreetTextAt) < GREET_TEXT_COOLDOWN_MS) {
+    console.log(`[입장디버그:${djId}] greetKey=${greetKey} 방금 전에도 인사해서(쿨다운 ${GREET_TEXT_COOLDOWN_MS / 1000}초) 건너뜀`)
+    return
+  }
+  if (greetKey) room._lastGreetTextAt.set(greetKey, Date.now())
   if (greetKey) room._greetedKeys.add(greetKey)
 
   // ⏱ 효과음 재입장 쿨다운 — 같은 사람이 짧은 시간 안에(예: 접속 튕겼다가 바로 재접속) 다시
@@ -16425,6 +16438,7 @@ function startLeavePolling(djId, liveId) {
   room._leavePollInFlight = false
   room._lastAutoAttendCheck = Date.now() // 방금 입장했으니 자동 출석은 한 주기 지난 뒤부터 시작
   room._greetedKeys = new Set() // 👋 이번 방송 세션에서 이미 인사 나간 사람 기록 (웹소켓/폴링 중복 방지)
+  room._lastGreetTextAt = new Map() // ⏱ 사람별 마지막 텍스트 인사 시각 (짧은 시간 내 반복 인사 방지)
   room._joinPollBaseline = false // 첫 회차엔 "이미 방에 있던 사람들"을 전부 새 입장으로 오인하면 안 되므로, 첫 회차는 기준선만 잡고 인사는 건너뜀
 
   room._leavePollTimer = setInterval(async () => {
