@@ -16730,6 +16730,17 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     broadcast({ type: 'status', djId, isConnected: true })
     notifyDiscordOnConnect(djId, room.watchingTag)
+    // 🔁 접속 직후 곧바로 채팅을 보내면(예: 몬스터잡기 "5초 뒤 첫 등장") 가끔 roomToken이 아직
+    // 스푼 쪽 채팅방 조인 세션에 완전히 반영되기 전이라 "Not Join Chat Room" 404로 첫 메시지가
+    // 실패하고, 그걸 감지해서 재발급하는 동안 봇이 실제로 방을 여러 번 들락날락하며 자기소개를
+    // 반복하는 문제로 이어졌다. 접속하자마자 한 번 더 roomToken을 조용히 재확인해두면 이 첫
+    // 실패 자체를 미리 막을 수 있다 (기존 실패시 재발급 가드를 그대로 재사용해서 중복 실행 방지).
+    if (room.autoJoinedFor && !room._roomTokenRefreshPromise) {
+      room._roomTokenRefreshPromise = tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
+        .then(rt => { if (rt) room.roomToken = rt; return rt })
+        .catch(e => { console.log(`[${djId}] 접속 직후 roomToken 예열 실패:`, e.message); return null })
+        .finally(() => { room._roomTokenRefreshPromise = null })
+    }
     // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
     startLeavePolling(djId, liveId)
     // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
