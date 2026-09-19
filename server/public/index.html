@@ -1571,6 +1571,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
           <div id="mySystemRestoreResultR2" class="hint" style="margin-top:8px"></div>
         </div>
+        <div class="card" id="adminFullRestoreCard" style="display:none">
+          <div class="card-title"><span>🌍 관리자 전용 — 전체 계정 복구 (모든 디제이)</span></div>
+          <p class="hint" style="margin-bottom:14px">위 항목들은 전부 <b>내 계정(sum)만</b> 복구하는 기능이에요. 서버 자체를 새로 옮겼거나(예: 다른 호스팅으로 이전) 데이터가 통째로 비었을 때는, 여기서 <b>모든 디제이 계정 + 몬스터잡기 전역 데이터</b>를 한 시점으로 통째로 되돌릴 수 있어요.<br>
+          ⚠️ 이건 지금 서버에 있는 모든 데이터를 그 시점 백업으로 덮어쓰는 되돌릴 수 없는 작업이에요 — 정말 필요할 때만 쓰세요.</p>
+          <button class="btn-connect" style="width:100%" onclick="loadAdminFullBackupList()">📋 전체 백업 시점 목록 불러오기</button>
+          <div id="adminFullRestoreListWrap" style="margin-top:10px"></div>
+          <div id="adminFullRestorePreview" class="hint" style="margin-top:8px"></div>
+          <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="adminFullRestoreApplyBtn" disabled onclick="adminFullRestoreApply()">♻️ 선택한 시점으로 전체 계정 복구</button>
+          <div id="adminFullRestoreResult" class="hint" style="margin-top:8px"></div>
+        </div>
       </div>
 
       <!-- 링크줄이기 -->
@@ -5780,6 +5790,8 @@ function enterApp(){
   if(debugLogNav) debugLogNav.style.display = isAdmin ? '' : 'none';
   const errorLogNav=document.getElementById('errorLogNav');
   if(errorLogNav) errorLogNav.style.display = isAdmin ? '' : 'none';
+  const adminFullRestoreCard=document.getElementById('adminFullRestoreCard');
+  if(adminFullRestoreCard) adminFullRestoreCard.style.display = isAdmin ? '' : 'none';
   if(isAdmin) loadErrorLogPanel(); // 🚨 관리자로 접속하면 지금까지 쌓인 에러도 배지 카운트에 바로 반영
   // 🧪 선물캡처판 "테스트 선물 보내기" 버튼 — 관리자(sum)만 보이게
   const gcTestBtnWrap=document.getElementById('gcTestBtnWrap');
@@ -18385,6 +18397,63 @@ async function mySystemRestoreApplyR2(){
       showToast('복구 완료 ✓');
       mySelectedSystemStampR2=null;
       document.getElementById('mySystemRestoreApplyBtnR2').disabled=true;
+    }else{
+      box.textContent='❌ '+(d.error||'복구 실패');
+    }
+  }catch(e){box.textContent='오류: '+e.message;}
+}
+
+/* ── 🌍 관리자 전용 — 전체 계정(모든 디제이) R2 복구 ── */
+let adminFullRestoreStamp=null;
+async function loadAdminFullBackupList(){
+  const listWrap=document.getElementById('adminFullRestoreListWrap');
+  const previewBox=document.getElementById('adminFullRestorePreview');
+  const resultBox=document.getElementById('adminFullRestoreResult');
+  adminFullRestoreStamp=null;
+  document.getElementById('adminFullRestoreApplyBtn').disabled=true;
+  listWrap.innerHTML='<p class="hint">불러오는 중...</p>';
+  previewBox.textContent=''; resultBox.textContent='';
+  try{
+    const res=await fetch(SERVER+'/admin/list-backups-r2',{method:'POST',headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success){ listWrap.innerHTML='<p class="hint">❌ '+escapeHtml(d.error||'조회 실패')+'</p>'; return; }
+    if(!d.list.length){ listWrap.innerHTML='<p class="hint">백업이 하나도 없어요.</p>'; return; }
+    listWrap.innerHTML=d.list.map((item,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="radio" name="adminFullRestoreStampPick" value="${escapeAttr(item.stamp)}" onchange="adminFullRestorePreview(this.value)">
+        <span>${escapeHtml(new Date(item.lastModified||item.stamp).toLocaleString('ko-KR'))}</span>${i===0?'<span class="hint" style="margin:0">(최신)</span>':''}
+      </label>
+    `).join('');
+  }catch(e){listWrap.innerHTML='<p class="hint">오류: '+escapeHtml(e.message)+'</p>';}
+}
+async function adminFullRestorePreview(stamp){
+  const previewBox=document.getElementById('adminFullRestorePreview');
+  document.getElementById('adminFullRestoreApplyBtn').disabled=true;
+  adminFullRestoreStamp=null;
+  previewBox.textContent='확인 중...';
+  try{
+    const res=await fetch(SERVER+'/admin/restore-preview-r2',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp})});
+    const d=await res.json();
+    if(!d.success){ previewBox.textContent='❌ '+(d.error||'미리보기 실패'); return; }
+    adminFullRestoreStamp=stamp;
+    previewBox.textContent=`이 시점엔 계정 ${d.accountCount}개가 들어있어요: ${d.djIds.join(', ')}${d.accountCount>d.djIds.length?' 외 '+(d.accountCount-d.djIds.length)+'개':''}`;
+    document.getElementById('adminFullRestoreApplyBtn').disabled=false;
+  }catch(e){ previewBox.textContent='오류: '+e.message; }
+}
+async function adminFullRestoreApply(){
+  if(!adminFullRestoreStamp)return showToast('먼저 목록에서 시점을 선택해주세요');
+  if(!confirm('정말로 전체 계정을 이 시점으로 되돌릴까요?\n지금 서버에 있는 모든 디제이 계정 데이터 + 몬스터잡기 전역 데이터가 이 백업으로 통째로 덮어써져요. 되돌릴 수 없어요.'))return;
+  if(!confirm('한 번 더 확인할게요 — 정말 진행할까요?'))return;
+  const box=document.getElementById('adminFullRestoreResult');
+  box.textContent='복구 중... (시간이 좀 걸릴 수 있어요)';
+  try{
+    const res=await fetch(SERVER+'/admin/restore-apply-r2',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({stamp:adminFullRestoreStamp,confirm:true})});
+    const d=await res.json();
+    if(d.success){
+      box.textContent=`✅ 복구 완료! 계정 ${d.accountCount}개 복구됨${d.monsterDexRestored?' (몬스터잡기 데이터 포함)':''}. 새로고침해서 확인해보세요.`;
+      showToast('전체 복구 완료 ✓');
+      adminFullRestoreStamp=null;
+      document.getElementById('adminFullRestoreApplyBtn').disabled=true;
     }else{
       box.textContent='❌ '+(d.error||'복구 실패');
     }
