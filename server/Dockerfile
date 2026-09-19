@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libxrender1 \
     libxss1 \
-    libxtst1 \
+    libxtst6 \
     lsb-release \
     wget \
     xdg-utils \
