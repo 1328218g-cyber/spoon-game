@@ -1,18 +1,16 @@
 services:
   - type: web
-    name: spoon-game-server       # 원하는 이름으로 바꿔도 됩니다
+    name: spoon-game-server
     runtime: docker
-    rootDir: server                # index.js가 있는 폴더 (Railway의 "Root Directory" 설정과 동일한 역할)
-    dockerfilePath: ./Dockerfile   # rootDir 기준 상대경로 — server/Dockerfile을 가리킴
+    rootDir: server
+    dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: standard                 # Puppeteer(크롬)가 메모리를 꽤 먹어서 최소 이 등급(2GB) 이상 권장.
-                                    # starter(512MB)는 크롬 실행 중 메모리 부족으로 죽을 수 있음.
-    autoDeployTrigger: commit       # main/dev 브랜치에 푸시하면 자동 배포 (Railway와 동일한 흐름)
+    plan: standard
     healthCheckPath: /
     disk:
       name: edibot-data
-      mountPath: /data             # DATA_DIR 환경변수를 이 경로로 맞춰줘야 함 (아래 envVars 참고)
-      sizeGB: 1                    # djs.json, globalMonsterDex.json 등 텍스트 데이터라 1GB면 충분히 넉넉함
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: DATA_DIR
         value: /data
