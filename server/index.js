@@ -2309,10 +2309,15 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const nums = args.map(a => parseInt(a, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 9)
 
     if (nums.length === 3) {
+      // ⚠️ 버그 수정: 예전엔 "!복권 1 1 1"처럼 같은 숫자를 중복으로 내면, 당첨번호에 그 숫자
+      // 하나만 포함돼도 중복 칸 3개가 전부 매칭 처리돼서 사실상 무조건 1등이 되던 문제가 있었다.
+      // 서로 다른 3개 숫자를 내야만 유효한 시도로 인정한다.
+      const uniqueNums = [...new Set(nums)]
+      if (uniqueNums.length < 3) { setTimeout(() => sendChatToRoom(djId, `❌ ${author}님, 서로 다른 숫자 3개를 입력해주세요! (예: !복권 1 2 3)`), 400); return }
       if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
       d.lotto -= 1
       const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
-      const myNums = nums.slice().sort((a, b) => a - b)
+      const myNums = uniqueNums.slice().sort((a, b) => a - b)
       const matches = myNums.filter(n => winNums.includes(n)).length
       let gainExp = expFail
       if (matches === 3) gainExp = exp1st
