@@ -942,7 +942,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   }
 }
 
-async function sendChatToRoom(djId, message) {
+async function sendChatToRoom(djId, message, _isRetry) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
@@ -989,6 +989,15 @@ async function sendChatToRoom(djId, message) {
               .then(rt => { if (rt) { room.roomToken = rt; console.log(`[${djId}] roomToken 재발급 성공`) } return rt })
               .catch(e => { console.log(`[${djId}] roomToken 재발급 실패:`, e.message); return null })
               .finally(() => { room._roomTokenRefreshPromise = null })
+          }
+          // ⚠️ 예전엔 여기서 재발급을 "기다리지 않고" 바로 실패 처리해서, 실패했던 메시지(몬스터 등장,
+          // 퀴즈 문제 등) 자체는 그대로 유실됐다 — 다음 번 다른 메시지가 보내질 때만 새 토큰의
+          // 효과를 봤다. 재발급 결과를 기다렸다가, 성공하면 지금 실패한 이 메시지를 한 번 더
+          // 그대로 재전송해서 실제로 화면에 나가도록 한다 (무한 재시도 방지로 딱 한 번만).
+          const rt = await room._roomTokenRefreshPromise
+          if (rt && !_isRetry) {
+            console.log(`[${djId}] roomToken 재발급 완료 — 실패했던 메시지 재전송 시도`)
+            return sendChatToRoom(djId, message, true)
           }
         }
       } else if (res.status === 404 && room.ws) {
