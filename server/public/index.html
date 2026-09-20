@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>에디봇</title>
+<title>에디냥</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0ea5e9">
 <link rel="icon" href="/icons/icon-192.png">
@@ -8622,6 +8622,7 @@ function renderUserListTable(){
       <input type="datetime-local" id="expiryBulkInput" style="padding:6px 8px;font-size:12px">
       <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="applyBulkExpiry()">✅ 선택 일괄 설정</button>
       <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="clearExpirySelection()">선택 해제</button>
+      <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="applyBulkDelete()">🗑️ 선택 일괄 삭제</button>
     </div>`;
     wrap.innerHTML=`${bulkBar}<div style="overflow-x:auto"><table class="user-table">
       <thead><tr><th><input type="checkbox" id="expirySelectAllCb" ${selectableCount&&list.filter(u=>u.djId!=='sum').every(u=>selectedExpiryDjIds.has(u.djId))?'checked':''} onchange="toggleExpirySelectAll(this)"></th><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>🎁 결제확인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
@@ -8629,7 +8630,7 @@ function renderUserListTable(){
     </table></div>`;
 }
 
-/* ── ☑️ 이용만료일 일괄 설정: 체크박스 선택 관리 ── */
+/* ── ☑️ 체크박스 선택 관리 (이용만료일 일괄 설정 + 일괄 삭제 공용) ── */
 function toggleExpirySelect(djId,checked){
   if(checked)selectedExpiryDjIds.add(djId);else selectedExpiryDjIds.delete(djId);
   const countEl=document.getElementById('expiryBulkCount');
@@ -8661,6 +8662,20 @@ async function applyBulkExpiry(){
     const d=await res.json();
     if(d.success){
       showToast(`${d.okCount}명 설정 완료${d.notFound&&d.notFound.length?` (실패 ${d.notFound.length}명)`:''}`);
+      selectedExpiryDjIds.clear();
+      loadUserList();
+    }else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function applyBulkDelete(){
+  if(!selectedExpiryDjIds.size)return showToast('선택된 디제이가 없어요');
+  const djIds=[...selectedExpiryDjIds];
+  if(!confirm(`선택한 ${djIds.length}명의 계정을 완전히 삭제할까요?\n가입정보와 모든 설정이 사라지고 되돌릴 수 없어요.\n\n${djIds.map(id=>'@'+id).join(', ')}`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/bulk-delete',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djIds})});
+    const d=await res.json();
+    if(d.success){
+      showToast(`${d.okCount}명 삭제 완료${d.notFound&&d.notFound.length?` (실패 ${d.notFound.length}명)`:''}`);
       selectedExpiryDjIds.clear();
       loadUserList();
     }else showToast(d.error||'처리 실패');
