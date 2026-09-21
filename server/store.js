@@ -40,7 +40,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DJ_FILE = path.join(DATA_DIR, 'djs.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP_COUNT = 20; // 최근 20개까지만 보관 (그 이상 오래된 건 자동 삭제)
-const GLOBAL_MC_FILE = path.join(DATA_DIR, 'globalMonsterDex.json'); // 🌐 몬스터 잡기 유저 데이터(포획볼/도감/채팅카운트) — 디제이 구분 없이 전체 플랫폼 공용
+const GLOBAL_MC_FILE = path.join(DATA_DIR, 'globalMonsterDex.json'); // 🌐 몬스터 잡기 유저 데이터(포획볼/고급볼/도감/채팅카운트) — 디제이 구분 없이 전체 플랫폼 공용
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -263,8 +263,6 @@ function defaultSettings() {
     // 📅 캘린더 — DJ가 등록한 행사/방송 일정. 내정보 웹페이지 "캘린더" 탭에 달력 형태로 보여준다.
     // { id, date:'YYYY-MM-DD', time:'HH:MM'(선택), title, description, createdAt }
     calendarEvents: [],
-    // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
-    // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
     // 🖼️ 직접 디자인한 캘린더 이미지(포스터형). 등록해두면 캘린더 탭 위쪽에 같이 보여주고,
     // hideGrid를 켜면 자동 달력 그리드는 숨기고 이 이미지만 보여준다.
     // overlay를 켜면 이미지 안의 "달력 표" 영역(퍼센트 좌표)에 실제 클릭 가능한 투명 칸을 겹쳐서,
@@ -597,7 +595,7 @@ function hasUnreadModuleRequests(djId, isAdmin) {
 
 // 🎬 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록할 수 있다.
 // 하나가 일일 쿼터를 다 쓰면(quotaExceeded) 자동으로 다음 등록 키로 넘어가서 검색을 계속한다.
-// 관리자가 따로 등록해두지 않았으면 기존처럼 Railway 환경변수(YOUTUBE_API_KEY(S))를 그대로 쓴다.
+// 관리자가 따로 등록해두지 않았으면 기존처럼 배포 플랫폼 환경변수(Railway/Render) YOUTUBE_API_KEY(S)를 그대로 쓴다.
 const YOUTUBE_API_KEY_MAX = 3
 function getYoutubeApiKeys() {
   const djs = loadDjs();
@@ -1040,7 +1038,163 @@ function saveGlobalMonsterDex() {
   fs.renameSync(tmpFile, GLOBAL_MC_FILE);
 }
 
-// 🌐 외부 백업(Base44)용 — 전체 계정 데이터를 그대로 반환한다 (비밀번호 해시 포함, 백업 목적이라 그대로 둠).
+// ══════════════════════════════════════════════════════
+// 🔗 몬스터잡기 크로스서버 동기화 (Render↔Railway처럼 완전히 분리된 서버 두 개가 각자
+// 독립적으로 떠있을 때, 몬스터잡기 데이터(포획볼/고급볼/도감/채팅카운트/카탈로그)만큼은
+// 하나로 통합해서 보이게 하려고 추가했다.
+//
+// 방식: 한쪽을 "기준(base) 서버"로 두고, 다른 쪽("remote" 서버)이 주기적으로(30초마다)
+// 자기 로컬 데이터와 "마지막으로 동기화했던 시점의 스냅샷"을 비교해 변화량(델타)만
+// 계산해서 기준 서버로 보낸다. 기준 서버는 그 델타를 자기 데이터에 "더해서" 반영하고
+// (그래서 두 서버에서 동시에 잡아도 서로 씹어먹지 않는다), 병합된 최신 전체 상태를
+// 그대로 돌려준다. remote 서버는 그걸 자기 로컬 캐시에 덮어써서 다음 조회부터 바로
+// 반영되게 하고, 그 상태를 다음 비교 기준 스냅샷으로 저장해둔다.
+//
+// 평소 유저 요청(잡기/분해/배틀 등)은 지금처럼 전부 로컬 캐시(_globalMcCache)만 보고
+// 즉시 처리된다 — 동기화는 백그라운드 타이머에서만 일어나서 기준 서버가 잠깐 응답이
+// 없어도 remote 서버 사용자들은 아무 지장이 없고, 다음 주기에 다시 시도한다.
+//
+// 환경변수 3개로 제어한다 (하나라도 없으면 그냥 지금처럼 완전히 독립 동작):
+//   MONSTERDEX_SYNC_ROLE   'base' | 'remote' — 이 서버의 역할
+//   MONSTERDEX_BASE_URL    remote 서버에서만 필요. 기준 서버의 공개 주소 (예: https://xxx.up.railway.app)
+//   MONSTERDEX_SYNC_SECRET 두 서버가 똑같이 맞춰서 넣는 비밀값 — 아무나 이 동기화 API를 못 부르게 막는 용도
+// ══════════════════════════════════════════════════════
+const MONSTERDEX_SYNC_ROLE = String(process.env.MONSTERDEX_SYNC_ROLE || '').trim();   // 'base' | 'remote'
+const MONSTERDEX_BASE_URL = String(process.env.MONSTERDEX_BASE_URL || '').trim().replace(/\/$/, '');
+const MONSTERDEX_SYNC_SECRET = String(process.env.MONSTERDEX_SYNC_SECRET || '').trim();
+const MONSTERDEX_SYNC_INTERVAL_MS = 30 * 1000; // 30초마다 — 너무 잦으면 트래픽 낭비, 너무 뜸하면 두 방 사이 체감 지연이 커진다
+
+function mcDeepClone(obj) { return obj ? JSON.parse(JSON.stringify(obj)) : obj; }
+
+// tag -> 숫자 형태(bags/greatBags/chatCounts)의 두 스냅샷을 비교해 "바뀐 만큼"만 뽑아낸다.
+// 늘어난 것(+)도 줄어든 것(-)도 그대로 부호를 살려서 돌려준다 — 그래야 기준 서버에 "더하기만"
+// 해도 소비(차감)까지 정확히 반영된다.
+function mcNumericMapDelta(prevMap, currMap) {
+  const out = {};
+  const keys = new Set([...Object.keys(prevMap || {}), ...Object.keys(currMap || {})]);
+  keys.forEach(k => {
+    const d = (Number((currMap || {})[k]) || 0) - (Number((prevMap || {})[k]) || 0);
+    if (d !== 0) out[k] = d;
+  });
+  return out;
+}
+// tag -> { 몬스터id: 수량 } 형태(collections)의 두 스냅샷을 비교한다. tag별로 안쪽 맵도 델타를 구해서,
+// 실제로 바뀐 tag만(안쪽에 바뀐 항목이 하나라도 있을 때만) 결과에 포함시킨다.
+function mcNestedMapDelta(prevMap, currMap) {
+  const out = {};
+  const keys = new Set([...Object.keys(prevMap || {}), ...Object.keys(currMap || {})]);
+  keys.forEach(tag => {
+    const sub = mcNumericMapDelta((prevMap || {})[tag] || {}, (currMap || {})[tag] || {});
+    if (Object.keys(sub).length) out[tag] = sub;
+  });
+  return out;
+}
+// 카탈로그(몬스터id -> {name,image,legendary})는 수량이 아니라 "설명 정보"라서 델타 개념이 다르다 —
+// 바뀌었거나 새로 생긴 항목만 통째로(최신값 그대로) 뽑아서 보낸다.
+function mcCatalogDelta(prevCat, currCat) {
+  const out = {};
+  Object.keys(currCat || {}).forEach(id => {
+    const a = (prevCat || {})[id], b = currCat[id];
+    if (!a || a.name !== b.name || a.image !== b.image || a.legendary !== b.legendary) out[id] = b;
+  });
+  return out;
+}
+function mcApplyNumericMapDelta(target, delta) {
+  Object.entries(delta || {}).forEach(([k, d]) => { target[k] = (Number(target[k]) || 0) + d; });
+}
+function mcApplyNestedMapDelta(target, delta) {
+  Object.entries(delta || {}).forEach(([tag, sub]) => {
+    if (!target[tag]) target[tag] = {};
+    mcApplyNumericMapDelta(target[tag], sub);
+  });
+}
+
+// 🏠 기준(base) 서버 쪽에서 호출 — remote가 보낸 델타를 자기 전역 도감에 병합하고,
+// 병합된 최신 전체 상태를 돌려준다. (실제 라우트 등록은 index.js에서 한다)
+function applyMonsterDexDelta(delta) {
+  const dex = loadGlobalMonsterDex();
+  if (delta) {
+    if (delta.bags) mcApplyNumericMapDelta(dex.bags, delta.bags);
+    if (delta.greatBags) mcApplyNumericMapDelta(dex.greatBags, delta.greatBags);
+    if (delta.collections) mcApplyNestedMapDelta(dex.collections, delta.collections);
+    if (delta.chatCounts) mcApplyNumericMapDelta(dex.chatCounts, delta.chatCounts);
+    if (delta.catalog) Object.assign(dex.catalog, delta.catalog);
+    saveGlobalMonsterDex();
+  }
+  return dex;
+}
+
+let _mcLastSyncSnapshot = null;
+let _mcSyncTimer = null;
+
+async function mcSyncWithBase() {
+  if (MONSTERDEX_SYNC_ROLE !== 'remote' || !MONSTERDEX_BASE_URL || !MONSTERDEX_SYNC_SECRET) return;
+  try {
+    const curr = loadGlobalMonsterDex();
+    const prev = _mcLastSyncSnapshot || { bags: {}, greatBags: {}, collections: {}, chatCounts: {}, catalog: {} };
+    const delta = {
+      bags: mcNumericMapDelta(prev.bags, curr.bags),
+      greatBags: mcNumericMapDelta(prev.greatBags, curr.greatBags),
+      collections: mcNestedMapDelta(prev.collections, curr.collections),
+      chatCounts: mcNumericMapDelta(prev.chatCounts, curr.chatCounts),
+      catalog: mcCatalogDelta(prev.catalog, curr.catalog),
+    };
+    const hasDelta = Object.values(delta).some(v => v && Object.keys(v).length);
+    const res = await fetch(MONSTERDEX_BASE_URL + '/internal/monsterdex/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Secret': MONSTERDEX_SYNC_SECRET },
+      body: JSON.stringify({ delta: hasDelta ? delta : null }),
+    });
+    const data = await res.json();
+    if (data && data.success && data.snapshot) {
+      _globalMcCache = data.snapshot;
+      saveGlobalMonsterDex(); // 기준 서버가 잠깐 안 될 때를 대비해 로컬에도 최신 병합본을 캐시해둔다
+      _mcLastSyncSnapshot = mcDeepClone(_globalMcCache);
+    }
+  } catch (e) {
+    console.log('[store] 몬스터잡기 동기화 실패 — 다음 주기(30초 뒤)에 재시도합니다:', e.message);
+  }
+}
+// remote 서버에서만 서버 시작 시 한 번 호출하면 된다 (index.js에서 app.listen 이후 호출).
+// base 서버이거나 환경변수가 안 갖춰져 있으면 아무 일도 안 하고 조용히 리턴한다.
+function startMonsterDexSync() {
+  if (MONSTERDEX_SYNC_ROLE !== 'remote' || !MONSTERDEX_BASE_URL || !MONSTERDEX_SYNC_SECRET) return;
+  console.log(`[store] 🔗 몬스터잡기 동기화 시작 (remote → ${MONSTERDEX_BASE_URL}, ${MONSTERDEX_SYNC_INTERVAL_MS / 1000}초마다)`);
+  mcPullFromBaseThenStart();
+}
+// 🚀 remote로 켜질 때마다(서버 시작/재배포마다), 이 서버에 그동안 쌓여있던 로컬 몬스터잡기
+// 데이터는 전부 버리고 기준(base) 서버의 최신 데이터를 그대로 받아와 시작 상태로 삼는다.
+// (delta:null로 보내면 base는 아무것도 안 바꾸고 자기 현재 스냅샷만 그대로 돌려준다.)
+// 기준 서버가 그 순간 응답이 없으면 어쩔 수 없이 로컬 데이터로 시작하되, 다음 30초 주기에
+// 다시 정상적으로 동기화를 시도한다.
+async function mcPullFromBaseThenStart() {
+  try {
+    const res = await fetch(MONSTERDEX_BASE_URL + '/internal/monsterdex/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Secret': MONSTERDEX_SYNC_SECRET },
+      body: JSON.stringify({ delta: null }),
+    });
+    const data = await res.json();
+    if (data && data.success && data.snapshot) {
+      _globalMcCache = data.snapshot;
+      saveGlobalMonsterDex();
+      _mcLastSyncSnapshot = mcDeepClone(_globalMcCache);
+      console.log('[store] 🔗 기준 서버의 몬스터잡기 데이터를 초기 상태로 불러왔어요 (이 서버에 남아있던 로컬 데이터는 버렸어요).');
+    } else {
+      _mcLastSyncSnapshot = mcDeepClone(loadGlobalMonsterDex());
+    }
+  } catch (e) {
+    console.log('[store] 몬스터잡기 초기 동기화 실패 — 일단 로컬 데이터로 시작하고 다음 주기에 재시도합니다:', e.message);
+    _mcLastSyncSnapshot = mcDeepClone(loadGlobalMonsterDex());
+  }
+  _mcSyncTimer = setInterval(mcSyncWithBase, MONSTERDEX_SYNC_INTERVAL_MS);
+}
+function isMonsterDexSyncSecret(secret) {
+  return !!MONSTERDEX_SYNC_SECRET && secret === MONSTERDEX_SYNC_SECRET;
+}
+
+// 🌐 외부(Base44) 자동 백업 — 배포 플랫폼의 디스크(Railway 볼륨 / Render 퍼시스턴트 디스크)가 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
+// 서비스에 통째로 복제본을 남겨두려는 목적. 백업만 하고 읽지는 않는다(원본은 항상 이 서버의 DATA_DIR).
 function getRawSnapshot() {
   return loadDjs();
 }
@@ -1261,4 +1415,7 @@ module.exports = {
   loadGlobalMonsterDex,
   saveGlobalMonsterDex,
   upsertMonsterCatalog,
+  applyMonsterDexDelta,
+  startMonsterDexSync,
+  isMonsterDexSyncSecret,
 };

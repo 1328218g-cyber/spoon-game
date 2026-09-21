@@ -13,10 +13,10 @@ const r2Backup = require('./r2Backup')
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
 // 처리 안 된 프로미스 거부(unhandledRejection)가 하나라도 나오면 Node.js는 기본적으로
 // 프로세스 전체를 즉시 종료시킨다. 이렇게 되면 "가끔씩 본섭이 다운되는" 원인 파악이 안 되고,
-// 그냥 Railway가 재시작해줄 때까지(또는 수동 재시작 전까지) 완전히 접속 불가 상태가 된다.
+// 그냥 배포 플랫폼(Railway/Render)이 재시작해줄 때까지(또는 수동 재시작 전까지) 완전히 접속 불가 상태가 된다.
 // 여기서 잡아서 로그만 남기고 프로세스는 계속 살려두면, 웬만한 오류는 그 순간의 요청/타이머만
 // 실패하고 넘어가고 서비스 전체는 안 죽는다. (진짜 메모리 부족 등 복구 불가능한 상태라면
-// 어차피 Railway의 헬스체크/재시작이 알아서 처리해준다.)
+// 어차피 배포 플랫폼(Railway/Render)의 헬스체크/재시작이 알아서 처리해준다.)
 process.on('uncaughtException', (err) => {
   console.error('[치명적 오류 — uncaughtException] 서버는 계속 실행됩니다:', err && err.stack || err)
 })
@@ -33,7 +33,7 @@ try {
 }
 
 const app = express()
-app.set('trust proxy', 1) // Railway는 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
+app.set('trust proxy', 1) // Railway/Render 둘 다 프록시 뒤에 있어서, 이걸 켜야 req.ip가 실제 접속자 IP를 가리킴 (중복가입 방지에 사용)
 app.use(cors({ origin: '*' }))
 app.use(express.json({ limit: '85mb' })) // 이미지 업로드가 60MB까지 허용되면서(base64 인코딩 시 약 1.33배) 여유있게 상향
 app.use(require('express').static(__dirname + '/public'))
@@ -104,10 +104,10 @@ function decompressBackup(rawStr) {
   }
 }
 
-// 🌐 외부(Base44) 자동 백업 — Railway 볼륨이 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
+// 🌐 외부(Base44) 자동 백업 — 배포 플랫폼의 디스크(Railway 볼륨 / Render 퍼시스턴트 디스크)가 또 손상되는 최악의 경우를 대비해서, 완전히 별개의
 // 외부 서버에도 유저 데이터를 주기적으로 복사해둔다. DJ별로 개별 레코드로 저장해서, 나중에 필요할 때
 // 특정 고유닉(djId) 하나만 콕 집어서 복구할 수 있게 한다. 환경변수로 안 넣어두면 아래 기본값
-// (2026-08-10 정식 배포 시 확인된 고정 주소)을 그대로 쓴다 — 보안이 신경쓰이면 Railway Variables에
+// (2026-08-10 정식 배포 시 확인된 고정 주소)을 그대로 쓴다 — 보안이 신경쓰이면 배포 플랫폼의 환경변수(Railway Variables / Render Environment)에
 // BASE44_BACKUP_URL / BASE44_BACKUP_KEY로 옮기고 아래 기본값은 지워도 된다.
 // ✅ 2026-08-10: Base44 앱을 정식 배포(Publish)해서 고정 도메인(tested-snap-vault-sync.base44.app)을
 // 받았다. "preview--..." 처럼 계속 바뀌던 임시 주소 문제는 이제 해결됨.
@@ -225,7 +225,7 @@ const SHARED_TOKEN_DJID = 'sum'
 // 못 들어가게 된다. 공용 계정을 여러 개 등록해두고, 앞 계정이 SHARED_TOKEN_CAPACITY만큼
 // 차면 다음 계정으로 자동으로 넘겨서 받는다.
 // 풀에 넣을 계정은 실제로 그 djId로 에디봇에 가입한 뒤 "세션 연결" 화면에서 스푼 세션을
-// 올려둬야 한다(=본인 계정 취급). Railway 환경변수 SHARED_TOKEN_POOL에 "sum,sum2"처럼
+// 올려둬야 한다(=본인 계정 취급). 배포 플랫폼 환경변수(Railway/Render) SHARED_TOKEN_POOL에 "sum,sum2"처럼
 // 콤마로 나열하면 되고, 안 정해두면 기존처럼 sum 하나만 쓴다.
 const SHARED_TOKEN_POOL = (process.env.SHARED_TOKEN_POOL || SHARED_TOKEN_DJID)
   .split(',').map(s => s.trim()).filter(Boolean)
@@ -300,12 +300,12 @@ function tokenDjIdFor(djId) {
   return picked
 }
 
-// 🔑 구글 보이스(TTS) API 키 — Railway 환경변수(Variables)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
+// 🔑 구글 보이스(TTS) API 키 — 배포 플랫폼 환경변수(Railway Variables / Render Environment)에 GOOGLE_TTS_API_KEY로 등록해서 사용한다.
 // 절대 프론트엔드(index.html) 코드에 직접 넣지 않는다 — 브라우저 소스보기로 그대로 노출되기 때문.
 // 이 키는 서버가 구글 API를 대신 호출할 때만 쓰이고, 클라이언트에는 절대 전달되지 않는다.
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''
 
-// 🔗 자체 단축 URL 시스템 — buly.kr 같은 외부 서비스는 클라우드 서버(Railway) IP에서 오는
+// 🔗 자체 단축 URL 시스템 — buly.kr 같은 외부 서비스는 클라우드 서버(Railway/Render) IP에서 오는
 // 요청을 조용히 막는(응답 자체를 안 주는) 경우가 있어서, 외부 서비스에 의존하지 않고
 // 에디봇 서버 자체에서 짧은 링크를 만들어 저장해뒀다가 리다이렉트해준다.
 const SHORTLINKS_FILE = path.join(store.DATA_DIR, 'shortlinks.json')
@@ -515,9 +515,9 @@ function scheduleFocusLogFlush() {
 
 // 관리자 대시보드의 "디버그 로그" 화면에도 실시간으로 뿌려준다. 새 모듈을 만들 때마다 이 화면에
 // 따로 연결할 필요 없이, 그냥 console.log(`[뭐뭐디버그:${djId}] ...`) 찍기만 하면 자동으로 여기
-// 보인다 — Railway 로그를 직접 뒤질 필요 없게 하려는 목적.
+// 보인다 — 배포 플랫폼(Railway/Render) 로그를 직접 뒤질 필요 없게 하려는 목적.
 // ⚠️ 관리자 에러 로그 — "방송 연결이 끊기거나(1006 등) 하트비트가 죽는" 것처럼 관리자가
-// 나중에 꼭 확인해야 하는 이벤트를, Railway 콘솔을 직접 뒤지지 않고도 관리자 페이지에서
+// 나중에 꼭 확인해야 하는 이벤트를, 배포 플랫폼(Railway/Render) 콘솔을 직접 뒤지지 않고도 관리자 페이지에서
 // 바로 볼 수 있게 store에 쌓아두고 실시간으로도 뿌려준다. 콘솔 로그(console.log)는 지금
 // 화면을 보고 있을 때만 보이는데, 이건 서버에 남아있어서 나중에 접속해도 확인 가능하다.
 function logAdminError(djId, type, message) {
@@ -529,7 +529,7 @@ function logAdminError(djId, type, message) {
 }
 
 // 🚨 서버 전체에서 처리되지 않은 예외/프라미스 거부도 놓치지 않고 에러 로그에 남긴다.
-// (이런 게 터지면 보통 특정 기능이 조용히 멈춰버리는데, 지금까진 Railway 콘솔에만 찍혀서
+// (이런 게 터지면 보통 특정 기능이 조용히 멈춰버리는데, 지금까진 배포 플랫폼(Railway/Render) 콘솔에만 찍혀서
 // 관리자가 먼저 알아채기 전까진 아무도 몰랐다.)
 process.on('uncaughtException', (err) => {
   console.log('[치명적 오류] uncaughtException:', err && err.stack || err)
@@ -942,7 +942,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   }
 }
 
-async function sendChatToRoom(djId, message) {
+async function sendChatToRoom(djId, message, _isRetry) {
   const room = getRoom(djId)
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
@@ -989,6 +989,15 @@ async function sendChatToRoom(djId, message) {
               .then(rt => { if (rt) { room.roomToken = rt; console.log(`[${djId}] roomToken 재발급 성공`) } return rt })
               .catch(e => { console.log(`[${djId}] roomToken 재발급 실패:`, e.message); return null })
               .finally(() => { room._roomTokenRefreshPromise = null })
+          }
+          // ⚠️ 예전엔 여기서 재발급을 "기다리지 않고" 바로 실패 처리해서, 실패했던 메시지(몬스터 등장,
+          // 퀴즈 문제 등) 자체는 그대로 유실됐다 — 다음 번 다른 메시지가 보내질 때만 새 토큰의
+          // 효과를 봤다. 재발급 결과를 기다렸다가, 성공하면 지금 실패한 이 메시지를 한 번 더
+          // 그대로 재전송해서 실제로 화면에 나가도록 한다 (무한 재시도 방지로 딱 한 번만).
+          const rt = await room._roomTokenRefreshPromise
+          if (rt && !_isRetry) {
+            console.log(`[${djId}] roomToken 재발급 완료 — 실패했던 메시지 재전송 시도`)
+            return sendChatToRoom(djId, message, true)
           }
         }
       } else if (res.status === 404 && room.ws) {
@@ -1698,7 +1707,7 @@ function scoreYoutubeCandidate(title, channelTitle, artist, songTitle) {
 }
 
 // 🔑 유튜브 Data API v3 키 — 관리자(sum)가 관리자 페이지에서 최대 3개까지 등록해둘 수 있다.
-// 등록된 키가 있으면 그걸 최우선으로 쓰고, 없으면 기존처럼 Railway 환경변수
+// 등록된 키가 있으면 그걸 최우선으로 쓰고, 없으면 기존처럼 배포 플랫폼 환경변수(Railway/Render)
 // (YOUTUBE_API_KEYS, 콤마로 여러 개 가능 — 예전 방식인 YOUTUBE_API_KEY 단일값도 계속 지원)를,
 // 그것도 없으면 로컬봇 시절부터 쓰던 단비님 소유의 키를 마지막 폴백으로 쓴다.
 function getYoutubeApiKeys() {
@@ -2300,10 +2309,15 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     const nums = args.map(a => parseInt(a, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 9)
 
     if (nums.length === 3) {
+      // ⚠️ 버그 수정: 예전엔 "!복권 1 1 1"처럼 같은 숫자를 중복으로 내면, 당첨번호에 그 숫자
+      // 하나만 포함돼도 중복 칸 3개가 전부 매칭 처리돼서 사실상 무조건 1등이 되던 문제가 있었다.
+      // 서로 다른 3개 숫자를 내야만 유효한 시도로 인정한다.
+      const uniqueNums = [...new Set(nums)]
+      if (uniqueNums.length < 3) { setTimeout(() => sendChatToRoom(djId, `❌ ${author}님, 서로 다른 숫자 3개를 입력해주세요! (예: !복권 1 2 3)`), 400); return }
       if ((d.lotto || 0) < 1) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
       d.lotto -= 1
       const winNums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5).slice(0, 3).sort((a, b) => a - b)
-      const myNums = nums.slice().sort((a, b) => a - b)
+      const myNums = uniqueNums.slice().sort((a, b) => a - b)
       const matches = myNums.filter(n => winNums.includes(n)).length
       let gainExp = expFail
       if (matches === 3) gainExp = exp1st
@@ -15101,7 +15115,7 @@ async function handleLoadData(tag, nickname, targetTag) {
   return `✅ ${displayName}님의 데이터를 불러왔습니다!\n⚔️ 보유 검: [+${dbUser.sword_level}] ${weaponName}\n⚡ 총 공격력: ${totalAttack.toFixed(1)}\n💰 보유 골드: ${(dbUser.gold || 0).toLocaleString()}골드\n🗡️ 던전 진행: ${dbUser.current_dungeon_floor || 1}층`;
 }
 // ── 설정 로드/저장: 관리자(sum) 계정 아래 공용으로 보관 ──
-// 원본은 매 액션마다 로컬 암호화 파일에 저장했는데, Railway는 재배포마다 디스크가 초기화되니
+// 원본은 매 액션마다 로컬 암호화 파일에 저장했는데, Railway/Render 둘 다 재배포마다 디스크가 초기화될 수 있으니
 // 그 대신 우리 서버의 영구 저장소(store, Volume 있으면 거기에 남음)에 저장한다.
 let swordSaveDebounceTimer = null
 function saveLocalData() {
@@ -18977,7 +18991,7 @@ app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-// 관리자(sum) 전용 — 유튜브 Data API v3 키 조회/등록 (최대 3개). 등록해두면 Railway 환경변수보다
+// 관리자(sum) 전용 — 유튜브 Data API v3 키 조회/등록 (최대 3개). 등록해두면 배포 플랫폼 환경변수(Railway/Render)보다
 // 우선해서 쓰이고, 검색 도중 하나가 쿼터를 다 쓰면 자동으로 다음 등록 키로 넘어간다.
 // 조회 응답에는 키를 그대로 노출하지 않고 마스킹해서 내려준다 (앞 6자만 보여줌).
 app.get('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
@@ -19191,6 +19205,26 @@ app.post('/admin/users/bulk-expiry', auth.requireAuth, (req, res) => {
   for (const targetId of djIds) {
     if (!store.exists(targetId)) { notFound.push(targetId); continue }
     store.saveSettings(targetId, { expiresAt: isoExpiresAt, expiryStartAt: isoStartAt })
+    okCount++
+  }
+  res.json({ success: true, okCount, notFound })
+})
+
+// 관리자(sum) 전용 — 체크박스로 선택한 여러 디제이 계정을 한 번에 삭제한다.
+app.post('/admin/users/bulk-delete', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const adminSettings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const djIds = Array.isArray((req.body || {}).djIds) ? [...new Set(req.body.djIds.map(String))].filter(id => id !== 'sum') : []
+  if (!djIds.length) return res.json({ success: false, error: '선택된 디제이가 없어요' })
+  const notFound = []
+  let okCount = 0
+  for (const targetId of djIds) {
+    const room = getRoom(targetId)
+    if (room.ws) { room.ws.terminate() }
+    delete rooms[targetId]
+    const ok = store.deleteDj(targetId)
+    if (!ok) { notFound.push(targetId); continue }
     okCount++
   }
   res.json({ success: true, okCount, notFound })
@@ -22159,6 +22193,17 @@ app.get('/admin/monsterdex/users', auth.requireAuth, (req, res) => {
   })
   res.json({ success: true, users, total })
 })
+// 🔗 몬스터잡기 크로스서버 동기화 — remote 서버(예: Render)가 30초마다 이 주소로 변화량(델타)을
+// 보내면, 이 서버(기준/base)가 그 델타를 자기 전역 도감에 합쳐 반영하고 병합된 최신 전체 상태를
+// 돌려준다. 로그인 세션이 아니라 서버-서버 통신이라 auth.requireAuth 대신 별도 비밀값(X-Sync-Secret
+// 헤더)으로만 검증한다 — 환경변수 MONSTERDEX_SYNC_SECRET이 설정돼 있어야 실제로 동작한다.
+app.post('/internal/monsterdex/sync', (req, res) => {
+  const secret = req.headers['x-sync-secret']
+  if (!store.isMonsterDexSyncSecret(secret)) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { delta } = req.body || {}
+  const snapshot = store.applyMonsterDexDelta(delta)
+  res.json({ success: true, snapshot })
+})
 app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const tag = req.params.tag
@@ -22167,6 +22212,39 @@ app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
   if (!mcAllKnownTags().has(tag)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   if (points != null) d.points[tag] = Math.max(0, Number(points) || 0)
   if (resetCoupons != null) d.resetCoupons[tag] = Math.max(0, Number(resetCoupons) || 0)
+  mcSaveWebData()
+  res.json({ success: true })
+})
+// 🎁 관리자(sum) 전용 — 특정 유저에게 포획볼/고급볼을 바로 지급하거나, 몬스터를 도감에 직접
+// 넣어주고(+수량) 그 몬스터의 레벨까지 한 번에 지정할 수 있게 한다. (문의 대응, 이벤트 경품 지급 등)
+app.post('/admin/monsterdex/users/:tag/grant', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const tag = req.params.tag
+  const { monsterId, count, level, addBags, addGreatBags } = req.body || {}
+  const d = mcGetWebData()
+  const globalDex = store.loadGlobalMonsterDex()
+  let changed = false
+
+  if (addBags) { globalDex.bags[tag] = Math.max(0, (Number(globalDex.bags[tag]) || 0) + (Number(addBags) || 0)); changed = true }
+  if (addGreatBags) { globalDex.greatBags[tag] = Math.max(0, (Number(globalDex.greatBags[tag]) || 0) + (Number(addGreatBags) || 0)); changed = true }
+
+  if (monsterId) {
+    const catalog = mcAdminCatalog()
+    if (!catalog.some(m => String(m.id) === String(monsterId))) return res.json({ success: false, error: '존재하지 않는 몬스터예요' })
+    const n = Math.max(1, Number(count) || 1)
+    if (!globalDex.collections[tag]) globalDex.collections[tag] = {}
+    globalDex.collections[tag][monsterId] = (Number(globalDex.collections[tag][monsterId]) || 0) + n
+    changed = true
+
+    if (level != null && String(level).trim() !== '') {
+      const lv = Math.max(1, Number(level) || 1)
+      if (!d.levels[tag]) d.levels[tag] = {}
+      d.levels[tag][monsterId] = { level: lv, exp: 0 }
+    }
+  }
+
+  if (!changed) return res.json({ success: false, error: '지급할 항목을 입력해주세요' })
+  store.saveGlobalMonsterDex()
   mcSaveWebData()
   res.json({ success: true })
 })
@@ -24039,9 +24117,9 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html')
 })
 
-// 🩺 헬스체크 — Railway가 이 주소로 주기적으로 접속해봐서, 응답이 없으면(서버가 멈췄으면)
+// 🩺 헬스체크 — 배포 플랫폼(Railway/Render)이 이 주소로 주기적으로 접속해봐서, 응답이 없으면(서버가 멈췄으면)
 // 자동으로 재시작하게 만드는 용도. 지금까지는 "가끔 접속 안 될 때 수동으로 재시작"해야 했는데,
-// 이 경로를 Railway 설정(Settings → Healthcheck Path)에 등록해두면 Railway가 알아서 감지하고
+// 이 경로를 배포 플랫폼 설정(Railway: Settings → Healthcheck Path / Render: Health Check Path)에 등록해두면 알아서 감지하고
 // 재시작해준다 (사람이 직접 안 눌러도 됨).
 app.get('/health', (req, res) => {
   res.status(200).json({ ok: true, uptime: process.uptime() })
@@ -24079,6 +24157,11 @@ app.listen(PORT, () => {
 
   // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
   try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
+
+  // 🔗 몬스터잡기 크로스서버 동기화 — 이 서버가 MONSTERDEX_SYNC_ROLE=remote로 설정돼 있을 때만
+  // 실제로 동작한다(그 외엔 조용히 리턴). base 서버 쪽은 별도 시작 절차 없이, 아래 등록한
+  // /internal/monsterdex/sync 라우트가 remote의 요청을 받을 때마다 자연스럽게 반영된다.
+  try { store.startMonsterDexSync() } catch (e) { console.log('[몬스터잡기 동기화] 시작 실패', e.message) }
 
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   const loadedDjIds = tokenManager.initFromDisk()
@@ -24126,7 +24209,7 @@ app.listen(PORT, () => {
   setInterval(cleanupOldGiftCaptureBackgrounds, 60 * 60 * 1000)
 })
 
-// 🛑 Railway가 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
+// 🛑 배포 플랫폼(Railway/Render)이 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
