@@ -371,6 +371,23 @@ function validEmail(email) {
 //
 // 전체 스위치도 따로 둔다 — 데이터 유실 복구처럼 짧은 시간에 여러 명이 재가입해야 하는
 // 상황에서는 이 체크 자체가 방해가 될 수 있어서, 관리자가 통째로 껐다 켰다 할 수 있게 한다.
+// 🚪 신규 회원가입 전체 ON/OFF — 관리자가 끄면 새로운 계정 가입 자체를 막는다(기존 유저 로그인은
+// 그대로 가능). 관리자가 유저관리 화면에서 "수동 계정 생성"으로 만드는 건 이 스위치와 무관하게
+// 항상 가능하다(/admin/create-account는 이 값을 확인하지 않는다).
+function getSignupEnabled() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.signupEnabled;
+  return v !== false; // 기본값 true (명시적으로 false로 꺼둔 경우만 꺼짐)
+}
+function setSignupEnabled(enabled) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.signupEnabled = !!enabled;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function getDuplicateCheckEnabled() {
   const djs = loadDjs();
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.duplicateCheckEnabled;
@@ -1375,6 +1392,8 @@ module.exports = {
   removeDuplicateCheckAllowedIp,
   getDuplicateCheckEnabled,
   setDuplicateCheckEnabled,
+  getSignupEnabled,
+  setSignupEnabled,
   getAnnouncement,
   setAnnouncement,
   getAnnouncementHistory,

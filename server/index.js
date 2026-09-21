@@ -18237,6 +18237,7 @@ app.post('/admin/create-account', auth.requireAuth, (req, res) => {
 })
 
 app.post('/auth/signup', (req, res) => {
+  if (!store.getSignupEnabled()) return res.json({ success: false, error: '지금은 신규 가입을 받고 있지 않아요. 나중에 다시 시도해주세요.' })
   const { djId, password, djTag, email, deviceId, referrerId } = req.body || {}
   const signupIp = req.ip
   const result = store.signup(djId, password, djTag, email, signupIp, deviceId, false, referrerId)
@@ -18544,6 +18545,18 @@ app.post('/admin/duplicate-check-enabled', auth.requireAuth, (req, res) => {
   if (!result.ok) return res.json(result)
   res.json({ success: true, enabled: store.getDuplicateCheckEnabled() })
 })
+// 🚪 관리자(sum) 전용 — 신규 회원가입 전체 ON/OFF. 기존 유저 로그인/이용에는 영향 없다.
+app.get('/admin/signup-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, enabled: store.getSignupEnabled() })
+})
+app.post('/admin/signup-enabled', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setSignupEnabled((req.body || {}).enabled)
+  if (!result.ok) return res.json(result)
+  res.json({ success: true, enabled: store.getSignupEnabled() })
+})
+
 
 // 관리자(sum) 전용 — 중복 가입 체크에서 제외할 IP 목록(피시방/공용 와이파이 등) 관리
 app.get('/admin/duplicate-check-allowed-ips', auth.requireAuth, (req, res) => {
