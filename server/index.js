@@ -22193,6 +22193,17 @@ app.get('/admin/monsterdex/users', auth.requireAuth, (req, res) => {
   })
   res.json({ success: true, users, total })
 })
+// 🔗 몬스터잡기 크로스서버 동기화 — remote 서버(예: Render)가 30초마다 이 주소로 변화량(델타)을
+// 보내면, 이 서버(기준/base)가 그 델타를 자기 전역 도감에 합쳐 반영하고 병합된 최신 전체 상태를
+// 돌려준다. 로그인 세션이 아니라 서버-서버 통신이라 auth.requireAuth 대신 별도 비밀값(X-Sync-Secret
+// 헤더)으로만 검증한다 — 환경변수 MONSTERDEX_SYNC_SECRET이 설정돼 있어야 실제로 동작한다.
+app.post('/internal/monsterdex/sync', (req, res) => {
+  const secret = req.headers['x-sync-secret']
+  if (!store.isMonsterDexSyncSecret(secret)) return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { delta } = req.body || {}
+  const snapshot = store.applyMonsterDexDelta(delta)
+  res.json({ success: true, snapshot })
+})
 app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
   const tag = req.params.tag
@@ -22201,6 +22212,39 @@ app.post('/admin/monsterdex/users/:tag/edit', auth.requireAuth, (req, res) => {
   if (!mcAllKnownTags().has(tag)) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   if (points != null) d.points[tag] = Math.max(0, Number(points) || 0)
   if (resetCoupons != null) d.resetCoupons[tag] = Math.max(0, Number(resetCoupons) || 0)
+  mcSaveWebData()
+  res.json({ success: true })
+})
+// 🎁 관리자(sum) 전용 — 특정 유저에게 포획볼/고급볼을 바로 지급하거나, 몬스터를 도감에 직접
+// 넣어주고(+수량) 그 몬스터의 레벨까지 한 번에 지정할 수 있게 한다. (문의 대응, 이벤트 경품 지급 등)
+app.post('/admin/monsterdex/users/:tag/grant', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const tag = req.params.tag
+  const { monsterId, count, level, addBags, addGreatBags } = req.body || {}
+  const d = mcGetWebData()
+  const globalDex = store.loadGlobalMonsterDex()
+  let changed = false
+
+  if (addBags) { globalDex.bags[tag] = Math.max(0, (Number(globalDex.bags[tag]) || 0) + (Number(addBags) || 0)); changed = true }
+  if (addGreatBags) { globalDex.greatBags[tag] = Math.max(0, (Number(globalDex.greatBags[tag]) || 0) + (Number(addGreatBags) || 0)); changed = true }
+
+  if (monsterId) {
+    const catalog = mcAdminCatalog()
+    if (!catalog.some(m => String(m.id) === String(monsterId))) return res.json({ success: false, error: '존재하지 않는 몬스터예요' })
+    const n = Math.max(1, Number(count) || 1)
+    if (!globalDex.collections[tag]) globalDex.collections[tag] = {}
+    globalDex.collections[tag][monsterId] = (Number(globalDex.collections[tag][monsterId]) || 0) + n
+    changed = true
+
+    if (level != null && String(level).trim() !== '') {
+      const lv = Math.max(1, Number(level) || 1)
+      if (!d.levels[tag]) d.levels[tag] = {}
+      d.levels[tag][monsterId] = { level: lv, exp: 0 }
+    }
+  }
+
+  if (!changed) return res.json({ success: false, error: '지급할 항목을 입력해주세요' })
+  store.saveGlobalMonsterDex()
   mcSaveWebData()
   res.json({ success: true })
 })
@@ -24113,6 +24157,11 @@ app.listen(PORT, () => {
 
   // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
   try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
+
+  // 🔗 몬스터잡기 크로스서버 동기화 — 이 서버가 MONSTERDEX_SYNC_ROLE=remote로 설정돼 있을 때만
+  // 실제로 동작한다(그 외엔 조용히 리턴). base 서버 쪽은 별도 시작 절차 없이, 아래 등록한
+  // /internal/monsterdex/sync 라우트가 remote의 요청을 받을 때마다 자연스럽게 반영된다.
+  try { store.startMonsterDexSync() } catch (e) { console.log('[몬스터잡기 동기화] 시작 실패', e.message) }
 
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   const loadedDjIds = tokenManager.initFromDisk()
