@@ -77,57 +77,83 @@ const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
-// 🌐 스푼(*.spooncast.net)으로 나가는 요청만 레지덴셜 프록시(IPRoyal ISP Dedicated 등)를 거치게 한다.
-// 배포 서버(Railway/Render)의 데이터센터 IP 자체가 스푼 쪽에서 차단당해서(403), 채팅 전송·방송상태
-// 조회 같은 요청이 전부 실패하던 문제의 우회책.
+// 🌐 스푼(*.spooncast.net)으로 나가는 요청/연결을 레지덴셜 프록시(IPRoyal ISP Dedicated 등)로 우회시킨다.
+// 배포 서버(Railway/Render)의 데이터센터 IP 자체가 스푼 쪽에서 차단당해서(403) 생긴 우회책.
 // ⚠️ 시행착오 기록:
 //  1차: setGlobalDispatcher로 fetch 전체를 가로채는 방식 → Base44처럼 스푼이랑 무관한 요청까지
 //       이 dispatcher를 타면서 응답 본문이 깨지는(바이너리 쓰레기) 부작용 발생 → 폐기.
 //  2차: Node 전역 fetch()에 { dispatcher: proxyAgent } 옵션을 넘기는 방식 → 전부 UND_ERR_INVALID_ARG로
 //       실패. 이유: Node의 "전역" fetch()는 undici 패키지에서 직접 가져온 fetch랑 달라서
-//       dispatcher 옵션 자체를 인식 못 하고 거부한다(전역 fetch는 이 옵션을 지원 안 함).
-//  3차(현재): undici 패키지에서 fetch를 직접 import해서 그걸로만 호출해야 dispatcher가 먹힌다.
-//       그래서 전역 fetch를 그대로 건드리지 않고, spoonFetch(url, opts)라는 별도 함수를 만들어
-//       스푼 관련 호출부에서만 fetch(...) 대신 이걸 쓰도록 바꿨다.
-// 환경변수 SPOON_PROXY_URL 형식: http://유저명:비번@호스트:포트  (없으면 프록시 없이 그냥 전역 fetch로 직접 연결)
-let ProxyAgent = null, undiciFetch = null
+//       dispatcher 옵션 자체를 인식 못 하고 거부한다.
+//  3차: 프록시 1개로 계정 전부(WebSocket 포함) 몰아넣음 → 동시 연결 개수가 많아지니 프록시 쪽에서
+//       예고 없이 끊어버림(code 1006)이 계속 반복됨 — 프록시 하나가 감당 못 하는 부하였다.
+//  4차(현재): 프록시를 여러 개 등록해두고, 계정(djId)마다 항상 같은 프록시로 고정 배정(sticky)해서
+//       부하를 나눈다. 같은 계정이 매번 다른 프록시를 타면 스푼 쪽에서 "여기저기서 로그인하는"
+//       의심스러운 패턴으로 볼 수 있어서, 계정별로는 항상 같은 프록시를 쓰게 고정한다.
+// 환경변수 SPOON_PROXY_URLS 형식: 쉼표로 구분된 여러 프록시 URL
+//   예) http://user1:pass1@host1:port1,http://user2:pass2@host2:port2
+// (프록시 하나만 쓸 거면 SPOON_PROXY_URL 하나만 넣어도 되고, 둘 다 없으면 프록시 없이 직접 연결)
+let ProxyAgent = null, undiciFetch = null, HttpsProxyAgent = null
 try {
   ; ({ ProxyAgent, fetch: undiciFetch } = require('undici'))
 } catch (e) {
   console.log('[스푼 프록시] undici 패키지가 설치되지 않았어요. "npm install undici --save" 실행 후 다시 배포해주세요. 그 전까지 프록시 없이 직접 연결됩니다.')
 }
-const SPOON_PROXY_URL = process.env.SPOON_PROXY_URL || ''
-let spoonProxyAgent = null
-if (ProxyAgent && SPOON_PROXY_URL) {
-  try {
-    spoonProxyAgent = new ProxyAgent(SPOON_PROXY_URL)
-    const safeProxyLabel = SPOON_PROXY_URL.replace(/\/\/[^@]+@/, '//***:***@') // 비밀번호가 로그에 남지 않게
-    console.log(`[스푼 프록시] 활성화됨 — spooncast.net 요청에 ${safeProxyLabel} 적용`)
-  } catch (e) {
-    console.log('[스푼 프록시] 초기화 실패, 직접 연결로 동작합니다:', e.message)
-  }
-} else if (ProxyAgent) {
-  console.log('[스푼 프록시] SPOON_PROXY_URL 환경변수가 없어서 비활성화 상태예요. Railway/Render Variables에 등록해주세요.')
-}
-// 스푼으로 나가는 요청은 fetch(...) 대신 이 함수로 호출한다. 프록시가 없으면(로컬 개발 등)
-// 그냥 평소 전역 fetch랑 똑같이 동작한다.
-async function spoonFetch(url, opts = {}) {
-  if (spoonProxyAgent && undiciFetch) return undiciFetch(url, { ...opts, dispatcher: spoonProxyAgent })
-  return fetch(url, opts)
-}
-
-// 🔌 WebSocket(wss://kr-wala.spooncast.net)도 fetch랑 똑같이 데이터센터 IP라 차단당한다 — 근데 `ws`
-// 패키지는 undici의 ProxyAgent가 아니라 Node 표준 http.Agent 인터페이스를 쓰기 때문에 별도 라이브러리가
-// 필요하다. https-proxy-agent가 CONNECT 터널링으로 http/https/wss 프록시를 다 지원한다.
-let HttpsProxyAgent = null
 try {
   ; ({ HttpsProxyAgent } = require('https-proxy-agent'))
 } catch (e) {
   console.log('[스푼 프록시] https-proxy-agent 패키지가 설치되지 않았어요. "npm install https-proxy-agent --save" 실행 후 다시 배포해주세요. 그 전까지 WebSocket 연결은 프록시 없이 직접 이뤄집니다.')
 }
-const spoonWsProxyAgent = (HttpsProxyAgent && SPOON_PROXY_URL) ? new HttpsProxyAgent(SPOON_PROXY_URL) : null
-// new WebSocket(url, { ...SPOON_WS_OPTS, headers: {...} }) 처럼 옵션에 스프레드해서 쓴다.
-const SPOON_WS_OPTS = spoonWsProxyAgent ? { agent: spoonWsProxyAgent } : {}
+const SPOON_PROXY_URLS = (process.env.SPOON_PROXY_URLS || process.env.SPOON_PROXY_URL || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
+// [{ url, fetchAgent(undici ProxyAgent), wsAgent(https-proxy-agent) }, ...]
+let spoonProxyPool = []
+if (ProxyAgent && HttpsProxyAgent && SPOON_PROXY_URLS.length) {
+  try {
+    spoonProxyPool = SPOON_PROXY_URLS.map(url => ({
+      url,
+      fetchAgent: new ProxyAgent(url),
+      wsAgent: new HttpsProxyAgent(url),
+    }))
+    const safeLabels = SPOON_PROXY_URLS.map(u => u.replace(/\/\/[^@]+@/, '//***:***@')) // 비밀번호가 로그에 안 남게
+    console.log(`[스푼 프록시] 활성화됨 — ${spoonProxyPool.length}개 프록시로 분산: ${safeLabels.join(', ')}`)
+  } catch (e) {
+    spoonProxyPool = []
+    console.log('[스푼 프록시] 초기화 실패, 직접 연결로 동작합니다:', e.message)
+  }
+} else if (ProxyAgent && HttpsProxyAgent) {
+  console.log('[스푼 프록시] SPOON_PROXY_URLS(또는 SPOON_PROXY_URL) 환경변수가 없어서 비활성화 상태예요.')
+}
+
+// djId 문자열을 프록시 풀 인덱스로 고정 매핑한다 (같은 djId는 항상 같은 결과).
+function hashDjIdToIndex(djId, mod) {
+  const s = String(djId || '')
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h % mod
+}
+// djId가 있으면 그 계정 전용(고정) 프록시를, djId를 모르는 공용 호출(관리자 랭킹 스캔 등)이면
+// 라운드로빈으로 순서대로 돌려가며 부하를 분산한다.
+let spoonProxyRoundRobinIdx = 0
+function getProxyForDj(djId) {
+  if (!spoonProxyPool.length) return null
+  if (djId) return spoonProxyPool[hashDjIdToIndex(djId, spoonProxyPool.length)]
+  return spoonProxyPool[(spoonProxyRoundRobinIdx++) % spoonProxyPool.length]
+}
+
+// 스푼으로 나가는 요청은 fetch(...) 대신 이 함수로 호출한다. djId를 넘기면 그 계정 고정 프록시를,
+// 안 넘기면 라운드로빈으로 분산한다. 프록시가 하나도 없으면(로컬 개발 등) 평소 전역 fetch와 동일하다.
+async function spoonFetch(url, opts = {}, djId = null) {
+  const entry = getProxyForDj(djId)
+  if (entry && undiciFetch) return undiciFetch(url, { ...opts, dispatcher: entry.fetchAgent })
+  return fetch(url, opts)
+}
+// WebSocket 연결에 쓸 프록시 에이전트(agent 옵션)를 djId 고정 배정으로 가져온다. 프록시 없으면 undefined.
+function getSpoonWsAgent(djId) {
+  const entry = getProxyForDj(djId)
+  return entry ? entry.wsAgent : undefined
+}
 
 // 👋 입장/좋아요/퇴장 기본 인사 문구 — DJ가 설정 화면에서 한 번도 "저장"을 안 눌러도
 // (즉 settings.joinMessages 등이 아직 서버에 없어도) 모듈만 켜면 바로 동작하도록 하는 기본값.
@@ -660,7 +686,7 @@ app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-async function fetchUserStatusByTag(tag) {
+async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
   try {
@@ -671,7 +697,7 @@ async function fetchUserStatusByTag(tag) {
         'X-Client-App': 'sopia-web',
         'X-Client-Version': '1.0.0',
       }
-    })
+    }, djId)
     // ⚠️ 예전엔 여기서 실패 원인을 전부 조용히 삼켜서(catch에서 그냥 null), 방송중인데 "방송 중이
     // 아니에요"로 잘못 뜨는 게 진짜 오프라인인지 API 자체가 막힌 건지(IP 차단/레이트리밋 등)
     // 로그로 구분이 안 됐다. res.ok가 아니면 무슨 응답인지 남긴다.
@@ -978,7 +1004,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   if (cookieHeader) headers['Cookie'] = cookieHeader
   try {
     // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
-    const getRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
+    const getRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, { headers }, djId)
     const getText = await getRes.text().catch(() => '')
     if (!getRes.ok) {
       console.log(`[공지변경:${djId}] GET 실패 status=${getRes.status}:`, getText.slice(0, 500))
@@ -1003,7 +1029,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
       method: 'PUT',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
-    })
+    }, djId)
     const putText = await putRes.text().catch(() => '')
     console.log(`[공지변경:${djId}] PUT 응답 status=${putRes.status}:`, putText.slice(0, 1500))
     if (!putRes.ok) return { ok: false, error: `응답 ${putRes.status}`, detail: putText.slice(0, 300) }
@@ -1041,7 +1067,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
       method: 'POST',
       headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
-    })
+    }, djId)
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '')
       console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, bodyText.slice(0, 300), '— 메시지:', message)
@@ -3580,7 +3606,7 @@ async function miBuildProfile(djId, settings, tag) {
   }
   if (!imgUrl) {
     try {
-      const info = await fetchUserStatusByTag(tag)
+      const info = await fetchUserStatusByTag(tag, djId)
       if (info && info.photoUrl) imgUrl = info.photoUrl
     } catch (e) { /* 조회 실패해도 그냥 기본 아이콘으로 보여주면 되니 무시 */ }
   }
@@ -16716,7 +16742,7 @@ function scheduleReconnect(djId, room, reason) {
       // 방송이 아직 켜져 있는지 먼저 확인한다. 꺼졌으면 재시도를 멈추고, 방송을 껐다 켜서
       // liveId가 바뀌었으면 새 liveId로 갱신해서 붙는다.
       if (room.watchingTag) {
-        const cur = await fetchUserStatusByTag(room.watchingTag)
+        const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           const endedTag = room.watchingTag
           console.log(`[${djId}] 재접속 중단 — @${endedTag} 방송이 종료된 상태예요`)
@@ -16784,7 +16810,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   }
 
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
-    ...SPOON_WS_OPTS,
+    agent: getSpoonWsAgent(djId),
     headers: {
       'Origin': 'https://www.spooncast.net',
       'User-Agent': CHROME_UA,
@@ -16792,6 +16818,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
   })
   room.ws = ws
+  ws.createdAt = Date.now() // 💓 프록시 경유로 연결에 시간이 걸릴 때, "아직 연결 중"인 걸 "죽은 연결"로 오판하지 않기 위한 기준시각
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
   ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
   ws.lastPingAt = 0 // 💓 방금 보낸 ping 시각 — pong이 돌아왔을 때 왕복시간(RTT)을 재기 위함(진단용)
@@ -17288,6 +17315,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 //    즉시 죽은 연결로 판단한다 — 다음 주기까지 기다릴 필요가 없다.
 const HEARTBEAT_INTERVAL_MS = 15 * 1000
 const HEARTBEAT_MAX_MISSED = 3 // 15초 × 3 = 최대 45초 안에 죽은 연결 감지
+const WS_CONNECT_GRACE_MS = 30 * 1000 // 🌐 프록시 경유 연결은 CONNECT 터널링 + TLS 핸드셰이크가 추가로 걸려서 직결보다 오래 걸린다.
+// 아직 연결 중(CONNECTING)인 소켓을 "죽은 연결"로 오판해서 핸드셰이크가 끝나기도 전에 끊어버리던
+// 문제(코드 1006 → 3초 재접속 → 또 끊김... 무한루프)가 있었다 — 생성된 지 이 시간 안이면 봐준다.
 
 setInterval(() => {
   for (const djId of store.listDjIds()) {
@@ -17296,6 +17326,8 @@ setInterval(() => {
     if (!ws) continue
 
     if (ws.readyState !== WebSocket.OPEN) {
+      // 아직 연결 시도 중(CONNECTING=0)이고 생성된 지 얼마 안 됐으면, 핸드셰이크가 끝날 시간을 준다.
+      if (ws.readyState === WebSocket.CONNECTING && Date.now() - (ws.createdAt || 0) < WS_CONNECT_GRACE_MS) continue
       console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
       logAdminError(djId, '하트비트', `소켓 상태 이상(readyState=${ws.readyState}) → 종료 처리`)
       try { ws.terminate() } catch (e) {}
@@ -19487,7 +19519,7 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
     if (!imgUrl) {
       // 캐시에 없으면(최근에 채팅/좋아요 등으로 확인된 적 없으면) 스푼 검색 API로 실제 프로필 사진을 직접 조회한다.
       try {
-        const info = await fetchUserStatusByTag(tag)
+        const info = await fetchUserStatusByTag(tag, req.djId)
         if (info && info.photoUrl) {
           imgUrl = info.photoUrl
           rememberProfileUrl(room, tag, nickname, imgUrl)
@@ -19559,7 +19591,7 @@ app.get('/activity/users', auth.requireAuth, async (req, res) => {
     let imgUrl = getCachedProfileUrl(room, d.tag, d.nickname)
     if (!imgUrl && d.tag) {
       try {
-        const info = await fetchUserStatusByTag(d.tag)
+        const info = await fetchUserStatusByTag(d.tag, req.djId)
         if (info && info.photoUrl) imgUrl = info.photoUrl
       } catch (e) { /* 조회 실패 시 이니셜 아바타로 대체 */ }
     }
@@ -23994,7 +24026,7 @@ async function checkAdminAutoJoin() {
     try {
       // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지 확인만 하고 유지 (끝났으면 연결 해제)
       if (room.isConnected && room.watchingTag) {
-        const cur = await fetchUserStatusByTag(room.watchingTag)
+        const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
           cancelReconnect(room) // 🔁 방송이 끝난 거니 재접속 예약은 취소
@@ -24015,7 +24047,7 @@ async function checkAdminAutoJoin() {
       }
 
       for (const tag of tagList) {
-        const status = await fetchUserStatusByTag(tag)
+        const status = await fetchUserStatusByTag(tag, djId)
         if (status && status.is_live && status.current_live_id) {
           // 🚫 이 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 이 계정은 입장시키지
           // 않고 경고만 보낸 뒤 다음 고유닉으로 넘어간다.
@@ -24151,7 +24183,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
 
   try {
-    const status = await fetchUserStatusByTag(cleanTag)
+    const status = await fetchUserStatusByTag(cleanTag, djId)
     if (!status || !status.is_live || !status.current_live_id) {
       broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
       return res.json({ success: false, error: '현재 방송 중이 아니에요' })
