@@ -5769,7 +5769,7 @@ function getDashboardData(djId, settings) {
     settings.dashboard = {
       spoonLog: {}, // { 'YYYY-MM-DD': { total, byUser: { tag: { nickname, amount, count } } } }
       heartLog: {}, // { tag: { nickname, count } }
-      likeStats: { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 },
+      likeStats: { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0, lastResetMonth: thisMonthKST() },
       djTag: '', // 이달의 DJ 랭킹(초이스/좋아요/방송시간) 조회에 쓸, 등록해둔 본인 고유닉
       rankData: null, // { nickname, tag, ranks:{next_choice,free_like,live_time}, updatedAt }
     }
@@ -5777,7 +5777,10 @@ function getDashboardData(djId, settings) {
   }
   if (!settings.dashboard.spoonLog) settings.dashboard.spoonLog = {}
   if (!settings.dashboard.heartLog) settings.dashboard.heartLog = {}
-  if (!settings.dashboard.likeStats) settings.dashboard.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0 }
+  if (!settings.dashboard.likeStats) settings.dashboard.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: 0, lastResetMonth: thisMonthKST() }
+  // 🗓️ 예전부터 있던 계정엔 lastResetMonth가 없을 수 있음 — 지금 바로 리셋하면 안 되니
+  // "이번 달"로 기준선만 잡아두고, 다음 달로 넘어갈 때부터 자동 리셋 대상이 되게 한다.
+  if (!settings.dashboard.likeStats.lastResetMonth) settings.dashboard.likeStats.lastResetMonth = thisMonthKST()
   if (settings.dashboard.djTag == null) settings.dashboard.djTag = ''
   if (settings.dashboard.rankData === undefined) settings.dashboard.rankData = null
   return settings.dashboard
@@ -18219,6 +18222,56 @@ function migrateSoundDataToFiles() {
   }
 }
 
+// 🎡 예전에 "/roulette/history/:tag/coupon" API가 tag를 trim/lowercase 정규화 없이 그대로 키로
+// 써서 생긴 유령 레코드를 정리하는 1회성 마이그레이션. (지급 직후 채팅 명령 !룰렛N으로 쓰면
+// "부족합니다"가 뜨던 버그의 원인 — 대시보드 지급은 원본 케이스 키에, 채팅 사용은 소문자 정규화된
+// 키에 각각 따로 저장/조회되고 있었음)
+// 서버 시작할 때마다 실행되지만, 이미 정규화된 키는 건드리지 않으므로 두 번째 실행부터는 사실상 아무 일도 안 한다.
+function migrateRouletteHistoryTagKeys() {
+  let mergedCount = 0
+  for (const djId of store.listDjIds()) {
+    const settings = store.getSettings(djId) || {}
+    const hist = settings.rouletteHistory
+    if (!hist || typeof hist !== 'object') continue
+    let changed = false
+
+    for (const rawKey of Object.keys(hist)) {
+      const cleanKey = String(rawKey).trim().toLowerCase()
+      if (cleanKey === rawKey) continue // 이미 정규화된 키는 그대로 둔다
+      const src = hist[rawKey]
+      if (!src) { delete hist[rawKey]; changed = true; continue }
+
+      if (!hist[cleanKey]) {
+        // 정규화된 키로 된 기록이 아직 없으면 키 이름만 바꿔치기
+        hist[cleanKey] = src
+      } else {
+        // 이미 정규화된 키로 된 기록이 있으면(둘 다 쓰이고 있었던 경우) 수량을 합쳐서 병합한다
+        const dst = hist[cleanKey]
+        if (!dst.coupons) dst.coupons = {}
+        Object.keys(src.coupons || {}).forEach(idx => {
+          dst.coupons[idx] = Number(dst.coupons[idx] || 0) + Number(src.coupons[idx] || 0)
+        })
+        ;['keepList', 'miscList', 'eventList'].forEach(listKey => {
+          if (!dst[listKey]) dst[listKey] = {}
+          Object.keys(src[listKey] || {}).forEach(name => {
+            dst[listKey][name] = Number(dst[listKey][name] || 0) + Number(src[listKey][name] || 0)
+          })
+        })
+        if (Array.isArray(src.wins)) dst.wins = (dst.wins || []).concat(src.wins)
+        if (!dst.nickname && src.nickname) dst.nickname = src.nickname
+      }
+      delete hist[rawKey]
+      mergedCount++
+      changed = true
+    }
+
+    if (changed) store.saveSettings(djId, { rouletteHistory: hist })
+  }
+  if (mergedCount > 0) {
+    console.log(`[룰렛기록 키 정규화 마이그레이션] 완료 — 원본 케이스 키 ${mergedCount}개를 정규화된 키로 병합했어요.`)
+  }
+}
+
 // 👤 관리자 전용 — 수동으로 계정 생성 (일반 회원가입과 같은 로직이지만, 중복가입 IP/기기 체크는 건너뛴다)
 app.post('/admin/create-account', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
@@ -18928,6 +18981,44 @@ app.post('/account/settings-import', auth.requireAuth, (req, res) => {
   // (9개만 노출)가 무의미해지는 걸 막기 위함. 지금 계정에 이미 저장된 표시 상태를 그대로 둔다.
   delete patch.moduleVisible
   store.saveSettings(req.djId, patch)
+  res.json({ success: true })
+})
+
+// 🗂️ 관리자 전용 — 유저 관리 화면 체크박스로 고른 여러 디제이의 설정을 한 번에 JSON으로 내보낸다.
+// djId별로 나눠서 담기 때문에, R2/서버 자동백업 없이도 필요할 때 원하는 디제이 하나만 골라
+// 로컬 파일에서 바로 복구할 수 있다 (간단 대체 백업 수단).
+app.post('/admin/users/settings-export-bulk', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const djIds = Array.isArray((req.body || {}).djIds) ? req.body.djIds : []
+  if (!djIds.length) return res.json({ success: false, error: '내보낼 디제이를 선택해주세요' })
+  const djs = {}
+  const notFound = []
+  for (const raw of djIds) {
+    const targetDjId = String(raw || '').trim()
+    if (!targetDjId) continue
+    const settings = store.getSettings(targetDjId)
+    if (!settings) { notFound.push(targetDjId); continue }
+    djs[targetDjId] = settings
+  }
+  res.json({ success: true, exportedAt: new Date().toISOString(), djs, notFound })
+})
+
+// 🗂️ 관리자 전용 — 위 내보내기 파일에서 "디제이 한 명"만 골라 그 설정을 복구한다.
+// account/settings-import와 동일하게 만료일/기본 이용기간/메뉴 표시 상태는 건드리지 않는다.
+app.post('/admin/users/settings-import', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const { djId: targetDjId, settings: incoming } = req.body || {}
+  const cleanTarget = String(targetDjId || '').trim()
+  if (!cleanTarget || !store.exists(cleanTarget)) return res.json({ success: false, error: '대상 디제이 계정을 찾을 수 없어요' })
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.json({ success: false, error: '올바른 설정 데이터가 아니에요' })
+  }
+  const patch = { ...incoming }
+  delete patch.expiresAt
+  delete patch.expiryStartAt
+  delete patch.defaultTrialDays
+  delete patch.moduleVisible
+  store.saveSettings(cleanTarget, patch)
   res.json({ success: true })
 })
 
@@ -20242,7 +20333,7 @@ app.post('/dashboard/spoon/delete', auth.requireAuth, (req, res) => {
 app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const dash = getDashboardData(req.djId, settings)
-  dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now() }
+  dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now(), lastResetMonth: thisMonthKST() }
   store.saveSettings(req.djId, { dashboard: dash })
   res.json({ success: true })
 })
@@ -23601,14 +23692,18 @@ app.post('/roulette/history/:tag/coupon', auth.requireAuth, (req, res) => {
   const { idx, delta, nickname } = req.body || {}
   if (!idx || !delta) return res.json({ success: false, error: '잘못된 요청' })
   const settings = store.getSettings(req.djId) || {}
-  const rec = getHistoryRec(settings, req.params.tag)
+  // ⚠️ 다른 룰렛 기록 API(삭제 등)와 마찬가지로 trim/lowercase 정규화 필수.
+  // 여기서 원본 케이스 그대로 키를 만들면, 채팅 명령(!룰렛N)은 getHistoryRecByIdentity가
+  // 소문자로 정규화한 키를 보기 때문에 서로 다른 레코드가 생겨 "방금 지급했는데 바로 부족하다고 뜨는" 버그가 났다.
+  const cleanTag = String(req.params.tag || '').trim().toLowerCase()
+  const rec = getHistoryRec(settings, cleanTag)
   rec.coupons[idx] = Math.max(0, Number(rec.coupons[idx] || 0) + Number(delta))
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
   const rt = settings.roulette && settings.roulette.list && settings.roulette.list[Number(idx) - 1]
   const rouletteLabel = `룰렛${idx}` + (rt && rt.name ? ` (${rt.name})` : '')
   // 📢 실시간 접속자 목록에서 넘어온 진짜 닉네임(nickname)을 최우선으로 쓴다 — 채팅 기록이 없어서
   // room.tagToNickname 매핑에 없는 사람은 resolveNicknameFromInput이 고유닉을 그대로 돌려주기 때문.
-  const displayName = String(nickname || '').trim() || resolveNicknameFromInput(getRoom(req.djId), req.params.tag)
+  const displayName = String(nickname || '').trim() || resolveNicknameFromInput(getRoom(req.djId), cleanTag)
   const amt = Number(delta)
   if (amt > 0) sendChatSplit(req.djId, `🎡 ${displayName}님께 ${rouletteLabel} ${amt}장을 지급했어요! (보유 ${rec.coupons[idx]}장)`, 150, 300)
   else sendChatSplit(req.djId, `🎡 ${displayName}님의 ${rouletteLabel} ${Math.abs(amt)}장을 차감했어요. (보유 ${rec.coupons[idx]}장)`, 150, 300)
@@ -24171,6 +24266,9 @@ app.listen(PORT, () => {
   // 🎵 djs.json 안에 base64로 박혀있던 음원들을 실제 파일로 옮긴다 (메모리 초과 사고 원인 제거).
   try { migrateSoundDataToFiles() } catch (e) { console.log('[음원 마이그레이션] 실패', e.message) }
 
+  // 🎡 룰렛 지급 API의 tag 정규화 누락으로 생겼던 유령 레코드(대소문자/공백 다른 중복 키)를 정리한다.
+  try { migrateRouletteHistoryTagKeys() } catch (e) { console.log('[룰렛기록 키 정규화 마이그레이션] 실패', e.message) }
+
   // 🔗 몬스터잡기 크로스서버 동기화 — 이 서버가 MONSTERDEX_SYNC_ROLE=remote로 설정돼 있을 때만
   // 실제로 동작한다(그 외엔 조용히 리턴). base 서버 쪽은 별도 시작 절차 없이, 아래 등록한
   // /internal/monsterdex/sync 라우트가 remote의 요청을 받을 때마다 자연스럽게 반영된다.
@@ -24196,6 +24294,28 @@ app.listen(PORT, () => {
   }
   runAutoJoinCleanup()
   setInterval(runAutoJoinCleanup, 24 * 60 * 60 * 1000)
+
+  // 🗓️ 무료/광고/플랜/유료 하트 통계를 매달 1일(KST)에 자동으로 리셋한다.
+  // 정확히 자정에 서버가 깨어있으리란 보장이 없어서, "지금 몇 월인지"를 주기적으로 확인해
+  // 계정마다 저장해둔 lastResetMonth와 다르면 그 즉시 리셋하는 방식 — 재배포 타이밍과 무관하게
+  // 늦어도 다음 체크 주기(1시간) 안에는 반영된다.
+  const runMonthlyHeartStatsReset = () => {
+    try {
+      const nowMonth = thisMonthKST()
+      let resetCount = 0
+      for (const djId of store.listDjIds()) {
+        const settings = store.getSettings(djId) || {}
+        const dash = getDashboardData(djId, settings) // 없으면 만들어주고, lastResetMonth 기준선도 여기서 잡힘
+        if (dash.likeStats.lastResetMonth === nowMonth) continue
+        dash.likeStats = { free: 0, ad: 0, plan: 0, paid: 0, total: 0, sessionStart: Date.now(), lastResetMonth: nowMonth }
+        store.saveSettings(djId, { dashboard: dash })
+        resetCount++
+      }
+      if (resetCount) console.log(`[하트통계 월간 리셋] ${nowMonth} 진입 → ${resetCount}개 계정의 무료/광고/플랜/유료 하트 통계를 초기화했어요.`)
+    } catch (e) { console.log('[하트통계 월간 리셋] 실패', e.message) }
+  }
+  runMonthlyHeartStatsReset()
+  setInterval(runMonthlyHeartStatsReset, 60 * 60 * 1000)
 
   // 🗂️ 2시간마다 djs.json 백업 스냅샷을 남긴다 (최근 20개 보관, 그 이상은 자동 삭제).
   // 서버 시작 5분 뒤에 첫 백업(막 시작한 시점엔 아직 캐시가 덜 안정적일 수 있어 살짝 늦춤).

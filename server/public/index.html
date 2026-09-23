@@ -8625,7 +8625,16 @@ function renderUserListTable(){
       <input type="datetime-local" id="expiryBulkInput" style="padding:6px 8px;font-size:12px">
       <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="applyBulkExpiry()">✅ 선택 일괄 설정</button>
       <button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="clearExpirySelection()">선택 해제</button>
+      <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="exportSelectedUsersSettings()">💾 선택 설정 내보내기</button>
       <button class="btn-shield-reset" style="padding:6px 12px;font-size:12px" onclick="applyBulkDelete()">🗑️ 선택 일괄 삭제</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+      <span class="hint" style="margin:0">📂 위에서 내보낸 백업 파일에서 디제이 한 명만 골라 복구:</span>
+      <input type="file" accept=".json" id="adminRestoreFileInput" style="font-size:12px" onchange="handleAdminUserSettingsFileSelect(this)">
+      <div id="adminRestorePanel" style="display:none;align-items:center;gap:8px">
+        <select id="adminRestoreDjSelect" style="padding:6px 8px;font-size:12px"></select>
+        <button class="btn-connect" style="padding:6px 12px;font-size:12px" onclick="restoreSelectedUserFromFile()">🔄 이 디제이만 복구</button>
+      </div>
     </div>`;
     wrap.innerHTML=`${bulkBar}<div style="overflow-x:auto"><table class="user-table">
       <thead><tr><th><input type="checkbox" id="expirySelectAllCb" ${selectableCount&&list.filter(u=>u.djId!=='sum').every(u=>selectedExpiryDjIds.has(u.djId))?'checked':''} onchange="toggleExpirySelectAll(this)"></th><th>아이디</th><th>등록 태그</th><th>상태</th><th>가입일</th><th>마지막 접속</th><th>추천인</th><th>🎁 결제확인</th><th>계정상태</th><th>이용만료일</th><th>자동입장</th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>
@@ -8682,6 +8691,64 @@ async function applyBulkDelete(){
       selectedExpiryDjIds.clear();
       loadUserList();
     }else showToast(d.error||'처리 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+// 💾 유저 관리 체크박스로 고른 디제이들의 설정을 JSON 파일 하나로 내려받는다.
+// djId별로 나눠서 담기 때문에, 나중에 파일만 있으면 필요한 디제이 한 명만 골라 복구할 수 있다.
+async function exportSelectedUsersSettings(){
+  if(!selectedExpiryDjIds.size)return showToast('내보낼 디제이를 선택해주세요');
+  const djIds=[...selectedExpiryDjIds];
+  try{
+    const res=await fetch(SERVER+'/admin/users/settings-export-bulk',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djIds})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'내보내기 실패');
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const today=new Date().toISOString().slice(0,10);
+    a.href=url;
+    a.download=`에디봇_디제이설정_${djIds.length}명_${today}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    const okCount=Object.keys(d.djs||{}).length;
+    showToast(`${okCount}명 설정 내보내기 완료${d.notFound&&d.notFound.length?` (찾을 수 없음 ${d.notFound.length}명)`:''}`);
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+// 📂 위 내보내기로 받은 백업 파일을 업로드하면, 그 안에 담긴 디제이 목록을 드롭다운으로 보여준다.
+let adminImportedUserSettings=null; // 파일에서 읽은 { djId: settings, ... } — 실제 복구 전까지만 잠깐 들고 있는다.
+function handleAdminUserSettingsFileSelect(input){
+  const file=input.files && input.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    let parsed;
+    try{ parsed=JSON.parse(reader.result); }catch(e){ showToast('JSON 파일을 읽을 수 없어요'); return; }
+    const djs=parsed && parsed.djs;
+    if(!djs || typeof djs!=='object' || !Object.keys(djs).length){ showToast('올바른 백업 파일이 아니에요'); return; }
+    adminImportedUserSettings=djs;
+    const sel=document.getElementById('adminRestoreDjSelect');
+    sel.innerHTML=Object.keys(djs).map(id=>`<option value="${escapeAttr(id)}">${escapeHtml(id)}</option>`).join('');
+    document.getElementById('adminRestorePanel').style.display='flex';
+    showToast(`${Object.keys(djs).length}명의 설정을 불러왔어요 — 복구할 디제이를 선택하세요`);
+  };
+  reader.readAsText(file);
+}
+
+// 🔄 드롭다운에서 고른 "디제이 한 명"만 백업 파일 내용으로 복구한다. 파일 안의 나머지 디제이는 건드리지 않는다.
+async function restoreSelectedUserFromFile(){
+  const sel=document.getElementById('adminRestoreDjSelect');
+  const targetDjId=sel?sel.value:'';
+  if(!targetDjId||!adminImportedUserSettings||!adminImportedUserSettings[targetDjId])return showToast('복구할 디제이를 선택해주세요');
+  if(!confirm(`${targetDjId} 계정의 설정을 이 백업 파일 내용으로 덮어쓸까요?\n지금 저장된 설정은 사라지고 되돌릴 수 없어요.`))return;
+  try{
+    const res=await fetch(SERVER+'/admin/users/settings-import',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djId:targetDjId,settings:adminImportedUserSettings[targetDjId]})});
+    const d=await res.json();
+    if(d.success){showToast(targetDjId+' 계정 설정을 복구했어요');}
+    else showToast(d.error||'복구 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -18180,8 +18247,9 @@ async function loadRouletteHistory(tag){
       const cur=Number(coupons[idx]||0);
       return `<div class="flag-amount-row" style="margin-top:8px">
         <span style="flex:1;font-size:13px">🎡 룰렛${idx} <b>${escapeHtml(r.name)}</b> — 보유 ${cur}개</span>
-        <button class="btn-gray" onclick="adjustCoupon('${escapeAttr(tag)}',${idx},1)">+1</button>
-        <button class="btn-gray" onclick="adjustCoupon('${escapeAttr(tag)}',${idx},-1)">-1</button>
+        <input type="number" id="couponAmt${idx}" class="input" style="width:64px;padding:4px 6px;font-size:13px" value="1" min="1" step="1">
+        <button class="btn-gray" onclick="adjustCouponByInput('${escapeAttr(tag)}',${idx},1)">적립</button>
+        <button class="btn-gray" onclick="adjustCouponByInput('${escapeAttr(tag)}',${idx},-1)">차감</button>
       </div>`;
     }).join('');
 
@@ -18264,6 +18332,15 @@ async function adjustCoupon(tag,idx,delta){
     if(d.success){showToast('반영됨');loadRouletteHistory(tag);}
     else showToast(d.error||'실패');
   }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🎡 룰렛권 보유 현황 — 입력창에 적은 수량만큼 적립(+)/차감(-)한다. (기존엔 +1/-1 버튼뿐이라
+// 여러 장 지급/회수하려면 여러 번 눌러야 했음 — 숫자를 직접 입력해서 한 번에 반영하도록 변경)
+function adjustCouponByInput(tag,idx,sign){
+  const el=document.getElementById('couponAmt'+idx);
+  const n=parseInt(el&&el.value,10);
+  if(!n||n<=0)return showToast('올바른 수량을 입력해주세요');
+  adjustCoupon(tag,idx,sign*n);
 }
 
 async function rebootMyBot(){
