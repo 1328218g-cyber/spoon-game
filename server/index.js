@@ -80,15 +80,19 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 // 🌐 스푼(*.spooncast.net)으로 나가는 요청만 레지덴셜 프록시(IPRoyal ISP Dedicated 등)를 거치게 한다.
 // 배포 서버(Railway/Render)의 데이터센터 IP 자체가 스푼 쪽에서 차단당해서(403), 채팅 전송·방송상태
 // 조회 같은 요청이 전부 실패하던 문제의 우회책.
-// ⚠️ 처음엔 setGlobalDispatcher로 fetch 전체를 가로채는 방식으로 했었는데, 그러면 Base44 백업처럼
-// 스푼이랑 전혀 상관없는 요청까지 전부 이 코드가 만든 dispatcher를 타게 되면서 응답 본문이 깨지는
-// (JSON 파싱 실패, 알 수 없는 바이너리) 부작용이 생겼다. 그래서 전역으로 건드리지 않고, 스푼 호출
-// 하나하나에 dispatcher 옵션을 직접 넘기는 방식으로 바꿨다 — SPOON_FETCH_OPTS를 그 fetch()들의
-// 옵션에 스프레드(...)해서 섞어 쓴다. 다른 요청(Base44/R2/TTS 등)은 예전처럼 완전히 그대로 직접 나간다.
-// 환경변수 SPOON_PROXY_URL 형식: http://유저명:비번@호스트:포트  (없으면 프록시 없이 기존처럼 직접 연결)
-let ProxyAgent = null
+// ⚠️ 시행착오 기록:
+//  1차: setGlobalDispatcher로 fetch 전체를 가로채는 방식 → Base44처럼 스푼이랑 무관한 요청까지
+//       이 dispatcher를 타면서 응답 본문이 깨지는(바이너리 쓰레기) 부작용 발생 → 폐기.
+//  2차: Node 전역 fetch()에 { dispatcher: proxyAgent } 옵션을 넘기는 방식 → 전부 UND_ERR_INVALID_ARG로
+//       실패. 이유: Node의 "전역" fetch()는 undici 패키지에서 직접 가져온 fetch랑 달라서
+//       dispatcher 옵션 자체를 인식 못 하고 거부한다(전역 fetch는 이 옵션을 지원 안 함).
+//  3차(현재): undici 패키지에서 fetch를 직접 import해서 그걸로만 호출해야 dispatcher가 먹힌다.
+//       그래서 전역 fetch를 그대로 건드리지 않고, spoonFetch(url, opts)라는 별도 함수를 만들어
+//       스푼 관련 호출부에서만 fetch(...) 대신 이걸 쓰도록 바꿨다.
+// 환경변수 SPOON_PROXY_URL 형식: http://유저명:비번@호스트:포트  (없으면 프록시 없이 그냥 전역 fetch로 직접 연결)
+let ProxyAgent = null, undiciFetch = null
 try {
-  ; ({ ProxyAgent } = require('undici'))
+  ; ({ ProxyAgent, fetch: undiciFetch } = require('undici'))
 } catch (e) {
   console.log('[스푼 프록시] undici 패키지가 설치되지 않았어요. "npm install undici --save" 실행 후 다시 배포해주세요. 그 전까지 프록시 없이 직접 연결됩니다.')
 }
@@ -105,9 +109,12 @@ if (ProxyAgent && SPOON_PROXY_URL) {
 } else if (ProxyAgent) {
   console.log('[스푼 프록시] SPOON_PROXY_URL 환경변수가 없어서 비활성화 상태예요. Railway/Render Variables에 등록해주세요.')
 }
-// 스푼으로 나가는 fetch() 옵션 객체에 그대로 스프레드(...SPOON_FETCH_OPTS)해서 쓴다.
-// 프록시가 없으면(로컬 개발 등) 빈 객체라 아무 영향도 없다.
-const SPOON_FETCH_OPTS = spoonProxyAgent ? { dispatcher: spoonProxyAgent } : {}
+// 스푼으로 나가는 요청은 fetch(...) 대신 이 함수로 호출한다. 프록시가 없으면(로컬 개발 등)
+// 그냥 평소 전역 fetch랑 똑같이 동작한다.
+async function spoonFetch(url, opts = {}) {
+  if (spoonProxyAgent && undiciFetch) return undiciFetch(url, { ...opts, dispatcher: spoonProxyAgent })
+  return fetch(url, opts)
+}
 
 // 🔌 WebSocket(wss://kr-wala.spooncast.net)도 fetch랑 똑같이 데이터센터 IP라 차단당한다 — 근데 `ws`
 // 패키지는 undici의 ProxyAgent가 아니라 Node 표준 http.Agent 인터페이스를 쓰기 때문에 별도 라이브러리가
@@ -657,8 +664,7 @@ async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
   try {
-    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': CHROME_UA,
@@ -711,8 +717,7 @@ async function safeJson(res, label) {
 async function fetchUserTag(liveId, userId, accessToken) {
   if (!liveId || !userId || !accessToken) return null
   try {
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -762,8 +767,7 @@ async function fetchUserTagFromLiveMembers(liveId, userId, accessToken) {
 async function fetchUserTagFromGeneralProfile(userId, accessToken) {
   if (userId == null || !accessToken) return null
   try {
-    const res = await fetch(`${KR_API_BASE}/users/${userId}/`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`${KR_API_BASE}/users/${userId}/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -879,7 +883,7 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
     const all = []
     let pages = 0
     while (url && pages < maxPages) { // 5초마다 도는 일반 폴링은 1페이지만, 필요한 곳에서만 더 깊이 조회
-      const res = await fetch(url, { ...SPOON_FETCH_OPTS, headers })
+      const res = await spoonFetch(url, { headers })
       const json = await safeJson(res, 'fetchLiveMembers')
       const members = json.results || []
       all.push(...members)
@@ -914,8 +918,7 @@ async function findLiveMemberByNickOrTag(djId, liveId, input) {
 
 async function fetchLiveInfo(liveId, accessToken) {
   try {
-    const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`${API_BASE}/lives/${liveId}/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -975,7 +978,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   if (cookieHeader) headers['Cookie'] = cookieHeader
   try {
     // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
-    const getRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, { ...SPOON_FETCH_OPTS, headers })
+    const getRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
     const getText = await getRes.text().catch(() => '')
     if (!getRes.ok) {
       console.log(`[공지변경:${djId}] GET 실패 status=${getRes.status}:`, getText.slice(0, 500))
@@ -996,8 +999,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     console.log(`[공지변경:${djId}] 추려서 보낼 본문:`, JSON.stringify(updated).slice(0, 500))
 
     // 3) 그대로 PUT
-    const putRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
-      ...SPOON_FETCH_OPTS,
+    const putRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, {
       method: 'PUT',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
@@ -1035,8 +1037,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
       'Referer': 'https://www.spooncast.net/',
     }
     if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
-    const res = await fetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
@@ -5883,8 +5884,7 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
-      const res = await fetch(url, {
-        ...SPOON_FETCH_OPTS,
+      const res = await spoonFetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
       })
       const json = await res.json().catch(() => null)
@@ -15512,8 +15512,7 @@ async function pollAutoFollowBoard() {
     const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     if (!accessToken) return
 
-    const res = await fetch(`https://kr-gw.spooncast.net/feed/${cfg.channelId}/FAN?contentType=POST&excludeContentType=TALK&isNext=false`, {
-      ...SPOON_FETCH_OPTS,
+    const res = await spoonFetch(`https://kr-gw.spooncast.net/feed/${cfg.channelId}/FAN?contentType=POST&excludeContentType=TALK&isNext=false`, {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
     })
     const json = await res.json()
@@ -15533,8 +15532,7 @@ async function pollAutoFollowBoard() {
 
       // ✅ 팔로우 실행
       try {
-        const followRes = await fetch(`https://kr-api.spooncast.net/users/${authorId}/follow/`, {
-          ...SPOON_FETCH_OPTS,
+        const followRes = await spoonFetch(`https://kr-api.spooncast.net/users/${authorId}/follow/`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
         })
@@ -17445,8 +17443,7 @@ async function getStickerList() {
     return stickerCache.data
   }
   try {
-    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
-      ...SPOON_FETCH_OPTS,
+    const upstream = await spoonFetch('https://static.spooncast.net/kr/stickers/index.json', {
       headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
     })
     if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
@@ -17635,7 +17632,7 @@ app.get('/giftgallery/image-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!GIFT_IMAGE_PROXY_ALLOWED_HOSTS.includes(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
-    const upstream = await fetch(raw, { ...SPOON_FETCH_OPTS })
+    const upstream = await spoonFetch(raw)
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
     res.set('Cache-Control', 'public, max-age=86400')
@@ -17727,8 +17724,7 @@ async function getTrophyEditorStickerData() {
   if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
     return trophyEditorStickerCache.data
   }
-  const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
-    ...SPOON_FETCH_OPTS,
+  const upstream = await spoonFetch('https://static.spooncast.net/kr/stickers/index.json', {
     headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
   })
   if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
@@ -17768,7 +17764,7 @@ app.get('/trophy-editor/image-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
-    const upstream = await fetch(raw, { ...SPOON_FETCH_OPTS, headers: { 'User-Agent': CHROME_UA } })
+    const upstream = await spoonFetch(raw, { headers: { 'User-Agent': CHROME_UA } })
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
     res.set('Cache-Control', 'public, max-age=86400')
@@ -18032,7 +18028,7 @@ app.get('/giftcapture/lottie-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 주소예요' })
-    const upstream = await fetch(raw, { ...SPOON_FETCH_OPTS, headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
+    const upstream = await spoonFetch(raw, { headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', 'application/json')
     res.set('Cache-Control', 'public, max-age=86400')
