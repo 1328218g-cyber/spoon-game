@@ -16809,8 +16809,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[입장카운트] ${djId} 새 방송(${liveId}) 시작 — {count} 입장 횟수 초기화`)
   }
 
+  const spoonProxyEntry = getProxyForDj(djId)
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
-    agent: getSpoonWsAgent(djId),
+    agent: spoonProxyEntry ? spoonProxyEntry.wsAgent : undefined,
     headers: {
       'Origin': 'https://www.spooncast.net',
       'User-Agent': CHROME_UA,
@@ -16818,6 +16819,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
   })
   room.ws = ws
+  // 🩺 이 계정이 지금 어느 프록시로 붙었는지 기록해둔다 — 특정 프록시만 유독 자주 끊기는지
+  // 확인하려면 "연결 종료" 로그만으론 안 되고, 어느 IP를 통해 연결됐었는지도 같이 남아야 한다.
+  ws.spoonProxyLabel = spoonProxyEntry ? spoonProxyEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
   ws.createdAt = Date.now() // 💓 프록시 경유로 연결에 시간이 걸릴 때, "아직 연결 중"인 걸 "죽은 연결"로 오판하지 않기 위한 기준시각
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
   ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
@@ -16867,7 +16871,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   })
 
   ws.on('open', () => {
-    console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName)
+    console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName, `| 프록시: ${ws.spoonProxyLabel}`)
     room.isConnected = true
     room.reconnectTries = 0 // 🔁 붙는 데 성공했으니 재시도 간격(백오프)을 처음으로 되돌린다
     if (ws.readyState === WebSocket.OPEN) {
@@ -17261,8 +17265,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (getRoom(djId) !== room) return
     if (room.ws && room.ws !== ws) return
 
-    console.log(`[${djId}] 스푼 연결 종료 code:`, code)
-    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}`)
+    const heldForSec = ws.createdAt ? Math.round((Date.now() - ws.createdAt) / 1000) : null
+    console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
+    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     room.isConnected = false
     room.ws = null
 
