@@ -687,7 +687,10 @@ async function fetchUserStatusByTag(tag) {
       photoUrl: match.profile_url || match.profileUrl || match.image_url || match.imageUrl || match.thumbnail_url || '',
     }
   } catch (e) {
-    console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message)
+    // ⚠️ undici는 실제 원인(프록시 인증 실패/연결 거부/타임아웃 등)을 e.message가 아니라
+    // e.cause에 따로 담아둔다. e.message만 찍으면 전부 "fetch failed"로 뭉뚱그려져서 원인을
+    // 구분할 수 없었다 — 이제 cause까지 같이 남긴다.
+    console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
     return null
   }
 }
@@ -1097,7 +1100,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
     if (room._recentSentTexts.length > 12) room._recentSentTexts.shift()
     return true
   } catch (e) {
-    console.log(`[채팅:${djId} 오류]`, e.message)
+    console.log(`[채팅:${djId} 오류]`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
     return false
   }
 }
