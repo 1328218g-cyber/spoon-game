@@ -41,6 +41,8 @@ const DJ_FILE = path.join(DATA_DIR, 'djs.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP_COUNT = 20; // 최근 20개까지만 보관 (그 이상 오래된 건 자동 삭제)
 const GLOBAL_MC_FILE = path.join(DATA_DIR, 'globalMonsterDex.json'); // 🌐 몬스터 잡기 유저 데이터(포획볼/고급볼/도감/채팅카운트) — 디제이 구분 없이 전체 플랫폼 공용
+const ERROR_LOG_FILE = path.join(DATA_DIR, 'errorLog.json'); // 🚨 관리자 "에러 로그" 화면용 — 디제이 구분 없이 전체 플랫폼 공용, 최근 ERROR_LOG_KEEP_COUNT개만 보관
+const ERROR_LOG_KEEP_COUNT = 500;
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -1055,6 +1057,49 @@ function saveGlobalMonsterDex() {
   fs.renameSync(tmpFile, GLOBAL_MC_FILE);
 }
 
+// 🚨 관리자 "에러 로그" 화면 — index.js의 logAdminError()가 방송 연결 끊김/하트비트 죽음/처리되지
+// 않은 예외 같은 걸 잡을 때마다 addErrorLog(entry)를 호출한다. globalMonsterDex.json과 같은
+// 패턴(메모리 캐시 + tmp파일 후 rename으로 디스크에 저장)으로 서버가 재시작돼도 최근 기록이 남게 한다.
+let _errorLogCache = null;
+function loadErrorLog() {
+  if (_errorLogCache) return _errorLogCache;
+  ensureDir();
+  if (fs.existsSync(ERROR_LOG_FILE)) {
+    try {
+      const raw = fs.readFileSync(ERROR_LOG_FILE, 'utf-8');
+      if (raw && raw.trim()) _errorLogCache = JSON.parse(raw);
+    } catch (e) {
+      console.log('[store] errorLog.json 읽기 실패:', e.message);
+    }
+  }
+  if (!Array.isArray(_errorLogCache)) _errorLogCache = [];
+  return _errorLogCache;
+}
+function saveErrorLog() {
+  if (!_errorLogCache) return;
+  ensureDir();
+  const json = JSON.stringify(_errorLogCache, null, 2);
+  const tmpFile = ERROR_LOG_FILE + '.tmp';
+  fs.writeFileSync(tmpFile, json, 'utf-8');
+  fs.renameSync(tmpFile, ERROR_LOG_FILE);
+}
+// entry: { id, djId, type, message, ts } — 맨 앞에 추가하고(최신순), 오래된 건 KEEP_COUNT개까지만 남긴다.
+function addErrorLog(entry) {
+  const log = loadErrorLog();
+  log.unshift(entry);
+  if (log.length > ERROR_LOG_KEEP_COUNT) log.length = ERROR_LOG_KEEP_COUNT;
+  saveErrorLog();
+}
+function getErrorLog(limit) {
+  const log = loadErrorLog();
+  const n = Math.max(1, Number(limit) || 100);
+  return log.slice(0, n);
+}
+function clearErrorLog() {
+  _errorLogCache = [];
+  saveErrorLog();
+}
+
 // ══════════════════════════════════════════════════════
 // 🔗 몬스터잡기 크로스서버 동기화 (Render↔Railway처럼 완전히 분리된 서버 두 개가 각자
 // 독립적으로 떠있을 때, 몬스터잡기 데이터(포획볼/고급볼/도감/채팅카운트/카탈로그)만큼은
@@ -1432,6 +1477,9 @@ module.exports = {
   restoreFullDjsSnapshot,
   restoreGlobalMonsterDexSnapshot,
   loadGlobalMonsterDex,
+  addErrorLog,
+  getErrorLog,
+  clearErrorLog,
   saveGlobalMonsterDex,
   upsertMonsterCatalog,
   applyMonsterDexDelta,
