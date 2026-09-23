@@ -77,6 +77,41 @@ const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+// 🌐 스푼(*.spooncast.net)으로 나가는 요청만 레지덴셜 프록시(IPRoyal ISP Dedicated 등)를 거치게 한다.
+// 배포 서버(Railway/Render)의 데이터센터 IP 자체가 스푼 쪽에서 차단당해서(403), 채팅 전송·방송상태
+// 조회 같은 요청이 전부 실패하던 문제의 우회책 — R2 백업, Base44, 이미지 검색 같은 다른 요청까지
+// 프록시를 거치면 불필요하게 느려지거나 그쪽 서비스와 안 맞을 수 있어서, 스푼 도메인만 선택적으로 태운다.
+// 환경변수 SPOON_PROXY_URL 형식: http://유저명:비번@호스트:포트  (없으면 프록시 없이 기존처럼 직접 연결)
+let setGlobalDispatcher = null, ProxyAgent = null, UndiciAgent = null
+try {
+  ; ({ setGlobalDispatcher, ProxyAgent, Agent: UndiciAgent } = require('undici'))
+} catch (e) {
+  console.log('[스푼 프록시] undici 패키지가 설치되지 않았어요. "npm install undici --save" 실행 후 다시 배포해주세요. 그 전까지 프록시 없이 직접 연결됩니다.')
+}
+const SPOON_PROXY_URL = process.env.SPOON_PROXY_URL || ''
+if (setGlobalDispatcher && SPOON_PROXY_URL) {
+  try {
+    const spoonProxyAgent = new ProxyAgent(SPOON_PROXY_URL)
+    const directAgent = new UndiciAgent()
+    class SpoonOnlyDispatcher {
+      dispatch(opts, handler) {
+        let hostname = ''
+        try { hostname = new URL(opts.origin).hostname } catch (e) { hostname = String(opts.origin || '') }
+        const useProxy = /(^|\.)spooncast\.net$/i.test(hostname)
+        return (useProxy ? spoonProxyAgent : directAgent).dispatch(opts, handler)
+      }
+    }
+    setGlobalDispatcher(new SpoonOnlyDispatcher())
+    // 비밀번호가 로그에 그대로 남지 않도록 host:port까지만 보여준다.
+    const safeProxyLabel = SPOON_PROXY_URL.replace(/\/\/[^@]+@/, '//***:***@')
+    console.log(`[스푼 프록시] 활성화됨 — spooncast.net 요청만 ${safeProxyLabel} 경유`)
+  } catch (e) {
+    console.log('[스푼 프록시] 초기화 실패, 직접 연결로 동작합니다:', e.message)
+  }
+} else if (setGlobalDispatcher) {
+  console.log('[스푼 프록시] SPOON_PROXY_URL 환경변수가 없어서 비활성화 상태예요. Railway/Render Variables에 등록해주세요.')
+}
+
 // 👋 입장/좋아요/퇴장 기본 인사 문구 — DJ가 설정 화면에서 한 번도 "저장"을 안 눌러도
 // (즉 settings.joinMessages 등이 아직 서버에 없어도) 모듈만 켜면 바로 동작하도록 하는 기본값.
 // DJ가 실제로 설정 화면에서 저장하면 그 값으로 대체된다.
