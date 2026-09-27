@@ -41,6 +41,8 @@ const DJ_FILE = path.join(DATA_DIR, 'djs.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP_COUNT = 20; // 최근 20개까지만 보관 (그 이상 오래된 건 자동 삭제)
 const GLOBAL_MC_FILE = path.join(DATA_DIR, 'globalMonsterDex.json'); // 🌐 몬스터 잡기 유저 데이터(포획볼/고급볼/도감/채팅카운트) — 디제이 구분 없이 전체 플랫폼 공용
+const ERROR_LOG_FILE = path.join(DATA_DIR, 'errorLog.json'); // 🚨 관리자 "에러 로그" 화면용 — 디제이 구분 없이 전체 플랫폼 공용, 최근 ERROR_LOG_KEEP_COUNT개만 보관
+const ERROR_LOG_KEEP_COUNT = 500;
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -371,6 +373,23 @@ function validEmail(email) {
 //
 // 전체 스위치도 따로 둔다 — 데이터 유실 복구처럼 짧은 시간에 여러 명이 재가입해야 하는
 // 상황에서는 이 체크 자체가 방해가 될 수 있어서, 관리자가 통째로 껐다 켰다 할 수 있게 한다.
+// 🚪 신규 회원가입 전체 ON/OFF — 관리자가 끄면 새로운 계정 가입 자체를 막는다(기존 유저 로그인은
+// 그대로 가능). 관리자가 유저관리 화면에서 "수동 계정 생성"으로 만드는 건 이 스위치와 무관하게
+// 항상 가능하다(/admin/create-account는 이 값을 확인하지 않는다).
+function getSignupEnabled() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.signupEnabled;
+  return v !== false; // 기본값 true (명시적으로 false로 꺼둔 경우만 꺼짐)
+}
+function setSignupEnabled(enabled) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.signupEnabled = !!enabled;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function getDuplicateCheckEnabled() {
   const djs = loadDjs();
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.duplicateCheckEnabled;
@@ -488,6 +507,28 @@ function setStatusBanner(enabled, message, type) {
   djs['sum'].settings.statusBanner = { enabled: !!enabled, message: String(message || '').trim(), type: ['warning', 'info', 'danger'].includes(type) ? type : 'warning', updatedAt: Date.now() };
   saveDjs(djs);
   return { ok: true, banner: djs['sum'].settings.statusBanner };
+}
+
+// ❤️ 자동 좋아요(라이브 좋아요) 타이밍 — 모든 디제이 방에 공통 적용되는 전역 설정.
+// 상태 배너와 동일한 방식으로 관리자(sum) 계정의 settings에 중앙 저장한다.
+function getAutoLikeConfig() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.autoLikeConfig;
+  const firstDelaySec = Math.max(1, Math.min(3600, Number(v && v.firstDelaySec) || 70));
+  const intervalMin = Math.max(1, Math.min(1440, Number(v && v.intervalMin) || 11));
+  return { firstDelaySec, intervalMin };
+}
+function setAutoLikeConfig(firstDelaySec, intervalMin) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cfg = {
+    firstDelaySec: Math.max(1, Math.min(3600, Number(firstDelaySec) || 70)),
+    intervalMin: Math.max(1, Math.min(1440, Number(intervalMin) || 11)),
+  };
+  djs['sum'].settings.autoLikeConfig = cfg;
+  saveDjs(djs);
+  return { ok: true, config: cfg };
 }
 
 // 🔑 세션 연결 전역 강제 OFF — 관리자(sum)가 끄면, 일반 디제이는 각자 계정의 개인 모듈 설정과
@@ -1038,6 +1079,49 @@ function saveGlobalMonsterDex() {
   fs.renameSync(tmpFile, GLOBAL_MC_FILE);
 }
 
+// 🚨 관리자 "에러 로그" 화면 — index.js의 logAdminError()가 방송 연결 끊김/하트비트 죽음/처리되지
+// 않은 예외 같은 걸 잡을 때마다 addErrorLog(entry)를 호출한다. globalMonsterDex.json과 같은
+// 패턴(메모리 캐시 + tmp파일 후 rename으로 디스크에 저장)으로 서버가 재시작돼도 최근 기록이 남게 한다.
+let _errorLogCache = null;
+function loadErrorLog() {
+  if (_errorLogCache) return _errorLogCache;
+  ensureDir();
+  if (fs.existsSync(ERROR_LOG_FILE)) {
+    try {
+      const raw = fs.readFileSync(ERROR_LOG_FILE, 'utf-8');
+      if (raw && raw.trim()) _errorLogCache = JSON.parse(raw);
+    } catch (e) {
+      console.log('[store] errorLog.json 읽기 실패:', e.message);
+    }
+  }
+  if (!Array.isArray(_errorLogCache)) _errorLogCache = [];
+  return _errorLogCache;
+}
+function saveErrorLog() {
+  if (!_errorLogCache) return;
+  ensureDir();
+  const json = JSON.stringify(_errorLogCache, null, 2);
+  const tmpFile = ERROR_LOG_FILE + '.tmp';
+  fs.writeFileSync(tmpFile, json, 'utf-8');
+  fs.renameSync(tmpFile, ERROR_LOG_FILE);
+}
+// entry: { id, djId, type, message, ts } — 맨 앞에 추가하고(최신순), 오래된 건 KEEP_COUNT개까지만 남긴다.
+function addErrorLog(entry) {
+  const log = loadErrorLog();
+  log.unshift(entry);
+  if (log.length > ERROR_LOG_KEEP_COUNT) log.length = ERROR_LOG_KEEP_COUNT;
+  saveErrorLog();
+}
+function getErrorLog(limit) {
+  const log = loadErrorLog();
+  const n = Math.max(1, Number(limit) || 100);
+  return log.slice(0, n);
+}
+function clearErrorLog() {
+  _errorLogCache = [];
+  saveErrorLog();
+}
+
 // ══════════════════════════════════════════════════════
 // 🔗 몬스터잡기 크로스서버 동기화 (Render↔Railway처럼 완전히 분리된 서버 두 개가 각자
 // 독립적으로 떠있을 때, 몬스터잡기 데이터(포획볼/고급볼/도감/채팅카운트/카탈로그)만큼은
@@ -1375,6 +1459,8 @@ module.exports = {
   removeDuplicateCheckAllowedIp,
   getDuplicateCheckEnabled,
   setDuplicateCheckEnabled,
+  getSignupEnabled,
+  setSignupEnabled,
   getAnnouncement,
   setAnnouncement,
   getAnnouncementHistory,
@@ -1384,6 +1470,8 @@ module.exports = {
   getImagePopupHistory,
   getStatusBanner,
   setStatusBanner,
+  getAutoLikeConfig,
+  setAutoLikeConfig,
   getSessionModuleGlobalOff,
   setSessionModuleGlobalOff,
   getSessionAllowedUsers,
@@ -1413,6 +1501,9 @@ module.exports = {
   restoreFullDjsSnapshot,
   restoreGlobalMonsterDexSnapshot,
   loadGlobalMonsterDex,
+  addErrorLog,
+  getErrorLog,
+  clearErrorLog,
   saveGlobalMonsterDex,
   upsertMonsterCatalog,
   applyMonsterDexDelta,

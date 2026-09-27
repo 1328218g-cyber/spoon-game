@@ -77,6 +77,105 @@ const API_BASE = 'https://api.spooncast.net'
 const KR_API_BASE = 'https://kr-api.spooncast.net'
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+// 🌐 스푼(*.spooncast.net)으로 나가는 요청/연결을 레지덴셜 프록시로 우회시킨다.
+// 배포 서버(Railway/Render)의 데이터센터 IP 자체가 스푼 쪽에서 차단당해서(403) 생긴 우회책.
+// ⚠️ 시행착오 기록:
+//  1차: setGlobalDispatcher로 fetch 전체를 가로채는 방식 → Base44처럼 스푼이랑 무관한 요청까지
+//       이 dispatcher를 타면서 응답 본문이 깨지는(바이너리 쓰레기) 부작용 발생 → 폐기.
+//  2차: Node 전역 fetch()에 { dispatcher: proxyAgent } 옵션을 넘기는 방식 → 전부 UND_ERR_INVALID_ARG로
+//       실패. Node의 "전역" fetch()는 undici 패키지에서 직접 가져온 fetch랑 달라서 dispatcher
+//       옵션 자체를 인식 못 하고 거부한다.
+//  3차: 프록시 1개로 계정 전부(WebSocket 포함) 몰아넣음 → 동시 연결 개수가 많아지니 프록시 쪽에서
+//       예고 없이 끊어버림(code 1006)이 계속 반복됨 — 프록시 하나가 감당 못 하는 부하였다.
+//  4차: 프록시 여러 개(IPRoyal ISP Dedicated) 풀로 분산(계정별 고정 배정) → 일반 요청은 안정됐지만,
+//       WebSocket은 특정 프록시에서 30~60초 만에 계속 끊기는 패턴 발견 — ISP Dedicated 상품 자체가
+//       장시간 유지되는 TCP 연결(WebSocket)보다 짧은 개별 HTTP 요청에 최적화된 상품이라 그런 것으로 추정.
+//  5차(현재): 일반 HTTP 요청용 풀과 WebSocket 전용 풀을 분리했다 — 일반 요청은 기존 IPRoyal 풀 그대로
+//       쓰고, WebSocket 연결은 "Unlimited session time"을 명시하는 별도 프록시(Decodo Dedicated ISP
+//       등)로 테스트해본다. 안정성 검증되면 나중에 WS 풀도 계정 수만큼 늘리면 된다.
+// 환경변수 형식(둘 다 쉼표로 구분된 여러 프록시 URL):
+//   SPOON_PROXY_URLS     — 일반 fetch() 요청용 풀 (SPOON_PROXY_URL 단수형도 호환)
+//   SPOON_WS_PROXY_URLS  — WebSocket 전용 풀 (없으면 SPOON_PROXY_URLS를 그대로 재사용)
+let ProxyAgent = null, undiciFetch = null, HttpsProxyAgent = null
+try {
+  ; ({ ProxyAgent, fetch: undiciFetch } = require('undici'))
+} catch (e) {
+  console.log('[스푼 프록시] undici 패키지가 설치되지 않았어요. "npm install undici --save" 실행 후 다시 배포해주세요. 그 전까지 프록시 없이 직접 연결됩니다.')
+}
+try {
+  ; ({ HttpsProxyAgent } = require('https-proxy-agent'))
+} catch (e) {
+  console.log('[스푼 프록시] https-proxy-agent 패키지가 설치되지 않았어요. "npm install https-proxy-agent --save" 실행 후 다시 배포해주세요. 그 전까지 WebSocket 연결은 프록시 없이 직접 이뤄집니다.')
+}
+const SPOON_PROXY_URLS = (process.env.SPOON_PROXY_URLS || process.env.SPOON_PROXY_URL || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+const SPOON_WS_PROXY_URLS = (process.env.SPOON_WS_PROXY_URLS || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
+function buildProxyPool(urls, label) {
+  if (!ProxyAgent || !HttpsProxyAgent || !urls.length) return []
+  try {
+    const pool = urls.map(url => ({
+      url,
+      fetchAgent: new ProxyAgent(url),
+      wsAgent: new HttpsProxyAgent(url),
+    }))
+    const safeLabels = urls.map(u => u.replace(/\/\/[^@]+@/, '//***:***@')) // 비밀번호가 로그에 안 남게
+    console.log(`[스푼 프록시] ${label} 활성화됨 — ${pool.length}개로 분산: ${safeLabels.join(', ')}`)
+    return pool
+  } catch (e) {
+    console.log(`[스푼 프록시] ${label} 초기화 실패, 직접 연결로 동작합니다:`, e.message)
+    return []
+  }
+}
+// 일반 fetch() 요청용 풀(IPRoyal 등)
+const spoonFetchProxyPool = buildProxyPool(SPOON_PROXY_URLS, 'fetch용')
+// WebSocket 전용 풀 — 별도로 안 정해뒀으면 fetch용 풀을 그대로 재사용
+const spoonWsProxyPool = SPOON_WS_PROXY_URLS.length ? buildProxyPool(SPOON_WS_PROXY_URLS, 'WebSocket용') : spoonFetchProxyPool
+if (ProxyAgent && HttpsProxyAgent && !SPOON_PROXY_URLS.length && !SPOON_WS_PROXY_URLS.length) {
+  console.log('[스푼 프록시] SPOON_PROXY_URLS / SPOON_WS_PROXY_URLS 환경변수가 없어서 비활성화 상태예요.')
+}
+
+// 🔄 4시간마다 각 계정의 배정 프록시를 자동으로 다음 것으로 순환시킨다. 한 IP에 특정 계정 트래픽이
+// 너무 오래 몰리는 걸 막아서(=그 IP만 먼저 의심받거나 막힐 위험 줄이기) 예방 차원에서 넣어둔다.
+// WebSocket 연결은 하트비트 점검 때 "지금 붙어있는 프록시가 지금 배정과 다르면" 감지해서 재연결시킨다
+// (아래 하트비트 로직 참고) — 몇 초짜리 재연결 한 번의 비용으로 장기적인 안정성을 얻는 셈이다.
+const PROXY_ROTATE_INTERVAL_MS = 4 * 60 * 60 * 1000
+// djId 문자열 + 현재 4시간 구간을 프록시 풀 인덱스로 매핑한다 (같은 djId+같은 구간이면 항상 같은 결과).
+function hashDjIdToIndex(djId, mod) {
+  const bucket = Math.floor(Date.now() / PROXY_ROTATE_INTERVAL_MS)
+  const s = `${djId || ''}:${bucket}`
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h % mod
+}
+// djId가 있으면 그 계정 전용(고정) 프록시를, djId를 모르는 공용 호출(관리자 랭킹 스캔 등)이면
+// 라운드로빈으로 순서대로 돌려가며 부하를 분산한다. pool을 인자로 받아서 fetch용/WS용을 구분한다.
+let spoonFetchRoundRobinIdx = 0
+function getProxyFromPool(pool, djId, roundRobinRef) {
+  if (!pool.length) return null
+  if (djId) return pool[hashDjIdToIndex(djId, pool.length)]
+  roundRobinRef.i = (roundRobinRef.i + 1) % pool.length
+  return pool[roundRobinRef.i]
+}
+const fetchRR = { i: -1 }
+const wsRR = { i: -1 }
+function getFetchProxyForDj(djId) { return getProxyFromPool(spoonFetchProxyPool, djId, fetchRR) }
+function getWsProxyForDj(djId) { return getProxyFromPool(spoonWsProxyPool, djId, wsRR) }
+
+// 스푼으로 나가는 요청은 fetch(...) 대신 이 함수로 호출한다. djId를 넘기면 그 계정 고정 프록시를,
+// 안 넘기면 라운드로빈으로 분산한다. 프록시가 하나도 없으면(로컬 개발 등) 평소 전역 fetch와 동일하다.
+async function spoonFetch(url, opts = {}, djId = null) {
+  const entry = getFetchProxyForDj(djId)
+  if (entry && undiciFetch) return undiciFetch(url, { ...opts, dispatcher: entry.fetchAgent })
+  return fetch(url, opts)
+}
+// WebSocket 연결에 쓸 프록시 에이전트(agent 옵션)를 djId 고정 배정으로 가져온다. 프록시 없으면 undefined.
+function getSpoonWsAgent(djId) {
+  const entry = getWsProxyForDj(djId)
+  return entry ? entry.wsAgent : undefined
+}
+
 // 👋 입장/좋아요/퇴장 기본 인사 문구 — DJ가 설정 화면에서 한 번도 "저장"을 안 눌러도
 // (즉 settings.joinMessages 등이 아직 서버에 없어도) 모듈만 켜면 바로 동작하도록 하는 기본값.
 // DJ가 실제로 설정 화면에서 저장하면 그 값으로 대체된다.
@@ -608,18 +707,18 @@ app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
-async function fetchUserStatusByTag(tag) {
+async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
   try {
-    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
+    const res = await spoonFetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': CHROME_UA,
         'X-Client-App': 'sopia-web',
         'X-Client-Version': '1.0.0',
       }
-    })
+    }, djId)
     // ⚠️ 예전엔 여기서 실패 원인을 전부 조용히 삼켜서(catch에서 그냥 null), 방송중인데 "방송 중이
     // 아니에요"로 잘못 뜨는 게 진짜 오프라인인지 API 자체가 막힌 건지(IP 차단/레이트리밋 등)
     // 로그로 구분이 안 됐다. res.ok가 아니면 무슨 응답인지 남긴다.
@@ -641,7 +740,10 @@ async function fetchUserStatusByTag(tag) {
       photoUrl: match.profile_url || match.profileUrl || match.image_url || match.imageUrl || match.thumbnail_url || '',
     }
   } catch (e) {
-    console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message)
+    // ⚠️ undici는 실제 원인(프록시 인증 실패/연결 거부/타임아웃 등)을 e.message가 아니라
+    // e.cause에 따로 담아둔다. e.message만 찍으면 전부 "fetch failed"로 뭉뚱그려져서 원인을
+    // 구분할 수 없었다 — 이제 cause까지 같이 남긴다.
+    console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
     return null
   }
 }
@@ -662,7 +764,7 @@ async function safeJson(res, label) {
 async function fetchUserTag(liveId, userId, accessToken) {
   if (!liveId || !userId || !accessToken) return null
   try {
-    const res = await fetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
+    const res = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/member/${userId}/profile/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -712,7 +814,7 @@ async function fetchUserTagFromLiveMembers(liveId, userId, accessToken) {
 async function fetchUserTagFromGeneralProfile(userId, accessToken) {
   if (userId == null || !accessToken) return null
   try {
-    const res = await fetch(`${KR_API_BASE}/users/${userId}/`, {
+    const res = await spoonFetch(`${KR_API_BASE}/users/${userId}/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -828,7 +930,7 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
     const all = []
     let pages = 0
     while (url && pages < maxPages) { // 5초마다 도는 일반 폴링은 1페이지만, 필요한 곳에서만 더 깊이 조회
-      const res = await fetch(url, { headers })
+      const res = await spoonFetch(url, { headers })
       const json = await safeJson(res, 'fetchLiveMembers')
       const members = json.results || []
       all.push(...members)
@@ -863,7 +965,7 @@ async function findLiveMemberByNickOrTag(djId, liveId, input) {
 
 async function fetchLiveInfo(liveId, accessToken) {
   try {
-    const res = await fetch(`${API_BASE}/lives/${liveId}/`, {
+    const res = await spoonFetch(`${API_BASE}/lives/${liveId}/`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'User-Agent': CHROME_UA,
@@ -923,7 +1025,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   if (cookieHeader) headers['Cookie'] = cookieHeader
   try {
     // 1) 먼저 GET으로 스푼이 실제로 쓰는 스키마(snake_case) 그대로 현재 상태를 받아온다.
-    const getRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, { headers })
+    const getRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, { headers }, djId)
     const getText = await getRes.text().catch(() => '')
     if (!getRes.ok) {
       console.log(`[공지변경:${djId}] GET 실패 status=${getRes.status}:`, getText.slice(0, 500))
@@ -944,11 +1046,11 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
     console.log(`[공지변경:${djId}] 추려서 보낼 본문:`, JSON.stringify(updated).slice(0, 500))
 
     // 3) 그대로 PUT
-    const putRes = await fetch(`${KR_API_BASE}/lives/${liveId}/`, {
+    const putRes = await spoonFetch(`${KR_API_BASE}/lives/${liveId}/`, {
       method: 'PUT',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
-    })
+    }, djId)
     const putText = await putRes.text().catch(() => '')
     console.log(`[공지변경:${djId}] PUT 응답 status=${putRes.status}:`, putText.slice(0, 1500))
     if (!putRes.ok) return { ok: false, error: `응답 ${putRes.status}`, detail: putText.slice(0, 300) }
@@ -982,11 +1084,11 @@ async function sendChatToRoom(djId, message, _isRetry) {
       'Referer': 'https://www.spooncast.net/',
     }
     if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
-    const res = await fetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
+    const res = await spoonFetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
-    })
+    }, djId)
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '')
       console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, bodyText.slice(0, 300), '— 메시지:', message)
@@ -1046,7 +1148,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
     if (room._recentSentTexts.length > 12) room._recentSentTexts.shift()
     return true
   } catch (e) {
-    console.log(`[채팅:${djId} 오류]`, e.message)
+    console.log(`[채팅:${djId} 오류]`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
     return false
   }
 }
@@ -2659,6 +2761,63 @@ function startLottoAutoTimer(djId, liveId) {
   console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분 (첫 지급까지 ${Math.round(firstDelay / 1000)}초)`)
 }
 
+// ❤️ 자동 좋아요(라이브 좋아요) — 방송 입장 N초 뒤 첫 좋아요, 이후 N분마다 반복.
+// (실제 시청자가 누르는 하트반응과 무관하게, 봇이 API로 직접 "라이브 좋아요"를 눌러 랭킹 지표를 관리하는 기능)
+// 타이밍은 관리자 페이지(전체 공통)에서 설정 — 기본값: 1분10초 뒤 첫 좋아요, 이후 11분마다.
+function getAutoLikeConfigSafe() {
+  if (typeof store.getAutoLikeConfig === 'function') {
+    try { return store.getAutoLikeConfig() } catch (e) { console.log('[❤️자동좋아요] store.getAutoLikeConfig 호출 실패:', e.message) }
+  }
+  return { firstDelaySec: 70, intervalMin: 11 }
+}
+
+async function sendLiveLike(djId, liveId) {
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+  if (!accessToken || !liveId) return false
+  const headers = {
+    'Authorization': `Bearer ${accessToken}`,
+    'User-Agent': CHROME_UA,
+    'Referer': `https://www.spooncast.net/kr/live/${liveId}`,
+  }
+  // 참고자료(파이썬 예시)와 동일하게 여러 베이스 주소를 순서대로 시도한다 — 하나가 막히거나
+  // 404가 나도 다음 주소로 넘어가서 최대한 성공시킨다.
+  const bases = [KR_API_BASE, API_BASE, GW_BASE]
+  for (const base of bases) {
+    try {
+      const res = await spoonFetch(`${base}/lives/${liveId}/like/`, { method: 'POST', headers }, djId)
+      if (res && res.ok) {
+        console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 성공 (${base})`)
+        return true
+      }
+      console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 실패 (${base}) status=${res ? res.status : '응답없음'}`)
+    } catch (e) {
+      console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 요청 오류 (${base}):`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
+    }
+  }
+  return false
+}
+
+function stopAutoLikeTimer(djId) {
+  const room = getRoom(djId)
+  if (room.autoLikeTimer) { clearInterval(room.autoLikeTimer); room.autoLikeTimer = null }
+  if (room.autoLikeFirstTimeout) { clearTimeout(room.autoLikeFirstTimeout); room.autoLikeFirstTimeout = null }
+}
+
+function startAutoLikeTimer(djId, liveId) {
+  stopAutoLikeTimer(djId)
+  const room = getRoom(djId)
+  const { firstDelaySec, intervalMin } = getAutoLikeConfigSafe()
+  const firstDelayMs = firstDelaySec * 1000
+  const intervalMs = intervalMin * 60 * 1000
+  room.autoLikeFirstTimeout = setTimeout(() => {
+    sendLiveLike(djId, liveId).catch(e => console.log(`[❤️자동좋아요:${djId}] 첫 좋아요 실행 오류`, e.message))
+    room.autoLikeTimer = setInterval(() => {
+      sendLiveLike(djId, liveId).catch(e => console.log(`[❤️자동좋아요:${djId}] 반복 좋아요 실행 오류`, e.message))
+    }, intervalMs)
+  }, firstDelayMs)
+  console.log(`[❤️자동좋아요:${djId}] 타이머 시작 — ${firstDelaySec}초 뒤 첫 좋아요, 이후 ${intervalMin}분마다 반복`)
+}
+
 // 채팅 명령어: !자동복권(상태조회, 누구나) / !자동복권즉시·!자동복권정지·!자동복권시작·!자동복권갱신 (DJ+지정 권한자)
 async function handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text) {
   if (!isModuleOn(settings, 'lottoauto', djId)) return
@@ -3525,7 +3684,7 @@ async function miBuildProfile(djId, settings, tag) {
   }
   if (!imgUrl) {
     try {
-      const info = await fetchUserStatusByTag(tag)
+      const info = await fetchUserStatusByTag(tag, djId)
       if (info && info.photoUrl) imgUrl = info.photoUrl
     } catch (e) { /* 조회 실패해도 그냥 기본 아이콘으로 보여주면 되니 무시 */ }
   }
@@ -5829,7 +5988,7 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
-      const res = await fetch(url, {
+      const res = await spoonFetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
       })
       const json = await res.json().catch(() => null)
@@ -15457,7 +15616,7 @@ async function pollAutoFollowBoard() {
     const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     if (!accessToken) return
 
-    const res = await fetch(`https://kr-gw.spooncast.net/feed/${cfg.channelId}/FAN?contentType=POST&excludeContentType=TALK&isNext=false`, {
+    const res = await spoonFetch(`https://kr-gw.spooncast.net/feed/${cfg.channelId}/FAN?contentType=POST&excludeContentType=TALK&isNext=false`, {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
     })
     const json = await res.json()
@@ -15477,7 +15636,7 @@ async function pollAutoFollowBoard() {
 
       // ✅ 팔로우 실행
       try {
-        const followRes = await fetch(`https://kr-api.spooncast.net/users/${authorId}/follow/`, {
+        const followRes = await spoonFetch(`https://kr-api.spooncast.net/users/${authorId}/follow/`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
         })
@@ -16601,6 +16760,7 @@ function rebootDjConnection(djId) {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopAutoLikeTimer(djId)
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
@@ -16661,7 +16821,7 @@ function scheduleReconnect(djId, room, reason) {
       // 방송이 아직 켜져 있는지 먼저 확인한다. 꺼졌으면 재시도를 멈추고, 방송을 껐다 켜서
       // liveId가 바뀌었으면 새 liveId로 갱신해서 붙는다.
       if (room.watchingTag) {
-        const cur = await fetchUserStatusByTag(room.watchingTag)
+        const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           const endedTag = room.watchingTag
           console.log(`[${djId}] 재접속 중단 — @${endedTag} 방송이 종료된 상태예요`)
@@ -16728,7 +16888,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[입장카운트] ${djId} 새 방송(${liveId}) 시작 — {count} 입장 횟수 초기화`)
   }
 
+  const spoonProxyEntry = getWsProxyForDj(djId)
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
+    agent: spoonProxyEntry ? spoonProxyEntry.wsAgent : undefined,
     headers: {
       'Origin': 'https://www.spooncast.net',
       'User-Agent': CHROME_UA,
@@ -16736,6 +16898,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
   })
   room.ws = ws
+  // 🩺 이 계정이 지금 어느 프록시로 붙었는지 기록해둔다 — 특정 프록시만 유독 자주 끊기는지
+  // 확인하려면 "연결 종료" 로그만으론 안 되고, 어느 IP를 통해 연결됐었는지도 같이 남아야 한다.
+  ws.spoonProxyLabel = spoonProxyEntry ? spoonProxyEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+  ws.createdAt = Date.now() // 💓 프록시 경유로 연결에 시간이 걸릴 때, "아직 연결 중"인 걸 "죽은 연결"로 오판하지 않기 위한 기준시각
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
   ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
   ws.lastPingAt = 0 // 💓 방금 보낸 ping 시각 — pong이 돌아왔을 때 왕복시간(RTT)을 재기 위함(진단용)
@@ -16763,6 +16929,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.tokenDjId = null // 🔀 다음 접속 시도 때 그 시점 기준으로 여유 있는 공용 계정으로 다시 배정받게 초기화
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    stopAutoLikeTimer(djId)
     stopStockTimers(djId)
     clearReminderTimers(room)
     clearTtsAccess(room)
@@ -16784,7 +16951,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   })
 
   ws.on('open', () => {
-    console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName)
+    console.log(`[${djId}] 스푼 연결됨! streamName:`, streamName, `| 프록시: ${ws.spoonProxyLabel}`)
     room.isConnected = true
     room.reconnectTries = 0 // 🔁 붙는 데 성공했으니 재시도 간격(백오프)을 처음으로 되돌린다
     if (ws.readyState === WebSocket.OPEN) {
@@ -16821,6 +16988,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     delete repeatSeqState[djId]
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
+    // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
+    startAutoLikeTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
     startStockTimers(djId, liveId)
     // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
@@ -17178,8 +17347,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (getRoom(djId) !== room) return
     if (room.ws && room.ws !== ws) return
 
-    console.log(`[${djId}] 스푼 연결 종료 code:`, code)
-    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}`)
+    const heldForSec = ws.createdAt ? Math.round((Date.now() - ws.createdAt) / 1000) : null
+    console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
+    // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
+    // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
+    if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     room.isConnected = false
     room.ws = null
 
@@ -17192,6 +17364,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    stopAutoLikeTimer(djId)
     stopStockTimers(djId)
     clearReminderTimers(room)
     clearTtsAccess(room)
@@ -17232,6 +17405,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 //    즉시 죽은 연결로 판단한다 — 다음 주기까지 기다릴 필요가 없다.
 const HEARTBEAT_INTERVAL_MS = 15 * 1000
 const HEARTBEAT_MAX_MISSED = 3 // 15초 × 3 = 최대 45초 안에 죽은 연결 감지
+const WS_CONNECT_GRACE_MS = 30 * 1000 // 🌐 프록시 경유 연결은 CONNECT 터널링 + TLS 핸드셰이크가 추가로 걸려서 직결보다 오래 걸린다.
+// 아직 연결 중(CONNECTING)인 소켓을 "죽은 연결"로 오판해서 핸드셰이크가 끝나기도 전에 끊어버리던
+// 문제(코드 1006 → 3초 재접속 → 또 끊김... 무한루프)가 있었다 — 생성된 지 이 시간 안이면 봐준다.
 
 setInterval(() => {
   for (const djId of store.listDjIds()) {
@@ -17240,9 +17416,25 @@ setInterval(() => {
     if (!ws) continue
 
     if (ws.readyState !== WebSocket.OPEN) {
+      // 아직 연결 시도 중(CONNECTING=0)이고 생성된 지 얼마 안 됐으면, 핸드셰이크가 끝날 시간을 준다.
+      if (ws.readyState === WebSocket.CONNECTING && Date.now() - (ws.createdAt || 0) < WS_CONNECT_GRACE_MS) continue
       console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
       logAdminError(djId, '하트비트', `소켓 상태 이상(readyState=${ws.readyState}) → 종료 처리`)
       try { ws.terminate() } catch (e) {}
+      continue
+    }
+
+    // 🔄 4시간 프록시 순환 — 지금 붙어있는 프록시가 "지금 이 순간 배정돼야 할" 프록시랑 다르면
+    // (=4시간 구간이 넘어가서 배정이 바뀌었으면) 정상적으로 재연결시켜서 새 프록시를 타게 한다.
+    // 1000(정상 종료)으로 닫아서, 기존 재접속 로직이 그대로 처리하게 둔다.
+    const currentWsEntry = getWsProxyForDj(djId)
+    const currentWsLabel = currentWsEntry ? currentWsEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+    if (ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
+      console.log(`[${djId}] 프록시 순환 시점 — ${ws.spoonProxyLabel} → ${currentWsLabel}로 재연결`)
+      // ⚠️ code 1000(정상 종료)으로 닫으면 재접속 로직이 "의도적으로 나간 것"으로 보고 재연결을
+      // 안 시킨다. 그래서 1000이 아닌 전용 코드(4000)를 쓴다 — 재연결은 일으키되, 진짜 에러(1006 등)와는
+      // 구분해서 로그에 에러로 안 남게 close 핸들러 쪽에서 따로 처리한다.
+      try { ws.close(4000, '프록시 순환') } catch (e) { try { ws.terminate() } catch (e2) {} }
       continue
     }
 
@@ -17387,7 +17579,7 @@ async function getStickerList() {
     return stickerCache.data
   }
   try {
-    const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+    const upstream = await spoonFetch('https://static.spooncast.net/kr/stickers/index.json', {
       headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
     })
     if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
@@ -17576,7 +17768,7 @@ app.get('/giftgallery/image-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!GIFT_IMAGE_PROXY_ALLOWED_HOSTS.includes(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
-    const upstream = await fetch(raw)
+    const upstream = await spoonFetch(raw)
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
     res.set('Cache-Control', 'public, max-age=86400')
@@ -17668,7 +17860,7 @@ async function getTrophyEditorStickerData() {
   if (trophyEditorStickerCache.data && (now - trophyEditorStickerCache.fetchedAt) < STICKER_CACHE_TTL_MS) {
     return trophyEditorStickerCache.data
   }
-  const upstream = await fetch('https://static.spooncast.net/kr/stickers/index.json', {
+  const upstream = await spoonFetch('https://static.spooncast.net/kr/stickers/index.json', {
     headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' }
   })
   if (!upstream.ok) throw new Error('upstream status ' + upstream.status)
@@ -17708,7 +17900,7 @@ app.get('/trophy-editor/image-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 이미지 주소예요' })
-    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA } })
+    const upstream = await spoonFetch(raw, { headers: { 'User-Agent': CHROME_UA } })
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg')
     res.set('Cache-Control', 'public, max-age=86400')
@@ -17972,7 +18164,7 @@ app.get('/giftcapture/lottie-proxy', async (req, res) => {
     const raw = String(req.query.url || '')
     const parsed = new URL(raw)
     if (!/(^|\.)spooncast\.net$/.test(parsed.hostname)) return res.status(400).json({ success: false, error: '허용되지 않은 주소예요' })
-    const upstream = await fetch(raw, { headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
+    const upstream = await spoonFetch(raw, { headers: { 'User-Agent': CHROME_UA, 'Accept': 'application/json' } })
     if (!upstream.ok) return res.status(upstream.status).end()
     res.set('Content-Type', 'application/json')
     res.set('Cache-Control', 'public, max-age=86400')
@@ -18785,6 +18977,22 @@ app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
   res.json({ success: true, data: result.data })
 })
 
+// ❤️ 자동 좋아요 타이밍 (전체 디제이 공통 적용, 관리자 전용 설정)
+app.get('/admin/autolike/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, config: getAutoLikeConfigSafe() })
+})
+app.post('/admin/autolike/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  if (typeof store.setAutoLikeConfig !== 'function') {
+    return res.json({ success: false, error: 'store.js에 setAutoLikeConfig 함수가 아직 없어요. 서버 파일을 업데이트해주세요.' })
+  }
+  const { firstDelaySec, intervalMin } = req.body || {}
+  const result = store.setAutoLikeConfig(firstDelaySec, intervalMin)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, config: result.config })
+})
+
 // 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
 app.get('/session/global-off', auth.requireAuth, (req, res) => {
   const off = store.getSessionModuleGlobalOff()
@@ -18967,6 +19175,7 @@ app.post('/account/change-id', auth.requireAuth, async (req, res) => {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(oldId)
   stopLottoAutoTimer(oldId)
+  stopAutoLikeTimer(oldId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   clearQuizTimers(room)
@@ -19261,6 +19470,7 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(targetId)
   stopLottoAutoTimer(targetId)
+  stopAutoLikeTimer(targetId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   clearQuizTimers(room)
@@ -19431,7 +19641,7 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
     if (!imgUrl) {
       // 캐시에 없으면(최근에 채팅/좋아요 등으로 확인된 적 없으면) 스푼 검색 API로 실제 프로필 사진을 직접 조회한다.
       try {
-        const info = await fetchUserStatusByTag(tag)
+        const info = await fetchUserStatusByTag(tag, req.djId)
         if (info && info.photoUrl) {
           imgUrl = info.photoUrl
           rememberProfileUrl(room, tag, nickname, imgUrl)
@@ -19503,7 +19713,7 @@ app.get('/activity/users', auth.requireAuth, async (req, res) => {
     let imgUrl = getCachedProfileUrl(room, d.tag, d.nickname)
     if (!imgUrl && d.tag) {
       try {
-        const info = await fetchUserStatusByTag(d.tag)
+        const info = await fetchUserStatusByTag(d.tag, req.djId)
         if (info && info.photoUrl) imgUrl = info.photoUrl
       } catch (e) { /* 조회 실패 시 이니셜 아바타로 대체 */ }
     }
@@ -23938,7 +24148,7 @@ async function checkAdminAutoJoin() {
     try {
       // 이미 어딘가 들어가 있으면, 그 방송이 여전히 켜져있는지 확인만 하고 유지 (끝났으면 연결 해제)
       if (room.isConnected && room.watchingTag) {
-        const cur = await fetchUserStatusByTag(room.watchingTag)
+        const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           console.log(`[${djId}] @${room.watchingTag} 방송 종료 감지 → 연결 해제`)
           cancelReconnect(room) // 🔁 방송이 끝난 거니 재접속 예약은 취소
@@ -23949,6 +24159,7 @@ async function checkAdminAutoJoin() {
           room.watchingTag = ''
           stopLeavePolling(djId)
           stopLottoAutoTimer(djId)
+          stopAutoLikeTimer(djId)
           stopStockTimers(djId)
           clearReminderTimers(room)
           clearTtsAccess(room)
@@ -23959,7 +24170,7 @@ async function checkAdminAutoJoin() {
       }
 
       for (const tag of tagList) {
-        const status = await fetchUserStatusByTag(tag)
+        const status = await fetchUserStatusByTag(tag, djId)
         if (status && status.is_live && status.current_live_id) {
           // 🚫 이 고유닉으로 이미 다른 계정이 입장중이면(동시 사용 감지) 이 계정은 입장시키지
           // 않고 경고만 보낸 뒤 다음 고유닉으로 넘어간다.
@@ -24095,7 +24306,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
 
   try {
-    const status = await fetchUserStatusByTag(cleanTag)
+    const status = await fetchUserStatusByTag(cleanTag, djId)
     if (!status || !status.is_live || !status.current_live_id) {
       broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
       return res.json({ success: false, error: '현재 방송 중이 아니에요' })
@@ -24134,6 +24345,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopAutoLikeTimer(djId)
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
