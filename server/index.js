@@ -136,9 +136,15 @@ if (ProxyAgent && HttpsProxyAgent && !SPOON_PROXY_URLS.length && !SPOON_WS_PROXY
   console.log('[스푼 프록시] SPOON_PROXY_URLS / SPOON_WS_PROXY_URLS 환경변수가 없어서 비활성화 상태예요.')
 }
 
-// djId 문자열을 프록시 풀 인덱스로 고정 매핑한다 (같은 djId는 항상 같은 결과).
+// 🔄 4시간마다 각 계정의 배정 프록시를 자동으로 다음 것으로 순환시킨다. 한 IP에 특정 계정 트래픽이
+// 너무 오래 몰리는 걸 막아서(=그 IP만 먼저 의심받거나 막힐 위험 줄이기) 예방 차원에서 넣어둔다.
+// WebSocket 연결은 하트비트 점검 때 "지금 붙어있는 프록시가 지금 배정과 다르면" 감지해서 재연결시킨다
+// (아래 하트비트 로직 참고) — 몇 초짜리 재연결 한 번의 비용으로 장기적인 안정성을 얻는 셈이다.
+const PROXY_ROTATE_INTERVAL_MS = 4 * 60 * 60 * 1000
+// djId 문자열 + 현재 4시간 구간을 프록시 풀 인덱스로 매핑한다 (같은 djId+같은 구간이면 항상 같은 결과).
 function hashDjIdToIndex(djId, mod) {
-  const s = String(djId || '')
+  const bucket = Math.floor(Date.now() / PROXY_ROTATE_INTERVAL_MS)
+  const s = `${djId || ''}:${bucket}`
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
   return h % mod
@@ -2753,6 +2759,63 @@ function startLottoAutoTimer(djId, liveId) {
     }, ms)
   }, firstDelay)
   console.log(`[자동복권:${djId}] 타이머 시작 — 주기 ${min}분 (첫 지급까지 ${Math.round(firstDelay / 1000)}초)`)
+}
+
+// ❤️ 자동 좋아요(라이브 좋아요) — 방송 입장 N초 뒤 첫 좋아요, 이후 N분마다 반복.
+// (실제 시청자가 누르는 하트반응과 무관하게, 봇이 API로 직접 "라이브 좋아요"를 눌러 랭킹 지표를 관리하는 기능)
+// 타이밍은 관리자 페이지(전체 공통)에서 설정 — 기본값: 1분10초 뒤 첫 좋아요, 이후 11분마다.
+function getAutoLikeConfigSafe() {
+  if (typeof store.getAutoLikeConfig === 'function') {
+    try { return store.getAutoLikeConfig() } catch (e) { console.log('[❤️자동좋아요] store.getAutoLikeConfig 호출 실패:', e.message) }
+  }
+  return { firstDelaySec: 70, intervalMin: 11 }
+}
+
+async function sendLiveLike(djId, liveId) {
+  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+  if (!accessToken || !liveId) return false
+  const headers = {
+    'Authorization': `Bearer ${accessToken}`,
+    'User-Agent': CHROME_UA,
+    'Referer': `https://www.spooncast.net/kr/live/${liveId}`,
+  }
+  // 참고자료(파이썬 예시)와 동일하게 여러 베이스 주소를 순서대로 시도한다 — 하나가 막히거나
+  // 404가 나도 다음 주소로 넘어가서 최대한 성공시킨다.
+  const bases = [KR_API_BASE, API_BASE, GW_BASE]
+  for (const base of bases) {
+    try {
+      const res = await spoonFetch(`${base}/lives/${liveId}/like/`, { method: 'POST', headers }, djId)
+      if (res && res.ok) {
+        console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 성공 (${base})`)
+        return true
+      }
+      console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 실패 (${base}) status=${res ? res.status : '응답없음'}`)
+    } catch (e) {
+      console.log(`[❤️자동좋아요:${djId}] liveId=${liveId} 요청 오류 (${base}):`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
+    }
+  }
+  return false
+}
+
+function stopAutoLikeTimer(djId) {
+  const room = getRoom(djId)
+  if (room.autoLikeTimer) { clearInterval(room.autoLikeTimer); room.autoLikeTimer = null }
+  if (room.autoLikeFirstTimeout) { clearTimeout(room.autoLikeFirstTimeout); room.autoLikeFirstTimeout = null }
+}
+
+function startAutoLikeTimer(djId, liveId) {
+  stopAutoLikeTimer(djId)
+  const room = getRoom(djId)
+  const { firstDelaySec, intervalMin } = getAutoLikeConfigSafe()
+  const firstDelayMs = firstDelaySec * 1000
+  const intervalMs = intervalMin * 60 * 1000
+  room.autoLikeFirstTimeout = setTimeout(() => {
+    sendLiveLike(djId, liveId).catch(e => console.log(`[❤️자동좋아요:${djId}] 첫 좋아요 실행 오류`, e.message))
+    room.autoLikeTimer = setInterval(() => {
+      sendLiveLike(djId, liveId).catch(e => console.log(`[❤️자동좋아요:${djId}] 반복 좋아요 실행 오류`, e.message))
+    }, intervalMs)
+  }, firstDelayMs)
+  console.log(`[❤️자동좋아요:${djId}] 타이머 시작 — ${firstDelaySec}초 뒤 첫 좋아요, 이후 ${intervalMin}분마다 반복`)
 }
 
 // 채팅 명령어: !자동복권(상태조회, 누구나) / !자동복권즉시·!자동복권정지·!자동복권시작·!자동복권갱신 (DJ+지정 권한자)
@@ -16697,6 +16760,7 @@ function rebootDjConnection(djId) {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopAutoLikeTimer(djId)
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
@@ -16865,6 +16929,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     room.tokenDjId = null // 🔀 다음 접속 시도 때 그 시점 기준으로 여유 있는 공용 계정으로 다시 배정받게 초기화
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    stopAutoLikeTimer(djId)
     stopStockTimers(djId)
     clearReminderTimers(room)
     clearTtsAccess(room)
@@ -16923,6 +16988,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     delete repeatSeqState[djId]
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
+    // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
+    startAutoLikeTimer(djId, liveId)
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
     startStockTimers(djId, liveId)
     // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
@@ -17282,7 +17349,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
     const heldForSec = ws.createdAt ? Math.round((Date.now() - ws.createdAt) / 1000) : null
     console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
-    if (code !== 1000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
+    // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
+    // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
+    if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     room.isConnected = false
     room.ws = null
 
@@ -17295,6 +17364,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
     stopLeavePolling(djId)
     stopLottoAutoTimer(djId)
+    stopAutoLikeTimer(djId)
     stopStockTimers(djId)
     clearReminderTimers(room)
     clearTtsAccess(room)
@@ -17351,6 +17421,20 @@ setInterval(() => {
       console.log(`[${djId}] 하트비트 점검 중 소켓 상태 이상(readyState=${ws.readyState}) → 즉시 종료 처리`)
       logAdminError(djId, '하트비트', `소켓 상태 이상(readyState=${ws.readyState}) → 종료 처리`)
       try { ws.terminate() } catch (e) {}
+      continue
+    }
+
+    // 🔄 4시간 프록시 순환 — 지금 붙어있는 프록시가 "지금 이 순간 배정돼야 할" 프록시랑 다르면
+    // (=4시간 구간이 넘어가서 배정이 바뀌었으면) 정상적으로 재연결시켜서 새 프록시를 타게 한다.
+    // 1000(정상 종료)으로 닫아서, 기존 재접속 로직이 그대로 처리하게 둔다.
+    const currentWsEntry = getWsProxyForDj(djId)
+    const currentWsLabel = currentWsEntry ? currentWsEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+    if (ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
+      console.log(`[${djId}] 프록시 순환 시점 — ${ws.spoonProxyLabel} → ${currentWsLabel}로 재연결`)
+      // ⚠️ code 1000(정상 종료)으로 닫으면 재접속 로직이 "의도적으로 나간 것"으로 보고 재연결을
+      // 안 시킨다. 그래서 1000이 아닌 전용 코드(4000)를 쓴다 — 재연결은 일으키되, 진짜 에러(1006 등)와는
+      // 구분해서 로그에 에러로 안 남게 close 핸들러 쪽에서 따로 처리한다.
+      try { ws.close(4000, '프록시 순환') } catch (e) { try { ws.terminate() } catch (e2) {} }
       continue
     }
 
@@ -18893,6 +18977,22 @@ app.post('/admin/global-announce', auth.requireAuth, (req, res) => {
   res.json({ success: true, data: result.data })
 })
 
+// ❤️ 자동 좋아요 타이밍 (전체 디제이 공통 적용, 관리자 전용 설정)
+app.get('/admin/autolike/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, config: getAutoLikeConfigSafe() })
+})
+app.post('/admin/autolike/settings', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  if (typeof store.setAutoLikeConfig !== 'function') {
+    return res.json({ success: false, error: 'store.js에 setAutoLikeConfig 함수가 아직 없어요. 서버 파일을 업데이트해주세요.' })
+  }
+  const { firstDelaySec, intervalMin } = req.body || {}
+  const result = store.setAutoLikeConfig(firstDelaySec, intervalMin)
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true, config: result.config })
+})
+
 // 🔑 세션 연결 전역 노출 제어 — 관리자가 끄면 일반 디제이 사이드바에서 "세션 연결" 메뉴 자체가 사라진다
 app.get('/session/global-off', auth.requireAuth, (req, res) => {
   const off = store.getSessionModuleGlobalOff()
@@ -19075,6 +19175,7 @@ app.post('/account/change-id', auth.requireAuth, async (req, res) => {
   if (room.ws) { room.ws.terminate() }
   stopLeavePolling(oldId)
   stopLottoAutoTimer(oldId)
+  stopAutoLikeTimer(oldId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   clearQuizTimers(room)
@@ -19369,6 +19470,7 @@ app.post('/admin/users/:djId/reset', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(targetId)
   stopLottoAutoTimer(targetId)
+  stopAutoLikeTimer(targetId)
   clearReminderTimers(room)
   clearTtsAccess(room)
   clearQuizTimers(room)
@@ -24057,6 +24159,7 @@ async function checkAdminAutoJoin() {
           room.watchingTag = ''
           stopLeavePolling(djId)
           stopLottoAutoTimer(djId)
+          stopAutoLikeTimer(djId)
           stopStockTimers(djId)
           clearReminderTimers(room)
           clearTtsAccess(room)
@@ -24242,6 +24345,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   room.watchingTag = ''
   stopLeavePolling(djId)
   stopLottoAutoTimer(djId)
+  stopAutoLikeTimer(djId)
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)

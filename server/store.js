@@ -509,6 +509,28 @@ function setStatusBanner(enabled, message, type) {
   return { ok: true, banner: djs['sum'].settings.statusBanner };
 }
 
+// ❤️ 자동 좋아요(라이브 좋아요) 타이밍 — 모든 디제이 방에 공통 적용되는 전역 설정.
+// 상태 배너와 동일한 방식으로 관리자(sum) 계정의 settings에 중앙 저장한다.
+function getAutoLikeConfig() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.autoLikeConfig;
+  const firstDelaySec = Math.max(1, Math.min(3600, Number(v && v.firstDelaySec) || 70));
+  const intervalMin = Math.max(1, Math.min(1440, Number(v && v.intervalMin) || 11));
+  return { firstDelaySec, intervalMin };
+}
+function setAutoLikeConfig(firstDelaySec, intervalMin) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  const cfg = {
+    firstDelaySec: Math.max(1, Math.min(3600, Number(firstDelaySec) || 70)),
+    intervalMin: Math.max(1, Math.min(1440, Number(intervalMin) || 11)),
+  };
+  djs['sum'].settings.autoLikeConfig = cfg;
+  saveDjs(djs);
+  return { ok: true, config: cfg };
+}
+
 // 🔑 세션 연결 전역 강제 OFF — 관리자(sum)가 끄면, 일반 디제이는 각자 계정의 개인 모듈 설정과
 // 상관없이 사이드바에서 "세션 연결" 메뉴 자체가 안 보이게 된다. (관리자 본인은 항상 그대로 보임)
 // 상태 배너와 동일한 방식으로 관리자(sum) 계정의 settings에 중앙 저장한다.
@@ -1448,6 +1470,8 @@ module.exports = {
   getImagePopupHistory,
   getStatusBanner,
   setStatusBanner,
+  getAutoLikeConfig,
+  setAutoLikeConfig,
   getSessionModuleGlobalOff,
   setSessionModuleGlobalOff,
   getSessionAllowedUsers,
