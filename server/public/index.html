@@ -948,6 +948,13 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>🎁 최근 1일 선물 내역 <span class="hint" style="margin:0 0 0 4px">(실시간)</span></span>
+          </div>
+          <div id="dashRecentGiftsList" style="max-height:360px;overflow-y:auto"><p class="hint">아직 받은 선물이 없어요.</p></div>
+        </div>
       </div>
 
       <!-- 🛒 모듈 마켓 -->
@@ -1068,6 +1075,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🎁 전체 디제이 실시간 선물 현황 <span class="hint" style="margin:0 0 0 4px">(최근 1일)</span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadAdminRecentGifts()">🔄 새로고침</button></div>
+          <p class="hint" style="margin-bottom:12px">모든 디제이 방에서 들어오는 선물을 실시간으로 한 화면에서 볼 수 있어요. 이 화면을 보고 있는 동안 들어온 선물은 새로고침 없이 바로 위에 추가돼요.</p>
+          <input type="text" id="adminGiftsDjFilter" placeholder="디제이 아이디로 필터링 (비우면 전체)" oninput="renderAdminRecentGifts()" style="margin-bottom:10px">
+          <div id="adminRecentGiftsList" style="max-height:400px;overflow-y:auto"><p class="hint">불러오는 중...</p></div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🔀 공용 계정 접속 현황</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadTokenPoolStatus()">🔄 새로고침</button></div>
           <p class="hint" style="margin-bottom:12px">공용 계정(sum/sum2/sum3...)마다 지금 몇 명이 붙어서 쓰고 있는지 확인할 수 있어요. 한 계정이 정원에 가까워지면 새 DJ는 자동으로 다음 계정에 배정돼요.</p>
           <div id="tokenPoolStatusWrap" style="display:flex;flex-direction:column;gap:10px">
@@ -1109,6 +1122,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveGlobalAnnounce()">💾 저장</button>
           <div class="hint" id="gaStatusHint" style="margin-top:8px"></div>
         </div>
+        <div class="card">
+          <div class="card-title"><span>❤️ 자동 좋아요 타이밍</span></div>
+          <p class="hint" style="margin-bottom:12px">방송에 접속한 뒤, 봇이 API로 "라이브 좋아요"를 자동으로 누르는 간격이에요. <b>모든 디제이 방에 공통으로 적용</b>돼요.</p>
+          <label>입장 후 첫 좋아요까지 (초)</label>
+          <input type="number" id="alFirstDelaySec" value="70" min="1" max="3600">
+          <label style="margin-top:10px">이후 반복 간격 (분)</label>
+          <input type="number" id="alIntervalMin" value="11" min="1" max="1440">
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveAutoLikeConfig()">💾 저장</button>
+          <div class="hint" id="alStatusHint" style="margin-top:8px"></div>
+        </div>
+
         <div class="card">
           <div class="card-title"><span>🌍 월드보스</span></div>
           <p class="hint" style="margin-bottom:12px">지금 방송 연결되어있고 몬스터잡기가 켜져있는 <b>모든 방</b>에, 정해진 간격마다 동시에 같은 보스가 등장해요. 참여는 그 방의 기존 보스 참여 명령어(각 디제이가 설정한 것)를 그대로 써요.</p>
@@ -5812,7 +5836,7 @@ function enterApp(){
   if(watchLockedNote) watchLockedNote.style.display = canAutoJoin ? 'none' : '';
   const expiryRow=document.getElementById('expiryRow');
   if(expiryRow) expiryRow.style.display = isAdmin ? 'none' : 'flex';
-  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadSignupEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
+  if(isAdmin){ loadUserList(); loadDupAllowIps(); loadDupCheckEnabled(); loadSignupEnabled(); loadUpdateNoticeCurrent(); loadImagePopupCurrent(); loadAdminStats(); loadTokenPoolStatus(); loadStatusBannerAdmin(); loadGlobalAnnounce(); loadAutoLikeConfig(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); loadAdminRecentGifts(); }
   loadStatusBanner();
   loadSessionGlobalOffStatus();
   startModuleRequestUnreadPolling();
@@ -5989,7 +6013,7 @@ function selectPanel(name){
   if(name==='debuglog'&&document.getElementById('focusLogListWrap'))loadFocusLog();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
-  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
+  if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadAutoLikeConfig(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); loadAdminRecentGifts(); }
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
@@ -7771,6 +7795,37 @@ async function clearImagePopupNow(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+// 🎁 관리자 전용 — 전체 디제이 실시간 선물 현황. 처음엔 서버에서 지금까지 쌓인 걸 받아오고,
+// 그 다음부턴 SSE 'admin_gift' 이벤트가 올 때마다 adminGiftsBuffer 맨 앞에 추가해서 실시간으로 보여준다.
+let adminGiftsBuffer=[];
+async function loadAdminRecentGifts(){
+  try{
+    const res=await fetch(SERVER+'/admin/recent-gifts',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    adminGiftsBuffer=d.list||[];
+    renderAdminRecentGifts();
+  }catch(e){}
+}
+function renderAdminRecentGifts(){
+  const wrap=document.getElementById('adminRecentGiftsList');
+  if(!wrap)return;
+  const cutoff=Date.now()-24*60*60*1000;
+  const djFilter=(document.getElementById('adminGiftsDjFilter')?.value||'').trim().toLowerCase();
+  let list=adminGiftsBuffer.filter(g=>g.ts>=cutoff);
+  if(djFilter) list=list.filter(g=>(g.djId||'').toLowerCase().includes(djFilter));
+  if(!list.length){ wrap.innerHTML='<p class="hint">아직 받은 선물이 없어요.</p>'; return; }
+  wrap.innerHTML=list.map(g=>{
+    const timeStr=new Date(g.ts).toLocaleTimeString('ko-KR',{hour12:false});
+    const comboText=(g.comboCount&&g.comboCount>1)?` x${g.comboCount}`:'';
+    const label=g.sticker?escapeHtml(g.sticker):`스푼 ${(g.amount||0).toLocaleString('ko-KR')}개`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span><span class="hint-inline" style="background:var(--bg);border-radius:6px;padding:2px 6px;margin-right:6px">@${escapeHtml(g.djId||'?')}</span><b>${escapeHtml(g.nickname||'?')}</b>님이 <b style="color:var(--accent2)">${label}</b>${comboText}</span>
+      <span class="hint" style="margin:0">${timeStr}</span>
+    </div>`;
+  }).join('');
+}
+
 const ADMIN_STAT_LABELS={ totalDjs:['👥','전체 가입 DJ'], activeToday:['✅','오늘 접속'], autoJoinWatching:['🚪','자동입장 감시중'], expired:['⏰','이용기간 만료'], blocked:['🚫','차단됨'] };
 async function loadAdminStats(){
   const grid=document.getElementById('adminStatsGrid');
@@ -8183,6 +8238,27 @@ async function saveGlobalAnnounce(){
     const res=await fetch(SERVER+'/admin/global-announce',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled,message,intervalMin,excludeDjIds})});
     const d=await res.json();
     if(d.success){ showToast('저장 완료 ✓'); loadGlobalAnnounce(); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+async function loadAutoLikeConfig(){
+  try{
+    const res=await fetch(SERVER+'/admin/autolike/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('alFirstDelaySec').value=d.config.firstDelaySec||70;
+    document.getElementById('alIntervalMin').value=d.config.intervalMin||11;
+    document.getElementById('alStatusHint').textContent=`현재: 입장 후 ${d.config.firstDelaySec}초 뒤 첫 좋아요, 이후 ${d.config.intervalMin}분마다 반복`;
+  }catch(e){}
+}
+async function saveAutoLikeConfig(){
+  const firstDelaySec=Number(document.getElementById('alFirstDelaySec').value)||70;
+  const intervalMin=Number(document.getElementById('alIntervalMin').value)||11;
+  try{
+    const res=await fetch(SERVER+'/admin/autolike/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({firstDelaySec,intervalMin})});
+    const d=await res.json();
+    if(d.success){ showToast('저장 완료 ✓'); loadAutoLikeConfig(); }
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -14460,7 +14536,7 @@ function ttsClearLog(){ ttsLogEntries=[]; renderTtsLog(); }
 
 
 /* ── 📊 대시보드 ── */
-let dashData={spoonLog:{},heartLog:{},likeStats:{free:0,ad:0,plan:0,paid:0,total:0,sessionStart:0}};
+let dashData={spoonLog:{},heartLog:{},likeStats:{free:0,ad:0,plan:0,paid:0,total:0,sessionStart:0},recentGifts:[]};
 let dashFunding=[];
 let dashCalYear=new Date().getFullYear();
 let dashCalMonth=new Date().getMonth(); // 0-indexed
@@ -14480,7 +14556,26 @@ async function loadDashboardData(){
     renderDashboardStats();
     renderDashCalendar();
     renderDashRankStatus();
+    renderRecentGifts();
   }catch(e){}
+}
+// 🎁 최근 1일(24시간) 선물 내역 — 서버가 이미 24시간 지난 건 정리해서 주지만,
+// 화면을 오래 열어두고 있으면 시간이 지날 수 있으니 렌더링 시점에도 한 번 더 걸러낸다.
+function renderRecentGifts(){
+  const wrap=document.getElementById('dashRecentGiftsList');
+  if(!wrap)return;
+  const cutoff=Date.now()-24*60*60*1000;
+  const list=(dashData.recentGifts||[]).filter(g=>g.ts>=cutoff);
+  if(!list.length){ wrap.innerHTML='<p class="hint">아직 받은 선물이 없어요.</p>'; return; }
+  wrap.innerHTML=list.map(g=>{
+    const timeStr=new Date(g.ts).toLocaleTimeString('ko-KR',{hour12:false});
+    const comboText=(g.comboCount&&g.comboCount>1)?` x${g.comboCount}`:'';
+    const label=g.sticker?escapeHtml(g.sticker):`스푼 ${(g.amount||0).toLocaleString('ko-KR')}개`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span><b>${escapeHtml(g.nickname||'?')}</b>님이 <b style="color:var(--accent2)">${label}</b>${comboText}</span>
+      <span class="hint" style="margin:0">${timeStr}</span>
+    </div>`;
+  }).join('');
 }
 function renderDashRankStatus(){
   const input=document.getElementById('dashRankSearchInput');
@@ -18947,12 +19042,13 @@ function startSSE(){
   sseConnection=es;
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
-    // session 이벤트는 공용(관리자 스푼 로그인 상태), 나머지는 내 계정 것만 반영
-    if(d.type!=='session' && d.djId && d.djId!==djId) return;
+    // session/admin_gift 이벤트는 공용(admin_gift는 관리자 화면에서만 실제로 처리함), 나머지는 내 계정 것만 반영
+    if(d.type!=='session' && d.type!=='admin_gift' && d.djId && d.djId!==djId) return;
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl,{isDj:d.isDj,isManager:d.isManager}); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    else if(d.type==='admin_gift'){ if(djId==='sum'){ adminGiftsBuffer.unshift(d); if(adminGiftsBuffer.length>1000) adminGiftsBuffer.length=1000; if(document.querySelector('.panel[data-panel="adminstats"]')?.classList.contains('active')) renderAdminRecentGifts(); } }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
     else if(d.type==='voicetimersound')playVoiceTimerAlert(d.soundUrl,d.volume);
