@@ -1673,6 +1673,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="useDefaultEntryMessages"> 멘트 등록 안 했을 때 기본 멘트 자동 사용</label>
         </div>
         <div class="card">
+          <div class="card-title"><span>🚶 자리비움</span><span class="status-pill" id="awayModePill" style="margin-left:6px">확인 중...</span></div>
+          <p class="hint" style="margin-bottom:10px">켜두면 지정인사·기본 입장멘트 대신 아래 문구가 나가요. 잠시 자리를 비울 때 켜두세요. 버튼 또는 채팅 명령어(DJ 전용)로 켜고 끌 수 있어요.</p>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <button class="btn-connect" onclick="toggleAwayMode(true)">🚶 자리비움 켜기</button>
+            <button class="btn-gray" onclick="toggleAwayMode(false)">✅ 돌아왔어요</button>
+          </div>
+          <label style="margin-top:12px">자리비움 문구</label>
+          <textarea id="awayModeMessage" rows="2" placeholder="🚶 지금은 잠시 자리를 비웠어요. 조금만 기다려주세요!"></textarea>
+          <div class="hint" style="margin-top:4px">변수: {nickname}, {tag}, {등급}, {count}</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+            <div><label>켜는 명령어</label><input type="text" id="awayModeCmdAway" placeholder="!자리오프"></div>
+            <div><label>끄는 명령어</label><input type="text" id="awayModeCmdBack" placeholder="!자리온"></div>
+          </div>
+          <button class="btn-connect" style="width:100%;margin-top:12px" onclick="saveAwayModeSettings()">💾 저장</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영/지정인사 음원 전용)</span></div>
           <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도(예: 접속 튕겼다가 바로 재접속) 효과음이 반복 재생되지 않도록 제한합니다.<br>
           ※ 환영 메시지·지정인사 음원에만 적용됩니다. (채팅 인사 문구는 쿨다운과 무관하게 그대로 출력)<br>
@@ -2426,11 +2442,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <div><label>!복권 [수량] 명령어</label><input type="text" id="actCmdLotto" value="!복권"></div>
-              <div><label>!출석 명령어 (30분 쿨다운)</label><input type="text" id="actCmdAttend" value="!출석"></div>
+              <div><label>!출석 명령어</label><input type="text" id="actCmdAttend" value="!출석"></div>
             </div>
+            <label style="margin-top:14px">출석 방식</label>
+            <select id="actAttendMode" onchange="toggleActAttendModeUI()">
+              <option value="interval">⏱ N분마다 재출석 가능</option>
+              <option value="daily">📅 하루 1회만 (자정 KST 기준 리셋)</option>
+            </select>
+            <div class="delay-inline" id="actAttendIntervalRow" style="margin-top:8px"><span id="actAttendIntervalLabel">재출석 가능 주기:</span> <input type="number" id="actAutoAttendInterval" value="30" min="5" style="width:70px"> 분마다</div>
             <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="actAutoAttendEnabled" checked> 🕐 자동 출석</label>
-            <div class="delay-inline" style="margin-top:8px">주기: <input type="number" id="actAutoAttendInterval" value="30" min="5" style="width:70px"> 분마다</div>
-            <p class="hint">켜두면 봇 실행 중 설정한 주기마다 현재 시청자 명단을 받아와 등록 유저들에게 자동 출석 처리합니다. 출석 EXP는 위에서 설정한 값과 동일하며, 채팅 출석 없이는 안 됩니다. (각 유저별 30분 쿨다운 자동 적용)</p>
+            <p class="hint">켜두면 봇 실행 중 설정한 주기마다 현재 시청자 명단을 받아와 등록 유저들에게 자동 출석 처리합니다. 출석 EXP는 위에서 설정한 값과 동일하며, 채팅 출석 없이는 안 됩니다. (위 "출석 방식"에서 고른 조건 그대로 적용됨 — 하루 1회 모드면 이미 오늘 출석한 유저는 자동으로도 건너뜁니다)</p>
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <div><label>@[닉네임] 조회 명령어 (DJ용)</label><input type="text" id="actCmdAt" value="@"></div>
               <div><label>!복권지급 명령어 (DJ + 지정 권한자)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
@@ -6017,6 +6038,7 @@ function selectPanel(name){
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
+  if(name==='entrysettings'&&document.getElementById('awayModeMessage'))loadAwayModeSettings();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(name==='debuglog'){ renderDebugLogList(); const c=document.getElementById('dbgCount'); if(c)c.textContent=debugLogBuffer.length; }
   if(name==='errorlog'){ loadErrorLogPanel(); errorLogUnread=0; updateErrorLogBadge(); }
@@ -9376,7 +9398,7 @@ const ACT_DEFAULT={
   scoreHeart:1,scorePaidHeart:null,scoreChat:2,scoreAttend:10,scoreLottoPoint:5,
   lottoExchange:22,lotto1st:3000,lotto2nd:500,lotto3rd:100,lottoFail:1,
   lvUpLottoEnabled:true,lvUpLottoInterval:10,lvUpLottoAmount:1,
-  autoAttendEnabled:true,autoAttendIntervalMin:30,
+  autoAttendEnabled:true,autoAttendIntervalMin:30,attendMode:'interval',
   msgCreate:'✅ {nickname}님의 애청지수 정보가 생성되었습니다!',
   msgDeleteOk:'🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.',
   msgNoInfo:"⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.",
@@ -9394,10 +9416,24 @@ const ACT_DEFAULT={
 };
 let activityData=JSON.parse(JSON.stringify(ACT_DEFAULT));
 
+function toggleActAttendModeUI(){
+  const mode=document.getElementById('actAttendMode').value;
+  const row=document.getElementById('actAttendIntervalRow');
+  const label=document.getElementById('actAttendIntervalLabel');
+  if(mode==='daily'){
+    if(row)row.style.display='none';
+  }else{
+    if(row)row.style.display='';
+    if(label)label.textContent='재출석 가능 주기:';
+  }
+}
+
 function renderActivitySettings(){
   document.getElementById('actEnabled').checked=activityData.enabled!==false;
   document.getElementById('actAutoAttendEnabled').checked=activityData.autoAttendEnabled!==false;
   document.getElementById('actAutoAttendInterval').value=activityData.autoAttendIntervalMin;
+  document.getElementById('actAttendMode').value=activityData.attendMode||'interval';
+  toggleActAttendModeUI();
   document.getElementById('actCmdMyInfo').value=activityData.cmdMyInfo;
   document.getElementById('actCmdRank').value=activityData.cmdRank;
   document.getElementById('actCmdCreate').value=activityData.cmdCreate;
@@ -9470,6 +9506,7 @@ function collectActivityFormValues(){
   activityData.enabled=document.getElementById('actEnabled').checked;
   activityData.autoAttendEnabled=document.getElementById('actAutoAttendEnabled').checked;
   activityData.autoAttendIntervalMin=Number(document.getElementById('actAutoAttendInterval').value)||30;
+  activityData.attendMode=document.getElementById('actAttendMode').value||'interval';
   activityData.cmdMyInfo=document.getElementById('actCmdMyInfo').value.trim()||'!내정보';
   activityData.cmdRank=document.getElementById('actCmdRank').value.trim()||'!랭킹';
   activityData.cmdCreate=document.getElementById('actCmdCreate').value.trim()||'!내정보 생성';
@@ -18933,6 +18970,39 @@ async function savePreferredTokenDjId(){
     const d=await res.json();
     if(d.success)showToast(sel.value?`다음 방송부터 "${sel.value}" 계정으로 들어가요`:'자동 배정으로 저장됐어요');
     else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
+/* ── 🚶 자리비움 ── */
+async function loadAwayModeSettings(){
+  try{
+    const res=await fetch(SERVER+'/awaymode/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    document.getElementById('awayModeMessage').value=d.settings.message||'';
+    document.getElementById('awayModeCmdAway').value=d.settings.cmdAway||'!자리오프';
+    document.getElementById('awayModeCmdBack').value=d.settings.cmdBack||'!자리온';
+    const pill=document.getElementById('awayModePill');
+    if(pill){ pill.textContent=d.settings.enabled?'🚶 자리비움 중':'✅ 자리에 있음'; pill.className='status-pill '+(d.settings.enabled?'dday':'ended'); }
+  }catch(e){}
+}
+async function saveAwayModeSettings(){
+  const message=document.getElementById('awayModeMessage').value;
+  const cmdAway=document.getElementById('awayModeCmdAway').value.trim()||'!자리오프';
+  const cmdBack=document.getElementById('awayModeCmdBack').value.trim()||'!자리온';
+  try{
+    const res=await fetch(SERVER+'/awaymode/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({message,cmdAway,cmdBack})});
+    const d=await res.json();
+    if(d.success)showToast('저장 완료 ✓');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+async function toggleAwayMode(enabled){
+  try{
+    const res=await fetch(SERVER+'/awaymode/toggle',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled})});
+    const d=await res.json();
+    if(d.success){ showToast(enabled?'🚶 자리비움을 켰어요':'✅ 돌아왔어요'); loadAwayModeSettings(); }
+    else showToast(d.error||'변경 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 

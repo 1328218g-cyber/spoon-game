@@ -183,6 +183,48 @@ const DEFAULT_JOIN_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickn
 const DEFAULT_LIKE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 좋아요 감사해요! 💓', delay: 1, sound: '' }]
 const DEFAULT_LEAVE_MESSAGES = [{ id: 0, enabled: true, target: '', text: '{nickname}님 다음에 또 만나요! 👋', delay: 1, sound: '' }]
 
+// 🚶 자리비움 — 켜두면 입장 인사(지정인사 포함)가 전부 이 문구로 대체된다. DJ가 잠시 자리를
+// 비웠을 때 평소 입장멘트 대신 안내 문구를 내보내기 위한 기능. 채팅 명령어(cmdAway/cmdBack)나
+// 웹 대시보드 버튼으로 켜고 끌 수 있다.
+function getAwayModeSettings(djId, settings) {
+  if (!settings.awayMode) {
+    settings.awayMode = {
+      enabled: false,
+      message: '🚶 지금은 잠시 자리를 비웠어요. 조금만 기다려주세요!',
+      cmdAway: '!자리오프',
+      cmdBack: '!자리온',
+    }
+    store.saveSettings(djId, { awayMode: settings.awayMode })
+  }
+  if (settings.awayMode.cmdAway == null) settings.awayMode.cmdAway = '!자리오프'
+  if (settings.awayMode.cmdBack == null) settings.awayMode.cmdBack = '!자리온'
+  return settings.awayMode
+}
+
+function handleAwayModeCommand(djId, room, settings, author, authorId, text) {
+  const cfg = getAwayModeSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!msg) return
+
+  if (msg === (cfg.cmdAway || '!자리오프')) {
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '❌ DJ만 사용할 수 있습니다.'), 400); return }
+    if (cfg.enabled) return
+    cfg.enabled = true
+    store.saveSettings(djId, { awayMode: cfg })
+    setTimeout(() => sendChatToRoom(djId, `🚶 자리비움을 켰어요. (해제하려면 ${cfg.cmdBack || '!자리온'})`), 400)
+    return
+  }
+  if (msg === (cfg.cmdBack || '!자리온')) {
+    if (!isDj) { setTimeout(() => sendChatToRoom(djId, '❌ DJ만 사용할 수 있습니다.'), 400); return }
+    if (!cfg.enabled) return
+    cfg.enabled = false
+    store.saveSettings(djId, { awayMode: cfg })
+    setTimeout(() => sendChatToRoom(djId, '✅ 자리비움을 해제했어요. 다시 왔어요!'), 400)
+    return
+  }
+}
+
 const zlib = require('zlib')
 
 // JSON 텍스트는 반복되는 필드명이 많아서 압축이 매우 잘 된다 (보통 80~95% 줄어듦).
@@ -2114,6 +2156,7 @@ function getActivitySettings(djId, settings) {
       lottoExchange: 22, lotto1st: 3000, lotto2nd: 500, lotto3rd: 100, lottoFail: 1,
       lvUpLottoEnabled: true, lvUpLottoInterval: 10, lvUpLottoAmount: 1,
       autoAttendEnabled: true, autoAttendIntervalMin: 30,
+      attendMode: 'interval', // 'interval'(N분마다) | 'daily'(하루 1회, 자정 KST 기준 리셋)
       msgCreate: '✅ {nickname}님의 애청지수 정보가 생성되었습니다!',
       msgDeleteOk: '🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.',
       msgNoInfo: "⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.",
@@ -2135,6 +2178,7 @@ function getActivitySettings(djId, settings) {
   if (!settings.activity.users) settings.activity.users = {}
   if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
   if (!settings.activity.msgLottoNone) settings.activity.msgLottoNone = '⚠️ {nickname}님의 복권이 없습니다.'
+  if (!settings.activity.attendMode) settings.activity.attendMode = 'interval'
   return settings.activity
 }
 
@@ -2321,8 +2365,16 @@ function handleActAttendHook(djId, settings, author, tag) {
   const d = act.users[key]
   actSafeSetTag(d, key, tag)
   const now = Date.now()
-  const interval = 30 * 60 * 1000
-  if (now - (d.lastAttendTime || 0) < interval) return
+  if (act.attendMode === 'daily') {
+    // 📅 하루 1회 — 자정(KST) 기준으로 날짜가 바뀌면 다시 출석 가능
+    const today = todayKST()
+    if (d.lastAttendDate === today) return
+    d.lastAttendDate = today
+  } else {
+    // ⏱ N분마다 — 관리자가 설정한 간격(기본 30분)마다 재출석 가능
+    const interval = Math.max(1, Number(act.autoAttendIntervalMin) || 30) * 60 * 1000
+    if (now - (d.lastAttendTime || 0) < interval) return
+  }
   d.lastAttendTime = now
   d.attend = (d.attend || 0) + 1
   const attendExp = Number(act.scoreAttend) || 10
@@ -16615,7 +16667,12 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
-  if (greeting) {
+  const awayMode = getAwayModeSettings(djId, settings)
+  if (awayMode.enabled) {
+    // 🚶 자리비움 중에는 지정인사/기본 입장멘트 대신 이 문구 하나로 전부 대체한다.
+    const text = String(awayMode.message || '').replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
+    if (text) setTimeout(() => sendChatToRoom(djId, text), 200)
+  } else if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
     const delayMs = Math.max(0, Number(greeting.delaySec) || 0) * 1000 + 200 // 기본 200ms(전송 텀)에 지정한 지연시간을 더해서 내보낸다
     setTimeout(() => sendChatToRoom(djId, text), delayMs)
@@ -17090,6 +17147,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
           handleQuizAnswer(djId, settings, author, text, actTag)
           handleLottoAutoCommand(djId, room, settings, author, authorId, liveId, text)
+          handleAwayModeCommand(djId, room, settings, author, authorId, text)
           handleReminderCommand(djId, room, settings, author, authorId, text)
           handleDdayCommand(djId, room, settings, author, authorId, text)
           handleSajuCommand(djId, room, settings, author, authorId, text)
@@ -19907,6 +19965,33 @@ app.post('/quiz/stop', auth.requireAuth, (req, res) => {
 })
 
 // 🎟️ 복권 자동 지급 — 설정 조회/저장 + 즉시지급/일시정지/재개
+// 🚶 자리비움
+app.get('/awaymode/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getAwayModeSettings(req.djId, settings)
+  res.json({ success: true, settings: cfg })
+})
+
+app.post('/awaymode/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getAwayModeSettings(req.djId, settings)
+  const { message, cmdAway, cmdBack } = req.body || {}
+  if (message != null) cfg.message = String(message)
+  if (cmdAway != null) cfg.cmdAway = String(cmdAway).trim() || '!자리오프'
+  if (cmdBack != null) cfg.cmdBack = String(cmdBack).trim() || '!자리온'
+  store.saveSettings(req.djId, { awayMode: cfg })
+  res.json({ success: true, settings: cfg })
+})
+
+app.post('/awaymode/toggle', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cfg = getAwayModeSettings(req.djId, settings)
+  const { enabled } = req.body || {}
+  cfg.enabled = enabled != null ? !!enabled : !cfg.enabled
+  store.saveSettings(req.djId, { awayMode: cfg })
+  res.json({ success: true, settings: cfg })
+})
+
 app.get('/lottoauto/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const cfg = getLottoAutoSettings(req.djId, settings)
@@ -24581,19 +24666,28 @@ app.listen(PORT, () => {
   setInterval(() => { try { store.createBackupSnapshot() } catch (e) {} }, 2 * 60 * 60 * 1000)
 
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
+  // 🧪 테스트(스테이징) 서버는 DISABLE_EXTERNAL_BACKUP=1 로 Base44/R2 자동백업을 끈다 — 실서버 백업을 덮어쓰지 않게.
+  const EXTERNAL_BACKUP_DISABLED = process.env.DISABLE_EXTERNAL_BACKUP === '1'
+  if (EXTERNAL_BACKUP_DISABLED) console.log('[외부 백업] DISABLE_EXTERNAL_BACKUP=1 → Base44/R2 자동백업 및 R2 정리 비활성화')
+  if (!EXTERNAL_BACKUP_DISABLED) {
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
+  }
 
   // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
   // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
   // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
   // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
+  if (!EXTERNAL_BACKUP_DISABLED) {
   setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
   setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+  }
 
   // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
+  if (!EXTERNAL_BACKUP_DISABLED) {
   setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
   setInterval(() => { r2Backup.cleanupOldSnapshots() }, 3 * 24 * 60 * 60 * 1000)
+  }
 
   // 🧹 선물캡처판 배경 이미지 자동 삭제 — 등록한 지 하루 지난 배경을 1시간마다 확인
   setTimeout(cleanupOldGiftCaptureBackgrounds, 10 * 60 * 1000)
