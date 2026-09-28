@@ -59,6 +59,11 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 .brand .sub{font-size:11px;color:var(--muted);margin-top:1px}
 
 .nav-group-label{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:16px 16px 6px}
+/* 📂 사이드바 그룹 접기 — 그룹 제목을 누르면 그 그룹 메뉴만 숨기고 제목만 남긴다 (화살표는 ::after라 그룹 이름(textContent)에 안 섞임) */
+.nav-group-label{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.nav-group-label::after{content:'▾';font-size:11px;opacity:.7;transition:transform .15s}
+.nav-group-label.collapsed::after{transform:rotate(-90deg)}
+.nav-item.group-collapsed{display:none !important}
 
 .nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:1px 8px;border-radius:9px;cursor:pointer;color:var(--text);font-size:13.5px;transition:background 0.12s;user-select:none}
 .nav-item:hover{background:var(--surface2)}
@@ -855,6 +860,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
       <!-- 📊 대시보드 -->
       <div class="panel" data-panel="dashboard">
+        <div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="font-size:22px">🚶</div>
+          <div style="flex:1;min-width:160px">
+            <div style="font-weight:700">자리비움 <span class="away-mode-state" style="margin-left:4px">꺼짐</span></div>
+            <div class="hint" style="margin:2px 0 0">켜두면 지정인사·기본 입장멘트 대신 자리비움 문구가 나가요. (문구는 입장 설정에서 변경)</div>
+          </div>
+          <button class="btn-gray away-mode-btn" style="padding:9px 16px;font-size:13px;flex-shrink:0" onclick="toggleAwayMode()">🚶 자리비움 켜기</button>
+        </div>
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
           <div class="card" style="margin-bottom:0">
             <div class="card-title" style="margin-bottom:6px">🏆 이달의 DJ 랭킹 조회</div>
@@ -1673,6 +1686,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <label class="check-opt" style="margin-top:8px"><input type="checkbox" id="useDefaultEntryMessages"> 멘트 등록 안 했을 때 기본 멘트 자동 사용</label>
         </div>
         <div class="card">
+          <div class="card-title"><span>🚶 자리비움</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveAwayModeSettings()">💾 저장</button></div>
+          <p class="hint">켜두면 지정인사·기본 입장멘트 대신 아래 자리비움 문구가 나가요. 잠시 자리를 비울 때 켜두시면 됩니다.<br>
+          ※ 대시보드 버튼이나 채팅 명령어(DJ만 사용 가능)로도 켜고 끌 수 있어요.</p>
+          <div style="display:flex;align-items:center;gap:10px;margin:10px 0">
+            <span>현재 상태: <b class="away-mode-state">꺼짐</b></span>
+            <button class="btn-gray away-mode-btn" style="padding:7px 14px;font-size:12.5px" onclick="toggleAwayMode()">🚶 자리비움 켜기</button>
+          </div>
+          <label>자리비움 문구</label>
+          <textarea id="awayMsg" style="height:56px">🚶 {nickname}님 어서오세요! DJ가 잠시 자리를 비웠어요. 곧 돌아올게요!</textarea>
+          <div class="hint">사용 가능한 변수: {nickname} {tag} {등급} {count}</div>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr">
+            <div><label>자리비움 켜기 명령어</label><input type="text" id="awayCmdAway" value="!자리오프"></div>
+            <div><label>자리비움 끄기 명령어</label><input type="text" id="awayCmdBack" value="!자리온"></div>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>⏱ 효과음 재입장 쿨다운</span><span class="hint-inline">(환영/지정인사 음원 전용)</span></div>
           <p class="hint">같은 유저가 짧은 시간 안에 여러 번 입장해도(예: 접속 튕겼다가 바로 재접속) 효과음이 반복 재생되지 않도록 제한합니다.<br>
           ※ 환영 메시지·지정인사 음원에만 적용됩니다. (채팅 인사 문구는 쿨다운과 무관하게 그대로 출력)<br>
@@ -2246,6 +2275,18 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <button class="btn-connect" style="width:100%;margin-top:10px" onclick="saveRlCommands()">💾 명령어 저장</button>
         </div>
         <div class="card">
+          <div class="card-title"><span>👮 매니저 권한 주기</span></div>
+          <p class="hint" style="margin-top:0">여기 등록한 <b>고유닉</b>의 유저는 DJ처럼 아래 명령어를 쓸 수 있어요.<br>
+          · <b>!룰렛지급N</b> [고유닉] [수량] — 룰렛권 지급<br>
+          · <b>!복권지급</b> [고유닉] [수량] — 복권 지급<br>
+          · <b>@고유닉</b> — 해당 유저 내정보 조회 (예: @sum)</p>
+          <div class="chip-input-row">
+            <input type="text" id="rlManagerInput" placeholder="고유닉 입력 (@ 없이)" onkeydown="if(event.key==='Enter')addRlManager()">
+            <button class="btn-connect" onclick="addRlManager()">+ 추가</button>
+          </div>
+          <div class="chip-list" id="rlManagerList"></div>
+        </div>
+        <div class="card">
           <div class="card-title"><span>📄 룰렛메뉴 목록 페이지당 개수</span></div>
           <p class="hint" style="margin-bottom:12px">채팅에서 <b>!룰렛메뉴1</b>처럼 항목 목록을 조회할 때, 한 번에 몇 개씩 끊어서 보여줄지 정해요. 예를 들어 30으로 설정하면 30개씩 자동으로 끊어서 여러 페이지로 나눠 보여줘요. (기본값: 10개)</p>
           <div style="display:flex;gap:10px;align-items:center">
@@ -2426,11 +2467,16 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             </div>
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <div><label>!복권 [수량] 명령어</label><input type="text" id="actCmdLotto" value="!복권"></div>
-              <div><label>!출석 명령어 (30분 쿨다운)</label><input type="text" id="actCmdAttend" value="!출석"></div>
+              <div><label>!출석 명령어</label><input type="text" id="actCmdAttend" value="!출석"></div>
             </div>
+            <label style="margin-top:14px">📌 출석 방식</label>
+            <label class="check-opt" style="margin-top:6px"><input type="radio" name="actAttendMode" id="actAttendModeInterval" value="interval" checked onchange="updateActAttendModeUI()"> ⏱ N분마다 재출석 가능 (기존 방식)</label>
+            <div class="delay-inline" id="actAttendIntervalRow" style="margin-top:6px;margin-left:24px">재출석 간격: <input type="number" id="actAttendInterval" value="30" min="1" style="width:70px"> 분</div>
+            <label class="check-opt" style="margin-top:6px"><input type="radio" name="actAttendMode" id="actAttendModeDaily" value="daily" onchange="updateActAttendModeUI()"> 📅 하루 1회만 출석 가능 (자정 기준으로 리셋)</label>
+            <p class="hint">수동 출석(!출석)·입장 출석·자동 출석 모두 이 방식이 똑같이 적용됩니다.</p>
             <label class="check-opt" style="margin-top:14px"><input type="checkbox" id="actAutoAttendEnabled" checked> 🕐 자동 출석</label>
             <div class="delay-inline" style="margin-top:8px">주기: <input type="number" id="actAutoAttendInterval" value="30" min="5" style="width:70px"> 분마다</div>
-            <p class="hint">켜두면 봇 실행 중 설정한 주기마다 현재 시청자 명단을 받아와 등록 유저들에게 자동 출석 처리합니다. 출석 EXP는 위에서 설정한 값과 동일하며, 채팅 출석 없이는 안 됩니다. (각 유저별 30분 쿨다운 자동 적용)</p>
+            <p class="hint">켜두면 봇 실행 중 설정한 주기마다 현재 시청자 명단을 받아와 등록 유저들에게 자동 출석 처리합니다. 출석 EXP는 위에서 설정한 값과 동일하며, 채팅 출석 없이는 안 됩니다. (재출석 가능 여부는 위 "출석 방식"을 따릅니다)</p>
             <div class="btn-row" style="grid-template-columns:1fr 1fr">
               <div><label>@[닉네임] 조회 명령어 (DJ용)</label><input type="text" id="actCmdAt" value="@"></div>
               <div><label>!복권지급 명령어 (DJ + 지정 권한자)</label><input type="text" id="actCmdLottoGive" value="!복권지급"></div>
@@ -4546,7 +4592,19 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <p class="hint" style="margin-bottom:12px">라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 팀 이름을 채팅에 치면(예: <b>!모듬전</b>) 그 팀에 참여되고, "집계 시작"이 켜져있으면 아래 <b>집계 스푼수</b> 이상 선물을 보낼 때마다 자기 팀 점수로 쌓여요.<br>
           라운드가 넘어가도 자동으로 마감되지 않아요 — 직접 "현재 라운드"를 바꾸고 "집계"를 껐다 켜야 해요. 예전 라운드 기록은 그대로 남고, 새 라운드에 다시 참여해야만 그 이후 선물이 집계돼요.</p>
           <label style="margin-top:0">이벤트 제목</label>
-          <input type="text" id="csTitle" value="팝블리네 추석명절특집" style="max-width:320px">
+          <input type="text" id="csTitle" value="팝블리네 추석명절특집" style="max-width:320px" oninput="renderCsEmojiPreview()">
+          <div style="display:flex;gap:16px;align-items:center;margin-top:14px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="margin:0">제목 이모티콘</label>
+              <input type="text" id="csTitleEmoji" value="🎑" style="width:70px;padding:6px 8px;text-align:center" oninput="renderCsEmojiPreview()">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="margin:0">대결 이모티콘</label>
+              <input type="text" id="csVsEmoji" value="🍽️" style="width:70px;padding:6px 8px;text-align:center" oninput="renderCsEmojiPreview()">
+            </div>
+          </div>
+          <div class="hint" style="margin-top:6px">채팅 메시지 양옆에 붙는 이모티콘이에요. 비워두면 이모티콘 없이 나가요. 미리보기:</div>
+          <div id="csEmojiPreview" style="white-space:pre-line;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:4px;font-size:13px;max-width:420px"></div>
           <div style="display:flex;gap:16px;align-items:center;margin-top:14px;flex-wrap:wrap">
             <label class="check-opt" style="margin-top:0"><input type="checkbox" id="csActive"> 스푼 집계 중 (켜야 선물이 점수로 쌓여요)</label>
             <div style="display:flex;align-items:center;gap:8px">
@@ -5845,6 +5903,7 @@ function enterApp(){
   if(isAdmin) loadSessionAllowedUsers();
   if(!window._statusBannerInterval) window._statusBannerInterval=setInterval(loadStatusBanner, 5*60*1000);
   applySidebarOrder();
+  applySidebarCollapse();
 
   initApp().then(()=>selectPanel('liverank'));
   maybeAutoShowTutorial();
@@ -6016,6 +6075,7 @@ function selectPanel(name){
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadAutoLikeConfig(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); loadAdminRecentGifts(); }
   if(name==='userlistonly') loadUserList();
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
+  if((name==='entrysettings'||name==='dashboard')&&document.querySelector('.away-mode-btn'))loadAwayModeSettings(name==='entrysettings');
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
   if(name==='eventviewer'){ renderEventViewerList(); const c=document.getElementById('evCount'); if(c)c.textContent=eventViewerBuffer.length; }
   if(name==='debuglog'){ renderDebugLogList(); const c=document.getElementById('dbgCount'); if(c)c.textContent=debugLogBuffer.length; }
@@ -6063,6 +6123,31 @@ function applySidebarOrder(){
     let anchor=g.labelEl;
     ordered.forEach(el=>{ anchor.after(el); anchor=el; });
   });
+}
+
+/* ── 📂 사이드바 그룹 접기 (그룹 제목 클릭, 이 브라우저에만 저장) ── */
+function sidebarCollapseKey(){ return 'sidebarCollapsed:'+(djId||'guest'); }
+function loadSidebarCollapsed(){
+  try{ return JSON.parse(localStorage.getItem(sidebarCollapseKey())||'{}'); }catch(e){ return {}; }
+}
+function applySidebarCollapse(){
+  const saved=loadSidebarCollapsed();
+  getSidebarGroups().forEach(g=>{
+    const collapsed=!!saved[g.label];
+    g.labelEl.classList.toggle('collapsed',collapsed);
+    g.items.forEach(el=>el.classList.toggle('group-collapsed',collapsed));
+    if(!g.labelEl._collapseBound){
+      g.labelEl._collapseBound=true;
+      g.labelEl.title='눌러서 접기/펼치기';
+      g.labelEl.addEventListener('click',()=>toggleSidebarGroup(g.labelEl.textContent.trim()));
+    }
+  });
+}
+function toggleSidebarGroup(label){
+  const saved=loadSidebarCollapsed();
+  if(saved[label]) delete saved[label]; else saved[label]=true;
+  try{ localStorage.setItem(sidebarCollapseKey(),JSON.stringify(saved)); }catch(e){}
+  applySidebarCollapse();
 }
 
 function toggleSidebarEditMode(){
@@ -7425,6 +7510,7 @@ async function loadDjSettings(){
       loadSoundFxData();
       loadTtsData();
       if(document.getElementById('dashCalGrid')) loadDashboardData();
+      if(document.querySelector('.away-mode-btn')) loadAwayModeSettings(true);
       if(document.getElementById('wheelPageTabBar')) loadWheelData();
       if(document.getElementById('couponTitle')) loadCouponData();
       if(document.getElementById('notesUserListWrap')) loadUserNotesData();
@@ -9377,6 +9463,7 @@ const ACT_DEFAULT={
   lottoExchange:22,lotto1st:3000,lotto2nd:500,lotto3rd:100,lottoFail:1,
   lvUpLottoEnabled:true,lvUpLottoInterval:10,lvUpLottoAmount:1,
   autoAttendEnabled:true,autoAttendIntervalMin:30,
+  attendMode:'interval',attendIntervalMin:30,
   msgCreate:'✅ {nickname}님의 애청지수 정보가 생성되었습니다!',
   msgDeleteOk:'🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.',
   msgNoInfo:"⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.",
@@ -9398,6 +9485,10 @@ function renderActivitySettings(){
   document.getElementById('actEnabled').checked=activityData.enabled!==false;
   document.getElementById('actAutoAttendEnabled').checked=activityData.autoAttendEnabled!==false;
   document.getElementById('actAutoAttendInterval').value=activityData.autoAttendIntervalMin;
+  document.getElementById('actAttendModeDaily').checked=activityData.attendMode==='daily';
+  document.getElementById('actAttendModeInterval').checked=activityData.attendMode!=='daily';
+  document.getElementById('actAttendInterval').value=activityData.attendIntervalMin||30;
+  updateActAttendModeUI();
   document.getElementById('actCmdMyInfo').value=activityData.cmdMyInfo;
   document.getElementById('actCmdRank').value=activityData.cmdRank;
   document.getElementById('actCmdCreate').value=activityData.cmdCreate;
@@ -9466,10 +9557,19 @@ function removeActGrantNickname(nick){
   saveActivitySettings();
 }
 
+// ⭐ 출석 방식 라디오 — "하루 1회"일 땐 재출석 간격 입력칸을 흐리게 처리
+function updateActAttendModeUI(){
+  const daily=document.getElementById('actAttendModeDaily').checked;
+  const row=document.getElementById('actAttendIntervalRow');
+  if(row){row.style.opacity=daily?'0.4':'1';document.getElementById('actAttendInterval').disabled=daily;}
+}
+
 function collectActivityFormValues(){
   activityData.enabled=document.getElementById('actEnabled').checked;
   activityData.autoAttendEnabled=document.getElementById('actAutoAttendEnabled').checked;
   activityData.autoAttendIntervalMin=Number(document.getElementById('actAutoAttendInterval').value)||30;
+  activityData.attendMode=document.getElementById('actAttendModeDaily').checked?'daily':'interval';
+  activityData.attendIntervalMin=Math.max(1,Number(document.getElementById('actAttendInterval').value)||30);
   activityData.cmdMyInfo=document.getElementById('actCmdMyInfo').value.trim()||'!내정보';
   activityData.cmdRank=document.getElementById('actCmdRank').value.trim()||'!랭킹';
   activityData.cmdCreate=document.getElementById('actCmdCreate').value.trim()||'!내정보 생성';
@@ -10451,6 +10551,34 @@ function renderRlCommandInputs(){
   if(pageSizeEl)pageSizeEl.value=rouletteData.menuPageSize||10;
   const keepPageSizeEl=document.getElementById('rlKeepPageSize');
   if(keepPageSizeEl)keepPageSizeEl.value=rouletteData.keepPageSize||10;
+  renderRlManagerList();
+}
+
+/* ── 👮 룰렛 기록 매니저 (고유닉) ── */
+function renderRlManagerList(){
+  const wrap=document.getElementById('rlManagerList');
+  if(!wrap)return;
+  const list=rouletteData.managerTags||[];
+  if(!list.length){wrap.innerHTML='<span class="hint">등록된 매니저가 없습니다</span>';return;}
+  wrap.innerHTML=list.map(t=>`
+    <span class="perm-chip">@${escapeHtml(t)}<button onclick="removeRlManager('${escapeAttr(t)}')">✕</button></span>
+  `).join('');
+}
+function addRlManager(){
+  const input=document.getElementById('rlManagerInput');
+  const tag=input.value.trim().replace(/^@/,'');
+  if(!tag)return;
+  if(!rouletteData.managerTags) rouletteData.managerTags=[];
+  if(rouletteData.managerTags.some(t=>t.toLowerCase()===tag.toLowerCase()))return showToast('이미 등록된 고유닉이에요');
+  rouletteData.managerTags.push(tag);
+  input.value='';
+  renderRlManagerList();
+  saveRouletteGlobal();
+}
+function removeRlManager(tag){
+  rouletteData.managerTags=(rouletteData.managerTags||[]).filter(t=>t!==tag);
+  renderRlManagerList();
+  saveRouletteGlobal();
 }
 function saveRlCommands(){
   const norm=(v,def)=>{ v=(v||'').trim(); if(!v)return def; return v.startsWith('!')?v:'!'+v; };
@@ -12618,6 +12746,8 @@ function renderGcTestStickerPicker(){
 /* ── 🎑 추석 팀배틀 이벤트 ── */
 let csRounds=[{teamA:'모듬전',teamB:'스팸세트'},{teamA:'사과',teamB:'곶감'},{teamA:'한우불고기',teamB:'LA갈비'}];
 let csMembers=[];
+let csRoundFolderOpen={}; // 📁 참가자 목록 라운드 폴더 열림 상태 { round: true/false }
+let csCurrentRoundSaved=1; // 서버에 저장된 현재 라운드 (폴더 기본 열림/진행중 표시용)
 
 let csPosterUrl='';
 async function loadChuseokSettings(){
@@ -12627,6 +12757,9 @@ async function loadChuseokSettings(){
     if(!d.success)return;
     const s=d.settings;
     document.getElementById('csTitle').value=s.title||'팝블리네 추석명절특집';
+    document.getElementById('csTitleEmoji').value=typeof s.titleEmoji==='string'?s.titleEmoji:'🎑';
+    document.getElementById('csVsEmoji').value=typeof s.vsEmoji==='string'?s.vsEmoji:'🍽️';
+    csCurrentRoundSaved=Number(s.currentRound)||1;
     document.getElementById('csActive').checked=!!s.active;
     document.getElementById('csMinSpoons').value=String(s.minSpoons||10);
     document.getElementById('csCmdRoundPrefix').value=s.cmdRoundPrefix||'추석';
@@ -12640,8 +12773,19 @@ async function loadChuseokSettings(){
     // 라운드 값을 넣어야, 옵션이 새로 그려지면서 값이 초기화되는 걸 피할 수 있다.
     document.getElementById('csCurrentRound').value=String(s.currentRound||1);
     renderCsCmdHint();
+    renderCsEmojiPreview();
     renderCsMembers();
   }catch(e){}
+}
+
+// 🎨 제목/대결 이모티콘 미리보기 — 실제 채팅(!추석N)에 나가는 모양 그대로
+function csWrap(emoji,text){ const e=(emoji||'').trim(); return e?`${e} ${text} ${e}`:text; }
+function renderCsEmojiPreview(){
+  const el=document.getElementById('csEmojiPreview');
+  if(!el)return;
+  const title=document.getElementById('csTitle').value.trim()||'팝블리네 추석명절특집';
+  const r=csRounds[0]||{teamA:'A팀',teamB:'B팀'};
+  el.textContent=csWrap(document.getElementById('csTitleEmoji').value,title)+'\n'+csWrap(document.getElementById('csVsEmoji').value,`${r.teamA||'A팀'} 0점 vs ${r.teamB||'B팀'} 0점`);
 }
 
 function updateCsPosterPreview(){
@@ -12737,6 +12881,7 @@ function renderCsCmdHint(){
   const lines=csRounds.map((r,i)=>`<b>${i+1}라운드</b> — !${escapeHtml(r.teamA||'?')} · !${escapeHtml(r.teamB||'?')} (팀 순위, 전체 참여자) · !${escapeHtml(prefix)}${i+1} (합산 스코어)`);
   lines.push('공통 — <b>!내추석</b> (내 참여 현황)');
   el.innerHTML=lines.join('<br>');
+  renderCsEmojiPreview();
 }
 
 function csTeamLabel(round, team){
@@ -12765,18 +12910,46 @@ function renderCsMembers(){
     selStart=active.selectionStart;
     selEnd=active.selectionEnd;
   }
-  const sorted=csMembers.slice().sort((a,b)=> b.round-a.round || (b.score-a.score));
-  wrap.innerHTML=sorted.map(m=>{
+  const memberRow=m=>{
     const isFocused=focusedKey!=null && String(m.key)===focusedKey;
     const scoreVal=isFocused?focusedVal:m.score;
     return `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface2)">
       <div style="min-width:120px"><b>${escapeHtml(m.nickname)}</b>${m.tag?` <span class="hint" style="margin:0">@${escapeHtml(m.tag)}</span>`:''}</div>
-      <span class="hint" style="margin:0">${m.round}R · ${escapeHtml(csTeamLabel(m.round,m.team))}</span>
-      <input type="number" value="${escapeAttr(String(scoreVal))}" style="width:90px;padding:5px 6px" id="csScoreInput-${escapeAttr(m.key)}">
+      <input type="number" value="${escapeAttr(String(scoreVal))}" style="width:90px;padding:5px 6px;margin-left:auto" id="csScoreInput-${escapeAttr(m.key)}">
       <button class="btn-gray" style="padding:5px 10px;font-size:12px" onclick="chuseokSetScore('${escapeAttr(m.key)}')">점수 저장</button>
       <button class="btn-shield-reset" style="padding:5px 10px;font-size:12px" onclick="chuseokRemoveMember('${escapeAttr(m.key)}')">삭제</button>
     </div>`;
+  };
+  // 📁 라운드별 폴더 — 최신 라운드가 위, 폴더 안은 점수 높은 순. 열림/닫힘 상태는 5초 폴링으로
+  // 다시 그려도 유지되게 csRoundFolderOpen에 기억해둔다 (처음엔 현재 라운드 폴더만 열려있음).
+  const byRound={};
+  csMembers.forEach(m=>{ const r=Number(m.round)||1; (byRound[r]=byRound[r]||[]).push(m); });
+  const roundNums=Object.keys(byRound).map(Number).sort((a,b)=>b-a);
+  wrap.innerHTML=roundNums.map(r=>{
+    const list=byRound[r].slice().sort((a,b)=>b.score-a.score);
+    const rd=csRounds[r-1];
+    const teams=rd?`${escapeHtml(rd.teamA||'?')} vs ${escapeHtml(rd.teamB||'?')}`:'(삭제된 라운드)';
+    const sumA=list.filter(m=>m.team!=='B').reduce((s,m)=>s+(Number(m.score)||0),0);
+    const sumB=list.filter(m=>m.team==='B').reduce((s,m)=>s+(Number(m.score)||0),0);
+    const open=(r in csRoundFolderOpen)?csRoundFolderOpen[r]:(r===csCurrentRoundSaved);
+    // ⚔️ 팀별 좌우 분리 — 왼쪽 A팀 / 오른쪽 B팀 (좁은 화면에선 위아래로 쌓임)
+    const listA=list.filter(m=>m.team!=='B'), listB=list.filter(m=>m.team==='B');
+    const teamCol=(side,name,members,sum,color)=>`
+      <div style="flex:1;min-width:280px;border:2px solid ${color};border-radius:12px;padding:8px;background:var(--surface)">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;color:${color};padding:2px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:8px">
+          <span>${side}팀 · ${escapeHtml(name)}</span><span>${sum}점 · ${members.length}명</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">${members.length?members.map(memberRow).join(''):'<p class="hint" style="margin:4px">참가자 없음</p>'}</div>
+      </div>`;
+    return `
+    <details ${open?'open':''} ontoggle="csRoundFolderOpen[${r}]=this.open" style="border:1px solid var(--border);border-radius:12px;padding:8px 10px;background:var(--bg)">
+      <summary style="cursor:pointer;font-weight:700;padding:4px 2px">📁 ${r}라운드 · ${teams} <span class="hint" style="margin:0;font-weight:400">(${list.length}명 · ${sumA}점 vs ${sumB}점)${r===csCurrentRoundSaved?' · 진행중':''}</span></summary>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-start">
+        ${teamCol('A',rd?rd.teamA||'?':'?',listA,sumA,'#4a6cf7')}
+        ${teamCol('B',rd?rd.teamB||'?':'?',listB,sumB,'#ef4444')}
+      </div>
+    </details>`;
   }).join('');
   if(focusedKey!=null){
     const el=document.getElementById('csScoreInput-'+focusedKey);
@@ -12787,6 +12960,8 @@ function renderCsMembers(){
 async function saveChuseokSettings(){
   const body={
     title:document.getElementById('csTitle').value,
+    titleEmoji:document.getElementById('csTitleEmoji').value,
+    vsEmoji:document.getElementById('csVsEmoji').value,
     active:document.getElementById('csActive').checked,
     currentRound:document.getElementById('csCurrentRound').value,
     minSpoons:document.getElementById('csMinSpoons').value,
@@ -18983,6 +19158,47 @@ async function saveTempMilestone(){
   }catch(e){showToast('저장 실패');}
 }
 
+/* ── 🚶 자리비움 ── */
+let awayModeEnabled=false;
+function renderAwayModeState(on){
+  awayModeEnabled=!!on;
+  document.querySelectorAll('.away-mode-state').forEach(el=>{el.textContent=on?'켜짐':'꺼짐';el.style.color=on?'var(--accent)':'';});
+  document.querySelectorAll('.away-mode-btn').forEach(b=>{b.textContent=on?'🙋 자리비움 끄기':'🚶 자리비움 켜기';b.className=(on?'btn-connect':'btn-gray')+' away-mode-btn';});
+}
+async function loadAwayModeSettings(fillForm){
+  try{
+    const res=await fetch(SERVER+'/away-mode/settings',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    renderAwayModeState(d.settings.enabled);
+    if(fillForm){
+      document.getElementById('awayMsg').value=d.settings.message||'';
+      document.getElementById('awayCmdAway').value=d.settings.cmdAway||'!자리오프';
+      document.getElementById('awayCmdBack').value=d.settings.cmdBack||'!자리온';
+    }
+  }catch(e){}
+}
+async function saveAwayModeSettings(){
+  try{
+    const res=await fetch(SERVER+'/away-mode/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({
+      message:document.getElementById('awayMsg').value,
+      cmdAway:document.getElementById('awayCmdAway').value,
+      cmdBack:document.getElementById('awayCmdBack').value,
+    })});
+    const d=await res.json();
+    if(d.success){ renderAwayModeState(d.settings.enabled); showToast('저장 완료 ✓'); }
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('저장 실패');}
+}
+async function toggleAwayMode(){
+  try{
+    const res=await fetch(SERVER+'/away-mode/toggle',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({enabled:!awayModeEnabled})});
+    const d=await res.json();
+    if(d.success){ renderAwayModeState(d.enabled); showToast(d.enabled?'🚶 자리비움 켜짐':'🙋 자리비움 꺼짐'); }
+    else showToast('변경 실패');
+  }catch(e){showToast('변경 실패');}
+}
+
 async function checkStatus(){
   try{const res=await fetch(SERVER+'/status',{headers:authHeaders()});const d=await res.json();setStatus(d.isConnected);}catch{}
 }
@@ -19045,6 +19261,7 @@ function startSSE(){
     // session/admin_gift 이벤트는 공용(admin_gift는 관리자 화면에서만 실제로 처리함), 나머지는 내 계정 것만 반영
     if(d.type!=='session' && d.type!=='admin_gift' && d.djId && d.djId!==djId) return;
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl,{isDj:d.isDj,isManager:d.isManager}); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    else if(d.type==='awaymode')renderAwayModeState(!!d.enabled);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }

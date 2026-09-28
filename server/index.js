@@ -1874,9 +1874,26 @@ async function fetchYoutubeSearchJson(query, key) {
 // 4) 반주/노래방(MR·Instrumental·Karaoke 등) 키워드 필터링 — 검색어 자체에 그 단어가 없으면 제외
 // 5) 원곡/공식 오디오 우선 점수(scoreYoutubeCandidate)로 정렬
 async function searchYoutubeVideo(artist, title) {
-  if (!artist && !title) return null
+  return (await searchYoutubeVideoDetailed(artist, title)).result
+}
+
+// 에러 객체를 로그용 한 줄로 — "400 badRequest: API key not valid..." 형태
+function ytErrText(errObj) {
+  if (!errObj) return ''
+  const reasons = (errObj.errors || []).map(e => e.reason).filter(Boolean).join(',')
+  return `${errObj.code || '?'} ${reasons || '-'}: ${errObj.message || ''}`
+}
+
+// { result, error } 형태로 돌려준다.
+//  - result: 검색 결과(없으면 null)
+//  - error : API 호출 자체가 실패했을 때(키 무효/쿼터 초과/네트워크 등) 그 사유 문자열. 진짜로 "검색 결과 0개"면 null.
+// 신청곡 원곡 검증에서 "API 실패"와 "진짜 못 찾음"을 구분하는 데 쓴다 — 예전엔 둘 다 null이라,
+// 키가 죽어있으면 모든 신청곡이 "유튜브에서 찾을 수 없어요"로 거절되는 문제가 있었다.
+async function searchYoutubeVideoDetailed(artist, title) {
+  if (!artist && !title) return { result: null, error: null }
   const keys = getYoutubeApiKeys()
-  if (!keys.length) return null
+  if (!keys.length) return { result: null, error: '등록된 유튜브 API 키 없음' }
+  const errors = []
   const now = Date.now()
   const available = keys.filter(k => !ytKeyExhaustedUntil[k] || ytKeyExhaustedUntil[k] <= now)
   const tryOrder = available.length ? available : keys // 전부 소진 표시돼있어도 리셋 시점이 부정확할 수 있으니 일단 재시도는 해본다
@@ -1890,13 +1907,16 @@ async function searchYoutubeVideo(artist, title) {
         fetchYoutubeSearchJson(q2, key),
       ])
       const err = r1.error || r2.error
+      const keyLabel = `${key.slice(0, 6)}...${key.slice(-4)}`
       if (err && isYoutubeQuotaError(err)) {
         ytKeyExhaustedUntil[key] = now + YT_QUOTA_COOLDOWN_MS
-        console.log(`[유튜브 API] 키(${key.slice(0, 6)}...) 쿼터 초과 → 다음 등록 키로 자동 전환`)
+        console.log(`[유튜브 API] 키(${keyLabel}) 쿼터 초과 → 다음 등록 키로 자동 전환`)
+        errors.push(`${keyLabel} ${ytErrText(err)}`)
         continue
       }
       if (r1.error && r2.error) {
-        console.log('[신청곡 유튜브 검색 API 오류]', (r1.error || r2.error).message)
+        console.log(`[신청곡 유튜브 검색 API 오류] 키(${keyLabel}) ${ytErrText(r1.error)}`)
+        errors.push(`${keyLabel} ${ytErrText(r1.error)}`)
         continue // 이 키에서만 나는 일시적 오류일 수 있으니 다음 키로 넘어가서 한 번 더 시도
       }
 
@@ -1906,7 +1926,7 @@ async function searchYoutubeVideo(artist, title) {
         const vid = item.id && item.id.videoId
         if (vid && !seen.has(vid)) { seen.add(vid); merged.push(item) }
       })
-      if (!merged.length) return null
+      if (!merged.length) return { result: null, error: null } // 진짜 검색 결과 0개
 
       const instKeywords = ['mr', '반주', 'instrumental', 'inst.', 'inst', 'piano', '피아노', 'karaoke', '노래방', '엠알', '반주음악', 'instrumental version', 'karaoke version']
       const userSearchQuery = `${artist} ${title}`.toLowerCase()
@@ -1927,13 +1947,15 @@ async function searchYoutubeVideo(artist, title) {
 
       // hasOriginal: MR/반주/노래방 키워드가 아닌 "원곡"으로 보이는 후보가 실제로 있었는지.
       // filtered가 비어서 merged(MR 포함 전체)로 폴백한 경우엔 false — 신청 접수 시 원곡 없음 판단에 쓴다.
-      return { candidates: scored, matchedTitle: scored[0].title, hasOriginal: filtered.length > 0 }
+      return { result: { candidates: scored, matchedTitle: scored[0].title, hasOriginal: filtered.length > 0 }, error: null }
     } catch (e) {
       console.log('[신청곡 유튜브 검색 실패]', artist, title, e.message)
+      errors.push(`${key.slice(0, 6)}...${key.slice(-4)} ${e.message}`)
       continue
     }
   }
-  return null // 등록된 키를 전부 시도했는데도 결과를 못 얻음
+  // 등록된 키를 전부 시도했는데도 결과를 못 얻음
+  return { result: null, error: errors.join(' / ') || '알 수 없는 오류' }
 }
 
 // 🎵 멜론 차트에서 곡을 긁어와 캐싱해둔다 (TOP100/HOT100/DAILY100 랜덤 추천용).
@@ -2010,8 +2032,13 @@ async function handleSongRequestCommand(djId, room, settings, author, authorId, 
 
     // 🎬 켜져있으면 접수 즉시 유튜브에서 원곡 존재 여부를 확인한다. MR/반주/노래방 버전만 나오거나
     // 아예 검색 결과가 없으면 접수하지 않고 안내만 보낸다 (원곡위주로만 큐에 쌓이도록).
-    if (sr.verifyOriginalOnRequest) {
-      const yt = await searchYoutubeVideo(artist, title)
+    // ⚠️ API 호출 자체가 실패한 경우(키 무효/쿼터 초과 등)엔 거절하지 않고 검증 없이 그냥 접수한다.
+    const ytRes = sr.verifyOriginalOnRequest ? await searchYoutubeVideoDetailed(artist, title) : null
+    if (ytRes && ytRes.error) {
+      console.log(`[신청곡 원곡검증:${djId}] 유튜브 API 실패로 검증 없이 접수 — [${artist} - ${title}] 사유: ${ytRes.error}`)
+    }
+    if (ytRes && !ytRes.error) {
+      const yt = ytRes.result
       if (!yt || !yt.candidates.length) {
         setTimeout(() => sendChatToRoom(djId, `❌ [${artist} - ${title}] 유튜브에서 찾을 수 없어요. 가수/제목을 다시 확인해주세요.`), 400)
         return
@@ -2114,6 +2141,7 @@ function getActivitySettings(djId, settings) {
       lottoExchange: 22, lotto1st: 3000, lotto2nd: 500, lotto3rd: 100, lottoFail: 1,
       lvUpLottoEnabled: true, lvUpLottoInterval: 10, lvUpLottoAmount: 1,
       autoAttendEnabled: true, autoAttendIntervalMin: 30,
+      attendMode: 'interval', attendIntervalMin: 30, // ⭐ 출석 방식: 'interval'(N분마다 재출석) | 'daily'(하루 1회, 자정 리셋)
       msgCreate: '✅ {nickname}님의 애청지수 정보가 생성되었습니다!',
       msgDeleteOk: '🗑️ {nickname}님의 애청지수 정보가 삭제되었습니다.',
       msgNoInfo: "⚠️ {nickname}님은 정보가 없습니다. '!내정보 생성' 으로 등록하세요.",
@@ -2135,6 +2163,8 @@ function getActivitySettings(djId, settings) {
   if (!settings.activity.users) settings.activity.users = {}
   if (!settings.activity.cmdLottoTransfer) settings.activity.cmdLottoTransfer = '!복권양도'
   if (!settings.activity.msgLottoNone) settings.activity.msgLottoNone = '⚠️ {nickname}님의 복권이 없습니다.'
+  if (settings.activity.attendMode !== 'daily' && settings.activity.attendMode !== 'interval') settings.activity.attendMode = 'interval'
+  if (!(Number(settings.activity.attendIntervalMin) > 0)) settings.activity.attendIntervalMin = 30
   return settings.activity
 }
 
@@ -2311,7 +2341,16 @@ function handleActHeartHook(djId, settings, author, tag, profileUrl) {
   store.saveSettings(djId, { activity: act })
 }
 
-// 출석 처리 (수동 !출석 / 자동 출석 타이머) - 30분 쿨다운, 미등록 유저는 조용히 무시
+// 타임스탬프(ms)를 "한국 시간" 기준 YYYY-MM-DD로 바꾼다 (todayKST()와 같은 방식 — 서버가 UTC여도 한국 자정 기준)
+function dateKSTOf(ts) {
+  const kst = new Date(Number(ts) + 9 * 60 * 60 * 1000)
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`
+}
+
+// 출석 처리 (수동 !출석 / 자동 출석 타이머) - 미등록 유저는 조용히 무시
+// ⭐ 출석 방식(act.attendMode):
+//   'interval'(기본) — N분(act.attendIntervalMin, 기본 30분)마다 재출석 가능 (기존 방식)
+//   'daily'          — 하루 1회만 출석 가능, 한국 시간 자정 기준으로 리셋
 function handleActAttendHook(djId, settings, author, tag) {
   if (!isModuleOn(settings, 'loyalty', djId)) return
   const act = getActivitySettings(djId, settings)
@@ -2321,8 +2360,12 @@ function handleActAttendHook(djId, settings, author, tag) {
   const d = act.users[key]
   actSafeSetTag(d, key, tag)
   const now = Date.now()
-  const interval = 30 * 60 * 1000
-  if (now - (d.lastAttendTime || 0) < interval) return
+  if (act.attendMode === 'daily') {
+    if (d.lastAttendTime && dateKSTOf(d.lastAttendTime) === todayKST()) return
+  } else {
+    const interval = Math.max(1, Number(act.attendIntervalMin) || 30) * 60 * 1000
+    if (now - (d.lastAttendTime || 0) < interval) return
+  }
   d.lastAttendTime = now
   d.attend = (d.attend || 0) + 1
   const attendExp = Number(act.scoreAttend) || 10
@@ -2516,8 +2559,11 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
   // 아래는 DJ 또는 grantNicknames에 등록된 닉네임만 사용 가능
   const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
   const canGrant = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+  // 👮 룰렛 기록 매니저(고유닉) — 복권지급 · @고유닉 조회는 DJ처럼 가능 (상점은 기존 권한자만)
+  const isRlManager = isRouletteManager(settings, tag)
+  const canLottoGive = canGrant || isRlManager
 
-  if (canGrant && first === cmdLottoGive && parts[1] === '전체') {
+  if (canLottoGive && first === cmdLottoGive && parts[1] === '전체') {
     const amount = parseInt(parts[2], 10)
     if (isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} 전체 [수량] (음수 입력 시 차감)`), 400); return }
     // "전체"는 역대 등록된 모든 유저가 아니라, 지금 방송에 실제로 접속 중인 유저에게만 지급한다.
@@ -2547,7 +2593,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     }
     return
   }
-  if (canGrant && first === cmdLottoGive && parts[1] !== '전체') {
+  if (canLottoGive && first === cmdLottoGive && parts[1] !== '전체') {
     const targetNick = parts[1]
     const amount = parseInt(parts[2], 10)
     if (!targetNick || isNaN(amount) || amount === 0) { setTimeout(() => sendChatToRoom(djId, `⚠️ 사용법: ${cmdLottoGive} [닉네임] [수량] (음수 입력 시 차감)`), 400); return }
@@ -2596,7 +2642,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     setTimeout(() => sendChatToRoom(djId, `🛍️ ${d.nickname || key}님의 경험치가 ${Math.abs(expAmount)}만큼 ${action}되었습니다. (현재: ${d.exp} EXP)`), 400)
     return
   }
-  if (isDj && first.startsWith(cmdAt) && first.length > cmdAt.length) {
+  if ((isDj || isRlManager) && first.startsWith(cmdAt) && first.length > cmdAt.length) {
     const targetNick = first.slice(cmdAt.length)
     const key = findActUserKey(act, targetNick)
     const d = key ? act.users[key] : null
@@ -3440,12 +3486,39 @@ function mcComputeGlobalRanking(mc) {
 // 스키마에 의존하지 않도록 이 기능 전용 파일을 따로 둔다.
 const MC_WEB_FILE = path.join(store.DATA_DIR, 'monsterWebData.json')
 let mcWebDataCache = null
+// 🚨 사고 기록(2026-09): 유저 몬스터 레벨/포인트가 가끔 전부 1(초기값)로 돌아가는 버그.
+// 원인 — (1) 저장을 fs.writeFile로 원본 파일에 바로 덮어썼는데, writeFile은 파일을 먼저 0바이트로
+// 비운 뒤 쓰기 때문에 쓰는 도중 서버가 죽으면(재배포 SIGTERM 등) 파일이 반쯤/완전히 비어버렸다.
+// (2) gracefulShutdown()이 이 파일은 flush하지 않고 바로 process.exit(0)을 불러서, 재배포 순간
+// 쓰기가 진행 중이면 딱 그 상태로 잘렸다. (3) 다음 부팅 때 JSON.parse가 실패하면 조용히 {}로 시작해서
+// 모든 유저 레벨이 1로 보였고, 다음 저장 때 그 빈 상태가 원본을 덮어써서 영구 유실됐다.
+// → 이제 (1) 임시파일에 다 쓴 뒤 rename(원자적), 직전 정상본은 .bak으로 보관, (2) 종료 시 동기 flush,
+// (3) 읽기 실패 시 .bak에서 복구하고, 그것도 안 되면 손상 파일을 .corrupt-타임스탬프로 옮겨 보존한다.
+function mcReadWebDataFile(file) {
+  const raw = fs.readFileSync(file, 'utf8')
+  if (!raw || !raw.trim()) throw new Error('파일이 비어있음')
+  const parsed = JSON.parse(raw)
+  if (!parsed || typeof parsed !== 'object') throw new Error('형식 오류')
+  return parsed
+}
 function mcGetWebData() {
   if (mcWebDataCache) return mcWebDataCache
+  const bakFile = MC_WEB_FILE + '.bak'
   try {
-    mcWebDataCache = JSON.parse(fs.readFileSync(MC_WEB_FILE, 'utf8'))
+    mcWebDataCache = mcReadWebDataFile(MC_WEB_FILE)
   } catch (e) {
-    mcWebDataCache = {}
+    const mainExists = fs.existsSync(MC_WEB_FILE)
+    if (mainExists || fs.existsSync(bakFile)) console.log(`[몬스터 웹도감] 🚨 ${path.basename(MC_WEB_FILE)} 읽기 실패: ${e.message}`)
+    try {
+      mcWebDataCache = mcReadWebDataFile(bakFile)
+      console.log('[몬스터 웹도감] ✅ 직전 정상본(.bak)에서 자동 복구했어요.')
+    } catch (e2) {
+      if (mainExists) {
+        const corruptFile = `${MC_WEB_FILE}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
+        try { fs.renameSync(MC_WEB_FILE, corruptFile); console.log(`[몬스터 웹도감] 🚨 복구 실패 — 손상 파일을 ${path.basename(corruptFile)}로 옮겨 보존했어요.`) } catch (e3) {}
+      }
+      mcWebDataCache = {}
+    }
   }
   if (!mcWebDataCache.levels) mcWebDataCache.levels = {} // { tag: { monsterId: { level, exp } } }
   if (!mcWebDataCache.selected) mcWebDataCache.selected = {} // { tag: monsterId }
@@ -3503,16 +3576,47 @@ function mcSaveWebData() {
   // 디스크에 쓰면 그 사이 다른 모든 요청(채팅 명령어 포함)이 멈춰버린다. 여러 명이 동시에
   // 몬스터를 잡거나 분해하면 이게 겹겹이 쌓여서 전체적으로 느려지는 원인이 될 수 있다.
   // 그래서 즉시 쓰지 않고 300ms 안에 여러 번 호출돼도 마지막 한 번만, 비동기로 쓰도록 묶는다.
+  // ⚠️ 원자적 저장: 임시파일(.tmp)에 다 쓴 뒤 → 기존 정상본을 .bak으로 → .tmp를 원본 이름으로 rename.
+  // 이전 쓰기가 아직 진행 중이면 겹쳐 쓰지 않고(같은 파일 동시 쓰기로 내용이 섞이는 걸 방지) 끝난 뒤 한 번 더 쓴다.
   clearTimeout(mcSaveWebDataDebounce)
-  mcSaveWebDataDebounce = setTimeout(() => {
-    fs.mkdir(path.dirname(MC_WEB_FILE), { recursive: true }, () => {
-      fs.writeFile(MC_WEB_FILE, JSON.stringify(mcWebDataCache, null, 2), (err) => {
-        if (err) console.log('[몬스터 웹도감] 저장 실패:', err.message)
-      })
-    })
-  }, 300)
+  mcSaveWebDataDebounce = setTimeout(mcWriteWebDataAsync, 300)
 }
 let mcSaveWebDataDebounce = null
+let mcWebWriteInFlight = false
+let mcWebWritePending = false
+function mcWriteWebDataAsync() {
+  mcSaveWebDataDebounce = null
+  if (!mcWebDataCache) return
+  if (mcWebWriteInFlight) { mcWebWritePending = true; return }
+  mcWebWriteInFlight = true
+  mcWebWritePending = false
+  const tmpFile = MC_WEB_FILE + '.tmp'
+  const bakFile = MC_WEB_FILE + '.bak'
+  const json = JSON.stringify(mcWebDataCache, null, 2)
+  const done = (err) => {
+    if (err) console.log('[몬스터 웹도감] 저장 실패:', err.message)
+    mcWebWriteInFlight = false
+    if (mcWebWritePending) mcWriteWebDataAsync()
+  }
+  fs.mkdir(path.dirname(MC_WEB_FILE), { recursive: true }, () => {
+    fs.writeFile(tmpFile, json, (err) => {
+      if (err) return done(err)
+      fs.rename(MC_WEB_FILE, bakFile, () => { // 원본이 없으면(최초 저장) 에러 무시
+        fs.rename(tmpFile, MC_WEB_FILE, done)
+      })
+    })
+  })
+}
+// 🛑 종료(SIGTERM/SIGINT) 직전 동기 저장 — 대기 중이던 변경을 마지막으로 반영한다.
+function mcFlushWebDataSync() {
+  if (mcSaveWebDataDebounce) { clearTimeout(mcSaveWebDataDebounce); mcSaveWebDataDebounce = null }
+  if (!mcWebDataCache) return
+  const tmpFile = MC_WEB_FILE + '.tmp.sync' // 비동기 쓰기가 쓰던 .tmp와 겹치지 않게 별도 이름
+  fs.mkdirSync(path.dirname(MC_WEB_FILE), { recursive: true })
+  fs.writeFileSync(tmpFile, JSON.stringify(mcWebDataCache, null, 2), 'utf8')
+  try { fs.renameSync(MC_WEB_FILE, MC_WEB_FILE + '.bak') } catch (e) {}
+  fs.renameSync(tmpFile, MC_WEB_FILE)
+}
 const mcDungeonCooldownMap = new Map() // 🗺️ 던전 탐험 쿨타임 — key: 고유닉(tag) -> 마지막 탐험 시각(ms). 서버 재시작하면 초기화되는 인메모리 값(대결 쿨타임과 동일한 방식)
 const MC_LEVEL_ATTACK_BONUS = 3 // 레벨 1당 공격력 +3
 function mcLevelBonus(level) { return Math.max(0, (Number(level) || 1) - 1) * MC_LEVEL_ATTACK_BONUS }
@@ -6429,7 +6533,12 @@ async function handleCouponCommand(djId, room, settings, author, authorId, liveI
     const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
     const act = getActivitySettings(djId, settings)
     const grantList = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase())
-    const canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+    let canManage = isDj || grantList.includes(String(author || '').trim().toLowerCase())
+    // 👮 룰렛 기록 매니저(고유닉)도 DJ와 동일하게 지급·동기화 모두 가능
+    if (!canManage) {
+      const authorTag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId)))
+      canManage = isRouletteManager(settings, authorTag)
+    }
     if (!canManage) { setTimeout(() => sendChatToRoom(djId, '⚠️ 매니저 이상만 사용 가능합니다.'), 400); return }
 
     const targetInput = parts[1]
@@ -8001,6 +8110,9 @@ function getChuseokSettings(djId, settings) {
   if (!ev.title) ev.title = '팝블리네 추석명절특집'
   if (!(Number(ev.minSpoons) > 0)) ev.minSpoons = CHUSEOK_MIN_SPOONS_DEFAULT
   if (!ev.cmdRoundPrefix || typeof ev.cmdRoundPrefix !== 'string') ev.cmdRoundPrefix = '추석'
+  // 🎨 채팅 메시지 양옆에 붙는 이모티콘 — DJ가 콘텐츠에 맞게 바꿀 수 있다 (빈 값이면 이모티콘 없이 출력)
+  if (typeof ev.titleEmoji !== 'string') ev.titleEmoji = '🎑' // 제목 줄: 🎑 팝블리네 추석명절특집 🎑
+  if (typeof ev.vsEmoji !== 'string') ev.vsEmoji = '🍽️'      // 대결/팀순위 줄: 🍽️ 한우불고기 0점 vs LA갈비 19850점 🍽️
   // 🔧 마이그레이션 — 예전엔 members 키가 라운드 구분 없이(사람 기준으로만) 만들어져서, 라운드가
   // 바뀐 뒤 그 사람이 새 라운드에 참여하면 이전 라운드 기록이 새 기록으로 덮어써져 사라졌다.
   // 라운드가 포함된 새 키 형식으로 기존 데이터를 한 번만 옮겨준다 (이미 새 형식이면 건드리지 않음).
@@ -8074,6 +8186,11 @@ function chuseokTeamMembers(ev, round, side) {
   return Object.values(ev.members).filter(m => m.round === round && m.team === side).sort((a, b) => b.score - a.score)
 }
 const CHUSEOK_MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
+// 🎨 텍스트 양옆에 이모티콘을 붙인다 — 이모티콘이 비어있으면 텍스트만 그대로
+function chuseokWrap(emoji, text) {
+  const e = String(emoji || '').trim()
+  return e ? `${e} ${text} ${e}` : String(text)
+}
 
 // LiveDonation(선물) 이벤트마다 호출 — 집계중이고, 이 사람이 "지금 진행중인 라운드"에
 // 참여해둔 상태일 때만 점수를 쌓는다. 이전 라운드 참여 기록이 있어도 라운드가 넘어갔으면 반영 안 됨.
@@ -8132,7 +8249,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
   if (cmd === '내추석') {
     const member = chuseokFindMemberAnyRound(ev, author, tag)
     if (!member) {
-      fishReply(djId, `🎑 ${ev.title} 🎑\n아직 이번 이벤트에 참여하지 않았어요. 참여하고 싶은 팀 이름을 채팅에 쳐보세요! (예: !${ev.rounds[ev.currentRound - 1].teamA})`)
+      fishReply(djId, `${chuseokWrap(ev.titleEmoji, ev.title)}\n아직 이번 이벤트에 참여하지 않았어요. 참여하고 싶은 팀 이름을 채팅에 쳐보세요! (예: !${ev.rounds[ev.currentRound - 1].teamA})`)
       return
     }
     const r = ev.rounds[member.round - 1]
@@ -8140,7 +8257,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     const list = chuseokTeamMembers(ev, member.round, member.team)
     const rank = list.findIndex(m => m === member) + 1
     const roundNote = member.round === ev.currentRound ? '' : ' (지난 라운드 — 지금은 참여 대상 아님)'
-    fishReply(djId, `🎑 ${ev.title} 🎑\n나의 참여 팀: ${teamName}${roundNote}\n내 점수: ${member.score}점\n팀 내 순위: ${rank}위 / ${list.length}명`)
+    fishReply(djId, `${chuseokWrap(ev.titleEmoji, ev.title)}\n나의 참여 팀: ${teamName}${roundNote}\n내 점수: ${member.score}점\n팀 내 순위: ${rank}위 / ${list.length}명`)
     return
   }
 
@@ -8154,7 +8271,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     const r = ev.rounds[roundNum - 1]
     const scoreA = chuseokTeamMembers(ev, roundNum, 'A').reduce((s, m) => s + (Number(m.score) || 0), 0)
     const scoreB = chuseokTeamMembers(ev, roundNum, 'B').reduce((s, m) => s + (Number(m.score) || 0), 0)
-    fishReply(djId, `🎑 ${ev.title} 🎑\n🍽️ ${r.teamA} ${scoreA}점 vs ${r.teamB} ${scoreB}점 🍽️`)
+    fishReply(djId, `${chuseokWrap(ev.titleEmoji, ev.title)}\n${chuseokWrap(ev.vsEmoji, `${r.teamA} ${scoreA}점 vs ${r.teamB} ${scoreB}점`)}`)
     return
   }
 
@@ -8174,7 +8291,7 @@ async function handleChuseokCommand(djId, room, settings, author, authorId, live
     }
   }
   const list = chuseokTeamMembers(ev, found.round, found.side)
-  let body = `🎑 ${ev.title} 🎑\n🍽️ ${found.teamName}팀 현재순위 🍽️\n`
+  let body = `${chuseokWrap(ev.titleEmoji, ev.title)}\n${chuseokWrap(ev.vsEmoji, `${found.teamName}팀 현재순위`)}\n`
   if (!list.length) {
     body += '아직 참여자가 없어요.'
   } else {
@@ -16273,15 +16390,25 @@ async function handleKeepCommands(djId, room, settings, author, authorId, liveId
   }
 }
 
-// !룰렛지급N [고유닉] [수량] — DJ 전용 룰렛권 지급
-async function handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text) {
+// 👮 룰렛 기록 매니저 — 룰렛 기록 화면 "매니저 권한"에 등록된 고유닉(settings.roulette.managerTags).
+// 등록된 유저는 DJ처럼 !룰렛지급N · !복권지급 · @고유닉(내정보 조회)을 쓸 수 있다.
+// 닉네임은 바뀔 수 있어서 고유닉(tag)으로만 판별한다.
+function isRouletteManager(settings, tag) {
+  if (!tag) return false
+  const list = (settings.roulette && Array.isArray(settings.roulette.managerTags)) ? settings.roulette.managerTags : []
+  const t = String(tag).trim().replace(/^@/, '').toLowerCase()
+  return list.some(x => String(x || '').trim().replace(/^@/, '').toLowerCase() === t)
+}
+
+// !룰렛지급N [고유닉] [수량] — DJ + 룰렛 기록 매니저 전용 룰렛권 지급
+async function handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text, authorTag) {
   if (!isModuleOn(settings, 'roulette', djId)) return
   const msg = String(text || '').trim()
   const parts = msg.split(/\s+/)
   const m = parts[0].match(/^!룰렛지급(\d+)$/)
   if (!m) return
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (!isDj) { setTimeout(() => sendChatToRoom(djId, '🎡 !룰렛지급 명령어는 DJ만 사용할 수 있습니다.'), 400); return }
+  if (!isDj && !isRouletteManager(settings, authorTag)) { setTimeout(() => sendChatToRoom(djId, '🎡 !룰렛지급 명령어는 DJ와 매니저만 사용할 수 있습니다.'), 400); return }
 
   const idx = parseInt(m[1], 10)
   const rt = settings.roulette && settings.roulette.list[idx - 1]
@@ -16568,6 +16695,43 @@ function sendLeaveMessage(djId, settings, nickname, tag) {
   fireEntrySound(djId, settings, 'leave', em)
 }
 
+// 🚶 자리비움 — 켜두면 지정인사·기본 입장멘트 대신 설정한 자리비움 문구가 나간다.
+// 대시보드 버튼(/away-mode/toggle) 또는 DJ 전용 채팅 명령어(기본 !자리오프=켜기 / !자리온=끄기)로 켜고 끈다.
+function getAwayModeSettings(djId, settings) {
+  if (!settings.awayMode) {
+    settings.awayMode = {
+      enabled: false,
+      message: '🚶 {nickname}님 어서오세요! DJ가 잠시 자리를 비웠어요. 곧 돌아올게요!',
+      cmdAway: '!자리오프', // 자리비움 켜기
+      cmdBack: '!자리온',   // 자리비움 끄기
+    }
+    store.saveSettings(djId, { awayMode: settings.awayMode })
+  }
+  if (!settings.awayMode.cmdAway) settings.awayMode.cmdAway = '!자리오프'
+  if (!settings.awayMode.cmdBack) settings.awayMode.cmdBack = '!자리온'
+  if (typeof settings.awayMode.message !== 'string') settings.awayMode.message = ''
+  return settings.awayMode
+}
+
+function setAwayModeEnabled(djId, settings, enabled) {
+  const away = getAwayModeSettings(djId, settings)
+  away.enabled = !!enabled
+  store.saveSettings(djId, { awayMode: away })
+  broadcast({ type: 'awaymode', djId, enabled: away.enabled })
+  console.log(`[자리비움:${djId}] ${away.enabled ? 'ON' : 'OFF'}`)
+  return away
+}
+
+// 채팅 명령어 — DJ만 사용 가능
+function handleAwayModeCommand(djId, settings, text, isDj) {
+  if (!isDj) return
+  if (!isModuleOn(settings, 'entrysettings', djId)) return
+  const away = getAwayModeSettings(djId, settings)
+  const msg = String(text || '').trim()
+  if (msg === away.cmdAway) { setAwayModeEnabled(djId, settings, true); return }
+  if (msg === away.cmdBack) { setAwayModeEnabled(djId, settings, false); return }
+}
+
 // 👋 입장 인사 — 웹소켓 RoomJoin 이벤트(매니저만 옴)랑, 시청자 명단 폴링 기반 감지(일반 시청자
 // 포함, 최대 1초 정도 늦게) 두 경로가 이 함수 하나를 공유한다. room._greetedKeys로 "이번 방송에서
 // 이미 인사 나간 사람"을 기록해둬서, 두 경로 중 먼저 잡은 쪽만 인사하고 나머지는 조용히 건너뛴다
@@ -16615,7 +16779,15 @@ function sendJoinMessage(djId, settings, author, tag, gen) {
   handleActAttendHook(djId, settings, author, tag)
   handleLottoRankJoin(djId, room, settings, author, tag) // 🎟️ 복권 차등지급 — 입장 순서 등수 안내 + 지연 지급
 
-  if (greeting) {
+  const away = settings.awayMode && settings.awayMode.enabled && isModuleOn(settings, 'entrysettings', djId) ? settings.awayMode : null
+  if (away) {
+    // 🚶 자리비움 ON — 지정인사·기본 입장멘트 대신 자리비움 문구만 보낸다
+    if (String(away.message || '').trim()) {
+      let text = away.message.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
+      text = applyDashboardRankVars(text, settings)
+      setTimeout(() => sendChatToRoom(djId, text), 200)
+    }
+  } else if (greeting) {
     const text = greeting.message.replace(/{유저}/g, author).replace(/{nickname}/g, author).replace(/{tag}/g, `@${tag}`).replace(/{등급}/g, tierName).replace(/{count}/g, visitCount)
     const delayMs = Math.max(0, Number(greeting.delaySec) || 0) * 1000 + 200 // 기본 200ms(전송 텀)에 지정한 지연시간을 더해서 내보낸다
     setTimeout(() => sendChatToRoom(djId, text), delayMs)
@@ -17079,10 +17251,11 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFundingCommand(djId, room, settings, author, authorId, text)
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleBlindDateCommand(djId, room, settings, text, isDj, isManager)
+          handleAwayModeCommand(djId, settings, text, isDj)
           handleSongRequestCommand(djId, room, settings, author, authorId, text, liveId)
           handleRouletteCommand(djId, room, settings, author, authorId, liveId, text)
           handleKeepCommands(djId, room, settings, author, authorId, liveId, text)
-          handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
+          handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleRouletteMenuCommand(djId, settings, text)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
           handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
@@ -18069,8 +18242,11 @@ app.post('/chuseok/settings', auth.requireAuth, requireRequestModuleAccess('chus
   if (!isModuleOn(settings, 'chuseokevent', req.djId)) return res.json({ success: false, error: '추석 이벤트 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const ev = getChuseokSettings(req.djId, settings)
   const prevPosterUrl = ev.posterImageUrl
-  const { title, active, currentRound, rounds, posterImageUrl, minSpoons, cmdRoundPrefix } = req.body || {}
+  const { title, active, currentRound, rounds, posterImageUrl, minSpoons, cmdRoundPrefix, titleEmoji, vsEmoji } = req.body || {}
   if (title != null) ev.title = String(title).trim() || '팝블리네 추석명절특집'
+  // 🎨 양옆 이모티콘 — 비워두면 이모티콘 없이 출력
+  if (titleEmoji != null) ev.titleEmoji = String(titleEmoji).trim().slice(0, 20)
+  if (vsEmoji != null) ev.vsEmoji = String(vsEmoji).trim().slice(0, 20)
   if (active != null) ev.active = !!active
   if (posterImageUrl != null) ev.posterImageUrl = String(posterImageUrl)
   if (minSpoons != null) ev.minSpoons = Math.max(1, Math.min(99999, parseInt(minSpoons, 10) || CHUSEOK_MIN_SPOONS_DEFAULT))
@@ -18951,6 +19127,34 @@ app.post('/temp-milestone/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, settings: { enabled: tm.enabled, items: tm.items } })
 })
 
+// 🚶 자리비움 — 문구/명령어 설정 조회·저장 (켜짐 여부는 /away-mode/toggle 에서만 바꾼다 — 채팅 명령어로
+// 바뀐 상태를 오래된 화면 값이 덮어쓰지 않도록)
+app.get('/away-mode/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const away = getAwayModeSettings(req.djId, settings)
+  res.json({ success: true, settings: { enabled: !!away.enabled, message: away.message, cmdAway: away.cmdAway, cmdBack: away.cmdBack } })
+})
+app.post('/away-mode/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const away = getAwayModeSettings(req.djId, settings)
+  const { message, cmdAway, cmdBack } = req.body || {}
+  const nextAway = (cmdAway != null && String(cmdAway).trim()) ? String(cmdAway).trim().slice(0, 30) : away.cmdAway
+  const nextBack = (cmdBack != null && String(cmdBack).trim()) ? String(cmdBack).trim().slice(0, 30) : away.cmdBack
+  if (nextAway === nextBack) return res.json({ success: false, error: '켜기/끄기 명령어가 같으면 안 돼요' })
+  if (message != null) away.message = String(message).trim().slice(0, 300)
+  away.cmdAway = nextAway
+  away.cmdBack = nextBack
+  store.saveSettings(req.djId, { awayMode: away })
+  res.json({ success: true, settings: { enabled: !!away.enabled, message: away.message, cmdAway: away.cmdAway, cmdBack: away.cmdBack } })
+})
+app.post('/away-mode/toggle', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const cur = getAwayModeSettings(req.djId, settings)
+  const next = (req.body && req.body.enabled != null) ? !!req.body.enabled : !cur.enabled
+  const away = setAwayModeEnabled(req.djId, settings, next)
+  res.json({ success: true, enabled: !!away.enabled })
+})
+
 app.get('/status-banner', auth.requireAuth, (req, res) => {
   res.json({ success: true, banner: store.getStatusBanner() })
 })
@@ -19359,7 +19563,7 @@ app.get('/admin/youtube-api-key', auth.requireAuth, (req, res) => {
   res.json({
     success: true,
     count: keys.length,
-    maskedKeys: keys.map(k => k.slice(0, 6) + '••••••••'),
+    maskedKeys: keys.map(k => k.slice(0, 6) + '••••' + k.slice(-4)), // 키가 전부 AIzaSy로 시작해서 앞자리만으론 구분이 안 됨 → 뒤 4자리도 표시
     usingEnvFallback: keys.length === 0 && !!(process.env.YOUTUBE_API_KEYS || process.env.YOUTUBE_API_KEY),
   })
 })
@@ -20932,6 +21136,14 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       ].filter(x => x.cmd)
     })
   }
+  if (on('entrysettings') && settings.awayMode) {
+    const a = settings.awayMode
+    groups.push({
+      key: 'entrysettings', icon: '🚶', label: '자리비움', items: [
+        { cmd: a.cmdAway, desc: '자리비움 켜기 (DJ)' }, { cmd: a.cmdBack, desc: '자리비움 끄기 (DJ)' },
+      ].filter(x => x.cmd)
+    })
+  }
   if (on('shield') && settings.shield && settings.shield.cmd) {
     groups.push({ key: 'shield', icon: '🛡️', label: '실드 관리', items: [{ cmd: settings.shield.cmd, desc: '실드 개수 조회/적립' }] })
   }
@@ -22302,6 +22514,7 @@ app.get('/chuseok/:djId/state', (req, res) => {
   res.json({
     success: true,
     title: ev.title,
+    titleEmoji: ev.titleEmoji, vsEmoji: ev.vsEmoji,
     posterImageUrl: ev.posterImageUrl,
     active: ev.active,
     currentRound: ev.currentRound,
@@ -24604,6 +24817,7 @@ app.listen(PORT, () => {
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
+  try { mcFlushWebDataSync() } catch (e) { console.log('[종료 flush] 몬스터 웹도감 저장 실패', e.message) } // 🐾 레벨/포인트 유실 방지
   process.exit(0)
 }
 process.on('SIGTERM', gracefulShutdown)
