@@ -2643,10 +2643,33 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
     return
   }
   if ((isDj || isRlManager) && first.startsWith(cmdAt) && first.length > cmdAt.length) {
-    const targetNick = first.slice(cmdAt.length)
-    const key = findActUserKey(act, targetNick)
+    // 🆔 @고유닉 → 애청지수 정보 / @닉네임(두 글자 이상, 일부만 맞아도 됨) → 고유닉 알려주기
+    const targetNick = first.slice(cmdAt.length).trim().replace(/^@/, '')
+    const low = targetNick.toLowerCase()
+    // 1) 고유닉과 정확히 일치하는 애청지수 유저가 있으면 → 내정보 출력 (아래)
+    const key = Object.keys(act.users).find(k => k.toLowerCase() === low || (act.users[k].tag && String(act.users[k].tag).toLowerCase() === low))
     const d = key ? act.users[key] : null
-    if (!d) { setTimeout(() => sendChatToRoom(djId, actNoUserMsg(act, targetNick)), 400); return }
+    if (!d) {
+      let liveMembers = []
+      try { liveMembers = await fetchLiveMembers(liveId, tokenManager.getAccessToken(tokenDjIdFor(djId)), 5) || [] } catch (e) {}
+      // 고유닉은 맞는데(지금 방송에 있음) 애청지수 정보만 없는 경우
+      const liveByTag = liveMembers.find(u => u.tag && u.tag.toLowerCase() === low)
+      if (liveByTag) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${liveByTag.nickname || targetNick}(@${liveByTag.tag})님의 애청지수 정보가 없습니다.`), 400); return }
+      // 2) 닉네임 부분 검색 — 지금 방송 접속자 + 애청지수 등록 유저에서 찾아 고유닉을 알려준다
+      if (targetNick.length < 2) { setTimeout(() => sendChatToRoom(djId, '⚠️ 닉네임은 두 글자 이상 입력해주세요.'), 400); return }
+      const found = new Map() // tag(소문자) -> { nickname, tag }
+      liveMembers.forEach(u => { if (u.tag && u.nickname && u.nickname.toLowerCase().includes(low)) found.set(u.tag.toLowerCase(), { nickname: u.nickname, tag: u.tag }) })
+      Object.entries(act.users).forEach(([k, u]) => {
+        const tg = u.tag || k
+        if (u.nickname && String(u.nickname).toLowerCase().includes(low) && !found.has(String(tg).toLowerCase())) found.set(String(tg).toLowerCase(), { nickname: u.nickname, tag: tg })
+      })
+      if (!found.size) { setTimeout(() => sendChatToRoom(djId, `⚠️ '${targetNick}' 닉네임/고유닉을 찾을 수 없어요.`), 400); return }
+      const list = [...found.values()]
+      const lines = list.slice(0, 10).map(u => `${u.nickname} : @${u.tag}`)
+      if (list.length > 10) lines.push(`...외 ${list.length - 10}명 (더 길게 입력해주세요)`)
+      sendChatSplit(djId, `🆔 '${targetNick}' 고유닉 검색 결과\n` + lines.join('\n'), 150, 600)
+      return
+    }
     const { level, curExp, nextExp } = actGetLevel(d.exp || 0, act.lvBase)
     const rank = actRank(act.users, key)
     const lpMax = Number(act.lottoExchange) || 22
@@ -18299,6 +18322,29 @@ app.post('/chuseok/remove-member', auth.requireAuth, requireRequestModuleAccess(
   delete ev.members[key]
   store.saveSettings(req.djId, { chuseokEvent: ev })
   res.json({ success: true })
+})
+// ☑️ 선택 삭제 — 체크한 참가자 여러 명을 한 번에 지운다
+app.post('/chuseok/remove-members', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const keys = Array.isArray((req.body || {}).keys) ? req.body.keys : []
+  if (!keys.length) return res.json({ success: false, error: '삭제할 참가자를 선택해주세요' })
+  let removed = 0
+  keys.forEach(k => { if (ev.members[k]) { delete ev.members[k]; removed++ } })
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true, removed })
+})
+// 📁 라운드 폴더 삭제 — 그 라운드의 참가자 기록(점수 포함)만 통째로 지운다. 다른 라운드 기록과
+// 라운드 설정(팀 이름)은 그대로 둔다 (라운드 번호도 안 바뀜 — 2라운드를 지우면 1·3라운드만 남음).
+app.post('/chuseok/remove-round-members', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const ev = getChuseokSettings(req.djId, settings)
+  const round = parseInt((req.body || {}).round, 10)
+  if (!(round >= 1)) return res.json({ success: false, error: '라운드 번호가 올바르지 않아요' })
+  let removed = 0
+  Object.keys(ev.members).forEach(k => { if (Number(ev.members[k].round) === round) { delete ev.members[k]; removed++ } })
+  store.saveSettings(req.djId, { chuseokEvent: ev })
+  res.json({ success: true, removed })
 })
 // 점수 직접 수정 — 실드/룰렛 등으로 자동 발생한 선물처럼, 이벤트 참여 의도가 아닌 스푼이 잘못 집계됐을 때 보정용.
 app.post('/chuseok/adjust-score', auth.requireAuth, requireRequestModuleAccess('chuseokevent'), (req, res) => {

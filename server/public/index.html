@@ -12746,6 +12746,7 @@ function renderGcTestStickerPicker(){
 /* ── 🎑 추석 팀배틀 이벤트 ── */
 let csRounds=[{teamA:'모듬전',teamB:'스팸세트'},{teamA:'사과',teamB:'곶감'},{teamA:'한우불고기',teamB:'LA갈비'}];
 let csMembers=[];
+let csSelectedKeys=new Set(); // ☑️ 선택 삭제용 — 체크한 참가자 key 목록 (5초 폴링으로 다시 그려도 유지)
 let csRoundFolderOpen={}; // 📁 참가자 목록 라운드 폴더 열림 상태 { round: true/false }
 let csCurrentRoundSaved=1; // 서버에 저장된 현재 라운드 (폴더 기본 열림/진행중 표시용)
 
@@ -12914,7 +12915,8 @@ function renderCsMembers(){
     const isFocused=focusedKey!=null && String(m.key)===focusedKey;
     const scoreVal=isFocused?focusedVal:m.score;
     return `
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface2)">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:${csSelectedKeys.has(m.key)?'rgba(239,68,68,.08)':'var(--surface2)'}">
+      <input type="checkbox" style="width:17px;height:17px;margin:0;cursor:pointer;flex-shrink:0" ${csSelectedKeys.has(m.key)?'checked':''} onchange="csToggleSelect('${escapeAttr(m.key)}',this.checked)">
       <div style="min-width:120px"><b>${escapeHtml(m.nickname)}</b>${m.tag?` <span class="hint" style="margin:0">@${escapeHtml(m.tag)}</span>`:''}</div>
       <input type="number" value="${escapeAttr(String(scoreVal))}" style="width:90px;padding:5px 6px;margin-left:auto" id="csScoreInput-${escapeAttr(m.key)}">
       <button class="btn-gray" style="padding:5px 10px;font-size:12px" onclick="chuseokSetScore('${escapeAttr(m.key)}')">점수 저장</button>
@@ -12926,7 +12928,18 @@ function renderCsMembers(){
   const byRound={};
   csMembers.forEach(m=>{ const r=Number(m.round)||1; (byRound[r]=byRound[r]||[]).push(m); });
   const roundNums=Object.keys(byRound).map(Number).sort((a,b)=>b-a);
-  wrap.innerHTML=roundNums.map(r=>{
+  // ☑️ 선택 삭제 줄 — 삭제된(목록에 없는) 키는 선택에서 자동으로 빠진다
+  const liveKeys=new Set(csMembers.map(m=>m.key));
+  [...csSelectedKeys].forEach(k=>{ if(!liveKeys.has(k)) csSelectedKeys.delete(k); });
+  const selN=csSelectedKeys.size;
+  const toolbar=`
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px dashed var(--border);border-radius:10px;background:var(--surface)">
+      <span style="font-weight:700">☑️ 선택 <span style="color:var(--danger)">${selN}</span>명</span>
+      <button class="btn-shield-reset" style="padding:5px 12px;font-size:12px" ${selN?'':'disabled'} onclick="chuseokRemoveSelected()">🗑 선택 삭제</button>
+      <button class="btn-gray" style="padding:5px 12px;font-size:12px" ${selN?'':'disabled'} onclick="csSelectedKeys.clear();renderCsMembers()">선택 해제</button>
+      <span class="hint" style="margin:0">팀 이름 옆 체크박스를 누르면 그 팀 전체가 선택돼요.</span>
+    </div>`;
+  wrap.innerHTML=toolbar+roundNums.map(r=>{
     const list=byRound[r].slice().sort((a,b)=>b.score-a.score);
     const rd=csRounds[r-1];
     const teams=rd?`${escapeHtml(rd.teamA||'?')} vs ${escapeHtml(rd.teamB||'?')}`:'(삭제된 라운드)';
@@ -12935,16 +12948,19 @@ function renderCsMembers(){
     const open=(r in csRoundFolderOpen)?csRoundFolderOpen[r]:(r===csCurrentRoundSaved);
     // ⚔️ 팀별 좌우 분리 — 왼쪽 A팀 / 오른쪽 B팀 (좁은 화면에선 위아래로 쌓임)
     const listA=list.filter(m=>m.team!=='B'), listB=list.filter(m=>m.team==='B');
-    const teamCol=(side,name,members,sum,color)=>`
+    const teamCol=(side,name,members,sum,color)=>{
+      const allSel=members.length>0 && members.every(m=>csSelectedKeys.has(m.key));
+      return `
       <div style="flex:1;min-width:280px;border:2px solid ${color};border-radius:12px;padding:8px;background:var(--surface)">
         <div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;color:${color};padding:2px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:8px">
-          <span>${side}팀 · ${escapeHtml(name)}</span><span>${sum}점 · ${members.length}명</span>
+          <span style="display:flex;align-items:center;gap:8px">${members.length?`<input type="checkbox" title="이 팀 전체 선택" style="width:17px;height:17px;margin:0;cursor:pointer" ${allSel?'checked':''} onchange="csToggleSelectTeam(${r},'${side}',this.checked)">`:''}${side}팀 · ${escapeHtml(name)}</span><span>${sum}점 · ${members.length}명</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px">${members.length?members.map(memberRow).join(''):'<p class="hint" style="margin:4px">참가자 없음</p>'}</div>
       </div>`;
+    };
     return `
     <details ${open?'open':''} ontoggle="csRoundFolderOpen[${r}]=this.open" style="border:1px solid var(--border);border-radius:12px;padding:8px 10px;background:var(--bg)">
-      <summary style="cursor:pointer;font-weight:700;padding:4px 2px">📁 ${r}라운드 · ${teams} <span class="hint" style="margin:0;font-weight:400">(${list.length}명 · ${sumA}점 vs ${sumB}점)${r===csCurrentRoundSaved?' · 진행중':''}</span></summary>
+      <summary style="cursor:pointer;font-weight:700;padding:4px 2px"><button class="btn-shield-reset" style="padding:3px 9px;font-size:11.5px;margin-right:6px;vertical-align:middle" onclick="event.preventDefault();event.stopPropagation();chuseokRemoveRound(${r})">삭제</button>📁 ${r}라운드 · ${teams} <span class="hint" style="margin:0;font-weight:400">(${list.length}명 · ${sumA}점 vs ${sumB}점)${r===csCurrentRoundSaved?' · 진행중':''}</span></summary>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-start">
         ${teamCol('A',rd?rd.teamA||'?':'?',listA,sumA,'#4a6cf7')}
         ${teamCol('B',rd?rd.teamB||'?':'?',listB,sumB,'#ef4444')}
@@ -13001,6 +13017,43 @@ async function chuseokSetScore(key){
     const d=await res.json();
     if(!d.success){ showToast(d.error||'수정 실패'); return; }
     showToast('점수 수정 완료 ✓');
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+// ☑️ 체크박스 선택 / 팀 전체 선택 / 선택 삭제
+function csToggleSelect(key,on){ if(on) csSelectedKeys.add(key); else csSelectedKeys.delete(key); renderCsMembers(); }
+function csToggleSelectTeam(round,side,on){
+  csMembers.filter(m=>Number(m.round)===round && (side==='B'?m.team==='B':m.team!=='B')).forEach(m=>{ if(on) csSelectedKeys.add(m.key); else csSelectedKeys.delete(m.key); });
+  renderCsMembers();
+}
+async function chuseokRemoveSelected(){
+  const keys=[...csSelectedKeys];
+  if(!keys.length){ showToast('삭제할 참가자를 선택해주세요'); return; }
+  const names=csMembers.filter(m=>csSelectedKeys.has(m.key)).map(m=>m.nickname);
+  if(!confirm(`선택한 ${keys.length}명을 삭제할까요? (점수 포함, 되돌릴 수 없어요)\n\n${names.slice(0,10).join(', ')}${names.length>10?` 외 ${names.length-10}명`:''}`))return;
+  try{
+    const res=await fetch(SERVER+'/chuseok/remove-members',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({keys})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'삭제 실패'); return; }
+    csMembers=csMembers.filter(m=>!csSelectedKeys.has(m.key));
+    csSelectedKeys.clear();
+    renderCsMembers();
+    showToast(`${d.removed}명 삭제 완료 ✓`);
+  }catch(e){ showToast('오류: '+e.message); }
+}
+
+// 📁 라운드 폴더 삭제 — 그 라운드 참가자 기록만 전부 지운다 (다른 라운드·팀 이름 설정은 그대로)
+async function chuseokRemoveRound(round){
+  const cnt=csMembers.filter(m=>Number(m.round)===round).length;
+  if(!confirm(`${round}라운드 참가자 ${cnt}명의 기록(점수 포함)을 모두 삭제할까요?\n삭제하면 되돌릴 수 없어요.`))return;
+  try{
+    const res=await fetch(SERVER+'/chuseok/remove-round-members',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({round})});
+    const d=await res.json();
+    if(!d.success){ showToast(d.error||'삭제 실패'); return; }
+    csMembers=csMembers.filter(m=>Number(m.round)!==round);
+    delete csRoundFolderOpen[round];
+    renderCsMembers();
+    showToast(`${round}라운드 기록 ${d.removed}명 삭제 완료 ✓`);
   }catch(e){ showToast('오류: '+e.message); }
 }
 
