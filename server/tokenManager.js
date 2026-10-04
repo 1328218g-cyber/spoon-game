@@ -37,6 +37,10 @@ function getAccount(djId) {
       accessToken: '',
       refreshTimer: null,
       refreshing: false,
+      lastAppliedAt: 0,   // 마지막으로 토큰(세션)을 실제 적용한 시각
+      lastUploadAt: 0,    // PC 자동동기화가 마지막으로 업로드한 시각
+      pendingUpload: null, // 2시간이 안 지나서 아직 적용 안 한 최신 업로드
+      pendingTimer: null,
     }
   }
   return accounts[djId]
@@ -255,7 +259,41 @@ function setCookies(djId, data) {
     console.log(`[tokenManager:${djId}] ✅ 업로드된 쿠키에서 accessToken 즉시 반영 (Puppeteer 재확인 생략)`)
     if (onTokenUpdate) onTokenUpdate(djId, a.accessToken)
   }
+  a.lastAppliedAt = Date.now()
   persistToDisk()
+}
+
+// ⏱️ PC 자동동기화는 25분마다 세션을 올려주지만, 받을 때마다 적용하면 연결된 방마다 roomToken을
+// Puppeteer로 다시 발급받는 무거운 작업이 25분마다 돈다. 그래서 업로드는 항상 받아두되,
+// 실제 적용은 마지막 적용 후 2시간이 지났을 때만 한다. 그 사이에 온 업로드는 최신 것 하나만
+// 보관해뒀다가 2시간이 되는 시점에 적용한다. (세션이 아예 없거나 토큰이 없으면 즉시 적용)
+const UPLOAD_APPLY_INTERVAL_MS = 2 * 60 * 60 * 1000
+
+function applyPendingUpload(djId) {
+  const a = getAccount(djId)
+  if (a.pendingTimer) { clearTimeout(a.pendingTimer); a.pendingTimer = null }
+  if (!a.pendingUpload) return
+  const data = a.pendingUpload
+  a.pendingUpload = null
+  console.log(`[tokenManager:${djId}] ⏱️ 2시간 경과 → 보관해둔 최신 업로드 세션 적용`)
+  setCookies(djId, data)
+}
+
+function receiveUpload(djId, data) {
+  const a = getAccount(djId)
+  a.lastUploadAt = Date.now()
+  const elapsed = Date.now() - (a.lastAppliedAt || 0)
+  if (!hasCookies(djId) || !a.accessToken || elapsed >= UPLOAD_APPLY_INTERVAL_MS) {
+    a.pendingUpload = null
+    if (a.pendingTimer) { clearTimeout(a.pendingTimer); a.pendingTimer = null }
+    setCookies(djId, data)
+    return { applied: true }
+  }
+  a.pendingUpload = data // 최신 업로드로 계속 덮어씀
+  const waitMs = UPLOAD_APPLY_INTERVAL_MS - elapsed
+  if (!a.pendingTimer) a.pendingTimer = setTimeout(() => applyPendingUpload(djId), waitMs)
+  console.log(`[tokenManager:${djId}] 업로드 받음 → 보관 (적용까지 약 ${Math.ceil(waitMs / 60000)}분 남음)`)
+  return { applied: false, nextApplyInMin: Math.ceil(waitMs / 60000) }
 }
 
 function hasCookies(djId) {
@@ -420,6 +458,7 @@ async function refreshAccessTokenInner(djId) {
       a.accessToken = atCookie.value
       // 다음 갱신을 위해 쿠키 저장소도 최신 상태로 교체 (다른 쿠키들도 회전될 수 있음)
       a.cookies = sanitizeCookies(freshCookies)
+      a.lastAppliedAt = Date.now()
       persistToDisk()
       console.log(`[tokenManager:${djId}] ✅ accessToken 갱신 성공`)
       if (onTokenUpdate) onTokenUpdate(djId, a.accessToken)
@@ -441,11 +480,19 @@ async function refreshAccessTokenInner(djId) {
   }
 }
 
+// 백업 타이머용 — PC가 최근 2시간 안에 업로드했으면(=PC 자동동기화가 살아있으면) 서버는 직접 갱신하지 않는다.
+// PC가 꺼져서 2시간 넘게 업로드가 없을 때만 서버가 Puppeteer로 이어받는다.
+function backupRefreshTick(djId) {
+  const a = getAccount(djId)
+  if (a.lastUploadAt && Date.now() - a.lastUploadAt < UPLOAD_APPLY_INTERVAL_MS) return
+  refreshAccessToken(djId)
+}
+
 function startAutoRefresh(djId, intervalMinutes = 10) {
   const a = getAccount(djId)
   if (a.refreshTimer) clearInterval(a.refreshTimer)
   refreshAccessToken(djId) // 업로드 직후 1회 즉시 실행
-  a.refreshTimer = setInterval(() => refreshAccessToken(djId), intervalMinutes * 60 * 1000)
+  a.refreshTimer = setInterval(() => backupRefreshTick(djId), intervalMinutes * 60 * 1000)
 }
 
 function stopAutoRefresh(djId) {
@@ -460,7 +507,7 @@ function stopAutoRefresh(djId) {
 function ensureAutoRefresh(djId, intervalMinutes = 10) {
   const a = getAccount(djId)
   if (a.refreshTimer) return // 이미 돌고 있으면 그대로 둠
-  a.refreshTimer = setInterval(() => refreshAccessToken(djId), intervalMinutes * 60 * 1000)
+  a.refreshTimer = setInterval(() => backupRefreshTick(djId), intervalMinutes * 60 * 1000)
 }
 
 // 서버 시작 시: initFromDisk()가 돌려준 djId 목록 전부에 대해 자동 갱신을 시작하는 헬퍼
@@ -470,6 +517,7 @@ function startAutoRefreshForAll(djIds, intervalMinutes = 10) {
 
 module.exports = {
   setCookies,
+  receiveUpload,
   hasCookies,
   getCookieHeader,
   getAccessToken,

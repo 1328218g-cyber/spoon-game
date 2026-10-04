@@ -24174,14 +24174,18 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  tokenManager.setCookies(djId, { cookies, localStorage, sessionStorage })
-  // setCookies가 업로드된 쿠키에서 accessToken을 이미 즉시 반영하므로, 여기서 또 Puppeteer를
-  // 띄워 재확인할 필요는 없다. PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
-  // (타이머 자체는 30분마다 깨어나지만, PC가 최근 1시간 안에 동기화했으면 그냥 건너뛰기만 하는
-  // 가벼운 체크라서 자주 돌아도 서버 부담이 거의 없다 — PC가 꺼지면 최대 30분 안에 서버가 이어받는다)
+  // PC 자동동기화는 25분마다 올려주지만, 실제 적용은 마지막 적용 후 2시간이 지났을 때만 한다.
+  // (그 사이 업로드는 최신 것만 보관해뒀다가 2시간 되는 시점에 적용 — tokenManager.receiveUpload 참고)
+  const up = tokenManager.receiveUpload(djId, { cookies, localStorage, sessionStorage })
+  // PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
+  // (30분마다 깨어나지만, PC가 최근 2시간 안에 업로드했으면 그냥 건너뛰는 가벼운 체크 — PC가 꺼지면 서버가 이어받는다)
   tokenManager.ensureAutoRefresh(djId, 30)
-  console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → accessToken 발급 시도`)
-  res.json({ success: true, msg: '쿠키 업로드 완료. accessToken 발급을 시도합니다.' })
+  if (up.applied) {
+    console.log(`[세션:${djId}] 쿠키 업로드됨 (${cookies.length}개) → 즉시 적용`)
+    res.json({ success: true, applied: true, msg: '쿠키 업로드 완료. 바로 적용했어요.' })
+  } else {
+    res.json({ success: true, applied: false, msg: `쿠키 업로드 완료. 약 ${up.nextApplyInMin}분 뒤(2시간 주기)에 적용돼요.` })
+  }
 })
 
 // 인증 없이도 확인 가능한 "관리자 공용 계정" 상태 체크 (로그인 전 랜딩 화면 등에서 사용).
