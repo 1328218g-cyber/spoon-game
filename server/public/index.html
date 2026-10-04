@@ -9779,21 +9779,39 @@ async function saveActUserEdit(key){
   try{
     const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/edit',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
-    if(d.success){showToast('저장 완료 ✓');loadActivityUsers();}
-    else showToast(d.error||'실패');
+    if(d.success){
+      const tagChanged=d.activity||d.roulette;
+      showToast(tagChanged?'저장 완료 ✓ (고유닉 변경 — 룰렛 기록도 같이 바뀌었어요)':'저장 완료 ✓');
+      if(d.key) actSelectedKey=d.key;
+      if(tagChanged) refreshAfterTagChange(key,d.key); else loadActivityUsers();
+    }
+    else { showToast(d.error||'실패'); loadActivityUsers(); }
   }catch(e){showToast('오류: '+e.message);}
 }
 
 async function renameActUser(key){
   const cur=actUsersCache.find(u=>u.key===key);
-  const next=prompt('새 고유닉(또는 키)을 입력하세요',key);
+  const next=prompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n룰렛 기록도 같이 바뀌고, 새 고유닉 기록이 이미 있으면 합쳐져요',(cur&&cur.tag)||key);
   if(!next||!next.trim())return;
   try{
     const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newKey:next.trim()})});
     const d=await res.json();
-    if(d.success){showToast('고유닉이 변경됐어요');actSelectedKey=d.key;loadActivityUsers();}
-    else showToast(d.error||'실패');
+    if(d.success){showToast('고유닉이 변경됐어요 (룰렛 기록도 같이 변경)');actSelectedKey=d.key;refreshAfterTagChange(key,d.key);}
+    else { showToast(d.error||'실패'); loadActivityUsers(); }
   }catch(e){showToast('오류: '+e.message);}
+}
+
+// 🆔 고유닉 변경은 애청지수/룰렛 기록 양쪽을 같이 바꾸니까, 어느 화면에서 바꿨든 두 화면을 모두 새로 불러온다.
+// (안 그러면 다른 화면에는 예전 고유닉이 남아있어서, 거기서 저장/변경을 누르면 "유저를 찾을 수 없어요"가 뜬다)
+async function refreshAfterTagChange(oldTag,newTag){
+  const oldL=String(oldTag||'').toLowerCase(), newL=String(newTag||'').toLowerCase();
+  try{ await loadActivityUsers(); }catch(e){}
+  try{
+    if(typeof rlSelectedTag!=='undefined' && rlSelectedTag && rlSelectedTag.toLowerCase()===oldL) rlSelectedTag=newL;
+    if(typeof rlSelectedDeleteTags!=='undefined') rlSelectedDeleteTags.delete(oldL);
+    await loadRouletteUsers();
+    if(rlSelectedTag && document.getElementById('rouletteHistoryWrap')) loadRouletteHistory(rlSelectedTag);
+  }catch(e){}
 }
 
 async function deleteActivityUser(key){
@@ -18463,7 +18481,7 @@ function renderRouletteUserList(){
     return `<div class="nav-item rl-user-row ${active?'active':''}" data-tag="${escapeAttr(t)}" style="margin:2px 0">
       <input type="checkbox" class="rl-check" data-tag="${escapeAttr(t)}" ${checked?'checked':''} style="flex-shrink:0;width:auto;margin-right:2px">
       ${avatarHtml}
-      <span class="lbl rl-user-open" style="line-height:1.3">${escapeHtml(nick)}${warnBadge}${nick!==t?`<br><span style="font-size:11px;color:var(--muted)">@${escapeHtml(t)}</span>`:''}</span>
+      <span class="lbl rl-user-open" style="line-height:1.3">${escapeHtml(nick)}${warnBadge}${nick!==t?`<br><span style="font-size:11px;color:var(--muted)">@${escapeHtml(u.displayTag||t)}</span>`:''}</span>
       <button class="icon-btn danger rl-del-btn" style="flex-shrink:0" data-tag="${escapeAttr(t)}">✕</button>
     </div>`;
   }).join('');
@@ -18535,11 +18553,12 @@ async function trackRouletteUser(){
   const nickname=document.getElementById('rlNewNicknameInput').value.trim();
   if(!tag)return showToast('고유닉을 입력해주세요');
   try{
-    await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname})});
+    const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/track',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname})});
+    const d=await res.json().catch(()=>({}));
     document.getElementById('rlNewTagInput').value='';
     document.getElementById('rlNewNicknameInput').value='';
     await loadRouletteUsers();
-    loadRouletteHistory(tag);
+    loadRouletteHistory(d.tag||tag.toLowerCase());
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -18555,16 +18574,18 @@ async function deleteRouletteUser(tag){
 
 // 🆔 시청자가 스푼에서 고유닉을 바꿨을 때 — 룰렛 기록 + 애청지수를 새 고유닉으로 옮긴다 (채팅 !변경 명령어와 동일)
 async function renameRouletteUser(tag){
-  const next=prompt('변경된 고유닉을 입력하세요\n(룰렛 기록과 애청지수가 같이 옮겨지고, 새 고유닉 기록이 이미 있으면 합쳐져요)',tag);
-  if(!next||!next.trim()||next.trim().replace('@','')===tag)return;
+  const cur=(rlUserTags||[]).find(u=>u.tag===tag);
+  const shown=(cur&&cur.displayTag)||tag;
+  const next=prompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n(룰렛 기록과 애청지수가 같이 옮겨지고, 새 고유닉 기록이 이미 있으면 합쳐져요)',shown);
+  if(!next||!next.trim()||next.trim().replace('@','')===shown)return;
   try{
     const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
     const d=await res.json();
-    if(!d.success)return showToast(d.error||'실패');
-    showToast('고유닉이 변경됐어요');
-    rlSelectedDeleteTags.delete(tag);
-    await loadRouletteUsers();
-    loadRouletteHistory(d.tag);
+    if(!d.success){ showToast(d.error||'실패'); loadRouletteUsers(); return; }
+    showToast('고유닉이 변경됐어요 (애청지수도 같이 변경)');
+    if(actSelectedKey && String(actSelectedKey).toLowerCase()===tag && d.activity!=='none') actSelectedKey=d.actKey;
+    rlSelectedTag=d.tag;
+    await refreshAfterTagChange(tag,d.tag);
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -18596,7 +18617,7 @@ async function loadRouletteHistory(tag){
 
     wrap.innerHTML=`
       <div class="card">
-        <div class="card-title"><span>👤 ${escapeHtml(tag)}님의 기록</span><button class="btn-gray" style="width:auto;padding:6px 12px;font-size:12px" onclick="renameRouletteUser('${escapeAttr(tag)}')">🆔 고유닉 변경</button></div>
+        <div class="card-title"><span>👤 ${escapeHtml(d.record.displayTag||tag)}님의 기록</span><button class="btn-gray" style="width:auto;padding:6px 12px;font-size:12px" onclick="renameRouletteUser('${escapeAttr(tag)}')">🆔 고유닉 변경</button></div>
       </div>
       ${renderRlListCard('킵목록','keep',tag,d.record.keepList||{})}
       ${renderRlListCard('기타목록','misc',tag,d.record.miscList||{})}

@@ -16111,6 +16111,9 @@ function getHistoryRecByIdentity(settings, tag, nickname) {
 
   const rec = getHistoryRec(settings, cleanTag)
   if (nickname && rec.nickname !== nickname) rec.nickname = nickname // 닉네임 변경 자동 반영
+  // 키는 소문자로 통일하지만, 화면에는 실제 대소문자 그대로 보여주려고 원본 표기를 따로 저장해둔다
+  const rawTag = String(tag).trim().replace(/^@/, '')
+  if (!rec.displayTag) rec.displayTag = rawTag
   return rec
 }
 
@@ -16122,7 +16125,9 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
   const oldTag = String(oldTagInput || '').trim().replace(/^@/, '')
   const newTag = String(newTagInput || '').trim().replace(/^@/, '')
   if (!oldTag || !newTag) return { ok: false, error: '이전 고유닉과 변경된 고유닉을 둘 다 입력해주세요.' }
-  if (oldTag.toLowerCase() === newTag.toLowerCase()) return { ok: false, error: '이전 고유닉과 변경된 고유닉이 같아요.' }
+  if (oldTag === newTag) return { ok: false, error: '이전 고유닉과 변경된 고유닉이 같아요.' }
+  // 대소문자만 바꾸는 경우(예: sum → Sum)도 허용한다 — 기록은 그대로 두고 표기만 입력한 그대로 바꾼다
+  const caseOnly = oldTag.toLowerCase() === newTag.toLowerCase()
   const settings = store.getSettings(djId) || {}
   const result = { ok: true, oldTag, newTag, newKey: newTag, activity: 'none', roulette: 'none' }
 
@@ -16131,7 +16136,7 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
   const oldKey = actResolveKey(act, null, oldTag)
   if (oldKey) {
     const src = act.users[oldKey]
-    const targetKey = actResolveKey(act, null, newTag)
+    const targetKey = caseOnly ? null : actResolveKey(act, null, newTag)
     if (targetKey && targetKey !== oldKey) {
       const dst = act.users[targetKey]
       for (const f of ['heart', 'chat', 'attend', 'lp', 'lotto', 'exp']) dst[f] = (Number(dst[f]) || 0) + (Number(src[f]) || 0)
@@ -16139,7 +16144,8 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
       if (!dst.imgUrl && src.imgUrl) dst.imgUrl = src.imgUrl
       dst.tag = newTag
       delete act.users[oldKey]
-      result.newKey = targetKey
+      delete act.users[targetKey]
+      act.users[newTag] = dst // 키도 입력한 대소문자 그대로
       result.activity = 'merged'
     } else {
       delete act.users[oldKey]
@@ -16155,9 +16161,12 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
   const oldHKey = hist[oldTag.toLowerCase()] ? oldTag.toLowerCase() : (hist[oldTag] ? oldTag : null)
   if (oldHKey) {
     const src = hist[oldHKey]
-    const newHKey = newTag.toLowerCase()
-    delete hist[oldHKey]
-    if (hist[newHKey]) {
+    const newHKey = newTag.toLowerCase() // 룰렛 기록 키는 소문자(채팅 매칭용), 화면 표기는 displayTag에 입력한 그대로
+    if (oldHKey === newHKey) {
+      src.displayTag = newTag
+      result.roulette = 'moved'
+    } else if (hist[newHKey]) {
+      delete hist[oldHKey]
       const dst = getHistoryRec(settings, newHKey)
       if (!dst.coupons) dst.coupons = {}
       for (const [idx, n] of Object.entries(src.coupons || {})) dst.coupons[idx] = (Number(dst.coupons[idx]) || 0) + (Number(n) || 0)
@@ -16166,8 +16175,11 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
         for (const [name, n] of Object.entries(src[lk] || {})) dst[lk][name] = (Number(dst[lk][name]) || 0) + (Number(n) || 0)
       }
       if (!dst.nickname && src.nickname) dst.nickname = src.nickname
+      dst.displayTag = newTag
       result.roulette = 'merged'
     } else {
+      delete hist[oldHKey]
+      src.displayTag = newTag
       hist[newHKey] = src
       result.roulette = 'moved'
     }
@@ -16175,10 +16187,30 @@ function changeUserTag(djId, oldTagInput, newTagInput) {
 
   if (result.activity === 'none' && result.roulette === 'none') return { ok: false, error: `'${oldTag}' 고유닉으로 등록된 애청지수/룰렛 기록이 없어요.` }
   store.saveSettings(djId, { activity: act, rouletteHistory: hist })
-  purgeTagCache(oldTag)
-  if (oldKey && oldKey.toLowerCase() !== oldTag.toLowerCase()) purgeTagCache(oldKey)
+  if (!caseOnly) {
+    purgeTagCache(oldTag)
+    if (oldKey && oldKey.toLowerCase() !== oldTag.toLowerCase()) purgeTagCache(oldKey)
+  }
   console.log(`[고유닉 변경] dj=${djId} ${oldTag} → ${newTag} (애청지수:${result.activity} / 룰렛기록:${result.roulette})`)
   return result
+}
+
+// 애청지수 화면(💾 저장 / 🆔 고유닉 변경)에서 쓰는 버전 — 키가 예전 닉네임인 레거시 유저도 있어서,
+// 키 기준으로 한 번 옮기고, 저장돼있던 예전 tag 기준 룰렛 기록도 한 번 더 옮긴다.
+function renameActUserEverywhere(djId, key, newTagInput) {
+  const settings = store.getSettings(djId) || {}
+  const act = getActivitySettings(djId, settings)
+  const d = act.users[key]
+  if (!d) return { ok: false, error: '유저를 찾을 수 없어요. 목록을 새로고침해주세요.' }
+  const prevTag = d.tag
+  const newTag = String(newTagInput || '').trim().replace(/^@/, '')
+  const r = changeUserTag(djId, key, newTag)
+  if (!r.ok) return r
+  if (prevTag && prevTag !== key && prevTag !== newTag) {
+    const r2 = changeUserTag(djId, prevTag, newTag)
+    if (r2.ok && r2.roulette !== 'none' && r.roulette === 'none') r.roulette = r2.roulette
+  }
+  return r
 }
 
 // !변경 [이전고유닉] [변경된고유닉] — DJ 전용. 시청자가 스푼에서 고유닉을 바꿨을 때 애청지수/룰렛 기록을 새 고유닉으로 옮긴다.
@@ -20003,7 +20035,7 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
         }
       } catch (e) { /* 조회 실패 시 그냥 이니셜 아바타로 대체 */ }
     }
-    return { tag, nickname, imgUrl, looksLikeNickname: !isTagFormat(tag) }
+    return { tag, displayTag: (hist[tag] && hist[tag].displayTag) || tag, nickname, imgUrl, looksLikeNickname: !isTagFormat(tag) }
   }))
   const nicknameKeyedCount = users.filter(u => u.looksLikeNickname).length
   res.json({ success: true, tags, users, nicknameKeyedCount })
@@ -20133,18 +20165,19 @@ app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const act = getActivitySettings(req.djId, settings)
   const d = act.users[req.params.key]
-  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
+  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요. 목록을 새로고침해주세요.' })
   if (heart != null) d.heart = Math.max(0, Number(heart) || 0)
   if (chat != null) d.chat = Math.max(0, Number(chat) || 0)
   if (attend != null) d.attend = Math.max(0, Number(attend) || 0)
   if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
   if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
+  // 태그 칸에서 고유닉을 바꿨으면(대소문자만 바꾼 것 포함) 애청지수 키 + 룰렛 기록까지 같이 옮긴다 — 아래 다른 값들을 다 반영한 뒤에 처리
+  let tagChangeTo = null
   if (tag != null) {
-    const prevTag = d.tag
-    d.tag = String(tag).trim().replace(/^@/, '') || null
-    // 고유닉을 바꿨으면 예전 고유닉(이전 tag, 그리고 키가 예전 고유닉인 경우 키도) 캐시를 지운다
-    if (d.tag && prevTag && String(prevTag).toLowerCase() !== d.tag.toLowerCase()) purgeTagCache(prevTag)
-    if (d.tag && req.params.key.toLowerCase() !== d.tag.toLowerCase()) purgeTagCache(req.params.key)
+    const newTag = String(tag).trim().replace(/^@/, '')
+    if (!newTag) d.tag = null
+    else if (newTag !== req.params.key && newTag !== (d.tag || '')) tagChangeTo = newTag
+    else d.tag = newTag
   }
   if (nickname != null) {
     const n = String(nickname).trim()
@@ -20157,25 +20190,21 @@ app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
   }
   if (expAdd) actGrantExp(req.djId, act, req.params.key, Number(expAdd) || 0)
   store.saveSettings(req.djId, { activity: act })
-  res.json({ success: true })
+  if (tagChangeTo) {
+    const r = renameActUserEverywhere(req.djId, req.params.key, tagChangeTo)
+    if (!r.ok) return res.json({ success: false, error: `점수는 저장됐지만 고유닉 변경은 실패했어요: ${r.error}` })
+    return res.json({ success: true, key: r.newKey, activity: r.activity, roulette: r.roulette })
+  }
+  res.json({ success: true, key: req.params.key })
 })
 
 // ⭐ 유저 닉네임(키) 변경 — 저장된 키가 실제 닉네임과 어긋났을 때 DJ가 직접 고칠 수 있게
 app.post('/activity/users/:key/rename', auth.requireAuth, (req, res) => {
   const newKey = String((req.body || {}).newKey || '').trim()
   if (!newKey) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
-  const settings = store.getSettings(req.djId) || {}
-  const act = getActivitySettings(req.djId, settings)
-  const d = act.users[req.params.key]
-  if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
-  const prevTag = d.tag
   // 룰렛 기록까지 같이 옮기고, 새 고유닉 기록이 이미 있으면 합친다 (!변경 명령어와 동일)
-  const r = changeUserTag(req.djId, req.params.key, newKey)
+  const r = renameActUserEverywhere(req.djId, req.params.key, newKey)
   if (!r.ok) return res.json({ success: false, error: r.error })
-  // 키가 닉네임이던 레거시 유저면, 저장돼있던 예전 tag의 룰렛 기록도 같이 옮긴다
-  if (prevTag && String(prevTag).toLowerCase() !== String(req.params.key).toLowerCase() && String(prevTag).toLowerCase() !== newKey.toLowerCase()) {
-    changeUserTag(req.djId, prevTag, newKey)
-  }
   res.json({ success: true, key: r.newKey, activity: r.activity, roulette: r.roulette })
 })
 
@@ -20185,7 +20214,7 @@ app.post('/roulette/history/:tag/rename', auth.requireAuth, (req, res) => {
   if (!newTag) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
   const r = changeUserTag(req.djId, req.params.tag, newTag)
   if (!r.ok) return res.json({ success: false, error: r.error })
-  res.json({ success: true, tag: r.newTag.toLowerCase(), activity: r.activity, roulette: r.roulette })
+  res.json({ success: true, tag: r.newTag.toLowerCase(), actKey: r.newKey, activity: r.activity, roulette: r.roulette })
 })
 
 // 🧩 퀴즈 문제 목록 + 설정 조회
@@ -24291,8 +24320,9 @@ app.post('/roulette/history/:tag/track', auth.requireAuth, (req, res) => {
   const nickname = String((req.body || {}).nickname || '').trim()
   const rec = getHistoryRec(settings, cleanTag)
   if (nickname) rec.nickname = nickname // 수동 추가 시 표시용 닉네임을 같이 입력했으면 바로 반영
+  rec.displayTag = String(req.params.tag || '').trim().replace(/^@/, '') // 입력한 대소문자 그대로 표시
   store.saveSettings(req.djId, { rouletteHistory: settings.rouletteHistory })
-  res.json({ success: true })
+  res.json({ success: true, tag: cleanTag })
 })
 
 app.post('/roulette/history/:tag/delete', auth.requireAuth, (req, res) => {
