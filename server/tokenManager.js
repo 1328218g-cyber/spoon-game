@@ -268,30 +268,52 @@ function setCookies(djId, data) {
 // 실제 적용은 마지막 적용 후 2시간이 지났을 때만 한다. 그 사이에 온 업로드는 최신 것 하나만
 // 보관해뒀다가 2시간이 되는 시점에 적용한다. (세션이 아예 없거나 토큰이 없으면 즉시 적용)
 const UPLOAD_APPLY_INTERVAL_MS = 2 * 60 * 60 * 1000
+// ⚠️ 2시간을 기다리다 지금 쓰는 토큰이 먼저 만료되면 스푼 접속(핸드셰이크)이 전부 거절된다.
+// 그래서 현재 토큰 만료가 이 시간 안으로 다가오면 2시간이 안 됐어도 바로 적용한다.
+// (PC 업로드 간격 25분보다 길게 잡아야 "다음 업로드 오기 전에 만료"되는 틈이 안 생긴다)
+const TOKEN_EXPIRY_MARGIN_MS = 30 * 60 * 1000
 
-function applyPendingUpload(djId) {
+// spoon_at_kr(JWT)의 만료 시각(ms). JWT가 아니거나 해석이 안 되면 null.
+function tokenExpiresAt(token) {
+  try {
+    const part = String(token || '').split('.')[1]
+    if (!part) return null
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8'))
+    return json && json.exp ? Number(json.exp) * 1000 : null
+  } catch (e) { return null }
+}
+
+function applyPendingUpload(djId, reason) {
   const a = getAccount(djId)
   if (a.pendingTimer) { clearTimeout(a.pendingTimer); a.pendingTimer = null }
-  if (!a.pendingUpload) return
+  if (!a.pendingUpload) return false
   const data = a.pendingUpload
   a.pendingUpload = null
-  console.log(`[tokenManager:${djId}] ⏱️ 2시간 경과 → 보관해둔 최신 업로드 세션 적용`)
+  console.log(`[tokenManager:${djId}] ⏱️ ${reason || '2시간 경과'} → 보관해둔 최신 업로드 세션 적용`)
   setCookies(djId, data)
+  return true
 }
 
 function receiveUpload(djId, data) {
   const a = getAccount(djId)
-  a.lastUploadAt = Date.now()
-  const elapsed = Date.now() - (a.lastAppliedAt || 0)
-  if (!hasCookies(djId) || !a.accessToken || elapsed >= UPLOAD_APPLY_INTERVAL_MS) {
+  const now = Date.now()
+  a.lastUploadAt = now
+  const elapsed = now - (a.lastAppliedAt || 0)
+  const curExp = tokenExpiresAt(a.accessToken)
+  // 만료 시각을 모르면(JWT가 아니면) 안전하게 예전처럼 바로 적용한다
+  const expiringSoon = curExp == null || curExp - now < TOKEN_EXPIRY_MARGIN_MS
+  if (!hasCookies(djId) || !a.accessToken || elapsed >= UPLOAD_APPLY_INTERVAL_MS || expiringSoon) {
     a.pendingUpload = null
     if (a.pendingTimer) { clearTimeout(a.pendingTimer); a.pendingTimer = null }
+    if (expiringSoon && a.accessToken && curExp != null) console.log(`[tokenManager:${djId}] 현재 토큰 만료 임박(${Math.round((curExp - now) / 60000)}분 남음) → 2시간 전이지만 바로 적용`)
     setCookies(djId, data)
     return { applied: true }
   }
   a.pendingUpload = data // 최신 업로드로 계속 덮어씀
-  const waitMs = UPLOAD_APPLY_INTERVAL_MS - elapsed
-  if (!a.pendingTimer) a.pendingTimer = setTimeout(() => applyPendingUpload(djId), waitMs)
+  // 2시간이 되는 시점과 "현재 토큰 만료 30분 전" 중 빠른 쪽에 적용
+  const waitMs = Math.max(1000, Math.min(UPLOAD_APPLY_INTERVAL_MS - elapsed, curExp - TOKEN_EXPIRY_MARGIN_MS - now))
+  if (a.pendingTimer) clearTimeout(a.pendingTimer)
+  a.pendingTimer = setTimeout(() => applyPendingUpload(djId), waitMs)
   console.log(`[tokenManager:${djId}] 업로드 받음 → 보관 (적용까지 약 ${Math.ceil(waitMs / 60000)}분 남음)`)
   return { applied: false, nextApplyInMin: Math.ceil(waitMs / 60000) }
 }
@@ -518,6 +540,7 @@ function startAutoRefreshForAll(djIds, intervalMinutes = 10) {
 module.exports = {
   setCookies,
   receiveUpload,
+  applyPendingUpload,
   hasCookies,
   getCookieHeader,
   getAccessToken,

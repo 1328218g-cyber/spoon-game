@@ -17249,6 +17249,9 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
   ws.on('unexpected-response', (req, res) => {
     console.log(`[${djId}] WS 예상밖 응답: status=${res.statusCode} headers=${JSON.stringify(res.headers)}`)
+    // 🔑 토큰 문제로 거절됐을 수 있으니, PC가 올려둔 최신 세션을 아직 적용 안 하고 보관 중이면 바로 적용한다
+    // (다음 자동 재접속 때 새 토큰으로 붙게 됨)
+    try { tokenManager.applyPendingUpload(tokenDjIdFor(djId), '핸드셰이크 거절') } catch (e) {}
     // 🚨 핸드셰이크 자체가 거절된 경우엔 'open'도 'close'도 안 타서, 정리 안 해두면
     // room.ws가 죽은 채로 남고 프론트는 방금 보낸 "접속중" 상태에 영원히 멈춰있게 된다.
     // (close 핸들러랑 같은 정리 로직 + 실패했다는 걸 프론트에 알려주는 브로드캐스트만 추가)
