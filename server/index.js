@@ -769,6 +769,27 @@ function rememberTagNickname(room, tag, nickname) {
   room.tagToNickname.set(String(tag).trim().toLowerCase(), nickname)
 }
 
+// 🆔 고유닉 변경 시 예전 고유닉 캐시 정리 — tagCache(userId→태그)는 한 번 저장되면 다시 조회를 안 해서,
+// 시청자가 스푼에서 고유닉을 바꿔도 서버 재시작 전까지 예전 값이 계속 나오고, 그게 애청지수 tag를
+// 예전 값으로 되돌려버리는 원인이었다. DJ가 웹에서 고유닉을 바꾸면 모든 방 캐시에서 예전 고유닉 항목을
+// 지워서, 다음 채팅/선물 때 스푼에서 최신 고유닉을 새로 조회해 다시 캐시하게 한다.
+function purgeTagCache(oldTag) {
+  const norm = String(oldTag || '').trim().replace(/^@/, '').toLowerCase()
+  if (!norm) return 0
+  let removed = 0
+  for (const room of Object.values(rooms)) {
+    if (room.tagCache) {
+      for (const [userId, t] of room.tagCache) {
+        if (t && String(t).toLowerCase() === norm) { room.tagCache.delete(userId); removed++ }
+      }
+    }
+    if (room.tagToNickname) room.tagToNickname.delete(norm)
+    if (room.profileUrlCache) room.profileUrlCache.delete(norm)
+  }
+  if (removed) console.log(`[tag 캐시 정리] 예전 고유닉 "${norm}" 캐시 ${removed}건 삭제 → 다음 이벤트 때 최신 고유닉으로 재조회`)
+  return removed
+}
+
 // 채팅/좋아요/선물 이벤트에서 실제로 확인된 프로필 사진 URL을, 태그와 닉네임 양쪽 키로 캐싱해둔다.
 // (실시간 접속자 API는 프로필 사진을 안 줄 수 있어서, 이미 채팅에서 검증된 이 캐시를 우선 사용한다)
 function rememberProfileUrl(room, tag, nickname, imgUrl) {
@@ -15757,6 +15778,89 @@ function getHistoryRecByIdentity(settings, tag, nickname) {
   return rec
 }
 
+// 🆔 시청자 고유닉 변경 — 스푼에서 고유닉을 바꾼 시청자의 애청지수 + 룰렛 기록을 새 고유닉으로 옮긴다.
+// DJ 채팅 명령어(!변경 [이전고유닉] [변경된고유닉]), 애청지수 "고유닉 변경" 버튼, 룰렛 기록 "고유닉 변경" 버튼이 모두 이걸 쓴다.
+// 새 고유닉으로 이미 기록이 따로 생겨있으면(캐시 문제로 갈라진 경우) 지우지 않고 수치를 합친다.
+// 마지막에 예전 고유닉 캐시를 지워서, 다음 이벤트부터는 스푼에서 최신 고유닉을 새로 조회하게 한다.
+function changeUserTag(djId, oldTagInput, newTagInput) {
+  const oldTag = String(oldTagInput || '').trim().replace(/^@/, '')
+  const newTag = String(newTagInput || '').trim().replace(/^@/, '')
+  if (!oldTag || !newTag) return { ok: false, error: '이전 고유닉과 변경된 고유닉을 둘 다 입력해주세요.' }
+  if (oldTag.toLowerCase() === newTag.toLowerCase()) return { ok: false, error: '이전 고유닉과 변경된 고유닉이 같아요.' }
+  const settings = store.getSettings(djId) || {}
+  const result = { ok: true, oldTag, newTag, newKey: newTag, activity: 'none', roulette: 'none' }
+
+  // ── 애청지수 ──
+  const act = getActivitySettings(djId, settings)
+  const oldKey = actResolveKey(act, null, oldTag)
+  if (oldKey) {
+    const src = act.users[oldKey]
+    const targetKey = actResolveKey(act, null, newTag)
+    if (targetKey && targetKey !== oldKey) {
+      const dst = act.users[targetKey]
+      for (const f of ['heart', 'chat', 'attend', 'lp', 'lotto', 'exp']) dst[f] = (Number(dst[f]) || 0) + (Number(src[f]) || 0)
+      dst.lastAttendTime = Math.max(Number(dst.lastAttendTime) || 0, Number(src.lastAttendTime) || 0)
+      if (!dst.imgUrl && src.imgUrl) dst.imgUrl = src.imgUrl
+      dst.tag = newTag
+      delete act.users[oldKey]
+      result.newKey = targetKey
+      result.activity = 'merged'
+    } else {
+      delete act.users[oldKey]
+      src.tag = newTag
+      act.users[newTag] = src
+      result.activity = 'moved'
+    }
+  }
+
+  // ── 룰렛 기록 (킵/기타/이벤트 목록, 룰렛권, 당첨 기록) ──
+  if (!settings.rouletteHistory) settings.rouletteHistory = {}
+  const hist = settings.rouletteHistory
+  const oldHKey = hist[oldTag.toLowerCase()] ? oldTag.toLowerCase() : (hist[oldTag] ? oldTag : null)
+  if (oldHKey) {
+    const src = hist[oldHKey]
+    const newHKey = newTag.toLowerCase()
+    delete hist[oldHKey]
+    if (hist[newHKey]) {
+      const dst = getHistoryRec(settings, newHKey)
+      if (!dst.coupons) dst.coupons = {}
+      for (const [idx, n] of Object.entries(src.coupons || {})) dst.coupons[idx] = (Number(dst.coupons[idx]) || 0) + (Number(n) || 0)
+      dst.wins = (dst.wins || []).concat(src.wins || []).sort((a, b) => (a.ts || 0) - (b.ts || 0))
+      for (const lk of ['keepList', 'miscList', 'eventList']) {
+        for (const [name, n] of Object.entries(src[lk] || {})) dst[lk][name] = (Number(dst[lk][name]) || 0) + (Number(n) || 0)
+      }
+      if (!dst.nickname && src.nickname) dst.nickname = src.nickname
+      result.roulette = 'merged'
+    } else {
+      hist[newHKey] = src
+      result.roulette = 'moved'
+    }
+  }
+
+  if (result.activity === 'none' && result.roulette === 'none') return { ok: false, error: `'${oldTag}' 고유닉으로 등록된 애청지수/룰렛 기록이 없어요.` }
+  store.saveSettings(djId, { activity: act, rouletteHistory: hist })
+  purgeTagCache(oldTag)
+  if (oldKey && oldKey.toLowerCase() !== oldTag.toLowerCase()) purgeTagCache(oldKey)
+  console.log(`[고유닉 변경] dj=${djId} ${oldTag} → ${newTag} (애청지수:${result.activity} / 룰렛기록:${result.roulette})`)
+  return result
+}
+
+// !변경 [이전고유닉] [변경된고유닉] — DJ 전용. 시청자가 스푼에서 고유닉을 바꿨을 때 애청지수/룰렛 기록을 새 고유닉으로 옮긴다.
+function handleTagChangeCommand(djId, room, authorId, text) {
+  const parts = String(text || '').trim().split(/\s+/)
+  if (parts[0] !== '!변경') return
+  const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
+  if (!isDj) return
+  if (parts.length < 3) {
+    setTimeout(() => sendChatToRoom(djId, '📋 사용법: !변경 [이전고유닉] [변경된고유닉]\n(예: !변경 486782 min_321)'), 400)
+    return
+  }
+  const r = changeUserTag(djId, parts[1], parts[2])
+  if (!r.ok) { setTimeout(() => sendChatToRoom(djId, `⚠️ ${r.error}`), 400); return }
+  const label = { moved: '변경', merged: '합침', none: '기록 없음' }
+  setTimeout(() => sendChatToRoom(djId, `✅ 고유닉 변경 완료: @${r.oldTag} → @${r.newTag}\n애청지수: ${label[r.activity]} / 룰렛기록: ${label[r.roulette]}`), 400)
+}
+
 // 태그 조회가 실패했을 때 채팅으로 보낼 공통 안내 메시지 (기록을 만들지 않고 재시도를 유도)
 const TAG_RETRY_MSG = '⚠️ 고유닉을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'
 
@@ -16879,6 +16983,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleRouletteGiveCommand(djId, room, settings, author, authorId, liveId, text)
           handleRouletteMenuCommand(djId, settings, text)
           handleActivityCommand(djId, room, settings, author, authorId, text, actTag, liveId)
+          handleTagChangeCommand(djId, room, authorId, text)
           handleActChatHook(djId, settings, author, actTag, gen.profileUrl)
           recordTodayMvp(room, 'chat', actTag || author, author, 1)
           rememberProfileUrl(room, actTag, author, gen.profileUrl)
@@ -19424,7 +19529,13 @@ app.post('/activity/users/:key/edit', auth.requireAuth, (req, res) => {
   if (attend != null) d.attend = Math.max(0, Number(attend) || 0)
   if (lp != null) d.lp = Math.max(0, Number(lp) || 0)
   if (lotto != null) d.lotto = Math.max(0, Number(lotto) || 0)
-  if (tag != null) d.tag = String(tag).trim().replace(/^@/, '') || null
+  if (tag != null) {
+    const prevTag = d.tag
+    d.tag = String(tag).trim().replace(/^@/, '') || null
+    // 고유닉을 바꿨으면 예전 고유닉(이전 tag, 그리고 키가 예전 고유닉인 경우 키도) 캐시를 지운다
+    if (d.tag && prevTag && String(prevTag).toLowerCase() !== d.tag.toLowerCase()) purgeTagCache(prevTag)
+    if (d.tag && req.params.key.toLowerCase() !== d.tag.toLowerCase()) purgeTagCache(req.params.key)
+  }
   if (nickname != null) {
     const n = String(nickname).trim()
     if (n) d.nickname = n
@@ -19447,12 +19558,24 @@ app.post('/activity/users/:key/rename', auth.requireAuth, (req, res) => {
   const act = getActivitySettings(req.djId, settings)
   const d = act.users[req.params.key]
   if (!d) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
-  if (newKey !== req.params.key && act.users[newKey]) return res.json({ success: false, error: '이미 그 고유닉으로 등록된 유저가 있어요' })
-  delete act.users[req.params.key]
-  d.tag = newKey
-  act.users[newKey] = d
-  store.saveSettings(req.djId, { activity: act })
-  res.json({ success: true, key: newKey })
+  const prevTag = d.tag
+  // 룰렛 기록까지 같이 옮기고, 새 고유닉 기록이 이미 있으면 합친다 (!변경 명령어와 동일)
+  const r = changeUserTag(req.djId, req.params.key, newKey)
+  if (!r.ok) return res.json({ success: false, error: r.error })
+  // 키가 닉네임이던 레거시 유저면, 저장돼있던 예전 tag의 룰렛 기록도 같이 옮긴다
+  if (prevTag && String(prevTag).toLowerCase() !== String(req.params.key).toLowerCase() && String(prevTag).toLowerCase() !== newKey.toLowerCase()) {
+    changeUserTag(req.djId, prevTag, newKey)
+  }
+  res.json({ success: true, key: r.newKey, activity: r.activity, roulette: r.roulette })
+})
+
+// 🆔 룰렛 기록 화면에서 고유닉 변경 — 애청지수까지 같이 옮긴다 (!변경 명령어와 동일)
+app.post('/roulette/history/:tag/rename', auth.requireAuth, (req, res) => {
+  const newTag = String((req.body || {}).newTag || '').trim()
+  if (!newTag) return res.json({ success: false, error: '새 고유닉을 입력해주세요' })
+  const r = changeUserTag(req.djId, req.params.tag, newTag)
+  if (!r.ok) return res.json({ success: false, error: r.error })
+  res.json({ success: true, tag: r.newTag.toLowerCase(), activity: r.activity, roulette: r.roulette })
 })
 
 // 🧩 퀴즈 문제 목록 + 설정 조회
@@ -20648,6 +20771,7 @@ app.get('/commands/list', auth.requireAuth, (req, res) => {
       { cmd: rcmd.misc, desc: '내 기타목록 조회' },
       { cmd: rcmd.misc + '확인N', desc: '[고유닉] 다른 사람 기타목록 조회' },
       { cmd: rcmd.misc + '사용', desc: '[번호] [수량] 기타 항목 사용 (관리자)' },
+      { cmd: '!변경', desc: '[이전고유닉] [변경된고유닉] 고유닉 바뀐 시청자의 룰렛기록·애청지수 옮기기 (DJ)' },
     )
     groups.push({ key: 'roulette', icon: '🎡', label: '룰렛', items })
   }
