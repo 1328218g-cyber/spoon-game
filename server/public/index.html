@@ -18553,6 +18553,21 @@ async function deleteRouletteUser(tag){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+// 🆔 시청자가 스푼에서 고유닉을 바꿨을 때 — 룰렛 기록 + 애청지수를 새 고유닉으로 옮긴다 (채팅 !변경 명령어와 동일)
+async function renameRouletteUser(tag){
+  const next=prompt('변경된 고유닉을 입력하세요\n(룰렛 기록과 애청지수가 같이 옮겨지고, 새 고유닉 기록이 이미 있으면 합쳐져요)',tag);
+  if(!next||!next.trim()||next.trim().replace('@','')===tag)return;
+  try{
+    const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
+    const d=await res.json();
+    if(!d.success)return showToast(d.error||'실패');
+    showToast('고유닉이 변경됐어요');
+    rlSelectedDeleteTags.delete(tag);
+    await loadRouletteUsers();
+    loadRouletteHistory(d.tag);
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function loadRouletteHistory(tag){
   rlSelectedTag=tag;
   renderRouletteUserList();
@@ -18581,7 +18596,7 @@ async function loadRouletteHistory(tag){
 
     wrap.innerHTML=`
       <div class="card">
-        <div class="card-title"><span>👤 ${escapeHtml(tag)}님의 기록</span></div>
+        <div class="card-title"><span>👤 ${escapeHtml(tag)}님의 기록</span><button class="btn-gray" style="width:auto;padding:6px 12px;font-size:12px" onclick="renameRouletteUser('${escapeAttr(tag)}')">🆔 고유닉 변경</button></div>
       </div>
       ${renderRlListCard('킵목록','keep',tag,d.record.keepList||{})}
       ${renderRlListCard('기타목록','misc',tag,d.record.miscList||{})}
