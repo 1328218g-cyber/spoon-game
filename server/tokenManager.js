@@ -294,10 +294,20 @@ function applyPendingUpload(djId, reason) {
   return true
 }
 
+// ✅ PC 업로드(25분마다)는 받는 즉시 적용한다 — 2시간 보관 방식은 그 사이 토큰이 만료돼서 스푼 접속이
+// 거절되는 문제가 있어서 되돌렸다. (아래 보관 로직은 APPLY_EVERY_UPLOAD를 끄면 다시 쓸 수 있게 남겨둠)
+const APPLY_EVERY_UPLOAD = true
+
 function receiveUpload(djId, data) {
   const a = getAccount(djId)
   const now = Date.now()
   a.lastUploadAt = now
+  if (APPLY_EVERY_UPLOAD) {
+    a.pendingUpload = null
+    if (a.pendingTimer) { clearTimeout(a.pendingTimer); a.pendingTimer = null }
+    setCookies(djId, data)
+    return { applied: true }
+  }
   const elapsed = now - (a.lastAppliedAt || 0)
   const curExp = tokenExpiresAt(a.accessToken)
   // 만료 시각을 모르면(JWT가 아니면) 안전하게 예전처럼 바로 적용한다

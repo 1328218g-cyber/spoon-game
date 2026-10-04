@@ -24832,8 +24832,7 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   if (!cookies || !Array.isArray(cookies) || cookies.length === 0) {
     return res.json({ success: false, error: '쿠키 데이터가 비어있습니다' })
   }
-  // PC 자동동기화는 25분마다 올려주지만, 실제 적용은 마지막 적용 후 2시간이 지났을 때만 한다.
-  // (그 사이 업로드는 최신 것만 보관해뒀다가 2시간 되는 시점에 적용 — tokenManager.receiveUpload 참고)
+  // PC 자동동기화(25분마다) 업로드는 받는 즉시 적용한다 (tokenManager.receiveUpload 참고)
   const up = tokenManager.receiveUpload(djId, { cookies, localStorage, sessionStorage })
   // PC 자동동기화가 멈췄을 때를 대비한 백업 타이머만 최초 1회 걸어둔다.
   // (30분마다 깨어나지만, PC가 최근 2시간 안에 업로드했으면 그냥 건너뛰는 가벼운 체크 — PC가 꺼지면 서버가 이어받는다)
