@@ -1417,6 +1417,8 @@ function renderFundingItem(tpl, item, index, funding) {
     .replace(/{dday}/g, funding.showDday === false ? '' : calcDday(item.endDate))
 }
 
+const FUNDING_LIST_MAX = 20 // !펀딩 목록 조회 시 한 번에 보여줄 최대 항목 수
+
 // 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
 function handleFundingCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'funding', djId)) return
@@ -1434,8 +1436,10 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
   if (idx1 === null) {
     const month = new Date().getMonth() + 1
     const header = String(funding.titleTemplate || '').replace(/{month}/g, month)
-    const lines = funding.items.map((it, i) => renderFundingItem(funding.itemTemplate, it, i + 1, funding))
-    setTimeout(() => sendChatToRoom(djId, [header, ...lines].join('\n')), 400)
+    // 📋 한 메시지로 통째로 보내면 스푼 채팅 글자 제한에 걸려 4개 넘어가면 안 나왔다 — 최대 20개까지,
+    // 글자 제한(100자)에 맞춰 줄 단위로 여러 메시지로 나눠서 순서대로 보낸다.
+    const lines = funding.items.slice(0, FUNDING_LIST_MAX).map((it, i) => renderFundingItem(funding.itemTemplate, it, i + 1, funding))
+    sendChatSplit(djId, [header, ...lines].filter(s => s !== '').join('\n'), 100, 600)
     return
   }
 
