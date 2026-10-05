@@ -19446,7 +19446,9 @@ setInterval(()=>{
 
 function updateSessionPill(d){
   const pill=document.getElementById('sessionPill');
-  if(d.status==='connected'){pill.textContent='연결됨';pill.className='session-pill ok';showToast('세션 연결 완료 ✅');}
+  // 🔕 세션 이벤트는 공용 계정(sum1 등) 것도 모든 DJ에게 오고, PC 자동동기화(25분마다)마다 매번 와서
+  // "세션 연결 완료" 알림이 계속 떴다 — 알림은 내 계정 세션이 끊겨있다가 새로 연결됐을 때만 띄운다.
+  if(d.status==='connected'){const wasOk=pill.classList.contains('ok');pill.textContent='연결됨';pill.className='session-pill ok';if(d.djId===djId && !wasOk)showToast('세션 연결 완료 ✅');}
   else if(d.status==='expired'){pill.textContent='만료됨';pill.className='session-pill bad';showToast('세션 만료! PC에서 재로그인 후 다시 업로드해주세요');}
 }
 
