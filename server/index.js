@@ -8378,7 +8378,7 @@ function handleTrophyBoardDonationHook(djId, settings, author, tag, sticker) {
 // 화면에서는 이 기록으로 "선물카드" 모양을 그려서 보여준다. 스티커/프로필 이미지는 실제 파일을
 // 우리 서버에 저장하지 않고 스푼 CDN 원본 URL을 그대로 참조만 한다 (예전 박제판 앨범이 이미지를
 // 직접 저장하다가 용량 문제로 기능 자체를 뺐던 전례가 있어서, 그 실수를 반복하지 않으려는 것).
-const GIFT_GALLERY_MAX_ITEMS = 300
+const GIFT_GALLERY_MAX_ITEMS = 1000 // 넘으면 가장 오래된 카드부터 자동으로 지워진다 (새 카드는 항상 저장됨)
 function getGiftGallerySettings(djId, settings) {
   if (!settings.giftGallery) {
     settings.giftGallery = { avatarShape: 'circle', cardShape: 'pill', avatarMode: 'both', spoonColor: '#f97316', items: [] }
