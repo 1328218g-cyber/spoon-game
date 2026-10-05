@@ -333,6 +333,28 @@ function getAutoJoinCleanupDays() {
   return (typeof v === 'number' && v >= 0) ? v : 4;
 }
 
+// 🔀 스푼 웹소켓 프록시 장애 대응 방식 — 관리자(sum) settings.proxyFailoverMode에 저장한다.
+//   'switch' : 연결 직후 금방 끊기면(1006) 그 DJ를 다른 프록시 포트로 바로 갈아태운다
+//   'direct' : 프록시로 연달아 금방 끊기면 잠시(30분) 프록시 없이 직접 연결한다
+//   'both'   : 둘 다 (먼저 포트를 바꿔보고, 모든 포트가 다 실패하면 직접 연결) — 기본값
+//   'off'    : 둘 다 안 함 (예전처럼 4시간 고정 배정)
+const PROXY_FAILOVER_MODES = ['off', 'switch', 'direct', 'both'];
+function getProxyFailoverMode() {
+  const djs = loadDjs();
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.proxyFailoverMode;
+  return PROXY_FAILOVER_MODES.includes(v) ? v : 'both';
+}
+
+function setProxyFailoverMode(mode) {
+  const djs = loadDjs();
+  if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
+  if (!PROXY_FAILOVER_MODES.includes(mode)) return { ok: false, error: '잘못된 설정값이에요' };
+  if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
+  djs['sum'].settings.proxyFailoverMode = mode;
+  saveDjs(djs);
+  return { ok: true };
+}
+
 function setAutoJoinCleanupDays(days) {
   const djs = loadDjs();
   if (!djs['sum']) return { ok: false, error: '관리자 계정이 아직 없어요' };
@@ -1451,6 +1473,8 @@ module.exports = {
   setDefaultTrialDays,
   getAutoJoinCleanupDays,
   setAutoJoinCleanupDays,
+  getProxyFailoverMode,
+  setProxyFailoverMode,
   getRequestModules,
   saveRequestModules,
   findDuplicateSignup,

@@ -1409,6 +1409,17 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><span>🔀 봇 연결 끊김 대응 (프록시)</span></div>
+          <p class="hint" style="margin-bottom:12px">봇이 방송에 붙은 지 3분 안에 끊기면(code 1006) 어떻게 할지 정해요. <span id="proxyFailoverCount"></span></p>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="both" style="width:auto"><b>① + ② 둘 다</b> — 먼저 다른 프록시로 바꿔보고, 모든 프록시가 다 금방 끊기면 30분간 직접 연결 (추천)</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="switch" style="width:auto"><b>① 다른 프록시로 바꾸기</b> — 금방 끊기면 그 DJ를 다음 프록시 포트로 바로 옮겨요</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="direct" style="width:auto"><b>② 직접 연결로 바꾸기</b> — 같은 프록시로 2번 연속 금방 끊기면 30분간 프록시 없이 연결해요</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="off" style="width:auto"><b>사용 안 함</b> — 예전처럼 4시간마다 정해진 프록시만 써요</label>
+          </div>
+          <button class="btn-connect" style="padding:11px 20px" onclick="saveProxyFailoverMode()">저장</button>
+        </div>
+        <div class="card">
           <div class="card-title"><span>🎬 유튜브 Data API 키 (최대 3개)</span></div>
           <p class="hint" id="ytApiKeyHint" style="margin-bottom:10px">신청곡 모듈의 유튜브 검색(재생 후보 찾기, 원곡 자동검증)에 쓰이는 API 키예요. 여기에 등록해두면 Railway 환경변수(YOUTUBE_API_KEY)보다 이 값이 우선 적용되고, <b>여러 개 등록해두면 하나가 하루 검색 한도를 다 쓰는 순간 자동으로 다음 키로 넘어가요.</b><br>
           ※ 한 줄에 하나씩, 최대 3개까지 입력하세요. 비워두고 저장하면 전부 삭제되고 다시 환경변수(또는 기본 내장 키)를 써요.<br>
@@ -8666,6 +8677,29 @@ async function saveDefaultTrialDays(){
   }catch(e){showToast('오류: '+e.message);}
 }
 
+async function loadProxyFailoverMode(){
+  try{
+    const res=await fetch(SERVER+'/admin/proxy-failover-mode',{headers:authHeaders()});
+    const d=await res.json();
+    if(!d.success)return;
+    const radio=document.querySelector(`input[name="proxyFailoverMode"][value="${d.mode}"]`);
+    if(radio) radio.checked=true;
+    const cnt=document.getElementById('proxyFailoverCount');
+    if(cnt) cnt.textContent=d.proxyCount?`(현재 등록된 웹소켓 프록시 ${d.proxyCount}개)`:'(지금은 등록된 프록시가 없어서 이 설정은 적용되지 않아요)';
+  }catch(e){}
+}
+
+async function saveProxyFailoverMode(){
+  const el=document.querySelector('input[name="proxyFailoverMode"]:checked');
+  if(!el)return showToast('방식을 선택해주세요');
+  try{
+    const res=await fetch(SERVER+'/admin/proxy-failover-mode',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({mode:el.value})});
+    const d=await res.json();
+    if(d.success) showToast('끊김 대응 방식이 저장됐어요');
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
+
 async function saveAutoJoinCleanupDays(){
   const val=document.getElementById('autoJoinCleanupDaysInput').value;
   const days=Number(val);
@@ -8684,6 +8718,7 @@ let expirySoonPopupShown=false;
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
+  loadProxyFailoverMode();
   loadYoutubeApiKey();
   loadMyinfoFontAdmin();
   const wrap=document.getElementById('userListWrap');

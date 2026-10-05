@@ -161,7 +161,60 @@ function getProxyFromPool(pool, djId, roundRobinRef) {
 const fetchRR = { i: -1 }
 const wsRR = { i: -1 }
 function getFetchProxyForDj(djId) { return getProxyFromPool(spoonFetchProxyPool, djId, fetchRR) }
-function getWsProxyForDj(djId) { return getProxyFromPool(spoonWsProxyPool, djId, wsRR) }
+// 🔀 프록시 장애 대응 — 특정 프록시 포트가 불안정하면 4시간 고정 배정 동안 계속 같은 포트로 재접속해서
+// 계속 튕긴다. 그래서 연결 직후 금방(3분 안에) 1006으로 끊기면 DJ별로 상태를 기록해두고, 관리자 설정
+// (store.getProxyFailoverMode)에 따라 ① 다른 포트로 갈아타거나 ② 잠시 프록시 없이 직접 연결한다.
+const PROXY_QUICK_FAIL_SEC = 180
+const PROXY_DIRECT_FALLBACK_MS = 30 * 60 * 1000
+const proxyFailover = {} // djId -> { offset, fails, directUntil }
+
+function getWsProxyForDj(djId) {
+  if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
+  const mode = store.getProxyFailoverMode()
+  const st = proxyFailover[djId]
+  if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now()) return null // 직접 연결 중
+  const off = st && (mode === 'switch' || mode === 'both') ? st.offset : 0
+  return spoonWsProxyPool[(hashDjIdToIndex(djId, spoonWsProxyPool.length) + off) % spoonWsProxyPool.length]
+}
+
+// 스푼 웹소켓이 비정상 종료됐을 때 호출 — 금방 끊긴 연결이면 다음 재접속에 쓸 프록시를 바꾼다.
+function handleProxyFailover(djId, ws, code, heldForSec) {
+  const mode = store.getProxyFailoverMode()
+  if (mode === 'off' || !spoonWsProxyPool.length) return
+  const st = proxyFailover[djId] || (proxyFailover[djId] = { offset: 0, fails: 0, directUntil: 0 })
+  const quick = code === 1006 && heldForSec != null && heldForSec < PROXY_QUICK_FAIL_SEC
+  if (!quick) { st.fails = 0; return } // 충분히 오래 붙어있다 끊긴 건 프록시 탓으로 보지 않는다
+  const useSwitch = mode === 'switch' || mode === 'both'
+  const useDirect = mode === 'direct' || mode === 'both'
+  if (ws.spoonProxyLabel === '직접연결(프록시 없음)') {
+    // 직접 연결도 금방 끊기면 프록시 문제가 아니니 다시 프록시로 돌아간다
+    if (st.directUntil) {
+      st.directUntil = 0
+      st.fails = 0
+      console.log(`[${djId}] 🔀 직접 연결도 ${heldForSec}초 만에 끊김 → 다시 프록시로 연결`)
+      logAdminError(djId, '프록시 전환', `직접 연결도 ${heldForSec}초 만에 끊겨서 다시 프록시로 돌아가요`)
+    }
+    return
+  }
+  st.fails++
+  // 직접 연결로 넘어가는 기준: 포트 갈아타기를 같이 쓰면 "모든 포트를 한 번씩 다 실패했을 때",
+  // 직접 연결만 쓰면 "같은 포트로 2번 연속 금방 끊겼을 때"
+  const directThreshold = useSwitch ? spoonWsProxyPool.length : 2
+  if (useDirect && st.fails >= directThreshold) {
+    st.directUntil = Date.now() + PROXY_DIRECT_FALLBACK_MS
+    st.fails = 0
+    console.log(`[${djId}] 🔀 프록시로 연속 ${directThreshold}번 금방 끊김 → 30분간 직접 연결`)
+    logAdminError(djId, '프록시 전환', `프록시로 연속 ${directThreshold}번 금방 끊겨서 30분간 직접 연결로 바꿔요`)
+    return
+  }
+  if (useSwitch && spoonWsProxyPool.length > 1) {
+    st.offset = (st.offset + 1) % spoonWsProxyPool.length
+    const next = getWsProxyForDj(djId)
+    const nextLabel = next ? next.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+    console.log(`[${djId}] 🔀 ${ws.spoonProxyLabel} 에서 ${heldForSec}초 만에 끊김 → 다음 재접속은 ${nextLabel}`)
+    logAdminError(djId, '프록시 전환', `${heldForSec}초 만에 끊겨서 다른 프록시로 바꿔요 → ${nextLabel}`)
+  }
+}
 
 // 스푼으로 나가는 요청은 fetch(...) 대신 이 함수로 호출한다. djId를 넘기면 그 계정 고정 프록시를,
 // 안 넘기면 라운드로빈으로 분산한다. 프록시가 하나도 없으면(로컬 개발 등) 평소 전역 fetch와 동일하다.
@@ -17692,6 +17745,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
     if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
+    if (code !== 1000 && code !== 4000) { try { handleProxyFailover(djId, ws, code, heldForSec) } catch (e) { console.log('[프록시 전환] 오류', e.message) } }
     room.isConnected = false
     room.ws = null
 
@@ -19741,6 +19795,21 @@ app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
   if (!isModuleOn(adminSettings, 'userlist', req.djId)) return res.json({ success: false, error: '유저 관리 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const result = store.setAutoJoinCleanupDays((req.body || {}).days)
   if (!result.ok) return res.json({ success: false, error: result.error })
+  res.json({ success: true })
+})
+
+// 관리자(sum) 전용 — 스푼 웹소켓 프록시 장애 대응 방식 조회/설정 ('off' | 'switch' | 'direct' | 'both')
+app.get('/admin/proxy-failover-mode', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  res.json({ success: true, mode: store.getProxyFailoverMode(), proxyCount: spoonWsProxyPool.length })
+})
+
+app.post('/admin/proxy-failover-mode', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })
+  const result = store.setProxyFailoverMode(String((req.body || {}).mode || ''))
+  if (!result.ok) return res.json({ success: false, error: result.error })
+  // 방식을 바꾸면 지금까지 쌓인 DJ별 전환 상태는 초기화한다 (예: 직접 연결 중이던 DJ도 다음 점검 때 새 방식대로 다시 붙음)
+  for (const k of Object.keys(proxyFailover)) delete proxyFailover[k]
   res.json({ success: true })
 })
 
