@@ -1786,9 +1786,21 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div class="card-title">📋 명령어 안내</div>
           <p class="hint">
           · !펀딩 → 진행중인 펀딩 목록 출력<br>
-          · !펀딩 2 200 → 2번 펀딩에 200 적립 (DJ 전용)<br>
-          · !펀딩 2 -50 → 2번 펀딩에서 50 차감 (DJ 전용)
+          · !펀딩 2 200 → 2번 펀딩에 200 적립 (DJ·권한자)<br>
+          · !펀딩 2 -50 → 2번 펀딩에서 50 차감 (DJ·권한자)
           </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔑 펀딩 적립/차감 권한 관리</div>
+          <p class="hint">DJ는 항상 가능하고, 아래에 등록한 사람도 채팅으로 펀딩 적립/차감을 할 수 있어요.</p>
+          <label class="check-opt" style="margin-top:0"><input type="checkbox" id="fundingAllowManagers" onchange="toggleFundingAllowManagers()"> 👑 매니저도 허용 (애청지수 메뉴의 "복권/상점 지급 권한자" 목록에 있는 사람)</label>
+          <div class="chip-input-row">
+            <input type="text" id="fundingPermInput" placeholder="권한을 줄 사용자 고유닉 입력" onkeydown="if(event.key==='Enter')addFundingPerm()">
+            <button class="btn-connect" onclick="addFundingPerm()">추가</button>
+          </div>
+          <div class="chip-list" id="fundingPermList"></div>
+          <div class="hint">※ 명령어 입력 시점에 그 사람의 실제 고유닉을 다시 조회해서 확인해요.</div>
         </div>
 
         <div id="fundingListWrap"></div>
@@ -6988,6 +7000,9 @@ function renderFunding(){
   document.getElementById('fundingItemTpl').value=fundingData.itemTemplate;
   document.getElementById('fundingShowPercent').checked=fundingData.showPercent!==false;
   document.getElementById('fundingShowDday').checked=fundingData.showDday!==false;
+  if(!Array.isArray(fundingData.perms)) fundingData.perms=[];
+  const fam=document.getElementById('fundingAllowManagers'); if(fam) fam.checked=!!fundingData.allowManagers;
+  renderFundingPerms();
 
   const wrap=document.getElementById('fundingListWrap');
   if(!fundingData.items.length){
@@ -7026,6 +7041,41 @@ function renderFunding(){
       </div>
     </div>`;
   }).join('');
+}
+
+function renderFundingPerms(){
+  const wrap=document.getElementById('fundingPermList');
+  if(!wrap)return;
+  const perms=fundingData.perms||[];
+  if(!perms.length){wrap.innerHTML='<span class="hint">등록된 사용자가 없습니다</span>';return;}
+  wrap.innerHTML=perms.map(tag=>`
+    <span class="perm-chip">${escapeHtml(tag)}<button onclick="removeFundingPerm('${escapeAttr(tag)}')">✕</button></span>
+  `).join('');
+}
+
+function addFundingPerm(){
+  const input=document.getElementById('fundingPermInput');
+  const tag=input.value.trim().replace('@','');
+  if(!tag)return;
+  if(!Array.isArray(fundingData.perms)) fundingData.perms=[];
+  if(fundingData.perms.some(t=>t.toLowerCase()===tag.toLowerCase()))return showToast('이미 등록된 고유닉이에요');
+  fundingData.perms.push(tag);
+  input.value='';
+  renderFundingPerms();
+  saveFundingGlobal();
+  showToast('펀딩 권한자 추가됨 ✓');
+}
+
+function removeFundingPerm(tag){
+  fundingData.perms=(fundingData.perms||[]).filter(t=>t!==tag);
+  renderFundingPerms();
+  saveFundingGlobal();
+}
+
+function toggleFundingAllowManagers(){
+  fundingData.allowManagers=document.getElementById('fundingAllowManagers').checked;
+  saveFundingGlobal();
+  showToast(fundingData.allowManagers?'매니저도 펀딩 적립/차감 가능':'매니저 권한 해제');
 }
 
 function toggleFundingCustom(){

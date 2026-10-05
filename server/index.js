@@ -1472,8 +1472,30 @@ function renderFundingItem(tpl, item, index, funding) {
 
 const FUNDING_LIST_MAX = 20 // !펀딩 목록 조회 시 한 번에 보여줄 최대 항목 수
 
+// 채팅 친 사람이 권한 목록(고유닉)에 있는지 확인 — 실드 권한 확인과 같은 방식.
+// 1) 그동안 관측된 태그↔닉네임 매핑으로 먼저 보고, 2) 못 찾으면 시청자 명단을 다시 조회해서 실제 고유닉을 확인한다.
+async function isPermTagUser(djId, room, liveId, author, permList) {
+  const perms = (permList || []).map(t => String(t).replace('@', '').trim().toLowerCase()).filter(Boolean)
+  if (!perms.length) return false
+  const authorNorm = String(author || '').toLowerCase()
+  if (perms.some(p => p === authorNorm || String(resolveNicknameFromInput(room, p) || '').toLowerCase() === authorNorm)) return true
+  if (!liveId) return false
+  try {
+    const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+    const freshMembers = await fetchLiveMembers(liveId, accessToken, 5)
+    const me = freshMembers.find(u => u.nickname && u.nickname.toLowerCase() === authorNorm)
+    if (me && me.tag) {
+      rememberTagNickname(room, me.tag, author)
+      return perms.includes(me.tag.toLowerCase())
+    }
+  } catch (e) {
+    console.log('[권한 재조회 오류]', e.message)
+  }
+  return false
+}
+
 // 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
-function handleFundingCommand(djId, room, settings, author, authorId, text) {
+async function handleFundingCommand(djId, room, settings, author, authorId, text, liveId) {
   if (!isModuleOn(settings, 'funding', djId)) return
   const funding = settings.funding
   if (!funding || !funding.cmd || !funding.items || !funding.items.length) return
@@ -1504,8 +1526,15 @@ function handleFundingCommand(djId, room, settings, author, authorId, text) {
     return
   }
 
+  // 적립/차감 — DJ 본인, 펀딩 관리에서 권한을 준 고유닉, (옵션) 애청지수 매니저만 가능
   const isDj = authorId != null && room.liveDjUserId != null && authorId === room.liveDjUserId
-  if (!isDj) {
+  let allowed = isDj
+  if (!allowed && funding.allowManagers) {
+    const act = settings.activity || {}
+    allowed = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+  }
+  if (!allowed && (funding.perms || []).length) allowed = await isPermTagUser(djId, room, liveId, author, funding.perms)
+  if (!allowed) {
     setTimeout(() => sendChatToRoom(djId, '❌ 펀딩 조절 권한이 없어요'), 400)
     return
   }
@@ -17467,7 +17496,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
           handleFlagCommand(djId, room, settings, author, authorId, text)
-          handleFundingCommand(djId, room, settings, author, authorId, text)
+          handleFundingCommand(djId, room, settings, author, authorId, text, liveId).catch(e => console.log('[펀딩 명령어 오류]', e.message))
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleBlindDateCommand(djId, room, settings, text, isDj, isManager)
           handleAwayModeCommand(djId, settings, text, isDj)
