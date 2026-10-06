@@ -1947,6 +1947,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
             <label class="radio-opt"><input type="radio" name="flagMode" value="auto"> 자동 적립</label>
           </div>
           <label class="check-opt"><input type="checkbox" id="flagUseCycle"> 주기 출력 사용 <span class="hint-inline">(5분마다 자동으로 상태를 채팅에 출력)</span></label>
+          <label class="check-opt"><input type="checkbox" id="flagResetOnLive"> 🔄 방송 켜지면 자동 리셋 <span class="hint-inline">(현재 금액만 0으로, 목표 금액은 유지 · 봇이 튕겨서 다시 들어온 경우엔 리셋 안 됨)</span></label>
           <label>출력 템플릿</label>
           <textarea id="flagTemplateInput">=== {title} ====
 {current}/{goal} {percent}%</textarea>
@@ -6873,6 +6874,7 @@ function renderFlags(){
       <div class="flag-meta-row">
         <div><span class="k">적립 방식</span><span class="v">${f.mode==='auto'?'자동 적립':'수동 적립'}</span></div>
         <div><span class="k">주기 출력</span><span class="v">${f.useCycle?'5분마다 자동 출력':'수동 출력만 사용'}</span></div>
+        <div><span class="k">방송 시작 시</span><span class="v">${f.resetOnLive?'🔄 자동 리셋':'유지'}</span></div>
         <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
       </div>
       <div class="flag-amount-row">
@@ -6892,6 +6894,7 @@ function showFlagForm(id){
   document.getElementById('flagTitleInput').value=f?f.title:'';
   document.getElementById('flagGoalInput').value=f?f.goal:'';
   document.getElementById('flagUseCycle').checked=f?!!f.useCycle:false;
+  document.getElementById('flagResetOnLive').checked=f?!!f.resetOnLive:false;
   document.getElementById('flagTemplateInput').value=f?f.template:'=== {title} ====\n{current}/{goal} {percent}%';
   document.getElementById('flagMsgFullInput').value=f?(f.msgFull||'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})'):'🎉 [{title}] 깃발을 다 찾았어요! ({current}/{goal})';
   document.querySelectorAll('input[name="flagMode"]').forEach(r=>r.checked=(r.value===(f?f.mode:'manual')));
@@ -6919,14 +6922,15 @@ function saveFlagForm(){
   if(!title)return showToast('제목을 입력해주세요');
   const mode=document.querySelector('input[name="flagMode"]:checked').value;
   const useCycle=document.getElementById('flagUseCycle').checked;
+  const resetOnLive=document.getElementById('flagResetOnLive').checked;
   const template=document.getElementById('flagTemplateInput').value;
   const msgFull=document.getElementById('flagMsgFullInput').value;
 
   if(flagEditingId){
     const f=flagsData.items.find(x=>x.id===flagEditingId);
-    Object.assign(f,{title,goal,mode,useCycle,template,msgFull});
+    Object.assign(f,{title,goal,mode,useCycle,template,msgFull,resetOnLive});
   } else {
-    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template,msgFull});
+    flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template,msgFull,resetOnLive});
   }
   hideFlagForm();
   renderFlags();

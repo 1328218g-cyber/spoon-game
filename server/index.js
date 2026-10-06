@@ -17305,6 +17305,27 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[입장카운트] ${djId} 새 방송(${liveId}) 시작 — {count} 입장 횟수 초기화`)
   }
 
+  // 🚩 깃발 "방송 켜지면 자동 리셋" — 입장카운트와 같은 방식으로 lastLiveId를 기억해두고, 방(liveId)이
+  // 바뀌었을 때만 리셋 옵션이 켜진 깃발의 현재 금액(current)을 0으로 되돌린다 (목표 금액은 그대로).
+  // 봇이 튕겨서 같은 방으로 재접속한 경우엔 liveId가 같으니 리셋되지 않는다.
+  // ⚠️ lastLiveId가 아직 없으면(이 기능이 처음 배포된 직후) 방송 도중일 수 있으니 리셋하지 않고 기준만 잡는다.
+  const flagsForReset = settingsForReset.flags
+  if (flagsForReset && flagsForReset.lastLiveId !== liveId) {
+    const isFirstBaseline = flagsForReset.lastLiveId == null
+    let resetCount = 0
+    if (!isFirstBaseline) {
+      ;(flagsForReset.items || []).forEach(f => {
+        if (f.resetOnLive && Number(f.current)) { f.current = 0; resetCount++ }
+      })
+    }
+    flagsForReset.lastLiveId = liveId
+    store.saveSettings(djId, { flags: flagsForReset })
+    if (resetCount) {
+      broadcast({ type: 'flags', djId, items: flagsForReset.items })
+      console.log(`[깃발] ${djId} 새 방송(${liveId}) 시작 — 자동 리셋 깃발 ${resetCount}개 0으로 초기화`)
+    }
+  }
+
   const spoonProxyEntry = getWsProxyForDj(djId)
   const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
     agent: spoonProxyEntry ? spoonProxyEntry.wsAgent : undefined,
@@ -24525,7 +24546,12 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (likeHeartTypes) patch.likeHeartTypes = likeHeartTypes
   if (funding) patch.funding = funding
   if (shield) patch.shield = shield
-  if (flags) patch.flags = flags
+  if (flags) {
+    // lastLiveId(자동 리셋 기준 방송)는 서버만 관리한다 — 예전에 열어둔 화면이 저장하면서 옛 값으로 덮어쓰면
+    // 같은 방송 도중 재접속 때 또 리셋될 수 있어서, 화면에서 보낸 값은 무시하고 서버 값을 유지한다.
+    const curFlags = (store.getSettings(req.djId) || {}).flags || {}
+    patch.flags = { ...flags, lastLiveId: curFlags.lastLiveId }
+  }
   if (commands) patch.commands = commands
   if (greetings) patch.greetings = greetings
   if (songRequest) patch.songRequest = songRequest
