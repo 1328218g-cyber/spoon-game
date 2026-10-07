@@ -876,8 +876,15 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       ※ 새 버전이 나오면 에디냥 PC가 알아서 업데이트해요. 다시 받을 필요 없어요.
     </div>
   </div>
+  <div id="bcFloatBar"><span>🎙️ 방송하기</span><span style="display:flex;gap:6px"><button onclick="bcFloatExpand()" title="방송하기 메뉴 화면으로 크게 보기">⤢ 크게</button><button onclick="bcFloatClose()" title="닫기 (방송 소리는 그대로 나가요)">✕</button></span></div>
 <style>
 #tab-broadcast { --bc-acc:#7c3aed; }
+/* 🪟 팝업 — 채팅 등 다른 화면 위에 떠 있는 방송하기 창 (화면 이동 없이 같이 쓰기) */
+#bcFloatBar { display:none; }
+#tab-broadcast.bc-floating { display:block !important; position:fixed; right:24px; bottom:24px; width:min(640px, calc(100vw - 32px)); height:min(78vh, 820px); max-width:none; overflow:auto; z-index:9000; background:var(--bg); border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 50px rgba(0,0,0,.28); padding:0 14px 14px; resize:both; animation:none; }
+#tab-broadcast.bc-floating #bcFloatBar { display:flex; position:sticky; top:0; z-index:2; justify-content:space-between; align-items:center; margin:0 -14px 12px; padding:10px 14px; background:var(--bc-acc); color:#fff; font-weight:800; font-size:14px; cursor:move; user-select:none; border-radius:16px 16px 0 0; }
+#tab-broadcast.bc-floating #bcFloatBar button { background:rgba(255,255,255,.22); border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:8px; padding:4px 10px; font-weight:700; font-size:12.5px; cursor:pointer; }
+#tab-broadcast.bc-floating .bc-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 #tab-broadcast.bc-web > :not(#bcDownloadCard):not(style):not(script) { display:none !important; }
 #tab-broadcast.bc-web > #bcDownloadCard { display:block !important; max-width:720px; }
 #tab-broadcast .card-header { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -1400,7 +1407,7 @@ if (window.bcast && window.bcast.onWin) window.bcast.onWin((open) => { if (open)
 function bcMeterPct(db) { return Math.max(0, Math.min(100, (db + 60) / 60 * 100)); }
 async function bcTick() {
   const tab = document.getElementById('tab-broadcast');
-  if (!tab || !tab.classList.contains('active')) { clearInterval(bcMeterTimer); bcMeterTimer = null; return; }
+  if (!tab || !(tab.classList.contains('active') || tab.classList.contains('bc-floating'))) { clearInterval(bcMeterTimer); bcMeterTimer = null; return; }
   const r = await bcCall('levels');
   const st = document.getElementById('bcState');
   if (r && r.ok && r.result) {
@@ -1412,6 +1419,34 @@ async function bcTick() {
   } else { st.textContent = '방송 창을 열어주세요'; st.style.background = ''; st.style.color = ''; }
   bcRenderRec();
 }
+// 🪟 팝업으로 열기 — 지금 보고 있는 화면(채팅 등)은 그대로 두고 방송하기를 위에 띄운다
+function bcFloatOpen() {
+  const t = document.getElementById('tab-broadcast'); if (!t) return;
+  if (t.classList.contains('active')) return; // 이미 방송하기 화면이면 그대로
+  t.classList.add('bc-floating');
+  bcOnShow();
+}
+function bcFloatClose() { const t = document.getElementById('tab-broadcast'); if (t) { t.classList.remove('bc-floating'); t.style.left = t.style.top = ''; t.style.right = t.style.bottom = ''; } }
+function bcFloatExpand() { bcFloatClose(); selectPanel('broadcast'); }
+(function () {
+  let drag = null;
+  document.addEventListener('mousedown', (e) => {
+    const bar = e.target.closest && e.target.closest('#bcFloatBar');
+    if (!bar || e.target.closest('button')) return;
+    const t = document.getElementById('tab-broadcast'); if (!t || !t.classList.contains('bc-floating')) return;
+    const r = t.getBoundingClientRect();
+    drag = { t, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    t.style.right = 'auto'; t.style.bottom = 'auto'; t.style.left = r.left + 'px'; t.style.top = r.top + 'px';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    const x = Math.max(0, Math.min(window.innerWidth - 120, e.clientX - drag.dx));
+    const y = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy));
+    drag.t.style.left = x + 'px'; drag.t.style.top = y + 'px';
+  });
+  document.addEventListener('mouseup', () => { drag = null; });
+})();
 function bcOnShow() { bcLoadFromServer(); bcRenderAll(); bcSub(BC.sub || 'voice'); bcLoadDevices(); bcCall('set', { ...BC.s, pcOn: undefined }); if (!bcMeterTimer) bcMeterTimer = setInterval(bcTick, 120); }
 // 화면 전환은 에디냥 selectPanel('broadcast') 에서 bcOnShow() 를 불러줘요.
 // PC판이면 시작할 때 저장된 설정을 방송 엔진에 넣어두기 (방송하기 화면을 안 열어도 적용) + 단축키 복원
@@ -2211,7 +2246,7 @@ if (window.bcast) setTimeout(() => {
       <!-- 채팅 -->
       <div class="panel" data-panel="chat">
         <div class="card">
-          <div class="card-title">실시간 채팅</div>
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>실시간 채팅</span><button id="chatBcastShortcut" class="btn-connect" style="display:none;width:auto;padding:7px 14px;font-size:12.5px;white-space:nowrap" onclick="bcFloatOpen()" title="채팅을 보면서 방송하기를 팝업으로 열기 (에디냥 PC)">🎙️ 방송하기</button></div>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
             <input type="file" id="chatBgInput" accept="image/*" style="flex:1;min-width:180px" onchange="handleChatBgUpload(this)">
             <button class="btn-gray" style="padding:9px 14px;font-size:12.5px;white-space:nowrap" onclick="clearChatBackground()">배경 지우기</button>
@@ -6642,7 +6677,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
   const bn=document.getElementById('broadcastNav'); const panel=document.getElementById('tab-broadcast');
   const isDesktopApp=!!(window.bcast&&window.bcast.isEdiNyangDesktop);
   const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');
-  if(isDesktopApp){ if(bn) bn.style.display=''; }
+  if(isDesktopApp){ if(bn) bn.style.display=''; const sc=document.getElementById('chatBcastShortcut'); if(sc) sc.style.display=''; }
   else if(!isMobile){ if(bn) bn.style.display=''; if(panel) panel.classList.add('bc-web'); }
 })();
 
@@ -6665,6 +6700,7 @@ function selectPanel(name){
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
+  if(name==='broadcast'&&typeof bcFloatClose==='function')bcFloatClose(); // 팝업으로 떠 있었으면 원래 화면으로
   if(name==='broadcast'&&window.bcast&&typeof bcOnShow==='function')bcOnShow(); // 웹(설치 안내 화면)에서는 엔진 연결 안 함
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
