@@ -21,13 +21,16 @@ jobs:
       run:
         working-directory: desktop
     steps:
-      # desktop/ 만 받는다 — 레포 맨 위에 윈도우에서 만들 수 없는 이름의 파일(예: *{max-width:1300px})이 있어서
-      # 전체를 받으면 윈도우 체크아웃이 실패한다
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            desktop/
-          sparse-checkout-cone-mode: false
+      # desktop/ 폴더만 받는다 — 레포 맨 위에 윈도우에서 만들 수 없는 이름의 파일(예: *{max-width:1300px})이 있어서
+      # git 체크아웃(일부만 받기 포함)이 윈도우에서 실패한다. 그래서 이번 커밋의 압축본에서 desktop/ 만 풀어서 쓴다.
+      - name: desktop 폴더 받기
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          curl -sSfL "https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}" -o src.tar.gz
+          tar -xzf src.tar.gz --strip-components=1 --wildcards '*/desktop/*'
+          rm -f src.tar.gz
+          ls desktop
 
       - uses: actions/setup-node@v4
         with:
