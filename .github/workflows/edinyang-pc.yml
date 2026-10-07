@@ -8,7 +8,7 @@ name: 에디냥 PC 빌드·배포
 on:
   push:
     branches: [render-test]
-    paths: ['desktop/**']
+    paths: ['desktop/**', '.github/workflows/edinyang-pc.yml']
   workflow_dispatch:
 
 permissions:
