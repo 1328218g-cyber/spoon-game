@@ -458,7 +458,7 @@
     tx.appendChild(nm); tx.appendChild(sm)
     const cb = document.createElement('span'); cb.className = 'combo'; cb.textContent = g.combo > 1 ? 'x' + g.combo : ''
     cap.appendChild(th); cap.appendChild(tx); cap.appendChild(cb)
-    el.appendChild(box); el.appendChild(cap)
+    el.appendChild(box) // 아래 선물 카드(보낸 사람·선물 글씨)는 안 띄운다 — 애니메이션만
     document.getElementById('__ediGift') && document.getElementById('__ediGift').remove()
     document.body.appendChild(el)
     let player = null, timer = null, done = false
