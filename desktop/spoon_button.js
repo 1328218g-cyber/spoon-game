@@ -346,7 +346,14 @@
     el.id = '__ediGift'
     el.style.left = a.x + 'px'; el.style.top = a.y + 'px'; el.style.width = a.w + 'px'; el.style.height = a.h + 'px'
     const size = Math.min(a.w, a.h * 0.85)
-    const box = document.createElement('div'); box.className = 'anim'; box.style.width = size + 'px'; box.style.height = size + 'px'
+    // 스푼 애니메이션은 대부분 폰 화면(세로) 비율로 만들어져 있어서, 세로 애니메이션은 방송 화면 칸을 꽉 채운다 (폰에서 보는 것처럼)
+    const aw = g.anim && +g.anim.w, ah = g.anim && +g.anim.h
+    const tall = aw > 0 && ah > 0 && ah / aw > 1.15
+    // 칸 비율이 애니메이션과 비슷하면 꽉 채우고(가장자리 조금 잘림), 많이 다르면 잘리지 않게 전체를 보여준다
+    const fill = tall && Math.min(a.w / a.h, aw / ah) / Math.max(a.w / a.h, aw / ah) > 0.85
+    const box = document.createElement('div'); box.className = 'anim'
+    if (tall) { box.style.position = 'absolute'; box.style.inset = '0'; box.style.width = '100%'; box.style.height = '100%' }
+    else { box.style.width = size + 'px'; box.style.height = size + 'px' }
     // 아래에서 쓱 올라오는 선물 카드 (선물 그림 · 보낸 사람 · 선물 이름 · 콤보)
     const cap = document.createElement('div'); cap.className = 'cap'
     const th = document.createElement('div'); th.className = 'th'
@@ -379,7 +386,7 @@
       try {
         let base = ''
         try { base = g.lottieUrl ? g.lottieUrl.replace(/[^/]*$/, '') : '' } catch (_) {}
-        player = L.loadAnimation({ container: box, renderer: 'svg', loop: false, autoplay: true, animationData: g.anim, assetsPath: base || undefined, rendererSettings: { preserveAspectRatio: 'xMidYMid meet' } })
+        player = L.loadAnimation({ container: box, renderer: 'svg', loop: false, autoplay: true, animationData: g.anim, assetsPath: base || undefined, rendererSettings: { preserveAspectRatio: tall && fill ? 'xMidYMid slice' : 'xMidYMid meet' } })
         player.addEventListener('complete', finish)
         player.addEventListener('data_failed', finish)
         timer = setTimeout(finish, 9000) // 너무 긴 애니메이션은 9초에서 끊기

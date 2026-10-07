@@ -1,7 +1,7 @@
 {
   "name": "edinyang-pc",
   "productName": "에디냥 PC",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "에디냥 PC판 — 에디냥 웹 + 스푼 방송하기(고음질 사운드)",
   "author": "에디냥",
   "main": "main.js",
