@@ -18,6 +18,7 @@ let appWin = null
 let bcastWin = null
 let bcastCloseOk = false
 let engineCode = ''
+let buttonCode = '' // 방송 창에 띄우는 🎙️ 방송하기 버튼 (spoon_button.js)
 let bcastSettings = null // 마지막으로 받은 사운드 설정 — 방송 창이 새 페이지를 열 때마다 다시 넣는다
 let pcWanted = false // PC 소리 켜둔 상태인지 — 방송 창이 페이지를 새로 열면 PC 소리도 다시 켠다
 let localPort = 0
@@ -95,6 +96,7 @@ function hookEngine(win) {
     }).then(() => {
       if (pcWanted) return wc.executeJavaScript('window.__ediAudio && window.__ediAudio.set({ pcOn: true })', true)
     }).catch(() => {})
+    if (buttonCode) wc.executeJavaScript(buttonCode, true).catch(() => {})
   })
 }
 
@@ -197,6 +199,14 @@ ipcMain.handle('bcast:file-url', (_e, filePath) => {
 const recDir = () => path.join(app.getPath('downloads'), '에디냥 방송녹음')
 const recFiles = new Map() // id -> { fd, file }
 const pad2 = (n) => String(n).padStart(2, '0')
+// 🎙️ 방송 창의 "방송하기" 버튼 → 에디냥 창을 앞으로 가져오고 방송하기 팝업 열기
+ipcMain.on('bcast:show-panel', (e) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !alive(appWin)) return
+  if (appWin.isMinimized()) appWin.restore()
+  appWin.show(); appWin.focus()
+  appWin.webContents.executeJavaScript("typeof bcFloatOpen === 'function' && (bcFloatOpen(), true)", true).catch(() => {})
+})
+
 ipcMain.on('bcast:rec', (e, m) => {
   try {
     if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return // 방송 창에서 온 것만
@@ -318,6 +328,7 @@ function setupAutoUpdate() {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   try { engineCode = fs.readFileSync(path.join(__dirname, 'broadcast_inject.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 엔진 파일 없음:', e.message) }
+  try { buttonCode = fs.readFileSync(path.join(__dirname, 'spoon_button.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 버튼 파일 없음:', e.message) }
   await startLocalServer()
   createAppWin()
   setupAutoUpdate()
