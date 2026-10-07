@@ -287,14 +287,21 @@
       '#__ediGift{position:fixed;z-index:2147483640;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}',
       '#__ediGift .anim{position:relative;display:flex;align-items:center;justify-content:center}',
       '#__ediGift .anim svg{width:100%!important;height:100%!important}',
-      '#__ediGift .anim img{max-width:70%;max-height:70%;object-fit:contain;animation:__ediPop 2.6s ease forwards;filter:drop-shadow(0 10px 30px rgba(0,0,0,.45))}',
-      '#__ediGift .cap{margin-top:-6%;padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:800 15px/1.3 "Segoe UI",sans-serif;text-align:center;max-width:92%;border-radius:16px;word-break:keep-all;box-shadow:0 6px 20px rgba(0,0,0,.35);animation:__ediCap .35s ease}',
+      '#__ediGift .anim img{max-width:70%;max-height:70%;object-fit:contain;animation:__ediRise 3s cubic-bezier(.2,.8,.3,1) forwards;filter:drop-shadow(0 10px 30px rgba(0,0,0,.45))}',
+      '#__ediGift .cap{position:absolute;left:4%;bottom:7%;display:flex;align-items:center;gap:10px;padding:7px 16px 7px 7px;border-radius:999px;background:linear-gradient(90deg,rgba(124,58,237,.92),rgba(236,72,153,.85));color:#fff;font:800 14px/1.3 "Segoe UI",sans-serif;max-width:88%;word-break:keep-all;box-shadow:0 8px 24px rgba(0,0,0,.4);animation:__ediCapUp .5s cubic-bezier(.2,.9,.3,1.2)}',
+      '#__ediGift .cap .th{width:40px;height:40px;flex:none;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}',
+      '#__ediGift .cap .th img{width:34px;height:34px;object-fit:contain;animation:none;filter:none;max-width:none;max-height:none}',
+      '#__ediGift .cap .tx{min-width:0}',
+      '#__ediGift .cap .tx small{display:block;font-weight:600;font-size:12px;opacity:.85}',
+      '#__ediGift.out .cap{animation:__ediCapAway .4s ease forwards}',
       '#__ediGift .cap b{color:#fde68a}',
-      '#__ediGift .combo{display:inline-block;margin-left:6px;color:#fb923c;font-size:18px}',
+      '#__ediGift .combo{display:inline-block;margin-left:8px;color:#fde047;font-size:22px;font-style:italic;text-shadow:0 2px 6px rgba(0,0,0,.4)}',
       '#__ediGift .combo.bump{animation:__ediBump .3s ease}',
-      '#__ediGift.out{animation:__ediOut .35s ease forwards}',
+      '#__ediGift.out .anim{animation:__ediOut .35s ease forwards}',
       '@keyframes __ediPop{0%{transform:scale(.2);opacity:0}14%{transform:scale(1.12);opacity:1}22%{transform:scale(.96)}30%{transform:scale(1)}85%{transform:scale(1) translateY(-4%);opacity:1}100%{transform:scale(1.05) translateY(-8%);opacity:0}}',
-      '@keyframes __ediCap{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}',
+      '@keyframes __ediCapUp{from{transform:translateY(160%);opacity:0}to{transform:none;opacity:1}}',
+      '@keyframes __ediCapAway{to{transform:translateY(-60%);opacity:0}}',
+      '@keyframes __ediRise{0%{transform:translateY(60%) scale(.5);opacity:0}25%{transform:translateY(-6%) scale(1.08);opacity:1}35%{transform:translateY(0) scale(1)}80%{transform:translateY(-6%) scale(1);opacity:1}100%{transform:translateY(-30%) scale(1.02);opacity:0}}',
       '@keyframes __ediBump{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1)}}',
       '@keyframes __ediOut{to{opacity:0}}',
     ].join('')
@@ -340,12 +347,16 @@
     el.style.left = a.x + 'px'; el.style.top = a.y + 'px'; el.style.width = a.w + 'px'; el.style.height = a.h + 'px'
     const size = Math.min(a.w, a.h * 0.85)
     const box = document.createElement('div'); box.className = 'anim'; box.style.width = size + 'px'; box.style.height = size + 'px'
+    // 아래에서 쓱 올라오는 선물 카드 (선물 그림 · 보낸 사람 · 선물 이름 · 콤보)
     const cap = document.createElement('div'); cap.className = 'cap'
+    const th = document.createElement('div'); th.className = 'th'
+    if (g.image) { const ti = document.createElement('img'); ti.alt = ''; ti.addEventListener('error', () => { th.textContent = '🎁' }); ti.src = g.image; th.appendChild(ti) } else th.textContent = '🎁'
+    const tx = document.createElement('div'); tx.className = 'tx'
     const nm = document.createElement('b'); nm.textContent = g.nick || '누군가'
-    cap.appendChild(nm)
-    cap.appendChild(document.createTextNode(`님이 ${g.sticker || '선물'}${g.amount ? ` (${g.amount}스푼)` : ''} 보냈어요`))
+    const sm = document.createElement('small'); sm.textContent = `${g.sticker || '선물'}${g.amount ? ` · ${g.amount}스푼` : ''} 보냈어요`
+    tx.appendChild(nm); tx.appendChild(sm)
     const cb = document.createElement('span'); cb.className = 'combo'; cb.textContent = g.combo > 1 ? 'x' + g.combo : ''
-    cap.appendChild(cb)
+    cap.appendChild(th); cap.appendChild(tx); cap.appendChild(cb)
     el.appendChild(box); el.appendChild(cap)
     document.getElementById('__ediGift') && document.getElementById('__ediGift').remove()
     document.body.appendChild(el)
@@ -358,7 +369,7 @@
     }
     const cur = { g, el, extend: () => {
       // 콤보가 이어지면 조금 더 보여준다 (애니메이션은 다시 처음부터)
-      clearTimeout(timer); timer = setTimeout(finish, player ? 9000 : 2600)
+      clearTimeout(timer); timer = setTimeout(finish, player ? 9000 : 3000)
       try { if (player) player.goToAndPlay(0, true) } catch (_) {}
       const img = box.querySelector('img'); if (img) { img.style.animation = 'none'; void img.offsetWidth; img.style.animation = '' }
     } }
@@ -377,13 +388,13 @@
     }
     if (g.image) {
       const img = document.createElement('img'); img.alt = ''
-      img.addEventListener('error', () => { img.remove(); const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediPop 2.6s ease forwards'; box.appendChild(t) })
+      img.addEventListener('error', () => { img.remove(); const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediRise 3s cubic-bezier(.2,.8,.3,1) forwards'; box.appendChild(t) })
       img.src = g.image
       box.appendChild(img)
     } else {
-      const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediPop 2.6s ease forwards'; box.appendChild(t)
+      const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediRise 3s cubic-bezier(.2,.8,.3,1) forwards'; box.appendChild(t)
     }
-    timer = setTimeout(finish, 2600)
+    timer = setTimeout(finish, 3000)
   }
 
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
