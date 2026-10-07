@@ -2,6 +2,7 @@
 //  · 누르면 에디냥 창이 앞으로 오면서 방송하기 팝업이 바로 열린다 (main.js 'bcast:show-panel').
 //  · 버튼을 끌면 원하는 곳으로 옮길 수 있고, 옮긴 위치는 이 PC에 기억된다 (다음에 켜도 그 자리).
 //  · 기본 위치는 화면 위쪽 오른편(스푼 방송 화면 상단 프로필 근처).
+//  · 스푼 방송 화면 왼쪽 "오디오 설정" 칸도 여기서 숨긴다 (소리는 에디냥 엔진이 넣으니 필요 없음).
 (function () {
   if (window.__ediBcastBtn) return
   window.__ediBcastBtn = true
@@ -64,4 +65,38 @@
     })
   }
   mount()
+
+  // 🙈 스푼 방송 화면 왼쪽 "오디오 설정" 칸 숨기기 — 소리는 에디냥 사운드 엔진이 넣어서 이 칸은 필요 없다.
+  // 스푼 화면 코드(클래스 이름)는 수시로 바뀔 수 있어서, "오디오 설정" 제목을 찾아 그 칸 전체(가운데 방송 화면·
+  // 오른쪽 청취자 칸과 나란히 있는 칸)를 찾아서 감춘다. 엉뚱한 곳을 숨기지 않게 크기·내용을 확인한다.
+  function hideAudioPanel() {
+    if (!document.body) return
+    const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,p,span,div,strong'))
+      .filter((el) => el.childElementCount === 0 && (el.textContent || '').trim() === '오디오 설정')
+    for (const h of heads) {
+      let col = h
+      // 위로 올라가면서, 옆에 나란히 있는 칸(형제)이 2개 이상이고 그 중에 방송 화면/청취자 칸이 있는 지점을 찾는다
+      while (col && col.parentElement && col.parentElement !== document.body) {
+        const parent = col.parentElement
+        const sibs = Array.from(parent.children).filter((c) => c !== col && c.offsetWidth > 0)
+        const looksLikeRow = sibs.length >= 1 && sibs.some((c) => /청취자|대화를 입력|라이브 종료|Top\s*\d/.test(c.textContent || ''))
+        if (looksLikeRow) break
+        col = parent
+      }
+      if (!col || !col.parentElement || col.parentElement === document.body) continue
+      const w = col.getBoundingClientRect().width
+      const txt = col.textContent || ''
+      // 안전장치: 화면 절반보다 넓거나, 채팅 입력·청취자 목록이 들어있으면 엉뚱한 칸이니 건드리지 않는다
+      if (w > window.innerWidth * 0.5 || /청취자|대화를 입력/.test(txt)) continue
+      if (col.style.display !== 'none') { col.style.display = 'none'; col.dataset.ediHidden = 'audio' }
+    }
+  }
+  let hideTimer = null
+  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
+  const startObserver = () => {
+    if (!document.body) return setTimeout(startObserver, 300)
+    hideAudioPanel()
+    new MutationObserver(scheduleHide).observe(document.body, { childList: true, subtree: true })
+  }
+  startObserver()
 })()
