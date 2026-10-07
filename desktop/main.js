@@ -19,6 +19,7 @@ let bcastWin = null
 let bcastCloseOk = false
 let engineCode = ''
 let bcastSettings = null // 마지막으로 받은 사운드 설정 — 방송 창이 새 페이지를 열 때마다 다시 넣는다
+let pcWanted = false // PC 소리 켜둔 상태인지 — 방송 창이 페이지를 새로 열면 PC 소리도 다시 켠다
 let localPort = 0
 
 const alive = (w) => w && !w.isDestroyed()
@@ -91,6 +92,8 @@ function hookEngine(win) {
     if (!engineCode) return
     wc.executeJavaScript(engineCode, true).then(() => {
       if (bcastSettings) return wc.executeJavaScript(`window.__ediAudio && window.__ediAudio.set(${JSON.stringify(bcastSettings)})`, true)
+    }).then(() => {
+      if (pcWanted) return wc.executeJavaScript('window.__ediAudio && window.__ediAudio.set({ pcOn: true })', true)
     }).catch(() => {})
   })
 }
@@ -165,6 +168,7 @@ ipcMain.handle('bcast:call', async (_e, fn, arg) => {
       const a = (arg && typeof arg === 'object') ? { ...arg } : {}
       const pcOn = a.pcOn; delete a.pcOn
       bcastSettings = { ...(bcastSettings || {}), ...a }
+      if (pcOn !== undefined) pcWanted = !!pcOn
       if (!alive(bcastWin)) return { ok: true, result: null } // 창을 열면 그때 적용된다
       let last = await callIn(bcastWin, 'set', a).catch(() => null)
       if (pcOn !== undefined) last = await callIn(bcastWin, 'set', { pcOn: !!pcOn }).catch(() => last)
