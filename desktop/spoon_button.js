@@ -346,7 +346,21 @@
     })
     return best
   }
+  // 🌑 선물 애니메이션 뒤를 어둡게 덮어서 방송 화면 칸의 내용(프로필·채팅 등)이 비치지 않게 — 선물만 보이게
+  function giftBackdrop(on) {
+    let bg = document.getElementById('__ediGiftBg')
+    if (!on) { if (bg) { bg.style.opacity = '0'; setTimeout(() => { if (bg.style.opacity === '0') bg.remove() }, 320) } return }
+    const a = giftArea()
+    if (!bg) {
+      bg = document.createElement('div'); bg.id = '__ediGiftBg'
+      bg.style.cssText = 'position:fixed;z-index:2147483639;pointer-events:none;background:#0b0b10;opacity:0;transition:opacity .3s ease;border-radius:18px'
+      document.body.appendChild(bg)
+    }
+    bg.style.left = a.x + 'px'; bg.style.top = a.y + 'px'; bg.style.width = a.w + 'px'; bg.style.height = a.h + 'px'
+    requestAnimationFrame(() => { bg.style.opacity = '0.96' })
+  }
   function hideChat(col) {
+    giftBackdrop(true)
     if (chatHidden || !col) return
     try {
       if (!document.getElementById('__ediChatHideCss')) {
@@ -360,6 +374,7 @@
     } catch (_) { chatHidden = null }
   }
   function showChat() {
+    giftBackdrop(false)
     if (!chatHidden) return
     const h = chatHidden; chatHidden = null
     try { h.el.classList.remove(h.cls); setTimeout(() => { try { h.el.classList.remove('__ediChatFade') } catch (_) {} }, 400) } catch (_) {}
