@@ -318,7 +318,13 @@
       if (slotEl && slotEl.isConnected && slotEl.parentElement) {
         const sibs = Array.from(slotEl.parentElement.children).filter((c) => c !== slotEl && c.offsetWidth > 120 && c.offsetHeight > 200)
         const mid = sibs.find((c) => c.getBoundingClientRect().left >= slotEl.getBoundingClientRect().right - 2 && !/청취자/.test((c.textContent || '').slice(0, 400))) || sibs[0]
-        if (mid) { const r = mid.getBoundingClientRect(); return { x: r.left, y: Math.max(0, r.top), w: r.width, h: Math.min(r.height, window.innerHeight - Math.max(0, r.top)), el: mid } }
+        if (mid) {
+          const r = mid.getBoundingClientRect()
+          const right = sibs.find((c) => c !== mid && c.getBoundingClientRect().left >= r.right - 2) // 오른쪽 청취자 칸
+          const rr = right ? right.getBoundingClientRect() : null
+          return { x: r.left, y: Math.max(0, r.top), w: r.width, h: Math.min(r.height, window.innerHeight - Math.max(0, r.top)), el: mid,
+            side: rr && rr.width > 120 ? { x: rr.left, y: Math.max(0, rr.top), w: rr.width, h: Math.min(rr.height, window.innerHeight - Math.max(0, rr.top)) } : null }
+        }
       }
     } catch (_) {}
     const w = Math.min(window.innerWidth, 600), h = Math.min(window.innerHeight, 800)
@@ -359,6 +365,35 @@
   }
   const giftKey = (g) => g.nick + '|' + g.sticker
 
+  // 📸 선물이 나오는 동안 오른쪽 청취자 칸 가운데에 큰 캡처 버튼을 띄운다 (애니메이션이 끝나고 조금 뒤에 사라짐)
+  let capBtnTimer = null
+  function showCapBtn() {
+    clearTimeout(capBtnTimer)
+    let b = document.getElementById('__ediCapBtn')
+    if (!b) {
+      if (!document.getElementById('__ediCapBtnCss')) {
+        const st = document.createElement('style'); st.id = '__ediCapBtnCss'
+        st.textContent = '#__ediCapBtn{all:unset;position:fixed;z-index:2147483645;transform:translate(-50%,-50%);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 26px;border-radius:22px;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;font:800 16px/1.2 "Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(124,58,237,.45);animation:__ediCapIn .3s ease,__ediCapPulse 1.4s ease-in-out .3s infinite}' +
+          '#__ediCapBtn b{font-size:40px;line-height:1}#__ediCapBtn small{font-weight:600;font-size:11.5px;opacity:.9}#__ediCapBtn:hover{filter:brightness(1.08)}#__ediCapBtn:active{transform:translate(-50%,-50%) scale(.95)}' +
+          '@keyframes __ediCapIn{from{opacity:0;transform:translate(-50%,-40%) scale(.8)}to{opacity:1;transform:translate(-50%,-50%)}}' +
+          '@keyframes __ediCapPulse{0%,100%{box-shadow:0 10px 30px rgba(124,58,237,.45)}50%{box-shadow:0 10px 40px rgba(236,72,153,.75)}}'
+        ;(document.head || document.documentElement).appendChild(st)
+      }
+      b = document.createElement('button'); b.id = '__ediCapBtn'
+      b.innerHTML = '<b>📸</b><span>지금 캡처</span><small>선물 장면 저장 · 복사</small>'
+      b.addEventListener('click', (e) => { e.stopPropagation(); captureNow() })
+      document.body.appendChild(b)
+    }
+    const a = giftArea()
+    const box = a.side || { x: a.x + a.w + 10, y: a.y, w: Math.max(160, window.innerWidth - (a.x + a.w) - 20), h: a.h }
+    b.style.left = Math.round(box.x + box.w / 2) + 'px'
+    b.style.top = Math.round(box.y + box.h / 2) + 'px'
+  }
+  function hideCapBtn(later) {
+    clearTimeout(capBtnTimer)
+    capBtnTimer = setTimeout(() => { const b = document.getElementById('__ediCapBtn'); if (b) b.remove() }, later || 0)
+  }
+
   // 📸 캡처 — main.js 가 방송 화면 칸만 찍어서 저장한다
   function captureNow() {
     if (!ipc) return
@@ -397,10 +432,11 @@
   }
   function giftNext() {
     const g = giftQ.shift()
-    if (!g) { giftCur = null; showChat(); return }
+    if (!g) { giftCur = null; showChat(); hideCapBtn(3000); return }
     giftCss()
     const a = giftArea()
     hideChat(a.el)
+    showCapBtn()
     const el = document.createElement('div')
     el.id = '__ediGift'
     el.style.left = a.x + 'px'; el.style.top = a.y + 'px'; el.style.width = a.w + 'px'; el.style.height = a.h + 'px'
