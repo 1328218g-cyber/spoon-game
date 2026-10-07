@@ -1173,6 +1173,8 @@ const BC_MUSIC = [
 ];
 // ⚙️ 설정 탭 카드
 const BC_SET = [
+  { id: 'giftfx', h: '🎁 선물 이펙트', onLocal: 'giftFx', d: '스푼 모바일처럼 선물을 받으면 방송 창 가운데에 선물 애니메이션을 크게 보여줘요', rows: [],
+    note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요' },
   { id: 'warn', h: '🚨 방송 사고 알림', d: '방송 창 위쪽 가운데와 이 화면에 크게 경고를 띄워요',
     toggles: [['warnMicOff', '🔇 마이크 꺼진 채 말하기'], ['warnSilence', '🔈 무음'], ['warnClip', '🔴 소리 찢어짐']],
     rows: [['silenceSec', '무음 기준', 10, 120, 5, (v) => v + '초']],
@@ -1185,7 +1187,7 @@ const BC_SFX = [
 ];
 const BC_VOL = { inGain: ['입력 볼륨', 0, 3, 0.01, pct], outGain: ['출력 볼륨', 0, 2, 0.01, pct], monitorVol: ['내 소리 듣기 볼륨', 0, 1.5, 0.01, pct], mic2Vol: ['게스트 볼륨', 0, 3, 0.01, pct], bgmVol: ['음악 볼륨', 0, 1.5, 0.01, pct], padVol: ['효과음 볼륨', 0, 1.5, 0.01, pct] };
 
-let BC = { s: { ...BC_DEFAULT }, my: {}, bgm: [], bgmIdx: -1, pads: Array(8).fill(null), loop: false, autoNext: true, shuffle: false, xfade: 3, mode: 'dj', hotkeys: 'off', botSound: false, botLocal: true, sub: 'voice', adv: {}, jingle: { intro: null, outro: null, amb: null } };
+let BC = { s: { ...BC_DEFAULT }, my: {}, bgm: [], bgmIdx: -1, pads: Array(8).fill(null), loop: false, autoNext: true, shuffle: false, xfade: 3, mode: 'dj', hotkeys: 'off', botSound: false, botLocal: true, giftFx: true, sub: 'voice', adv: {}, jingle: { intro: null, outro: null, amb: null } };
 let bcPadPick = -1, bcTesting = false, bcMeterTimer = null, bcRecOn = false, bcRecSince = 0, bcAdvanced = false;
 try {
   const j = JSON.parse(localStorage.getItem('edinyang_bcast_settings') || 'null');
@@ -20189,7 +20191,7 @@ function startSSE(){
     else if(d.type==='awaymode')renderAwayModeState(!!d.enabled);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
-    else if(d.type==='donation'){ addDonationLog(d); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    else if(d.type==='donation'){ addDonationLog(d); try{ if(window.bcast&&window.bcast.giftFx&&typeof BC!=='undefined'&&BC.giftFx!==false) window.bcast.giftFx({nick:d.nick,sticker:d.sticker,stickerImage:d.stickerImage,lottieUrl:d.lottieUrl,comboCount:d.comboCount,amount:d.amount}); }catch(_){} // 🎁 PC판 방송 창에 선물 이펙트 if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='admin_gift'){ if(djId==='sum'){ adminGiftsBuffer.unshift(d); if(adminGiftsBuffer.length>1000) adminGiftsBuffer.length=1000; if(document.querySelector('.panel[data-panel="adminstats"]')?.classList.contains('active')) renderAdminRecentGifts(); } }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);

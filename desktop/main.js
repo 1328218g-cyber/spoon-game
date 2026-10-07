@@ -292,6 +292,44 @@ ipcMain.on('bcast:menus', async (e) => {
   } catch (_) { list = [] }
   if (alive(bcastWin)) bcastWin.webContents.executeJavaScript(`window.__ediMenus && window.__ediMenus(${JSON.stringify(Array.isArray(list) ? list : [])})`).catch(() => {})
 })
+// 🎁 선물 이펙트 — 에디냥 창이 선물 소식을 받으면 방송 창(스푼) 가운데에 스푼 원본 애니메이션(lottie)을 띄운다
+//  애니메이션 파일은 여기서 받아서 넘겨준다 (스푼 웹 보안 규칙에 막히지 않게) · 플레이어는 vendor/lottie_svg.min.js
+let lottieCode = null
+const lottieCache = new Map() // url -> json 문자열 (최근 40개)
+async function getLottieJson(url) {
+  try {
+    const u = new URL(String(url || ''))
+    if (u.protocol !== 'https:' || !/(^|\.)spooncast\.net$/.test(u.hostname)) return null
+    if (lottieCache.has(url)) { const v = lottieCache.get(url); lottieCache.delete(url); lottieCache.set(url, v); return v }
+    const r = await net.fetch(url)
+    if (!r.ok) return null
+    const txt = await r.text()
+    if (txt.length > 6 * 1024 * 1024) return null
+    JSON.parse(txt) // 올바른 JSON 인지 확인
+    lottieCache.set(url, txt)
+    if (lottieCache.size > 40) lottieCache.delete(lottieCache.keys().next().value)
+    return txt
+  } catch (_) { return null }
+}
+ipcMain.on('bcast:gift', async (e, d) => {
+  if (!alive(appWin) || e.sender !== appWin.webContents || !alive(bcastWin) || !d || typeof d !== 'object') return
+  const s = (v, n) => String(v == null ? '' : v).slice(0, n)
+  const g = { nick: s(d.nick, 60), sticker: s(d.sticker, 80), image: s(d.stickerImage, 500), lottieUrl: s(d.lottieUrl, 500), combo: Math.max(1, Math.min(9999, Number(d.comboCount) || 1)), amount: Math.max(0, Math.min(1e7, Number(d.amount) || 0)) }
+  const wc = bcastWin.webContents
+  try {
+    let anim = null
+    if (g.lottieUrl) {
+      anim = await getLottieJson(g.lottieUrl)
+      if (anim) {
+        if (lottieCode == null) { try { lottieCode = fs.readFileSync(path.join(__dirname, 'vendor', 'lottie_svg.min.js'), 'utf-8') } catch (_) { lottieCode = '' } }
+        // 스푼 웹이 쓰는 lottie 와 섞이지 않게 따로 담아둔다 (window.__ediLottie)
+        if (lottieCode) await wc.executeJavaScript(`if (!window.__ediLottie) { (function () { var module = { exports: {} }, exports = module.exports, define; ${lottieCode}\n; window.__ediLottie = module.exports; })(); } true`, true)
+      }
+    }
+    if (!alive(bcastWin)) return
+    await wc.executeJavaScript(`window.__ediGiftFx && window.__ediGiftFx(${JSON.stringify(g)}, ${anim || 'null'})`, true)
+  } catch (_) {}
+})
 const menuWins = new Map() // 메뉴 이름 -> 팝업 창
 ipcMain.on('bcast:open-menu', async (e, m) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return

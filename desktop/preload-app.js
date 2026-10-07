@@ -21,4 +21,5 @@ contextBridge.exposeInMainWorld('bcast', {
   onRec: (cb) => ipcRenderer.on('bcast:rec-state', (_e, st) => cb(st || {})),
   hotkeys: (mode) => ipcRenderer.invoke('bcast:hotkeys', mode),
   onHotkey: (cb) => ipcRenderer.on('bcast:hotkey', (_e, act) => cb(act)),
+  giftFx: (d) => ipcRenderer.send('bcast:gift', d), // 🎁 선물 받으면 방송 창에 이펙트
 })

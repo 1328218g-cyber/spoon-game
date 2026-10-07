@@ -274,6 +274,118 @@
     placePicker()
   }
 
+  // 🎁 선물 이펙트 — 스푼 모바일처럼 선물을 받으면 가운데 방송 화면 위에 선물 애니메이션을 크게 (main.js 가 넣어준다)
+  //  · 스푼 원본 애니메이션(lottie)이 있으면 그걸로, 없으면 선물 그림을 크게 튀어나오게
+  //  · 한 번에 하나씩 차례로 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라간다
+  const giftQ = []
+  let giftCur = null
+  function giftCss() {
+    if (document.getElementById('__ediGiftCss')) return
+    const st = document.createElement('style')
+    st.id = '__ediGiftCss'
+    st.textContent = [
+      '#__ediGift{position:fixed;z-index:2147483640;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}',
+      '#__ediGift .anim{position:relative;display:flex;align-items:center;justify-content:center}',
+      '#__ediGift .anim svg{width:100%!important;height:100%!important}',
+      '#__ediGift .anim img{max-width:70%;max-height:70%;object-fit:contain;animation:__ediPop 2.6s ease forwards;filter:drop-shadow(0 10px 30px rgba(0,0,0,.45))}',
+      '#__ediGift .cap{margin-top:-6%;padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:800 15px/1.3 "Segoe UI",sans-serif;text-align:center;max-width:92%;border-radius:16px;word-break:keep-all;box-shadow:0 6px 20px rgba(0,0,0,.35);animation:__ediCap .35s ease}',
+      '#__ediGift .cap b{color:#fde68a}',
+      '#__ediGift .combo{display:inline-block;margin-left:6px;color:#fb923c;font-size:18px}',
+      '#__ediGift .combo.bump{animation:__ediBump .3s ease}',
+      '#__ediGift.out{animation:__ediOut .35s ease forwards}',
+      '@keyframes __ediPop{0%{transform:scale(.2);opacity:0}14%{transform:scale(1.12);opacity:1}22%{transform:scale(.96)}30%{transform:scale(1)}85%{transform:scale(1) translateY(-4%);opacity:1}100%{transform:scale(1.05) translateY(-8%);opacity:0}}',
+      '@keyframes __ediCap{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}',
+      '@keyframes __ediBump{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1)}}',
+      '@keyframes __ediOut{to{opacity:0}}',
+    ].join('')
+    ;(document.head || document.documentElement).appendChild(st)
+  }
+  // 가운데 방송 화면 칸 (왼쪽 방송하기 칸 바로 옆) — 못 찾으면 창 가운데
+  function giftArea() {
+    try {
+      if (slotEl && slotEl.isConnected && slotEl.parentElement) {
+        const sibs = Array.from(slotEl.parentElement.children).filter((c) => c !== slotEl && c.offsetWidth > 120 && c.offsetHeight > 200)
+        const mid = sibs.find((c) => c.getBoundingClientRect().left >= slotEl.getBoundingClientRect().right - 2 && !/청취자/.test((c.textContent || '').slice(0, 400))) || sibs[0]
+        if (mid) { const r = mid.getBoundingClientRect(); return { x: r.left, y: Math.max(0, r.top), w: r.width, h: Math.min(r.height, window.innerHeight - Math.max(0, r.top)) } }
+      }
+    } catch (_) {}
+    const w = Math.min(window.innerWidth, 600), h = Math.min(window.innerHeight, 800)
+    return { x: (window.innerWidth - w) / 2, y: (window.innerHeight - h) / 2, w, h }
+  }
+  const giftKey = (g) => g.nick + '|' + g.sticker
+  window.__ediGiftFx = (g, anim) => {
+    if (!g || !document.body) return
+    g.anim = anim || null
+    // 지금 보이는 것과 같은 사람·같은 선물이면 콤보만 올린다
+    if (giftCur && giftKey(giftCur.g) === giftKey(g)) {
+      giftCur.g.combo = Math.max(giftCur.g.combo, g.combo > 1 ? g.combo : giftCur.g.combo + 1)
+      const c = giftCur.el.querySelector('.combo')
+      if (c) { c.textContent = 'x' + giftCur.g.combo; c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump') }
+      giftCur.extend()
+      return
+    }
+    const q = giftQ.find((x) => giftKey(x) === giftKey(g))
+    if (q) { q.combo = Math.max(q.combo, g.combo > 1 ? g.combo : q.combo + 1); return }
+    giftQ.push(g)
+    if (giftQ.length > 15) giftQ.splice(0, giftQ.length - 15) // 너무 많이 밀리면 오래된 것부터 건너뛴다
+    if (!giftCur) giftNext()
+  }
+  function giftNext() {
+    const g = giftQ.shift()
+    if (!g) { giftCur = null; return }
+    giftCss()
+    const a = giftArea()
+    const el = document.createElement('div')
+    el.id = '__ediGift'
+    el.style.left = a.x + 'px'; el.style.top = a.y + 'px'; el.style.width = a.w + 'px'; el.style.height = a.h + 'px'
+    const size = Math.min(a.w, a.h * 0.85)
+    const box = document.createElement('div'); box.className = 'anim'; box.style.width = size + 'px'; box.style.height = size + 'px'
+    const cap = document.createElement('div'); cap.className = 'cap'
+    const nm = document.createElement('b'); nm.textContent = g.nick || '누군가'
+    cap.appendChild(nm)
+    cap.appendChild(document.createTextNode(`님이 ${g.sticker || '선물'}${g.amount ? ` (${g.amount}스푼)` : ''} 보냈어요`))
+    const cb = document.createElement('span'); cb.className = 'combo'; cb.textContent = g.combo > 1 ? 'x' + g.combo : ''
+    cap.appendChild(cb)
+    el.appendChild(box); el.appendChild(cap)
+    document.getElementById('__ediGift') && document.getElementById('__ediGift').remove()
+    document.body.appendChild(el)
+    let player = null, timer = null, done = false
+    const finish = () => {
+      if (done) return; done = true
+      clearTimeout(timer)
+      el.classList.add('out')
+      setTimeout(() => { try { if (player) player.destroy() } catch (_) {} el.remove(); giftNext() }, 350)
+    }
+    const cur = { g, el, extend: () => {
+      // 콤보가 이어지면 조금 더 보여준다 (애니메이션은 다시 처음부터)
+      clearTimeout(timer); timer = setTimeout(finish, player ? 9000 : 2600)
+      try { if (player) player.goToAndPlay(0, true) } catch (_) {}
+      const img = box.querySelector('img'); if (img) { img.style.animation = 'none'; void img.offsetWidth; img.style.animation = '' }
+    } }
+    giftCur = cur
+    const L = window.__ediLottie
+    if (g.anim && L && L.loadAnimation) {
+      try {
+        let base = ''
+        try { base = g.lottieUrl ? g.lottieUrl.replace(/[^/]*$/, '') : '' } catch (_) {}
+        player = L.loadAnimation({ container: box, renderer: 'svg', loop: false, autoplay: true, animationData: g.anim, assetsPath: base || undefined, rendererSettings: { preserveAspectRatio: 'xMidYMid meet' } })
+        player.addEventListener('complete', finish)
+        player.addEventListener('data_failed', finish)
+        timer = setTimeout(finish, 9000) // 너무 긴 애니메이션은 9초에서 끊기
+        return
+      } catch (_) { player = null; box.innerHTML = '' }
+    }
+    if (g.image) {
+      const img = document.createElement('img'); img.alt = ''
+      img.addEventListener('error', () => { img.remove(); const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediPop 2.6s ease forwards'; box.appendChild(t) })
+      img.src = g.image
+      box.appendChild(img)
+    } else {
+      const t = document.createElement('div'); t.textContent = '🎁'; t.style.cssText = 'font-size:' + Math.round(size * 0.4) + 'px;animation:__ediPop 2.6s ease forwards'; box.appendChild(t)
+    }
+    timer = setTimeout(finish, 2600)
+  }
+
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
