@@ -963,6 +963,11 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
 #tab-broadcast .bc-li span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
 #tab-broadcast select.bc-sel { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); font-size:13px; }
 #tab-broadcast .bc-note { font-size:11.5px; color:var(--muted); line-height:1.65; }
+#tab-broadcast .bc-warn { margin:12px 0 0; display:flex; flex-direction:column; gap:6px; }
+#tab-broadcast .bc-warn > div { padding:9px 12px; border-radius:10px; background:#dc2626; color:#fff; font-weight:800; font-size:13px; line-height:1.4; }
+#tab-broadcast .bc-warn > div.clip { background:#ea580c; }
+#tab-broadcast .bc-file { display:flex; align-items:center; gap:6px; margin:6px 0; font-size:12.5px; }
+#tab-broadcast .bc-file .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
 #tab-broadcast .bc-pill { font-size:12px; font-weight:800; padding:5px 12px; border-radius:99px; background:var(--bg); color:var(--muted); }
 @media (max-width: 1050px) { #tab-broadcast .bc-deck { grid-template-columns: 1fr; } #tab-broadcast .bc-pads { grid-template-columns: repeat(2,1fr); } }
 </style>
@@ -987,6 +992,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
         <span>방송 소리</span><div class="bc-meter"><div id="bcMeterOut"></div></div>
       </div>
     </div>
+    <div id="bcWarn" class="bc-warn" style="display:none"></div>
     <div class="bc-now">
       <span style="font-size:20px">🎵</span>
       <div class="t"><b id="bcNowTitle">재생 중인 음악 없음</b><div class="bc-prog"><div id="bcNowProg"></div></div></div>
@@ -1057,7 +1063,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="bc-grid">
       <div class="bc-fx">
         <div class="bc-fx-h"><span>📻 방송하는 방법</span></div>
-        <div class="bc-note" style="margin-top:8px">① 위의 <b>📻 방송 창 열기</b>를 눌러요 → ② 방송 창에서 <b>DJ 계정</b>으로 로그인 (처음 한 번만, 다음부터 자동) → ③ 방송 창에서 평소처럼 방송을 켜면 에디냥 사운드가 자동으로 들어가요 (방송 창 왼쪽 아래에 <b>🎙️ 에디냥 사운드 적용 중</b> 표시)<br>봇(채팅·룰렛 등)은 지금처럼 에디냥 서버에서 돌아가요. 방송 창을 닫아도 봇은 그대로예요.</div>
+        <div class="bc-note" style="margin-top:8px">① 위의 <b>📻 방송 창 열기</b>를 눌러요 → ② 방송 창에서 <b>DJ 계정</b>으로 로그인 (처음 한 번만, 다음부터 자동) → ③ 방송 창에서 평소처럼 방송을 켜면 에디냥 사운드가 자동으로 들어가요 (방송하기 화면 위쪽에 <b>🔴 방송에 적용 중</b> 표시)<br>봇(채팅·룰렛 등)은 지금처럼 에디냥 서버에서 돌아가요. 방송 창을 닫아도 봇은 그대로예요.</div>
       </div>
       <div class="bc-fx">
         <div class="bc-fx-h"><span>🎤 마이크</span><button class="bc-btn" onclick="bcLoadDevices()">🔄 목록</button></div>
@@ -1084,6 +1090,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
         <div class="bc-fx-h"><span>⏺ 방송 녹음</span><button class="bc-btn" onclick="window.bcast && window.bcast.recFolder()">📂 녹음 폴더</button></div>
         <div class="bc-note" style="margin-top:6px">방송으로 나가는 소리 그대로 <b>다운로드 › 에디냥 방송녹음</b> 폴더에 저장돼요 (.webm — 크롬·VLC·곰플레이어로 재생)</div>
       </div>
+      <div id="bcSetFx" style="display:contents"></div>
       <div class="bc-fx">
         <div class="bc-fx-h"><span>🔌 에디냥 사운드 사용</span><label class="bc-sw"><input type="checkbox" id="bcEnabled" onchange="bcSet({enabled:this.checked})"><i></i></label></div>
         <div class="bc-note" style="margin-top:6px">끄면 스푼 웹 기본 마이크로 방송해요 (에디냥 효과·음악이 안 들어가요)</div>
@@ -1106,6 +1113,10 @@ const BC_DEFAULT = {
   outGain: 1.0, monitor: false, monitorVol: 0.8, bitrate: 256, stereo: true,
   bgmVol: 0.5, karaoke: false, duckOn: false, duckAmt: 12, duckThr: -42,
   padVol: 0.8, botVol: 0.9, pcOn: true, pcVol: 0.8, // PC 소리는 기본 켜짐 (에디냥 TTS·효과음·유튜브 등이 방송에 같이 나가게)
+  warnMicOff: true, warnClip: true, warnSilence: true, silenceSec: 30, // 🚨 방송 사고 알림
+  bgmNorm: true, normTarget: -16, // 📏 곡마다 소리 크기 맞추기
+  introOn: false, outroOn: false, // 🎬 인트로·아웃트로 (파일은 BC.jingle)
+  ambOn: false, ambKind: 'rain', ambVol: 0.3, // 🌧️ 배경 환경음
 };
 const BC_PRESETS = {
   '🎙️ 기본':     { hpfOn:true, hpfFreq:80, gateOn:false, deessOn:false, eqLow:0, eqMid:0, eqHigh:1, compOn:true, compThr:-20, compRatio:3, limOn:true, revOn:true, revMix:0.15, revSize:1.6, revPre:0.02, echoOn:false, chorusOn:false, vcMode:'off' },
@@ -1140,6 +1151,19 @@ const BC_MUSIC = [
   { id: 'karaoke', h: '🎤 보컬 제거 (MR 만들기)', on: 'karaoke', d: '배경음악에서 가운데 목소리를 지워 노래방 MR 처럼 · 곡에 따라 완벽하지 않아요', rows: [] },
   { id: 'pc', h: '🔊 PC 소리 같이 내보내기', on: 'pcOn', d: '유튜브·멜론 등 PC 에서 나는 소리를 마이크 없이 바로 방송에 섞어요 (윈도우)',
     rows: [['pcVol', 'PC 소리 볼륨', 0, 1.5, 0.01, pct]], note: '에디냥 TTS·입장 효과음도 이걸로 방송에 나가요 · 카톡 알림음 같은 PC 소리도 같이 나가요 · 켜는 동안 내 소리 듣기는 꺼져요 · 기본으로 켜져 있고, 끄면 다음에도 꺼진 상태로 시작' },
+  { id: 'norm', h: '📏 곡마다 소리 크기 맞추기', on: 'bgmNorm', d: '어떤 곡은 크고 어떤 곡은 작은 걸 자동으로 비슷하게 맞춰요 (재생목록·인트로·아웃트로 음악)',
+    rows: [['normTarget', '맞출 크기', -24, -10, 1, (v) => v + 'dB', 1]], status: 'bcNormSt', note: '곡이 바뀌면 처음 2초 동안 빠르게 맞추고, 그 다음엔 천천히 따라가요 · 전체 크기는 음악 볼륨으로 조절' },
+  { id: 'jingle', h: '🎬 인트로 · 아웃트로', d: '방송을 켜면 오프닝 음악, 끝낼 때 엔딩 음악을 자동으로 틀어줘요', custom: () => bcJingleHtml(), rows: [],
+    note: '인트로: 방송이 켜지고 1.5초 뒤 한 번 (30분 안에 다시 켜면 안 틀어요)<br>아웃트로: 방송 창에서 <b>라이브 종료</b>를 누르면 엔딩 음악이 먼저 나가고, 끝나면 종료 확인 창이 떠요 · 엔딩 중에 라이브 종료를 한 번 더 누르면 바로 끝나요' },
+  { id: 'amb', h: '🌧️ 배경 환경음', on: 'ambOn', d: '음악과 따로 깔리는 빗소리·파도·모닥불 소리 (말해도 줄어들지 않아요)', custom: () => bcAmbHtml(),
+    rows: [['ambVol', '환경음 볼륨', 0, 1, 0.01, pct]] },
+];
+// ⚙️ 설정 탭 카드
+const BC_SET = [
+  { id: 'warn', h: '🚨 방송 사고 알림', d: '방송 창 위쪽 가운데와 이 화면에 크게 경고를 띄워요',
+    toggles: [['warnMicOff', '🔇 마이크 꺼진 채 말하기'], ['warnSilence', '🔈 무음'], ['warnClip', '🔴 소리 찢어짐']],
+    rows: [['silenceSec', '무음 기준', 10, 120, 5, (v) => v + '초']],
+    note: '마이크 꺼짐: 마이크를 꺼둔 채 말하면 · 무음: 방송으로 나가는 소리가 정한 시간 넘게 없으면 (마이크를 일부러 꺼둔 동안은 빼고) · 찢어짐: 소리가 너무 커서 깨질 때 · 마이크 선이 빠지면 바로 알려줘요' },
 ];
 const BC_SFX = [
   { id: 'bot', h: '🤖 봇 소리 방송에 섞기', onLocal: 'botSound', d: '스푼 음향(스티커 효과음)·TTS·지정인사 음원·룰렛 효과음 등 봇이 내는 소리를 시청자에게도 들려줘요',
@@ -1148,7 +1172,7 @@ const BC_SFX = [
 ];
 const BC_VOL = { inGain: ['입력 볼륨', 0, 3, 0.01, pct], outGain: ['출력 볼륨', 0, 2, 0.01, pct], monitorVol: ['내 소리 듣기 볼륨', 0, 1.5, 0.01, pct], mic2Vol: ['게스트 볼륨', 0, 3, 0.01, pct], bgmVol: ['음악 볼륨', 0, 1.5, 0.01, pct], padVol: ['효과음 볼륨', 0, 1.5, 0.01, pct] };
 
-let BC = { s: { ...BC_DEFAULT }, my: {}, bgm: [], bgmIdx: -1, pads: Array(8).fill(null), loop: false, autoNext: true, shuffle: false, xfade: 3, mode: 'dj', hotkeys: 'off', botSound: false, botLocal: true, sub: 'voice', adv: {} };
+let BC = { s: { ...BC_DEFAULT }, my: {}, bgm: [], bgmIdx: -1, pads: Array(8).fill(null), loop: false, autoNext: true, shuffle: false, xfade: 3, mode: 'dj', hotkeys: 'off', botSound: false, botLocal: true, sub: 'voice', adv: {}, jingle: { intro: null, outro: null, amb: null } };
 let bcPadPick = -1, bcTesting = false, bcMeterTimer = null, bcRecOn = false, bcRecSince = 0, bcAdvanced = false;
 try {
   const j = JSON.parse(localStorage.getItem('edinyang_bcast_settings') || 'null');
@@ -1203,7 +1227,7 @@ function bcSet(p) { Object.assign(BC.s, p); bcSave(); bcCall('set', p); }
 const bcEsc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const BC_FMT = {};
-[...BC_VOICE, ...BC_MUSIC, ...BC_SFX].forEach((c) => c.rows.forEach((r) => { BC_FMT[r[0]] = r[5]; }));
+[...BC_VOICE, ...BC_MUSIC, ...BC_SFX, ...BC_SET].forEach((c) => c.rows.forEach((r) => { BC_FMT[r[0]] = r[5]; }));
 Object.entries(BC_VOL).forEach(([k, r]) => { BC_FMT[k] = r[4]; });
 function bcRow(key, label, min, max, step, fmt) {
   const v = BC.s[key];
@@ -1223,7 +1247,9 @@ function bcCard(c) {
   let body = '';
   if (c.toggles) body += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${c.toggles.map(([k, l]) => bcSw(k, l)).join('')}</div>`;
   if (c.vc) body += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${[['off', '원래 목소리'], ['up', '🎈 높게'], ['down', '🐻 낮게'], ['robot', '🤖 로봇']].map(([m, l]) => `<button class="bc-chip ${bcVcKey() === m ? 'on' : ''}" onclick="bcVc('${m}')">${l}</button>`).join('')}</div>`;
+  if (c.custom) body += c.custom();
   body += simple.filter((r) => !(c.vc && BC.s.vcMode !== 'pitch')).map((r) => bcRow(...r)).join('');
+  if (c.status) body += `<div class="bc-note" id="${c.status}" style="margin-top:4px"></div>`;
   if (c.id === 'bot') body += `<div style="margin:6px 0">${`<label class="bc-sw"><input type="checkbox" ${BC.botLocal ? 'checked' : ''} onchange="BC.botLocal=this.checked;bcSave()"><i></i>내 PC 스피커에서도 듣기</label>`}</div>`;
   if (c.hk) body += `<select class="bc-sel" style="margin:6px 0" onchange="bcSetHotkeys(this.value)">${[['off', '끄기'], ['f', 'F1~F10'], ['ctrl', 'Ctrl+Shift+숫자']].map(([v, l]) => `<option value="${v}" ${BC.hotkeys === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <div class="bc-note">${BC.hotkeys === 'off' ? '단축키를 켜면 방송 중에 키보드로 효과음·마이크·음악을 조절해요' : (BC.hotkeys === 'f' ? '<b>F1~F8</b> 효과음 패드 · <b>F9</b> 마이크 끄기/켜기 · <b>F10</b> 음악 부드럽게 끄기/켜기<br>※ 켜는 동안 다른 프로그램에서 F1~F10 키가 안 먹어요' : '<b>Ctrl+Shift+1~8</b> 효과음 패드 · <b>Ctrl+Shift+9</b> 마이크 끄기/켜기 · <b>Ctrl+Shift+0</b> 음악 부드럽게 끄기/켜기')}</div>`;
@@ -1249,6 +1275,7 @@ function bcRenderAll() {
   document.getElementById('bcVoiceFx').innerHTML = BC_VOICE.map(bcCard).join('');
   document.getElementById('bcMusicFx').innerHTML = BC_MUSIC.map(bcCard).join('');
   document.getElementById('bcSfxFx').innerHTML = BC_SFX.map(bcCard).join('');
+  const setFx = document.getElementById('bcSetFx'); if (setFx) setFx.innerHTML = BC_SET.map(bcCard).join('');
   document.getElementById('bcMusicVol').innerHTML = bcVolRow('bgmVol');
   document.getElementById('bcPadVol').innerHTML = bcVolRow('padVol');
   document.getElementById('bcMicVol').innerHTML = bcVolRow('inGain') + bcVolRow('outGain') + bcVolRow('monitorVol');
@@ -1309,6 +1336,58 @@ async function bcToggleRec() {
   if (bcRecOn) bcToast('⏺ 녹음 시작 — 방송으로 나가는 소리를 저장해요');
 }
 if (window.bcast && window.bcast.onRec) window.bcast.onRec((st) => { if (st.saved) bcToast('💾 녹음 저장: ' + String(st.file || '').split(/[\\/]/).pop()); });
+
+// 🎬 인트로·아웃트로 · 🌧️ 배경 환경음 — 고른 파일은 BC.jingle 에, 방송 창 엔진에는 이 PC에서 재생할 주소로 넘긴다
+function bcJ() { if (!BC.jingle || typeof BC.jingle !== 'object') BC.jingle = { intro: null, outro: null, amb: null }; return BC.jingle; }
+function bcFileRow(kind, label) {
+  const f = bcJ()[kind];
+  return `<div class="bc-file"><span style="font-weight:700">${label}</span><span class="nm" title="${f ? bcEsc(f.path) : ''}">${f ? '🎵 ' + bcEsc(f.name) : '파일 없음'}</span>`
+    + `<input type="file" accept="audio/*" style="display:none" id="bcJf_${kind}" onchange="bcSetJingle('${kind}', this.files); this.value=''">`
+    + `<button class="bc-btn" onclick="document.getElementById('bcJf_${kind}').click()">${f ? '바꾸기' : '파일 고르기'}</button>${f ? `<button class="bc-btn" onclick="bcSetJingle('${kind}', null)">✕</button>` : ''}</div>`;
+}
+function bcJingleHtml() {
+  return `<div style="margin-top:6px">${bcSw('introOn', '인트로 (방송 시작)')}</div>${bcFileRow('intro', '')}`
+    + `<div style="margin-top:8px">${bcSw('outroOn', '아웃트로 (라이브 종료 전)')}</div>${bcFileRow('outro', '')}`
+    + `<button class="bc-btn p" style="margin-top:6px" onclick="bcOutroNow()">🎬 엔딩 틀고 방송 끝내기</button>`;
+}
+function bcAmbHtml() {
+  const k = BC.s.ambKind || 'rain';
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${[['rain', '🌧️ 빗소리'], ['wave', '🌊 파도'], ['fire', '🔥 모닥불'], ['file', '📁 내 파일']].map(([v, l]) => `<button class="bc-chip ${k === v ? 'on' : ''}" onclick="bcAmbKind('${v}')">${l}</button>`).join('')}</div>`
+    + (k === 'file' ? bcFileRow('amb', '') : '');
+}
+function bcAmbKind(k) {
+  bcSet({ ambKind: k });
+  if (k === 'file' && !bcJ().amb) { bcRenderAll(); setTimeout(() => { const i = document.getElementById('bcJf_amb'); if (i) i.click(); }, 50); return; }
+  bcRenderAll();
+}
+function bcSetJingle(kind, files) {
+  const f = files && files[0];
+  if (files && !f) return;
+  if (f) { const p = bcFilePath(f); if (!p) return bcToast('❌ 파일 경로를 못 읽었어요'); bcJ()[kind] = { path: p, name: f.name }; }
+  else bcJ()[kind] = null;
+  if (f && kind === 'intro' && !BC.s.introOn) BC.s.introOn = true; // 파일을 고르면 바로 켜기
+  if (f && kind === 'outro' && !BC.s.outroOn) BC.s.outroOn = true;
+  if (f && kind === 'amb') { BC.s.ambOn = true; BC.s.ambKind = 'file'; }
+  bcSave(); bcRenderAll();
+  bcCall('set', { introOn: BC.s.introOn, outroOn: BC.s.outroOn, ambOn: BC.s.ambOn, ambKind: BC.s.ambKind });
+  bcSyncJingles();
+}
+async function bcSyncJingles() {
+  if (!window.bcast || !window.bcast.fileUrl) return;
+  const j = bcJ(), p = {};
+  for (const [k, key] of [['intro', 'introUrl'], ['outro', 'outroUrl'], ['amb', 'ambUrl']]) {
+    p[key] = '';
+    if (j[k] && j[k].path) { try { const u = await window.bcast.fileUrl(j[k].path); if (u && u.ok) p[key] = u.url; } catch (_) {} }
+  }
+  return bcCall('set', p);
+}
+async function bcOutroNow() {
+  if (!bcJ().outro) return bcToast('🎬 엔딩 음악 파일을 먼저 골라주세요');
+  await bcSyncJingles();
+  const r = await bcCall('outro');
+  if (!r.ok) return bcToast('❌ ' + (r.error || '엔딩을 못 틀었어요'));
+  bcToast('🎬 엔딩 음악 시작 — 끝나면 방송 창에 라이브 종료 확인이 떠요');
+}
 
 // 🔊 PC 소리
 async function bcSetPc(on) {
@@ -1420,6 +1499,7 @@ function bcRenderMode() {}
 // 방송 창이 막 열렸을 때: 저장된 소리 설정을 넣고, PC 소리를 켜둔 상태(기본)면 PC 소리도 바로 켠다
 async function bcApplyOnWinOpen() {
   await bcCall('set', { ...BC.s, pcOn: undefined });
+  bcSyncJingles();
   bcLoadDevices();
   if (BC.s.pcOn !== false) {
     const r = await bcCall('set', { pcOn: true });
@@ -1446,8 +1526,18 @@ async function bcTick() {
     if (r.result.active) { st.textContent = '🔴 방송에 적용 중'; st.style.background = 'rgba(239,68,68,.15)'; st.style.color = '#ef4444'; }
     else { st.textContent = BC.s.enabled === false ? '꺼짐' : '대기 중 (방송 켜면 적용)'; st.style.background = ''; st.style.color = ''; }
     if (!!r.result.rec !== bcRecOn) { bcRecOn = !!r.result.rec; if (!bcRecOn) bcRecSince = 0; }
-  } else { st.textContent = '방송 창을 열어주세요'; st.style.background = ''; st.style.color = ''; }
+    bcRenderWarn(r.result.warn || []);
+    const ns = document.getElementById('bcNormSt');
+    if (ns) ns.textContent = r.result.normDb == null ? '' : `지금 곡: ${r.result.normDb > 0 ? '+' : ''}${r.result.normDb}dB 맞추는 중`;
+  } else { st.textContent = '방송 창을 열어주세요'; st.style.background = ''; st.style.color = ''; bcRenderWarn([]); }
   bcRenderRec();
+}
+let bcWarnKey = '';
+function bcRenderWarn(list) {
+  const el = document.getElementById('bcWarn'); if (!el) return;
+  const key = list.map((w) => w.k + w.msg).join('|'); if (key === bcWarnKey) return; bcWarnKey = key;
+  el.style.display = list.length ? '' : 'none';
+  el.innerHTML = list.map((w) => `<div class="${w.k === 'clip' ? 'clip' : ''}">${bcEsc(w.msg)}</div>`).join('');
 }
 // 🪟 팝업으로 열기 — 지금 보고 있는 화면(채팅 등)은 그대로 두고 방송하기를 위에 띄운다
 function bcFloatOpen() {
@@ -1477,11 +1567,12 @@ function bcFloatExpand() { bcFloatClose(); selectPanel('broadcast'); }
   });
   document.addEventListener('mouseup', () => { drag = null; });
 })();
-function bcOnShow() { bcLoadFromServer(); bcRenderAll(); bcSub(BC.sub || 'voice'); bcLoadDevices(); bcCall('set', { ...BC.s, pcOn: undefined }); if (!bcMeterTimer) bcMeterTimer = setInterval(bcTick, 120); }
+function bcOnShow() { bcLoadFromServer(); bcRenderAll(); bcSub(BC.sub || 'voice'); bcLoadDevices(); bcCall('set', { ...BC.s, pcOn: undefined }); bcSyncJingles(); if (!bcMeterTimer) bcMeterTimer = setInterval(bcTick, 120); }
 // 화면 전환은 에디냥 selectPanel('broadcast') 에서 bcOnShow() 를 불러줘요.
 // PC판이면 시작할 때 저장된 설정을 방송 엔진에 넣어두기 (방송하기 화면을 안 열어도 적용) + 단축키 복원
 if (window.bcast) setTimeout(() => {
   bcCall('set', { ...BC.s, pcOn: undefined });
+  bcSyncJingles();
   if (BC.hotkeys && BC.hotkeys !== 'off' && window.bcast.hotkeys) window.bcast.hotkeys(BC.hotkeys);
 }, 4000);
 </script>

@@ -171,7 +171,7 @@ function openBroadcastWin() {
 // ─────────────────────────────────────────────
 // 🎙️ 에디냥 창 ↔ 방송 창 엔진 연결 (짜잔 에디봇 bcast:* 와 같은 약속)
 // ─────────────────────────────────────────────
-const ALLOWED = new Set(['get', 'set', 'status', 'levels', 'devices', 'test', 'playBgm', 'stopBgm', 'playPad', 'bgmPause', 'bgmFade', 'playSfx', 'recStart', 'recStop'])
+const ALLOWED = new Set(['get', 'set', 'status', 'levels', 'devices', 'test', 'playBgm', 'stopBgm', 'playPad', 'bgmPause', 'bgmFade', 'playSfx', 'recStart', 'recStop', 'outro'])
 
 async function callIn(win, fn, arg) {
   const wc = win.webContents
