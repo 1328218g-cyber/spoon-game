@@ -17712,8 +17712,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const comboCount = Number(eventPayload.comboCount || eventPayload.combo_count || eventPayload.combo || 1)
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
-        const lottieUrl = sticker ? (await findStickerAnim(sticker)).lottieUrl : '' // 🎁 에디냥 PC 방송 창 선물 이펙트용 (스푼 원본 애니메이션)
-        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, lottieUrl, profileUrl: donorProfileUrl })
+        broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
