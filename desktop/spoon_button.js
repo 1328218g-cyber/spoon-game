@@ -313,11 +313,44 @@
       if (slotEl && slotEl.isConnected && slotEl.parentElement) {
         const sibs = Array.from(slotEl.parentElement.children).filter((c) => c !== slotEl && c.offsetWidth > 120 && c.offsetHeight > 200)
         const mid = sibs.find((c) => c.getBoundingClientRect().left >= slotEl.getBoundingClientRect().right - 2 && !/청취자/.test((c.textContent || '').slice(0, 400))) || sibs[0]
-        if (mid) { const r = mid.getBoundingClientRect(); return { x: r.left, y: Math.max(0, r.top), w: r.width, h: Math.min(r.height, window.innerHeight - Math.max(0, r.top)) } }
+        if (mid) { const r = mid.getBoundingClientRect(); return { x: r.left, y: Math.max(0, r.top), w: r.width, h: Math.min(r.height, window.innerHeight - Math.max(0, r.top)), el: mid } }
       }
     } catch (_) {}
     const w = Math.min(window.innerWidth, 600), h = Math.min(window.innerHeight, 800)
     return { x: (window.innerWidth - w) / 2, y: (window.innerHeight - h) / 2, w, h }
+  }
+  // 💬 선물 애니메이션이 나오는 동안 방송 화면 칸의 채팅 글씨를 감춘다 (폰처럼 애니메이션만 보이게)
+  //  · 방송 칸 안에서 위아래로 스크롤되는 가장 큰 칸(채팅 목록)을 찾아 잠깐 투명하게 → 끝나면 원래대로
+  //  · 못 찾으면 그 칸의 글씨만 투명하게 (위쪽 프로필·아래 입력창은 그대로)
+  let chatHidden = null
+  function findChatList(col) {
+    let best = null, bestArea = 0
+    col.querySelectorAll('div,ul,section').forEach((el) => {
+      if (el.offsetHeight < 160 || el.offsetWidth < 160) return
+      const oy = getComputedStyle(el).overflowY
+      if (oy !== 'auto' && oy !== 'scroll') return
+      const area = el.offsetHeight * el.offsetWidth
+      if (area > bestArea) { best = el; bestArea = area }
+    })
+    return best
+  }
+  function hideChat(col) {
+    if (chatHidden || !col) return
+    try {
+      if (!document.getElementById('__ediChatHideCss')) {
+        const st = document.createElement('style'); st.id = '__ediChatHideCss'
+        st.textContent = '.__ediChatOff{opacity:0!important;transition:opacity .25s ease!important}.__ediChatFade{transition:opacity .3s ease!important}.__ediChatTxt,.__ediChatTxt *{color:transparent!important;text-shadow:none!important}'
+        ;(document.head || document.documentElement).appendChild(st)
+      }
+      const list = findChatList(col)
+      if (list) { list.classList.add('__ediChatFade', '__ediChatOff'); chatHidden = { el: list, cls: '__ediChatOff' } }
+      else { col.classList.add('__ediChatTxt'); chatHidden = { el: col, cls: '__ediChatTxt' } }
+    } catch (_) { chatHidden = null }
+  }
+  function showChat() {
+    if (!chatHidden) return
+    const h = chatHidden; chatHidden = null
+    try { h.el.classList.remove(h.cls); setTimeout(() => { try { h.el.classList.remove('__ediChatFade') } catch (_) {} }, 400) } catch (_) {}
   }
   const giftKey = (g) => g.nick + '|' + g.sticker
   window.__ediGiftFx = (g, anim) => {
@@ -339,9 +372,10 @@
   }
   function giftNext() {
     const g = giftQ.shift()
-    if (!g) { giftCur = null; return }
+    if (!g) { giftCur = null; showChat(); return }
     giftCss()
     const a = giftArea()
+    hideChat(a.el)
     const el = document.createElement('div')
     el.id = '__ediGift'
     el.style.left = a.x + 'px'; el.style.top = a.y + 'px'; el.style.width = a.w + 'px'; el.style.height = a.h + 'px'
