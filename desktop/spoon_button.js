@@ -12,7 +12,20 @@
   let ipc = null
   try { ipc = window.require ? window.require('electron').ipcRenderer : null } catch (_) { ipc = null }
 
+  // 방송 창 왼쪽 아래 "🎙️ 에디냥 사운드 적용 중" 알림(엔진 배지)은 감춘다 — 상태는 방송하기 화면에서 보인다
+  function hideBadge() {
+    if (document.getElementById('__ediHideBadgeCss')) return
+    const root = document.head || document.documentElement
+    if (!root) return
+    const s = document.createElement('style')
+    s.id = '__ediHideBadgeCss'
+    s.textContent = '#__ediAudioBadge{display:none!important}'
+    root.appendChild(s)
+  }
+  hideBadge()
+
   function mount() {
+    hideBadge()
     if (!document.body) return setTimeout(mount, 300)
     if (document.getElementById('__ediBcastBtn')) return
     const b = document.createElement('div')
