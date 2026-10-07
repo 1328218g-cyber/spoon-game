@@ -1,0 +1,55 @@
+# 에디냥 PC (desktop/) 자동 빌드·배포
+# desktop/package.json 의 version 을 올려서 render-test 에 푸시하면, 윈도우에서 설치 파일(.exe)을 만들어
+# 이 레포의 GitHub 릴리즈(v버전)에 올린다. 에디냥 PC는 켤 때 이 릴리즈를 보고 자동 업데이트하고,
+# 에디냥 웹의 다운로드 버튼은 항상 최신 릴리즈의 edinyang-pc-setup.exe 를 받는다.
+# 이미 올라간 버전이면(버전을 안 올리고 푸시) 빌드를 건너뛴다. Actions 탭에서 수동으로 돌릴 수도 있다.
+name: 에디냥 PC 빌드·배포
+
+on:
+  push:
+    branches: [render-test]
+    paths: ['desktop/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: 이미 배포된 버전인지 확인
+        id: ver
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "v$V 는 이미 배포돼 있어서 건너뛰어요. 새로 배포하려면 desktop/package.json 의 version 을 올려주세요."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 설치
+        if: steps.ver.outputs.exists == 'false'
+        run: npm ci
+
+      - name: 빌드 + 릴리즈 올리기
+        if: steps.ver.outputs.exists == 'false'
+        run: npx electron-builder --win --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

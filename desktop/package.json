@@ -3,6 +3,7 @@
   "productName": "에디냥 PC",
   "version": "1.0.0",
   "description": "에디냥 PC판 — 에디냥 웹 + 스푼 방송하기(고음질 사운드)",
+  "author": "에디냥",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -29,10 +30,25 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "에디냥 PC"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "1328218g-cyber",
+        "repo": "spoon-game",
+        "releaseType": "release"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1328218g-cyber/spoon-game.git"
   }
 }

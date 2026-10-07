@@ -274,11 +274,46 @@ function createAppWin() {
   appWin.on('closed', () => { appWin = null })
 }
 
+// ─────────────────────────────────────────────
+// 🔄 자동 업데이트 — GitHub 릴리즈(1328218g-cyber/spoon-game)에 새 버전이 올라오면 뒤에서 받아두고,
+// 다 받으면 "지금 재시작할까요?"를 물어본다. 방송 중이면 묻지 않고, 프로그램을 끌 때 자동으로 설치된다.
+// (설치 파일로 깔린 경우에만 동작 — npm start 개발 실행에서는 건너뜀)
+// ─────────────────────────────────────────────
+async function isOnAir() {
+  if (!alive(bcastWin)) return false
+  try { const st = await bcastWin.webContents.executeJavaScript('window.__ediAudio ? window.__ediAudio.status() : null', true); return !!(st && st.active) } catch (_) { return false }
+}
+function setupAutoUpdate() {
+  if (!app.isPackaged) return
+  let autoUpdater
+  try { autoUpdater = require('electron-updater').autoUpdater } catch (e) { console.warn('[업데이트] electron-updater 없음:', e.message); return }
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true // 지금 재시작 안 해도, 다음에 끌 때 설치된다
+  let asked = false
+  const askRestart = async (info) => {
+    if (asked || !alive(appWin)) return
+    if (await isOnAir()) { setTimeout(() => askRestart(info), 10 * 60 * 1000); return } // 방송 중엔 10분 뒤 다시
+    asked = true
+    const { response } = await dialog.showMessageBox(appWin, {
+      type: 'info', buttons: ['나중에 (끌 때 설치)', '지금 재시작'], defaultId: 1, cancelId: 0, noLink: true,
+      message: `에디냥 PC 새 버전(${info && info.version ? 'v' + info.version : ''})이 준비됐어요.`,
+      detail: '지금 재시작하면 바로 적용돼요. 나중에를 누르면 프로그램을 끌 때 자동으로 설치돼요.',
+    })
+    if (response === 1) { app.__quitting = true; setImmediate(() => autoUpdater.quitAndInstall()) }
+  }
+  autoUpdater.on('update-downloaded', askRestart)
+  autoUpdater.on('error', (e) => console.warn('[업데이트] 확인 실패:', e && e.message))
+  const check = () => autoUpdater.checkForUpdates().catch((e) => console.warn('[업데이트] 확인 실패:', e && e.message))
+  setTimeout(check, 5000)
+  setInterval(check, 3 * 60 * 60 * 1000) // 켜둔 채로 오래 써도 3시간마다 확인
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   try { engineCode = fs.readFileSync(path.join(__dirname, 'broadcast_inject.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 엔진 파일 없음:', e.message) }
   await startLocalServer()
   createAppWin()
+  setupAutoUpdate()
 })
 
 app.on('before-quit', () => { app.__quitting = true })

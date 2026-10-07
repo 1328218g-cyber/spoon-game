@@ -766,7 +766,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="linkshortener"><span class="ic">🔗</span><span class="lbl">링크줄이기</span></div>
 
     <div class="nav-group-label">방송 도구</div>
-    <div class="nav-item" id="broadcastNav" data-panel="broadcast" style="display:none"><span class="ic">🎙️</span><span class="lbl">방송하기</span><span class="nav-badge on" style="cursor:default" title="에디냥 PC판에서만 보여요">PC</span></div>
+    <div class="nav-item" id="broadcastNav" data-panel="broadcast" style="display:none"><span class="ic">🎙️</span><span class="lbl">방송하기</span><span class="nav-badge on" style="cursor:default" title="에디냥 PC 프로그램에서 쓸 수 있어요">PC</span></div>
     <div class="nav-item" data-panel="chat"><span class="ic ic-img"><img src="/icons/chat.png" alt=""></span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="entrysettings"><span class="ic ic-img"><img src="/icons/entry-settings.png" alt=""></span><span class="lbl">입장 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="funding"><span class="ic ic-img"><img src="/icons/funding-management.png" alt=""></span><span class="lbl">펀딩 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -861,8 +861,25 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 
 <!-- 🎙️ 방송하기 (에디냥 PC판 전용) — 짜잔 에디봇 방송하기를 그대로 옮김. 스푼 방송 창에 고음질 사운드(효과·음악·효과음·녹음)를 넣어요 -->
       <div class="panel" data-panel="broadcast" id="tab-broadcast">
+  <!-- 💻 웹(PC 브라우저)으로 들어왔을 때만 보이는 설치 안내 — PC판(window.bcast)에서는 숨기고 아래 방송하기 화면을 보여준다 -->
+  <div class="card" id="bcDownloadCard" style="display:none">
+    <div class="card-title" style="margin-bottom:8px">💻 에디냥 PC 설치하고 방송하기</div>
+    <p class="hint" style="margin-bottom:14px">방송하기(리버브·EQ·배경음악·효과음·녹음을 넣은 고음질 방송)는 <b>에디냥 PC 프로그램</b>에서 쓸 수 있어요.<br>
+    설치하고 <b>지금 쓰는 아이디로 로그인</b>하면 모든 설정·데이터가 그대로 이어져요. 모바일이나 웹과 같은 계정이라 따로 옮길 것도 없어요.</p>
+    <a href="https://github.com/1328218g-cyber/spoon-game/releases/latest/download/edinyang-pc-setup.exe" download style="text-decoration:none">
+      <button class="btn-connect" style="width:100%;padding:14px;font-size:15px">⬇️ 에디냥 PC 다운로드 (윈도우)</button>
+    </a>
+    <div class="hint" style="margin-top:14px;line-height:1.8">
+      ① 받은 <b>edinyang-pc-setup.exe</b> 실행 → 설치<br>
+      ② "Windows의 PC 보호" 창이 뜨면 <b>추가 정보 → 실행</b><br>
+      ③ 에디냥 PC에서 로그인 → 사이드바 <b>🎙️ 방송하기</b> → <b>📻 방송 창 열기</b> → DJ 계정으로 스푼 로그인 → 방송 켜기<br>
+      ※ 새 버전이 나오면 에디냥 PC가 알아서 업데이트해요. 다시 받을 필요 없어요.
+    </div>
+  </div>
 <style>
 #tab-broadcast { --bc-acc:#7c3aed; }
+#tab-broadcast.bc-web > :not(#bcDownloadCard):not(style):not(script) { display:none !important; }
+#tab-broadcast.bc-web > #bcDownloadCard { display:block !important; max-width:720px; }
 #tab-broadcast .card-header { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 #tab-broadcast .card-title { font-weight:800; font-size:15px; }
 #tab-broadcast .bc-pad16 { padding:0 !important; }
@@ -6603,15 +6620,22 @@ const PANEL_META={
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
-  broadcast:['🎙️ 방송하기','에디냥 PC판 전용 — 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
+  broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
   item.addEventListener('click',()=>selectPanel(item.dataset.panel));
 });
-// 🎙️ 방송하기 메뉴는 에디냥 PC판(window.bcast 가 있는 창)에서만 보여준다
-if(window.bcast&&window.bcast.isEdiNyangDesktop){ const bn=document.getElementById('broadcastNav'); if(bn) bn.style.display=''; }
+// 🎙️ 방송하기 메뉴 — 에디냥 PC판(window.bcast 가 있는 창)이면 방송하기 화면, PC 브라우저면 설치 안내(다운로드 버튼),
+// 모바일이면 메뉴 자체를 숨긴다 (PC 프로그램이라 모바일에선 쓸 수 없음)
+(function(){
+  const bn=document.getElementById('broadcastNav'); const panel=document.getElementById('tab-broadcast');
+  const isDesktopApp=!!(window.bcast&&window.bcast.isEdiNyangDesktop);
+  const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');
+  if(isDesktopApp){ if(bn) bn.style.display=''; }
+  else if(!isMobile){ if(bn) bn.style.display=''; if(panel) panel.classList.add('bc-web'); }
+})();
 
 function selectPanel(name){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.panel===name));
@@ -6632,7 +6656,7 @@ function selectPanel(name){
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
-  if(name==='broadcast'&&typeof bcOnShow==='function')bcOnShow();
+  if(name==='broadcast'&&window.bcast&&typeof bcOnShow==='function')bcOnShow(); // 웹(설치 안내 화면)에서는 엔진 연결 안 함
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
