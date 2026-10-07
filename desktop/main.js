@@ -3,7 +3,7 @@
 //  · 창 2 (방송 창): 스푼 웹. 여기서 방송을 켜면 고음질 사운드 엔진(broadcast_inject.js)이 마이크 대신
 //    리버브·EQ·컴프레서·배경음악·효과음이 섞인 소리를 넣는다. (짜잔 에디봇 방송하기와 같은 엔진)
 //  · 에디냥 창의 🎙️ 방송하기 메뉴 → (preload-app.js) → 여기 IPC → 방송 창 엔진(window.__ediAudio) 순서로 조절된다.
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu, protocol, session, net } = require('electron')
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu, protocol, session, net, clipboard } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -335,6 +335,30 @@ ipcMain.on('bcast:gift', async (e, d) => {
     if (!alive(bcastWin)) return
     await wc.executeJavaScript(`window.__ediGiftFx && window.__ediGiftFx(${JSON.stringify(g)}, ${anim || 'null'})`, true)
   } catch (err) { console.warn('[선물 이펙트] 표시 실패:', err && err.message) }
+})
+// 📸 방송 화면 캡처 — 방송 창 가운데 칸(선물 애니메이션 포함)을 사진으로: 사진\에디냥 캡처 폴더에 저장 + 클립보드에 복사
+const captureDir = () => path.join(app.getPath('pictures'), '에디냥 캡처')
+ipcMain.on('bcast:capture', async (e, r) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const wc = bcastWin.webContents
+  const done = (res) => wc.executeJavaScript(`window.__ediCaptured && window.__ediCaptured(${JSON.stringify(res)})`).catch(() => {})
+  try {
+    const z = wc.getZoomFactor() || 1
+    const num = (v) => Math.max(0, Math.round((Number(v) || 0) * z))
+    const rect = r && r.w > 20 && r.h > 20 ? { x: num(r.x), y: num(r.y), width: num(r.w), height: num(r.h) } : undefined
+    const img = await wc.capturePage(rect)
+    if (img.isEmpty()) throw new Error('화면을 못 찍었어요')
+    fs.mkdirSync(captureDir(), { recursive: true })
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0')
+    const file = path.join(captureDir(), `에디냥_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}_${String(d.getMilliseconds()).padStart(3, '0')}.png`)
+    fs.writeFileSync(file, img.toPNG())
+    try { clipboard.writeImage(img) } catch (_) {}
+    done({ ok: true, file: path.basename(file) })
+  } catch (err) { done({ ok: false, error: (err && err.message) || String(err) }) }
+})
+ipcMain.on('bcast:capture-folder', (e) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  try { fs.mkdirSync(captureDir(), { recursive: true }); shell.openPath(captureDir()) } catch (_) {}
 })
 const menuWins = new Map() // 메뉴 이름 -> 팝업 창
 ipcMain.on('bcast:open-menu', async (e, m) => {

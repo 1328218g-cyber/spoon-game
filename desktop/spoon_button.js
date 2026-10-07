@@ -157,6 +157,8 @@
       '#__ediMenuBar i,#__ediMenuPick i{font-style:normal}',
       '#__ediMenuBar .add{width:30px;padding:0;justify-content:center;font-size:18px;font-weight:600;background:#7c3aed;color:#fff;border-color:#7c3aed}',
       '#__ediMenuBar .add:hover{background:#6d28d9}',
+      '#__ediMenuBar .cap{font-size:15px;background:#fff;color:#4c1d95;border-color:#ddd6fe}',
+      '#__ediMenuBar .cap:hover{background:#ede9fe}',
       '#__ediMenuPick{position:fixed;z-index:2147483647;width:280px;max-height:65vh;display:flex;flex-direction:column;background:#fff;color:#222;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font:500 13px/1.3 "Segoe UI",sans-serif;overflow:hidden}',
       '#__ediMenuPick .hd{padding:11px 12px 4px;font-weight:800}',
       '#__ediMenuPick .sub{padding:0 12px 6px;font-size:11.5px;color:#888}',
@@ -178,7 +180,10 @@
     const lst = document.createElement('div'); lst.className = 'lst'
     const add = document.createElement('button'); add.className = 'add'; add.textContent = '+'; add.title = '바로가기 메뉴 추가·빼기'
     add.addEventListener('click', (e) => { e.stopPropagation(); togglePicker() })
-    bar.appendChild(lst); bar.appendChild(add)
+    // 📸 캡처 — 가운데 방송 화면 칸(선물 애니메이션 포함)을 사진으로 저장 + 복사
+    const cap = document.createElement('button'); cap.className = 'add cap'; cap.textContent = '📸'; cap.title = '방송 화면 캡처 (사진 › 에디냥 캡처 폴더에 저장 · 복사)'
+    cap.addEventListener('click', (e) => { e.stopPropagation(); captureNow() })
+    bar.appendChild(lst); bar.appendChild(cap); bar.appendChild(add)
     bar.addEventListener('mousedown', (e) => e.stopPropagation()) // ＋ 를 다시 누르면 닫히게 (바깥 클릭 닫기와 겹치지 않게)
     document.body.appendChild(bar)
     renderBar()
@@ -353,6 +358,26 @@
     try { h.el.classList.remove(h.cls); setTimeout(() => { try { h.el.classList.remove('__ediChatFade') } catch (_) {} }, 400) } catch (_) {}
   }
   const giftKey = (g) => g.nick + '|' + g.sticker
+
+  // 📸 캡처 — main.js 가 방송 화면 칸만 찍어서 저장한다
+  function captureNow() {
+    if (!ipc) return
+    const a = giftArea()
+    ipc.send('bcast:capture', { x: Math.round(a.x), y: Math.round(a.y), w: Math.round(a.w), h: Math.round(a.h) })
+  }
+  window.__ediCaptured = (r) => {
+    try {
+      // 찰칵 — 화면 칸이 하얗게 번쩍
+      const a = giftArea(), f = document.createElement('div')
+      f.style.cssText = `position:fixed;left:${a.x}px;top:${a.y}px;width:${a.w}px;height:${a.h}px;background:#fff;opacity:.7;z-index:2147483646;pointer-events:none;transition:opacity .35s ease`
+      document.body.appendChild(f); requestAnimationFrame(() => { f.style.opacity = '0' }); setTimeout(() => f.remove(), 400)
+      const t = document.createElement('div')
+      t.textContent = r && r.ok ? '📸 캡처 저장 · 복사됨 — 사진 › 에디냥 캡처 (누르면 폴더 열기)' : '❌ 캡처 실패: ' + ((r && r.error) || '')
+      t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;background:rgba(17,17,17,.88);color:#fff;font:700 13px/1.4 "Segoe UI",sans-serif;padding:9px 16px;border-radius:12px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)'
+      if (r && r.ok) t.addEventListener('click', () => { if (ipc) ipc.send('bcast:capture-folder') })
+      document.body.appendChild(t); setTimeout(() => t.remove(), 3500)
+    } catch (_) {}
+  }
   window.__ediGiftFx = (g, anim) => {
     if (!g || !document.body) return
     g.anim = anim || null
