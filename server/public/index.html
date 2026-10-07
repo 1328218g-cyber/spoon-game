@@ -616,10 +616,23 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
   if(!m||!/^[a-z0-9_-]{1,40}$/i.test(m))return;
   window.EDI_MENU_POPUP=m;
   document.documentElement.classList.add('menu-popup');
-  var byUser=function(){try{return !!(navigator.userActivation&&navigator.userActivation.isActive);}catch(e){return false;}};
+  // 직접 누른 것만 허용 — 최근 5초 안에 이 창에서 마우스·키보드를 실제로 썼을 때
+  var lastInput=0, mark=function(e){ if(e.isTrusted) lastInput=Date.now(); };
+  ['pointerdown','mousedown','keydown','touchstart'].forEach(function(t){ window.addEventListener(t,mark,true); });
+  var byUser=function(){ return Date.now()-lastInput<5000; };
   var op=HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play=function(){ if(!byUser()) return Promise.resolve(); return op.apply(this,arguments); };
   if(window.speechSynthesis){ var sp=window.speechSynthesis.speak.bind(window.speechSynthesis); window.speechSynthesis.speak=function(u){ if(byUser()) sp(u); }; }
+  // 팝업 창 안에 또 팝업(공지·이미지 팝업·만료 임박 알림 등)이 저절로 뜨지 않게 — 직접 누른 버튼으로 여는 창만 보여준다
+  var isModal=function(el){ return el&&el.nodeType===1&&el.classList&&el.classList.contains('modal-overlay'); };
+  var shown=function(el){ return el.style.display!=='none'&&getComputedStyle(el).display!=='none'; };
+  var block=function(el){ if(!byUser()&&shown(el)){ if(el.parentNode===document.body&&!el.getAttribute('onclick')&&!el.id.match(/Overlay$/)) el.remove(); else el.style.display='none'; } };
+  document.addEventListener('DOMContentLoaded',function(){
+    new MutationObserver(function(ms){ ms.forEach(function(m){
+      if(m.type==='childList') m.addedNodes.forEach(function(n){ if(isModal(n)) block(n); else if(n.querySelectorAll) n.querySelectorAll('.modal-overlay').forEach(block); });
+      else if(m.type==='attributes'&&isModal(m.target)) block(m.target);
+    }); }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
+  });
 }catch(e){}})();
 </script>
 <style>
@@ -9517,7 +9530,7 @@ async function loadUserList(){
     adminUserListData=d.users||[];
     renderUserListTable();
     renderAdminUserSearch();
-    if(!expirySoonPopupShown){ expirySoonPopupShown=true; checkExpiringSoonPopup(); }
+    if(!expirySoonPopupShown && !window.EDI_MENU_POPUP){ expirySoonPopupShown=true; checkExpiringSoonPopup(); } // 메뉴 바로가기 팝업에서는 안 띄움
   }catch(e){
     wrap.innerHTML='<p class="hint">오류: '+e.message+'</p>';
   }

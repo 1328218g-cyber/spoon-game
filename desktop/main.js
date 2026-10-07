@@ -118,16 +118,25 @@ function hookEngine(win) {
   })
 }
 
+const bcastBoundsFile = () => path.join(app.getPath('userData'), 'bcast-window.json')
 function openBroadcastWin() {
   if (alive(bcastWin)) {
     if (bcastWin.isMinimized()) bcastWin.restore()
     bcastWin.show(); bcastWin.focus()
     return
   }
+  // 크기·위치: 마지막으로 쓰던 그대로, 처음이면 스푼 방송 화면(왼쪽 방송하기 · 가운데 방송 · 오른쪽 청취자)이 다 보이게 넓게
   const { screen } = require('electron')
-  const wa = screen.getPrimaryDisplay().workAreaSize
+  const wa = screen.getPrimaryDisplay().workArea
+  let bnd = null
+  try { bnd = JSON.parse(fs.readFileSync(bcastBoundsFile(), 'utf8')) } catch (_) {}
+  const onScreen = bnd && screen.getAllDisplays().some((d) => { const a = d.workArea; return bnd.x < a.x + a.width - 80 && bnd.x + bnd.width > a.x + 80 && bnd.y >= a.y - 20 && bnd.y < a.y + a.height - 80 })
+  if (!onScreen || !(bnd.width >= 400) || !(bnd.height >= 300)) {
+    const width = Math.min(1360, wa.width), height = wa.height
+    bnd = { width, height, x: wa.x + Math.max(0, Math.round((wa.width - width) / 2)), y: wa.y }
+  }
   bcastWin = new BrowserWindow({
-    width: Math.min(520, wa.width), height: wa.height, x: 40, y: 0,
+    width: bnd.width, height: bnd.height, x: bnd.x, y: bnd.y,
     title: '📻 에디냥 방송 창',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
@@ -154,6 +163,7 @@ function openBroadcastWin() {
   }))
   // 방송 중에 실수로 닫지 않게 확인
   bcastWin.on('close', (e) => {
+    try { if (!bcastWin.isMinimized() && !bcastWin.isMaximized() && !bcastWin.isFullScreen()) fs.writeFileSync(bcastBoundsFile(), JSON.stringify(bcastWin.getBounds())) } catch (_) {}
     if (app.__quitting || bcastCloseOk) return
     e.preventDefault()
     const w = bcastWin
