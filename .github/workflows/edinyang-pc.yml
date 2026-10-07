@@ -21,7 +21,13 @@ jobs:
       run:
         working-directory: desktop
     steps:
+      # desktop/ 만 받는다 — 레포 맨 위에 윈도우에서 만들 수 없는 이름의 파일(예: *{max-width:1300px})이 있어서
+      # 전체를 받으면 윈도우 체크아웃이 실패한다
       - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            desktop/
+          sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
