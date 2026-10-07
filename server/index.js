@@ -19921,6 +19921,15 @@ app.get('/broadcast/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, data: settings.broadcastAudio || null })
 })
+// 🎁 선물 이펙트 테스트 — 진짜 선물이 올 때와 같은 길(서버 → 에디냥 창 → 방송 창)로 가짜 선물 하나를 보내본다.
+// 스푼에는 아무것도 안 보내고, 이 DJ의 에디냥 창에만 알린다.
+app.post('/broadcast/gift-test', auth.requireAuth, (req, res) => {
+  const b = req.body || {}
+  const str = (v, n) => String(v == null ? '' : v).slice(0, n)
+  const okUrl = (u) => { try { const x = new URL(String(u || '')); return x.protocol === 'https:' && /(^|\.)spooncast\.net$/.test(x.hostname) ? x.href : '' } catch (_) { return '' } }
+  broadcast({ type: 'giftfx_test', djId: req.djId, nick: '테스트', sticker: str(b.sticker, 80) || '테스트 선물', stickerImage: okUrl(b.stickerImage), lottieUrl: okUrl(b.lottieUrl), amount: Math.max(0, Math.min(1e7, Number(b.amount) || 0)), comboCount: 1 })
+  res.json({ success: true })
+})
 app.post('/broadcast/settings', auth.requireAuth, (req, res) => {
   const data = (req.body || {}).data
   if (!data || typeof data !== 'object' || Array.isArray(data)) return res.json({ success: false, error: '잘못된 설정이에요' })

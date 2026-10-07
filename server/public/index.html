@@ -981,6 +981,12 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
 #tab-broadcast .bc-warn > div.clip { background:#ea580c; }
 #tab-broadcast .bc-file { display:flex; align-items:center; gap:6px; margin:6px 0; font-size:12.5px; }
 #tab-broadcast .bc-file .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
+#tab-broadcast .bc-gpicks { display:grid; grid-template-columns:repeat(auto-fill,minmax(54px,1fr)); gap:6px; max-height:220px; overflow:auto; margin:6px 0; padding:2px; }
+#tab-broadcast .bc-gpick { position:relative; aspect-ratio:1; border:1px solid var(--border); border-radius:10px; background:var(--bg); cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+#tab-broadcast .bc-gpick:hover, #tab-broadcast .bc-gpick.on { border-color:var(--bc-acc); background:rgba(124,58,237,.12); }
+#tab-broadcast .bc-gpick img { max-width:100%; max-height:100%; object-fit:contain; }
+#tab-broadcast .bc-gpick i { position:absolute; top:1px; left:3px; font-style:normal; font-size:11px; }
+#tab-broadcast .bc-gpick span { position:absolute; right:3px; bottom:1px; font-size:9.5px; font-weight:800; color:var(--muted); }
 #tab-broadcast .bc-pill { font-size:12px; font-weight:800; padding:5px 12px; border-radius:99px; background:var(--bg); color:var(--muted); }
 @media (max-width: 1050px) { #tab-broadcast .bc-deck { grid-template-columns: 1fr; } #tab-broadcast .bc-pads { grid-template-columns: repeat(2,1fr); } }
 </style>
@@ -1421,18 +1427,25 @@ async function bcLoadStickers() {
   } catch (_) { bcStickers = []; }
   return bcStickers;
 }
+// 스푼 선물 이름은 "sticker_kr_..." 같은 영문 코드라서 화면에는 안 보여준다 (그림·스푼 수로 보여줌)
+function bcGiftLabel(n) { n = String(n || ''); return /^sticker_/i.test(n) ? '' : n; }
 function bcGiftTestHtml() {
-  const opts = (bcStickers || []).map((st) => `<option value="${bcEsc(st.name)}" ${st.name === bcGiftPick ? 'selected' : ''}>${st.lottie ? '✨ ' : ''}${bcEsc(st.name)}${st.price ? ` (${st.price}스푼)` : ''}</option>`).join('');
-  if (!bcStickers) setTimeout(() => bcLoadStickers().then(() => bcRenderAll()), 0);
-  return `<div style="display:flex;gap:6px;margin:6px 0;flex-wrap:wrap"><select class="bc-sel" style="flex:1;min-width:150px" onchange="bcGiftPick=this.value"><option value="">✨ 움직이는 선물 아무거나</option>${opts}</select><button class="bc-btn p" onclick="bcGiftTest()">▶ 테스트로 보기</button></div><div class="bc-note">✨ = 움직이는 애니메이션이 있는 선물</div>`;
+  if (!bcStickers) { setTimeout(() => bcLoadStickers().then(() => bcRenderAll()), 0); return '<div class="bc-note" style="margin:6px 0">선물 목록 불러오는 중…</div>'; }
+  if (!bcStickers.length) return `<button class="bc-btn p" style="margin:6px 0" onclick="bcGiftTest()">▶ 테스트로 보기</button>`;
+  const cells = bcStickers.slice(0, 120).map((st, i) => `<button class="bc-gpick ${st.name === bcGiftPick ? 'on' : ''}" title="${st.price}스푼${st.lottie ? ' · 움직이는 선물' : ''}" onclick="bcGiftPick='${bcEsc(st.name)}';bcGiftTest()">${st.image ? `<img src="${bcEsc(st.image)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('🎁'))">` : '🎁'}${st.lottie ? '<i>✨</i>' : ''}<span>${st.price}</span></button>`).join('');
+  return `<div class="bc-gpicks">${cells}</div><button class="bc-btn p" style="margin:6px 0" onclick="bcGiftPick='';bcGiftTest()">✨ 움직이는 선물 아무거나</button><div class="bc-note">누르면 그 선물이 내 방송 창에 바로 떠요 · ✨ = 움직이는 선물 · 숫자 = 스푼</div>`;
 }
 async function bcGiftTest() {
   if (!window.bcast || !window.bcast.giftFx) return bcToast('❌ 에디냥 PC를 최신 버전으로 업데이트해 주세요 (1.0.6 이상)');
   const list = await bcLoadStickers();
   let st = list.find((x) => x.name === bcGiftPick);
   if (!st) { const anim = list.filter((x) => x.lottie); st = anim[Math.floor(Math.random() * anim.length)] || list[0]; }
-  window.bcast.giftFx({ nick: '테스트', sticker: st ? st.name : '테스트 선물', stickerImage: st ? st.image : '', lottieUrl: st ? st.lottie : '', comboCount: 1, amount: st ? st.price : 0 });
-  bcToast(`🎁 "${st ? st.name : '테스트 선물'}" 이펙트를 방송 창에 띄웠어요 (나만 보여요)`);
+  // 진짜 선물과 같은 길로 보낸다 (서버 → 에디냥 창 → 방송 창)
+  try {
+    const r = await fetch(SERVER + '/broadcast/gift-test', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ sticker: st ? bcGiftLabel(st.name) : '', stickerImage: st ? st.image : '', lottieUrl: st ? st.lottie : '', amount: st ? st.price : 0 }) });
+    const d = await r.json(); if (!d.success) throw new Error(d.error || '실패');
+  } catch (e) { return bcToast('❌ 테스트를 못 보냈어요: ' + e.message); }
+  bcToast(`🎁 ${st && st.price ? st.price + '스푼 ' : ''}선물 이펙트를 방송 창에 띄웠어요 (나만 보여요)`);
 }
 
 // 🔊 PC 소리
@@ -20222,7 +20235,8 @@ function startSSE(){
     else if(d.type==='awaymode')renderAwayModeState(!!d.enabled);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
     else if(d.type==='like'){ addLog('♥',d.nick+'님이 좋아요를 눌렀습니다','sys'); if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
-    else if(d.type==='donation'){ addDonationLog(d); try{ if(window.bcast&&window.bcast.giftFx&&typeof BC!=='undefined'&&BC.giftFx!==false) window.bcast.giftFx({nick:d.nick,sticker:d.sticker,stickerImage:d.stickerImage,lottieUrl:d.lottieUrl,comboCount:d.comboCount,amount:d.amount}); }catch(_){} /* 🎁 PC판 방송 창에 선물 이펙트 */ if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
+    else if(d.type==='giftfx_test'){ try{ if(window.bcast&&window.bcast.giftFx) window.bcast.giftFx({nick:d.nick,sticker:bcGiftLabel(d.sticker),stickerImage:d.stickerImage,lottieUrl:d.lottieUrl,comboCount:1,amount:d.amount}); }catch(_){} }
+    else if(d.type==='donation'){ addDonationLog(d); try{ if(window.bcast&&window.bcast.giftFx&&typeof BC!=='undefined'&&BC.giftFx!==false) window.bcast.giftFx({nick:d.nick,sticker:bcGiftLabel(d.sticker),stickerImage:d.stickerImage,lottieUrl:d.lottieUrl,comboCount:d.comboCount,amount:d.amount}); }catch(_){} /* 🎁 PC판 방송 창에 선물 이펙트 */ if(document.querySelector('.panel[data-panel="dashboard"]')?.classList.contains('active')) loadDashboardData(); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='admin_gift'){ if(djId==='sum'){ adminGiftsBuffer.unshift(d); if(adminGiftsBuffer.length>1000) adminGiftsBuffer.length=1000; if(document.querySelector('.panel[data-panel="adminstats"]')?.classList.contains('active')) renderAdminRecentGifts(); } }
     else if(d.type==='soundfx')playSoundFxById(d.id);
     else if(d.type==='reactiontimersound')playReactionTimerAlert(d.soundUrl,d.volume);
