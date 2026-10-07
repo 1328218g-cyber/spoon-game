@@ -430,11 +430,13 @@ let hkKeys = []
 const hkClear = () => { hkKeys.forEach((k) => { try { globalShortcut.unregister(k) } catch (_) {} }); hkKeys = [] }
 ipcMain.handle('bcast:hotkeys', (_e, mode) => {
   hkClear()
-  if (mode !== 'f' && mode !== 'ctrl') return { ok: true, keys: [] }
+  if (mode !== 'f' && mode !== 'ctrl' && mode !== 'num') return { ok: true, keys: [] }
+  // F1~F10 · Ctrl+Shift+숫자 · 오른쪽 숫자 키패드(Num Lock 켜고 1~8 효과음 · 9 마이크 · 0 음악 페이드)
+  const key = (n) => (mode === 'f' ? `F${n === 0 ? 10 : n}` : mode === 'num' ? `num${n}` : `CommandOrControl+Shift+${n}`)
   const map = []
-  for (let i = 1; i <= 8; i++) map.push([mode === 'f' ? `F${i}` : `CommandOrControl+Shift+${i}`, `pad${i}`])
-  map.push([mode === 'f' ? 'F9' : 'CommandOrControl+Shift+9', 'mute'])
-  map.push([mode === 'f' ? 'F10' : 'CommandOrControl+Shift+0', 'fade'])
+  for (let i = 1; i <= 8; i++) map.push([key(i), `pad${i}`])
+  map.push([key(9), 'mute'])
+  map.push([key(0), 'fade'])
   const failed = []
   for (const [acc, act] of map) {
     try { if (globalShortcut.register(acc, () => sendToApp('bcast:hotkey', act))) hkKeys.push(acc); else failed.push(acc) } catch (_) { failed.push(acc) }

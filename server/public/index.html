@@ -1273,8 +1273,8 @@ function bcCard(c) {
   body += simple.filter((r) => !(c.vc && BC.s.vcMode !== 'pitch')).map((r) => bcRow(...r)).join('');
   if (c.status) body += `<div class="bc-note" id="${c.status}" style="margin-top:4px"></div>`;
   if (c.id === 'bot') body += `<div style="margin:6px 0">${`<label class="bc-sw"><input type="checkbox" ${BC.botLocal ? 'checked' : ''} onchange="BC.botLocal=this.checked;bcSave()"><i></i>내 PC 스피커에서도 듣기</label>`}</div>`;
-  if (c.hk) body += `<select class="bc-sel" style="margin:6px 0" onchange="bcSetHotkeys(this.value)">${[['off', '끄기'], ['f', 'F1~F10'], ['ctrl', 'Ctrl+Shift+숫자']].map(([v, l]) => `<option value="${v}" ${BC.hotkeys === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <div class="bc-note">${BC.hotkeys === 'off' ? '단축키를 켜면 방송 중에 키보드로 효과음·마이크·음악을 조절해요' : (BC.hotkeys === 'f' ? '<b>F1~F8</b> 효과음 패드 · <b>F9</b> 마이크 끄기/켜기 · <b>F10</b> 음악 부드럽게 끄기/켜기<br>※ 켜는 동안 다른 프로그램에서 F1~F10 키가 안 먹어요' : '<b>Ctrl+Shift+1~8</b> 효과음 패드 · <b>Ctrl+Shift+9</b> 마이크 끄기/켜기 · <b>Ctrl+Shift+0</b> 음악 부드럽게 끄기/켜기')}</div>`;
+  if (c.hk) body += `<select class="bc-sel" style="margin:6px 0" onchange="bcSetHotkeys(this.value)">${[['off', '끄기'], ['num', '오른쪽 숫자 키패드'], ['f', 'F1~F10'], ['ctrl', 'Ctrl+Shift+숫자']].map(([v, l]) => `<option value="${v}" ${BC.hotkeys === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="bc-note">${BC.hotkeys === 'off' ? '단축키를 켜면 방송 중에 키보드로 효과음·마이크·음악을 조절해요' : (BC.hotkeys === 'f' ? '<b>F1~F8</b> 효과음 패드 · <b>F9</b> 마이크 끄기/켜기 · <b>F10</b> 음악 부드럽게 끄기/켜기<br>※ 켜는 동안 다른 프로그램에서 F1~F10 키가 안 먹어요' : BC.hotkeys === 'num' ? '오른쪽 숫자 키패드 <b>1~8</b> 효과음 패드 · <b>9</b> 마이크 끄기/켜기 · <b>0</b> 음악 부드럽게 끄기/켜기<br>※ 키패드의 <b>Num Lock</b>을 켜두세요 · 켜는 동안 다른 프로그램에서 키패드 숫자가 안 먹어요 (자판 위쪽 숫자는 그대로 돼요)' : '<b>Ctrl+Shift+1~8</b> 효과음 패드 · <b>Ctrl+Shift+9</b> 마이크 끄기/켜기 · <b>Ctrl+Shift+0</b> 음악 부드럽게 끄기/켜기')}</div>`;
   if (advRows.length) body += `<div class="bc-adv">${advRows.map((r) => bcRow(...r)).join('')}</div><div class="bc-more" onclick="bcAdv('${c.id}')">${adv ? '▲ 간단히' : '▼ 세부 조절'}</div>`;
   if (c.note) body += `<div class="bc-note" style="margin-top:6px">${c.note}</div>`;
   return `<div class="bc-fx ${isOn ? '' : 'off'} ${adv ? 'adv' : ''}"><div class="bc-fx-h"><span>${c.h}</span>${head}</div><div class="bc-fx-d">${c.d}</div><div class="bc-fx-body">${body}</div></div>`;
@@ -1508,7 +1508,7 @@ setInterval(async () => {
 }, 700);
 
 // 🔔 효과음 패드
-function bcPadKey(i) { return BC.hotkeys === 'f' ? 'F' + (i + 1) : BC.hotkeys === 'ctrl' ? '⌃⇧' + (i + 1) : String(i + 1); }
+function bcPadKey(i) { return BC.hotkeys === 'f' ? 'F' + (i + 1) : BC.hotkeys === 'ctrl' ? '⌃⇧' + (i + 1) : BC.hotkeys === 'num' ? '⌨' + (i + 1) : String(i + 1); }
 function bcRenderPads() {
   const el = document.getElementById('bcPads'); if (!el) return;
   el.innerHTML = BC.pads.map((p, i) => `<button class="bc-pad ${p ? 'set' : ''}" id="bcPad${i}" onclick="bcPad(${i})" oncontextmenu="event.preventDefault();bcPadClear(${i})"><span class="k">${bcPadKey(i)}</span>${p ? bcEsc(p.name.replace(/\.[^.]+$/, '')) : '＋'}</button>`).join('');
