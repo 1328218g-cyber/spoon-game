@@ -301,7 +301,9 @@ async function getLottieJson(url) {
     const u = new URL(String(url || ''))
     if (u.protocol !== 'https:' || !/(^|\.)spooncast\.net$/.test(u.hostname)) return null
     if (lottieCache.has(url)) { const v = lottieCache.get(url); lottieCache.delete(url); lottieCache.set(url, v); return v }
-    const r = await net.fetch(url)
+    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 4000) // 오래 걸리면 기다리지 않고 그림으로
+    let r
+    try { r = await net.fetch(url, { signal: ac.signal }) } finally { clearTimeout(to) }
     if (!r.ok) return null
     const txt = await r.text()
     if (txt.length > 6 * 1024 * 1024) return null
@@ -316,19 +318,23 @@ ipcMain.on('bcast:gift', async (e, d) => {
   const s = (v, n) => String(v == null ? '' : v).slice(0, n)
   const g = { nick: s(d.nick, 60), sticker: s(d.sticker, 80), image: s(d.stickerImage, 500), lottieUrl: s(d.lottieUrl, 500), combo: Math.max(1, Math.min(9999, Number(d.comboCount) || 1)), amount: Math.max(0, Math.min(1e7, Number(d.amount) || 0)) }
   const wc = bcastWin.webContents
+  // 애니메이션 준비가 실패해도 선물 그림으로는 꼭 띄운다
+  let anim = null
   try {
-    let anim = null
     if (g.lottieUrl) {
       anim = await getLottieJson(g.lottieUrl)
       if (anim) {
         if (lottieCode == null) { try { lottieCode = fs.readFileSync(path.join(__dirname, 'vendor', 'lottie_svg.min.js'), 'utf-8') } catch (_) { lottieCode = '' } }
         // 스푼 웹이 쓰는 lottie 와 섞이지 않게 따로 담아둔다 (window.__ediLottie)
         if (lottieCode) await wc.executeJavaScript(`if (!window.__ediLottie) { (function () { var module = { exports: {} }, exports = module.exports, define; ${lottieCode}\n; window.__ediLottie = module.exports; })(); } true`, true)
+        else anim = null
       }
     }
+  } catch (err) { console.warn('[선물 이펙트] 애니메이션 준비 실패:', err && err.message); anim = null }
+  try {
     if (!alive(bcastWin)) return
     await wc.executeJavaScript(`window.__ediGiftFx && window.__ediGiftFx(${JSON.stringify(g)}, ${anim || 'null'})`, true)
-  } catch (_) {}
+  } catch (err) { console.warn('[선물 이펙트] 표시 실패:', err && err.message) }
 })
 const menuWins = new Map() // 메뉴 이름 -> 팝업 창
 ipcMain.on('bcast:open-menu', async (e, m) => {

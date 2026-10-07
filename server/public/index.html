@@ -1174,6 +1174,7 @@ const BC_MUSIC = [
 // ⚙️ 설정 탭 카드
 const BC_SET = [
   { id: 'giftfx', h: '🎁 선물 이펙트', onLocal: 'giftFx', d: '스푼 모바일처럼 선물을 받으면 방송 창 가운데에 선물 애니메이션을 크게 보여줘요', rows: [],
+    custom: () => `<button class="bc-btn" style="margin:6px 0" onclick="bcGiftTest()">▶ 테스트로 보기</button>`,
     note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요' },
   { id: 'warn', h: '🚨 방송 사고 알림', d: '방송 창 위쪽 가운데와 이 화면에 크게 경고를 띄워요',
     toggles: [['warnMicOff', '🔇 마이크 꺼진 채 말하기'], ['warnSilence', '🔈 무음'], ['warnClip', '🔴 소리 찢어짐']],
@@ -1402,6 +1403,13 @@ async function bcOutroNow() {
   const r = await bcCall('outro');
   if (!r.ok) return bcToast('❌ ' + (r.error || '엔딩을 못 틀었어요'));
   bcToast('🎬 엔딩 음악 시작 — 끝나면 방송 창에 라이브 종료 확인이 떠요');
+}
+
+// 🎁 선물 이펙트 테스트 — 방송 창에 가짜 선물 하나를 띄워본다 (방송에는 안 나가요)
+function bcGiftTest() {
+  if (!window.bcast || !window.bcast.giftFx) return bcToast('❌ 에디냥 PC를 최신 버전으로 업데이트해 주세요 (1.0.6 이상)');
+  window.bcast.giftFx({ nick: '테스트', sticker: '테스트 선물', stickerImage: '', lottieUrl: '', comboCount: 1, amount: 1 });
+  bcToast('🎁 방송 창에 테스트 이펙트를 띄웠어요 (방송 창이 열려 있어야 보여요)');
 }
 
 // 🔊 PC 소리
