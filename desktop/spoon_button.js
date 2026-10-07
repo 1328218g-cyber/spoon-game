@@ -157,8 +157,9 @@
       '#__ediMenuBar i,#__ediMenuPick i{font-style:normal}',
       '#__ediMenuBar .add{width:30px;padding:0;justify-content:center;font-size:18px;font-weight:600;background:#7c3aed;color:#fff;border-color:#7c3aed}',
       '#__ediMenuBar .add:hover{background:#6d28d9}',
-      '#__ediMenuBar .cap{font-size:15px;background:#fff;color:#4c1d95;border-color:#ddd6fe}',
-      '#__ediMenuBar .cap:hover{background:#ede9fe}',
+      '#__ediMenuBar .cap{width:auto;height:36px;padding:0 16px;gap:6px;font-size:15px;font-weight:800;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;border:none;box-shadow:0 4px 14px rgba(124,58,237,.35)}',
+      '#__ediMenuBar .cap b{font-size:20px;line-height:1}',
+      '#__ediMenuBar .cap:hover{filter:brightness(1.08)}',
       '#__ediMenuPick{position:fixed;z-index:2147483647;width:280px;max-height:65vh;display:flex;flex-direction:column;background:#fff;color:#222;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font:500 13px/1.3 "Segoe UI",sans-serif;overflow:hidden}',
       '#__ediMenuPick .hd{padding:11px 12px 4px;font-weight:800}',
       '#__ediMenuPick .sub{padding:0 12px 6px;font-size:11.5px;color:#888}',
@@ -181,7 +182,7 @@
     const add = document.createElement('button'); add.className = 'add'; add.textContent = '+'; add.title = '바로가기 메뉴 추가·빼기'
     add.addEventListener('click', (e) => { e.stopPropagation(); togglePicker() })
     // 📸 캡처 — 가운데 방송 화면 칸(선물 애니메이션 포함)을 사진으로 저장 + 복사
-    const cap = document.createElement('button'); cap.className = 'add cap'; cap.textContent = '📸'; cap.title = '방송 화면 캡처 (사진 › 에디냥 캡처 폴더에 저장 · 복사)'
+    const cap = document.createElement('button'); cap.className = 'add cap'; cap.innerHTML = '<b>📸</b>캡처'; cap.title = '방송 화면 캡처 (사진 › 에디냥 캡처 폴더에 저장 · 복사)'
     cap.addEventListener('click', (e) => { e.stopPropagation(); captureNow() })
     bar.appendChild(lst); bar.appendChild(cap); bar.appendChild(add)
     bar.addEventListener('mousedown', (e) => e.stopPropagation()) // ＋ 를 다시 누르면 닫히게 (바깥 클릭 닫기와 겹치지 않게)
