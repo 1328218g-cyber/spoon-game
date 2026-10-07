@@ -122,10 +122,13 @@ function openBroadcastWin() {
   bcastWin.loadURL(SPOON_URL)
   bcastWin.on('page-title-updated', (e) => { e.preventDefault() })
   // 스푼 웹 안에서 새 창으로 여는 링크는 같은 창에서 (스푼 외 주소는 기본 브라우저로)
-  bcastWin.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\/([a-z0-9-]+\.)*spooncast\.net\//i.test(url)) { bcastWin.loadURL(url); return { action: 'deny' } }
-    shell.openExternal(url); return { action: 'deny' }
-  })
+  // 스푼 로그인(카카오·구글·네이버·애플 등)은 작은 팝업 창을 열어서 진행하고, 끝나면 팝업이 스스로 닫힌다.
+  // ⚠️ 예전엔 이 팝업 주소를 방송 창 자체에 열어서, 로그인이 끝나 팝업이 닫힐 때 방송 창까지 닫혀버렸다.
+  // → 짜잔 에디봇처럼 팝업은 같은 로그인 저장소(partition)를 쓰는 별도 창으로 그대로 열어준다.
+  bcastWin.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: { autoHideMenuBar: true, width: 520, height: 720, icon: path.join(__dirname, 'build', 'icon.png') },
+  }))
   // 방송 중에 실수로 닫지 않게 확인
   bcastWin.on('close', (e) => {
     if (app.__quitting || bcastCloseOk) return
