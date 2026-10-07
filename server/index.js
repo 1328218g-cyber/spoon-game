@@ -19924,6 +19924,7 @@ app.get('/broadcast/settings', auth.requireAuth, (req, res) => {
 // 🎁 선물 이펙트 테스트 — 진짜 선물이 올 때와 같은 길(서버 → 에디냥 창 → 방송 창)로 가짜 선물 하나를 보내본다.
 // 스푼에는 아무것도 안 보내고, 이 DJ의 에디냥 창에만 알린다.
 app.post('/broadcast/gift-test', auth.requireAuth, (req, res) => {
+  if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '관리자만 쓸 수 있어요' }) // 관리자(sum) 전용 테스트
   const b = req.body || {}
   const str = (v, n) => String(v == null ? '' : v).slice(0, n)
   const okUrl = (u) => { try { const x = new URL(String(u || '')); return x.protocol === 'https:' && /(^|\.)spooncast\.net$/.test(x.hostname) ? x.href : '' } catch (_) { return '' } }

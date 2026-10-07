@@ -1180,8 +1180,8 @@ const BC_MUSIC = [
 // ⚙️ 설정 탭 카드
 const BC_SET = [
   { id: 'giftfx', h: '🎁 선물 이펙트', onLocal: 'giftFx', d: '스푼 모바일처럼 선물을 받으면 방송 창 가운데에 선물 애니메이션을 크게 보여줘요', rows: [],
-    custom: () => bcGiftTestHtml(),
-    note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요<br>테스트는 실제로 선물을 보내지 않고 내 방송 창에만 띄워봐요 (스푼·청취자에게는 아무것도 안 가요)' },
+    custom: () => (bcIsAdmin() ? bcGiftTestHtml() : ''),
+    note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요' },
   { id: 'warn', h: '🚨 방송 사고 알림', d: '방송 창 위쪽 가운데와 이 화면에 크게 경고를 띄워요',
     toggles: [['warnMicOff', '🔇 마이크 꺼진 채 말하기'], ['warnSilence', '🔈 무음'], ['warnClip', '🔴 소리 찢어짐']],
     rows: [['silenceSec', '무음 기준', 10, 120, 5, (v) => v + '초']],
@@ -1429,7 +1429,21 @@ async function bcLoadStickers() {
 }
 // 스푼 선물 이름은 "sticker_kr_..." 같은 영문 코드라서 화면에는 안 보여준다 (그림·스푼 수로 보여줌)
 function bcGiftLabel(n) { n = String(n || ''); return /^sticker_/i.test(n) ? '' : n; }
+// 🔒 선물 테스트는 관리자(sum)만 — 방송하기 팝업·고정 화면에는 djId 가 없을 수 있어서 서버에 한 번 물어본다
+let bcMeId = (typeof djId !== 'undefined' && djId) || localStorage.getItem('djId') || sessionStorage.getItem('djId') || '';
+let bcMeAsked = false;
+function bcIsAdmin() {
+  if (typeof djId !== 'undefined' && djId) bcMeId = djId;
+  if (!bcMeId && !bcMeAsked && typeof authHeaders === 'function') {
+    bcMeAsked = true;
+    fetch(SERVER + '/auth/me', { headers: authHeaders() }).then((r) => r.json()).then((d) => { if (d && d.success && d.djId) { bcMeId = d.djId; if (bcMeId === 'sum') bcRenderAll(); } }).catch(() => {});
+  }
+  return bcMeId === 'sum';
+}
 function bcGiftTestHtml() {
+  return '<div class="bc-note" style="margin-top:6px;font-weight:700">🔒 관리자 전용 테스트 — 실제로 선물을 보내지 않고 내 방송 창에만 띄워봐요</div>' + bcGiftTestInner();
+}
+function bcGiftTestInner() {
   if (!bcStickers) { setTimeout(() => bcLoadStickers().then(() => bcRenderAll()), 0); return '<div class="bc-note" style="margin:6px 0">선물 목록 불러오는 중…</div>'; }
   if (!bcStickers.length) return `<button class="bc-btn p" style="margin:6px 0" onclick="bcGiftTest()">▶ 테스트로 보기</button>`;
   const cells = bcStickers.slice(0, 120).map((st, i) => `<button class="bc-gpick ${st.name === bcGiftPick ? 'on' : ''}" title="${st.price}스푼${st.lottie ? ' · 움직이는 선물' : ''}" onclick="bcGiftPick='${bcEsc(st.name)}';bcGiftTest()">${st.image ? `<img src="${bcEsc(st.image)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('🎁'))">` : '🎁'}${st.lottie ? '<i>✨</i>' : ''}<span>${st.price}</span></button>`).join('');
