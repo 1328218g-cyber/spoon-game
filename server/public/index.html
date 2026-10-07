@@ -1174,8 +1174,8 @@ const BC_MUSIC = [
 // ⚙️ 설정 탭 카드
 const BC_SET = [
   { id: 'giftfx', h: '🎁 선물 이펙트', onLocal: 'giftFx', d: '스푼 모바일처럼 선물을 받으면 방송 창 가운데에 선물 애니메이션을 크게 보여줘요', rows: [],
-    custom: () => `<button class="bc-btn" style="margin:6px 0" onclick="bcGiftTest()">▶ 테스트로 보기</button>`,
-    note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요' },
+    custom: () => bcGiftTestHtml(),
+    note: '내 화면(방송 창)에만 보여요 — 방송 소리나 청취자 화면에는 영향 없어요 · 같은 사람이 같은 선물을 연달아 보내면 콤보 숫자만 올라가요<br>테스트는 실제로 선물을 보내지 않고 내 방송 창에만 띄워봐요 (스푼·청취자에게는 아무것도 안 가요)' },
   { id: 'warn', h: '🚨 방송 사고 알림', d: '방송 창 위쪽 가운데와 이 화면에 크게 경고를 띄워요',
     toggles: [['warnMicOff', '🔇 마이크 꺼진 채 말하기'], ['warnSilence', '🔈 무음'], ['warnClip', '🔴 소리 찢어짐']],
     rows: [['silenceSec', '무음 기준', 10, 120, 5, (v) => v + '초']],
@@ -1405,11 +1405,34 @@ async function bcOutroNow() {
   bcToast('🎬 엔딩 음악 시작 — 끝나면 방송 창에 라이브 종료 확인이 떠요');
 }
 
-// 🎁 선물 이펙트 테스트 — 방송 창에 가짜 선물 하나를 띄워본다 (방송에는 안 나가요)
-function bcGiftTest() {
+// 🎁 선물 이펙트 테스트 — 실제 스푼 선물(애니메이션 포함)을 골라 내 방송 창에만 띄워본다 (진짜 선물은 안 보내요)
+let bcStickers = null, bcGiftPick = '';
+async function bcLoadStickers() {
+  if (bcStickers) return bcStickers;
+  try {
+    const r = await fetch(SERVER + '/trophy-editor/stickers'); const d = await r.json();
+    const seen = new Set(), list = [];
+    (d.categories || []).forEach((c) => (c.stickers || []).forEach((st) => {
+      const name = st.title || st.name; if (!name || seen.has(name)) return; seen.add(name);
+      list.push({ name, price: st.price || 0, image: st.image_url_web || st.image_thumbnail_web || st.image_thumbnail || '', lottie: st.lottie_url || '' });
+    }));
+    list.sort((a, b) => (!!b.lottie - !!a.lottie) || (a.price - b.price));
+    bcStickers = list;
+  } catch (_) { bcStickers = []; }
+  return bcStickers;
+}
+function bcGiftTestHtml() {
+  const opts = (bcStickers || []).map((st) => `<option value="${bcEsc(st.name)}" ${st.name === bcGiftPick ? 'selected' : ''}>${st.lottie ? '✨ ' : ''}${bcEsc(st.name)}${st.price ? ` (${st.price}스푼)` : ''}</option>`).join('');
+  if (!bcStickers) setTimeout(() => bcLoadStickers().then(() => bcRenderAll()), 0);
+  return `<div style="display:flex;gap:6px;margin:6px 0;flex-wrap:wrap"><select class="bc-sel" style="flex:1;min-width:150px" onchange="bcGiftPick=this.value"><option value="">✨ 움직이는 선물 아무거나</option>${opts}</select><button class="bc-btn p" onclick="bcGiftTest()">▶ 테스트로 보기</button></div><div class="bc-note">✨ = 움직이는 애니메이션이 있는 선물</div>`;
+}
+async function bcGiftTest() {
   if (!window.bcast || !window.bcast.giftFx) return bcToast('❌ 에디냥 PC를 최신 버전으로 업데이트해 주세요 (1.0.6 이상)');
-  window.bcast.giftFx({ nick: '테스트', sticker: '테스트 선물', stickerImage: '', lottieUrl: '', comboCount: 1, amount: 1 });
-  bcToast('🎁 방송 창에 테스트 이펙트를 띄웠어요 (방송 창이 열려 있어야 보여요)');
+  const list = await bcLoadStickers();
+  let st = list.find((x) => x.name === bcGiftPick);
+  if (!st) { const anim = list.filter((x) => x.lottie); st = anim[Math.floor(Math.random() * anim.length)] || list[0]; }
+  window.bcast.giftFx({ nick: '테스트', sticker: st ? st.name : '테스트 선물', stickerImage: st ? st.image : '', lottieUrl: st ? st.lottie : '', comboCount: 1, amount: st ? st.price : 0 });
+  bcToast(`🎁 "${st ? st.name : '테스트 선물'}" 이펙트를 방송 창에 띄웠어요 (나만 보여요)`);
 }
 
 // 🔊 PC 소리
