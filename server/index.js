@@ -19848,6 +19848,21 @@ app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎙️ 방송하기 (에디냥 PC판 전용) — 사운드 설정(목소리 효과·프리셋·재생목록·효과음 패드·단축키)을 계정에 저장해서
+// 다른 PC에서 에디냥 PC를 켜도 같은 값으로 이어지게 한다. 화면(index.html 방송하기 패널)의 BC 객체를 통째로 저장한다.
+// 음악·효과음은 PC에 있는 파일 경로만 저장되고 파일 자체는 서버에 올라가지 않는다.
+app.get('/broadcast/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  res.json({ success: true, data: settings.broadcastAudio || null })
+})
+app.post('/broadcast/settings', auth.requireAuth, (req, res) => {
+  const data = (req.body || {}).data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return res.json({ success: false, error: '잘못된 설정이에요' })
+  if (JSON.stringify(data).length > 200 * 1024) return res.json({ success: false, error: '설정이 너무 커요' })
+  store.saveSettings(req.djId, { broadcastAudio: data })
+  res.json({ success: true })
+})
+
 // 관리자(sum) 전용 — 스푼 웹소켓 프록시 장애 대응 방식 조회/설정 ('off' | 'switch' | 'direct' | 'both')
 app.get('/admin/proxy-failover-mode', auth.requireAuth, (req, res) => {
   if (req.djId !== 'sum') return res.status(403).json({ success: false, error: '권한이 없어요' })

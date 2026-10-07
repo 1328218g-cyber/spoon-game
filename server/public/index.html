@@ -766,6 +766,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="linkshortener"><span class="ic">🔗</span><span class="lbl">링크줄이기</span></div>
 
     <div class="nav-group-label">방송 도구</div>
+    <div class="nav-item" id="broadcastNav" data-panel="broadcast" style="display:none"><span class="ic">🎙️</span><span class="lbl">방송하기</span><span class="nav-badge on" style="cursor:default" title="에디냥 PC판에서만 보여요">PC</span></div>
     <div class="nav-item" data-panel="chat"><span class="ic ic-img"><img src="/icons/chat.png" alt=""></span><span class="lbl">채팅</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="entrysettings"><span class="ic ic-img"><img src="/icons/entry-settings.png" alt=""></span><span class="lbl">입장 설정</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="funding"><span class="ic ic-img"><img src="/icons/funding-management.png" alt=""></span><span class="lbl">펀딩 관리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -857,6 +858,544 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     </div>
 
     <div class="content">
+
+<!-- 🎙️ 방송하기 (에디냥 PC판 전용) — 짜잔 에디봇 방송하기를 그대로 옮김. 스푼 방송 창에 고음질 사운드(효과·음악·효과음·녹음)를 넣어요 -->
+      <div class="panel" data-panel="broadcast" id="tab-broadcast">
+<style>
+#tab-broadcast { --bc-acc:#7c3aed; }
+#tab-broadcast .card-header { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+#tab-broadcast .card-title { font-weight:800; font-size:15px; }
+#tab-broadcast .bc-pad16 { padding:0 !important; }
+#tab-broadcast .card { margin-bottom:16px; padding-bottom:14px; }
+#tab-broadcast .bc-pad16 { padding:0 16px; }
+#tab-broadcast .bc-deck { display:grid; grid-template-columns: auto 1fr; gap:14px 18px; align-items:center; padding:14px 0 0; }
+#tab-broadcast .bc-big { display:flex; gap:10px; flex-wrap:wrap; }
+#tab-broadcast .bc-bigbtn { min-width:132px; padding:12px 14px; border-radius:12px; border:2px solid var(--border); background:var(--surface); color:var(--text); font-weight:800; font-size:14px; cursor:pointer; }
+#tab-broadcast .bc-bigbtn.on { background:#dc2626; border-color:#dc2626; color:#fff; }
+#tab-broadcast .bc-bigbtn.ok { background:#7c3aed; border-color:#7c3aed; color:#fff; }
+#tab-broadcast .bc-meters { display:grid; grid-template-columns: 70px 1fr; gap:6px 10px; align-items:center; font-size:12px; color:var(--muted); }
+#tab-broadcast .bc-meter { height:12px; border-radius:99px; background:var(--bg); overflow:hidden; border:1px solid var(--border); }
+#tab-broadcast .bc-meter > div { height:100%; width:0; background:linear-gradient(90deg,#10b981,#f59e0b 75%,#ef4444); transition:width .08s linear; }
+#tab-broadcast .bc-now { display:flex; align-items:center; gap:8px; margin:12px 0 0; padding:10px 12px; border-radius:12px; background:var(--bg); border:1px solid var(--border); font-size:13px; }
+#tab-broadcast .bc-now .t { flex:1; min-width:0; }
+#tab-broadcast .bc-now .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#tab-broadcast .bc-prog { height:5px; border-radius:99px; background:var(--border); margin-top:6px; overflow:hidden; }
+#tab-broadcast .bc-prog > div { height:100%; width:0; background:var(--bc-acc); }
+#tab-broadcast .bc-tabs { display:flex; gap:6px; margin:4px 0 14px; flex-wrap:wrap; }
+#tab-broadcast .bc-tab { padding:10px 18px; border-radius:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-weight:800; font-size:14px; cursor:pointer; }
+#tab-broadcast .bc-tab.on { background:var(--bc-acc); border-color:var(--bc-acc); color:#fff; }
+#tab-broadcast .bc-page { display:none; }
+#tab-broadcast .bc-page.on { display:block; }
+#tab-broadcast .bc-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap:14px; }
+#tab-broadcast .bc-fx { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; box-shadow:0 1px 3px rgba(20,20,40,.04); }
+#tab-broadcast .bc-fx.off .bc-fx-body { opacity:.45; }
+#tab-broadcast .bc-fx-h { display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:800; font-size:14px; }
+#tab-broadcast .bc-fx-d { font-size:11.5px; color:var(--muted); margin:3px 0 4px; line-height:1.5; }
+#tab-broadcast .bc-row { display:grid; grid-template-columns: 96px 1fr 62px; align-items:center; gap:10px; margin:7px 0; font-size:12.5px; }
+#tab-broadcast .bc-row input[type=range] { width:100%; accent-color:var(--bc-acc); }
+#tab-broadcast .bc-val { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+#tab-broadcast .bc-sw { position:relative; display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:12.5px; font-weight:700; white-space:nowrap; }
+#tab-broadcast .bc-sw input { position:absolute; opacity:0; width:0; height:0; }
+#tab-broadcast .bc-sw i { width:38px; height:22px; border-radius:99px; background:var(--border); position:relative; transition:.15s; flex:none; }
+#tab-broadcast .bc-sw i::after { content:''; position:absolute; left:3px; top:3px; width:16px; height:16px; border-radius:50%; background:#fff; transition:.15s; }
+#tab-broadcast .bc-sw input:checked + i { background:var(--bc-acc); }
+#tab-broadcast .bc-sw input:checked + i::after { left:19px; }
+#tab-broadcast .bc-btn { padding:7px 12px; border-radius:9px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-weight:700; font-size:12.5px; cursor:pointer; }
+#tab-broadcast .bc-btn.p { background:var(--bc-acc); border-color:var(--bc-acc); color:#fff; }
+#tab-broadcast .bc-chip { padding:8px 14px; border-radius:99px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-weight:800; font-size:12.5px; cursor:pointer; }
+#tab-broadcast .bc-chip.on { background:var(--bc-acc); border-color:var(--bc-acc); color:#fff; }
+#tab-broadcast .bc-more { font-size:12px; color:var(--bc-acc); cursor:pointer; font-weight:700; margin-top:4px; user-select:none; }
+#tab-broadcast .bc-adv { display:none; }
+#tab-broadcast .bc-fx.adv .bc-adv { display:block; }
+#tab-broadcast .bc-pads { display:grid; grid-template-columns: repeat(4,1fr); gap:10px; }
+#tab-broadcast .bc-pad { min-height:76px; border-radius:14px; border:2px dashed var(--border); background:var(--surface); color:var(--text); font-size:13px; font-weight:800; cursor:pointer; padding:8px; word-break:break-all; position:relative; }
+#tab-broadcast .bc-pad.set { border-style:solid; border-color:rgba(124,58,237,.45); background:rgba(124,58,237,.10); }
+#tab-broadcast .bc-pad.hit { transform:scale(.96); background:rgba(124,58,237,.3); }
+#tab-broadcast .bc-pad .k { position:absolute; top:5px; left:8px; font-size:10.5px; color:var(--muted); font-weight:700; }
+#tab-broadcast .bc-list { max-height:260px; overflow:auto; margin-top:8px; border:1px solid var(--border); border-radius:10px; }
+#tab-broadcast .bc-li { display:flex; align-items:center; gap:8px; padding:7px 10px; font-size:12.5px; border-bottom:1px solid var(--border); }
+#tab-broadcast .bc-li:last-child { border-bottom:none; }
+#tab-broadcast .bc-li.on { background:rgba(124,58,237,.14); font-weight:800; }
+#tab-broadcast .bc-li span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+#tab-broadcast select.bc-sel { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); font-size:13px; }
+#tab-broadcast .bc-note { font-size:11.5px; color:var(--muted); line-height:1.65; }
+#tab-broadcast .bc-pill { font-size:12px; font-weight:800; padding:5px 12px; border-radius:99px; background:var(--bg); color:var(--muted); }
+@media (max-width: 1050px) { #tab-broadcast .bc-deck { grid-template-columns: 1fr; } #tab-broadcast .bc-pads { grid-template-columns: repeat(2,1fr); } }
+</style>
+
+  <!-- ── 방송 데크: 자주 쓰는 것만 ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">🎙️ 방송하기</span>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        <span id="bcState" class="bc-pill">대기 중</span>
+        <button class="bc-btn p" id="bcOpenBtn" onclick="bcOpenWin()">📻 방송 창 열기</button>
+      </div>
+    </div>
+    <div class="bc-deck">
+      <div class="bc-big">
+        <button class="bc-bigbtn" id="bcMuteBtn" onclick="bcToggleMute()">🎤 마이크 켜짐</button>
+        <button class="bc-bigbtn" id="bcRecBtn" onclick="bcToggleRec()">⏺ 녹음</button>
+        <button class="bc-bigbtn" id="bcTestBtn" onclick="bcToggleTest()">🎧 내 소리 듣기</button>
+      </div>
+      <div class="bc-meters">
+        <span>마이크</span><div class="bc-meter"><div id="bcMeterMic"></div></div>
+        <span>방송 소리</span><div class="bc-meter"><div id="bcMeterOut"></div></div>
+      </div>
+    </div>
+    <div class="bc-now">
+      <span style="font-size:20px">🎵</span>
+      <div class="t"><b id="bcNowTitle">재생 중인 음악 없음</b><div class="bc-prog"><div id="bcNowProg"></div></div></div>
+      <button class="bc-btn" onclick="bcBgmPlay()" title="재생">▶</button>
+      <button class="bc-btn" onclick="bcBgmPause()" title="일시정지/계속">⏯</button>
+      <button class="bc-btn" onclick="bcBgmNext()" title="다음 곡">⏭</button>
+      <button class="bc-btn" onclick="bcBgmFadeToggle()" title="부드럽게 끄기/켜기 (F10)">🌙 페이드</button>
+      <button class="bc-btn" onclick="bcBgmStop()" title="정지">⏹</button>
+    </div>
+    <div class="bc-pad16" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12.5px;font-weight:800;margin-right:4px">빠른 프리셋</span>
+      <span id="bcQuickPresets" style="display:contents"></span>
+    </div>
+  </div>
+
+  <div class="bc-tabs">
+    <button class="bc-tab on" data-p="voice" onclick="bcSub('voice')">🎤 목소리</button>
+    <button class="bc-tab" data-p="music" onclick="bcSub('music')">🎵 음악</button>
+    <button class="bc-tab" data-p="sfx" onclick="bcSub('sfx')">🔔 효과음 · 단축키</button>
+    <button class="bc-tab" data-p="set" onclick="bcSub('set')">⚙️ 설정</button>
+  </div>
+
+  <!-- ── 🎤 목소리 ── -->
+  <div class="bc-page on" id="bcPage-voice">
+    <div class="bc-grid" id="bcVoiceFx"></div>
+    <div class="card" style="margin-top:14px">
+      <div class="card-header"><span class="card-title">💾 내 프리셋</span></div>
+      <div class="bc-pad16" style="display:flex;gap:8px;margin-top:12px">
+        <select id="bcMyPresets" class="bc-sel" style="flex:1"><option value="">내 프리셋…</option></select>
+        <button class="bc-btn" onclick="bcLoadMyPreset()">불러오기</button>
+        <button class="bc-btn p" onclick="bcSaveMyPreset()">💾 지금 값 저장</button>
+        <button class="bc-btn" onclick="bcDelMyPreset()">🗑️</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 🎵 음악 ── -->
+  <div class="bc-page" id="bcPage-music">
+    <div class="bc-grid">
+      <div class="bc-fx" style="grid-column: span 2; min-width:0">
+        <div class="bc-fx-h"><span>📃 재생목록</span><span style="display:flex;gap:6px"><button class="bc-btn" onclick="document.getElementById('bcBgmFile').click()">＋ 음악 추가</button><button class="bc-btn" onclick="bcBgmClear()">비우기</button></span></div>
+        <input type="file" id="bcBgmFile" accept="audio/*" multiple style="display:none" onchange="bcAddBgm(this.files); this.value=''">
+        <div class="bc-list" id="bcBgmList"></div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
+          <label class="bc-sw"><input type="checkbox" id="bcAutoNext" onchange="BC.autoNext=this.checked;bcSave()"><i></i>자동 다음 곡</label>
+          <label class="bc-sw"><input type="checkbox" id="bcShuffle" onchange="BC.shuffle=this.checked;bcSave()"><i></i>셔플</label>
+          <label class="bc-sw"><input type="checkbox" id="bcBgmLoop" onchange="BC.loop=this.checked;bcSave()"><i></i>한 곡 반복</label>
+        </div>
+        <div class="bc-row"><span>크로스페이드</span><input type="range" min="0" max="10" step="0.5" id="bcXfade" oninput="BC.xfade=+this.value;document.getElementById('bcXfadeV').textContent=this.value+'초';bcSave()"><span class="bc-val" id="bcXfadeV"></span></div>
+        <div id="bcMusicVol"></div>
+      </div>
+    </div>
+    <div class="bc-grid" id="bcMusicFx" style="margin-top:14px"></div>
+  </div>
+
+  <!-- ── 🔔 효과음 · 단축키 ── -->
+  <div class="bc-page" id="bcPage-sfx">
+    <div class="card">
+      <div class="card-header"><span class="card-title">🔔 효과음 패드</span><span class="bc-note" style="margin-left:auto">빈 칸을 눌러 파일 지정 · 우클릭으로 지우기</span></div>
+      <input type="file" id="bcPadFile" accept="audio/*" style="display:none" onchange="bcSetPadFile(this.files); this.value=''">
+      <div class="bc-pad16" style="margin-top:12px"><div class="bc-pads" id="bcPads"></div><div id="bcPadVol"></div></div>
+    </div>
+    <div class="bc-grid" id="bcSfxFx"></div>
+  </div>
+
+  <!-- ── ⚙️ 설정 ── -->
+  <div class="bc-page" id="bcPage-set">
+    <div class="bc-grid">
+      <div class="bc-fx">
+        <div class="bc-fx-h"><span>📻 방송하는 방법</span></div>
+        <div class="bc-note" style="margin-top:8px">① 위의 <b>📻 방송 창 열기</b>를 눌러요 → ② 방송 창에서 <b>DJ 계정</b>으로 로그인 (처음 한 번만, 다음부터 자동) → ③ 방송 창에서 평소처럼 방송을 켜면 에디냥 사운드가 자동으로 들어가요 (방송 창 왼쪽 아래에 <b>🎙️ 에디냥 사운드 적용 중</b> 표시)<br>봇(채팅·룰렛 등)은 지금처럼 에디냥 서버에서 돌아가요. 방송 창을 닫아도 봇은 그대로예요.</div>
+      </div>
+      <div class="bc-fx">
+        <div class="bc-fx-h"><span>🎤 마이크</span><button class="bc-btn" onclick="bcLoadDevices()">🔄 목록</button></div>
+        <select id="bcDevice" class="bc-sel" style="margin-top:8px" onchange="bcSet({deviceId:this.value})"></select>
+        <div id="bcMicVol"></div>
+        <div class="bc-note">헤드폰으로 들어주세요 — 스피커면 소리가 다시 마이크로 들어가 울려요</div>
+      </div>
+      <div class="bc-fx" id="bcGuestBox">
+        <div class="bc-fx-h"><span>👥 게스트 마이크 (마이크 2)</span><label class="bc-sw"><input type="checkbox" id="bcMic2On" onchange="bcSet({mic2On:this.checked});bcRenderSet()"><i></i></label></div>
+        <div class="bc-fx-d">두 번째 마이크·오디오 장치를 같이 섞어요 (내 목소리와 같은 효과가 걸려요)</div>
+        <select id="bcDevice2" class="bc-sel" onchange="bcSet({mic2Id:this.value})"></select>
+        <div id="bcMic2Vol"></div>
+      </div>
+      <div class="bc-fx">
+        <div class="bc-fx-h"><span>📡 음질</span></div>
+        <div class="bc-row"><span>전송 음질</span>
+          <select id="bcBitrate" class="bc-sel" onchange="bcSet({bitrate:+this.value})">
+            <option value="128">128kbps (가볍게)</option><option value="192">192kbps</option><option value="256">256kbps (추천)</option><option value="320">320kbps</option><option value="510">510kbps (최고)</option>
+          </select><span></span></div>
+        <div class="bc-row"><span>스테레오</span><label class="bc-sw"><input type="checkbox" id="bcStereo" onchange="bcSet({stereo:this.checked})"><i></i>좌우 소리 그대로</label><span></span></div>
+        <div class="bc-note">방송을 켤 때 적용돼요 · 스푼 서버가 한 번 더 압축하기 때문에 그 한도 안에서 가장 좋게 보내요</div>
+      </div>
+      <div class="bc-fx">
+        <div class="bc-fx-h"><span>⏺ 방송 녹음</span><button class="bc-btn" onclick="window.bcast && window.bcast.recFolder()">📂 녹음 폴더</button></div>
+        <div class="bc-note" style="margin-top:6px">방송으로 나가는 소리 그대로 <b>다운로드 › 에디냥 방송녹음</b> 폴더에 저장돼요 (.webm — 크롬·VLC·곰플레이어로 재생)</div>
+      </div>
+      <div class="bc-fx">
+        <div class="bc-fx-h"><span>🔌 에디냥 사운드 사용</span><label class="bc-sw"><input type="checkbox" id="bcEnabled" onchange="bcSet({enabled:this.checked})"><i></i></label></div>
+        <div class="bc-note" style="margin-top:6px">끄면 스푼 웹 기본 마이크로 방송해요 (에디냥 효과·음악이 안 들어가요)</div>
+      </div>
+    </div>
+  </div>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// 🎙️ 방송하기 — 설정은 이 PC(localStorage)와 에디냥 서버(/broadcast/settings) 둘 다에 저장 → 다른 PC에서도 같은 값.
+// 방송 창 엔진(window.__ediAudio)에는 PC판(desktop/main.js)을 거쳐 바로 반영된다. window.bcast 는 PC판에서만 있다.
+// ═══════════════════════════════════════════════════════════════
+const BC_DEFAULT = {
+  enabled: true, deviceId: '', inGain: 1.0, micMute: false, nsOn: false,
+  mic2On: false, mic2Id: '', mic2Vol: 1.0,
+  hpfOn: true, hpfFreq: 80, gateOn: false, gateDb: -50, deessOn: false, deessAmt: 6,
+  eqLow: 0, eqMid: 0, eqHigh: 0, compOn: true, compThr: -20, compRatio: 3, limOn: true,
+  revOn: true, revMix: 0.18, revSize: 1.8, revPre: 0.02,
+  echoOn: false, echoTime: 0.28, echoFb: 0.3, echoMix: 0.15, chorusOn: false, chorusMix: 0.35,
+  vcMode: 'off', vcPitch: 0.4,
+  outGain: 1.0, monitor: false, monitorVol: 0.8, bitrate: 256, stereo: true,
+  bgmVol: 0.5, karaoke: false, duckOn: false, duckAmt: 12, duckThr: -42,
+  padVol: 0.8, botVol: 0.9, pcOn: false, pcVol: 0.8,
+};
+const BC_PRESETS = {
+  '🎙️ 기본':     { hpfOn:true, hpfFreq:80, gateOn:false, deessOn:false, eqLow:0, eqMid:0, eqHigh:1, compOn:true, compThr:-20, compRatio:3, limOn:true, revOn:true, revMix:0.15, revSize:1.6, revPre:0.02, echoOn:false, chorusOn:false, vcMode:'off' },
+  '🎤 노래방':   { hpfOn:true, hpfFreq:90, gateOn:false, deessOn:true, deessAmt:5, eqLow:1, eqMid:0, eqHigh:3, compOn:true, compThr:-22, compRatio:4, limOn:true, revOn:true, revMix:0.35, revSize:2.8, revPre:0.03, echoOn:true, echoTime:0.3, echoFb:0.3, echoMix:0.18, chorusOn:true, chorusMix:0.25, vcMode:'off' },
+  '📻 라디오':   { hpfOn:true, hpfFreq:70, gateOn:true, gateDb:-52, deessOn:true, deessAmt:6, eqLow:3, eqMid:1, eqHigh:2, compOn:true, compThr:-26, compRatio:5, limOn:true, revOn:true, revMix:0.06, revSize:0.8, revPre:0.01, echoOn:false, chorusOn:false, vcMode:'off' },
+  '✨ 깨끗하게': { hpfOn:true, hpfFreq:100, gateOn:true, gateDb:-50, deessOn:true, deessAmt:4, eqLow:0, eqMid:0, eqHigh:0, compOn:true, compThr:-18, compRatio:2.5, limOn:true, revOn:false, echoOn:false, chorusOn:false, vcMode:'off' },
+  '🌙 ASMR':     { hpfOn:true, hpfFreq:60, gateOn:true, gateDb:-58, deessOn:true, deessAmt:8, eqLow:2, eqMid:-1, eqHigh:2, compOn:true, compThr:-30, compRatio:4, limOn:true, revOn:true, revMix:0.08, revSize:0.9, revPre:0.01, echoOn:false, chorusOn:false, vcMode:'off' },
+  '🕳️ 동굴':     { hpfOn:true, hpfFreq:80, gateOn:false, deessOn:false, eqLow:2, eqMid:-1, eqHigh:-2, compOn:true, compThr:-20, compRatio:3, limOn:true, revOn:true, revMix:0.55, revSize:4.5, revPre:0.06, echoOn:true, echoTime:0.45, echoFb:0.45, echoMix:0.22, chorusOn:false, vcMode:'off' },
+};
+const pct = (v) => Math.round(v * 100) + '%', dbf = (v) => (v > 0 ? '+' : '') + v + 'dB';
+// 효과 카드: [키, 이름, 최소, 최대, 간격, 표시, 고급?]
+const BC_VOICE = [
+  { id: 'clean', h: '🧹 잡음 정리', d: '책상 울림·에어컨 같은 낮은 잡음, 말 안 할 때 들어오는 잡음을 정리해요', toggles: [['hpfOn', '저음 웅웅 제거'], ['gateOn', '노이즈 게이트'], ['nsOn', '잡음 제거 (강하게)']],
+    rows: [['hpfFreq', '웅웅 제거 기준', 40, 200, 5, (v) => v + 'Hz', 1], ['gateDb', '게이트 기준', -80, -20, 1, (v) => v + 'dB']],
+    note: '잡음 제거(강하게)는 키보드·선풍기 소리를 크게 줄여주지만 목소리가 조금 얇아질 수 있어요' },
+  { id: 'tone', h: '🎛️ 음색', d: '저음·중음·고음과 "ㅅ·ㅊ" 날카로운 소리를 다듬어요', toggles: [['deessOn', '치찰음 줄이기']],
+    rows: [['eqLow', '저음', -12, 12, 0.5, dbf], ['eqMid', '중음', -12, 12, 0.5, dbf], ['eqHigh', '고음', -12, 12, 0.5, dbf], ['deessAmt', '치찰음 줄이는 양', 2, 12, 1, (v) => v + 'dB', 1]] },
+  { id: 'dyn', h: '🗜️ 소리 크기', d: '작은 소리는 키우고 큰 소리는 눌러서 고르게 · 리미터는 소리 찢어짐을 막아요', toggles: [['compOn', '컴프레서'], ['limOn', '리미터 (찢어짐 방지)']],
+    rows: [['compThr', '기준', -50, 0, 1, (v) => v + 'dB'], ['compRatio', '세기', 1, 12, 0.5, (v) => v + ':1']] },
+  { id: 'rev', h: '🌫️ 리버브 (울림)', on: 'revOn', d: '노래방·홀처럼 공간에 울리는 느낌',
+    rows: [['revMix', '양', 0, 1, 0.01, pct], ['revSize', '공간 크기', 0.3, 5, 0.1, (v) => (+v).toFixed(1) + '초'], ['revPre', '시작 지연', 0, 0.1, 0.005, (v) => Math.round(v * 1000) + 'ms', 1]] },
+  { id: 'echo', h: '🔁 에코 (메아리)', on: 'echoOn', d: '말끝이 메아리처럼 반복돼요',
+    rows: [['echoMix', '양', 0, 0.6, 0.01, pct], ['echoTime', '간격', 0.05, 0.8, 0.01, (v) => Math.round(v * 1000) + 'ms'], ['echoFb', '반복', 0, 0.8, 0.01, pct]] },
+  { id: 'chorus', h: '🎶 코러스 (두껍게)', on: 'chorusOn', d: '목소리를 여러 겹으로 겹쳐서 노래할 때 풍성하게',
+    rows: [['chorusMix', '양', 0, 1, 0.01, pct]] },
+  { id: 'vc', h: '🎭 보이스 체인저', d: '목소리 높낮이·로봇 목소리', vc: true,
+    rows: [['vcPitch', '음 높이', -1, 1, 0.05, (v) => (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + Math.round(Math.abs(v) * 100) + '%']] },
+];
+const BC_MUSIC = [
+  { id: 'duck', h: '🦆 덕킹 (말하면 음악 줄이기)', on: 'duckOn', d: '말하는 동안 배경음악·PC 소리를 자동으로 줄이고, 말을 멈추면 다시 키워요',
+    rows: [['duckAmt', '줄이는 양', 3, 30, 1, (v) => '-' + v + 'dB'], ['duckThr', '민감도', -60, -20, 1, (v) => v + 'dB', 1]], note: '민감도: 숫자가 낮을수록 작은 목소리에도 줄어요' },
+  { id: 'karaoke', h: '🎤 보컬 제거 (MR 만들기)', on: 'karaoke', d: '배경음악에서 가운데 목소리를 지워 노래방 MR 처럼 · 곡에 따라 완벽하지 않아요', rows: [] },
+  { id: 'pc', h: '🔊 PC 소리 같이 내보내기', on: 'pcOn', d: '유튜브·멜론 등 PC 에서 나는 소리를 마이크 없이 바로 방송에 섞어요 (윈도우)',
+    rows: [['pcVol', 'PC 소리 볼륨', 0, 1.5, 0.01, pct]], note: '카톡 알림음 같은 PC 소리도 같이 나가요 · 켜는 동안 내 소리 듣기는 꺼져요 · 에디냥 PC를 다시 켜면 꺼진 상태로 시작' },
+];
+const BC_SFX = [
+  { id: 'bot', h: '🤖 봇 소리 방송에 섞기', onLocal: 'botSound', d: '스푼 음향(스티커 효과음)·TTS·지정인사 음원·룰렛 효과음 등 봇이 내는 소리를 시청자에게도 들려줘요',
+    rows: [['botVol', '봇 소리 볼륨', 0, 1.5, 0.01, pct]], note: '윈도우 기본 음성(TTS 엔진 "브라우저 기본")은 PC 소리 같이 내보내기로 나가요' },
+  { id: 'hk', h: '⌨️ 단축키', hk: true, d: '다른 창을 보고 있어도 눌러져요', rows: [] },
+];
+const BC_VOL = { inGain: ['입력 볼륨', 0, 3, 0.01, pct], outGain: ['출력 볼륨', 0, 2, 0.01, pct], monitorVol: ['내 소리 듣기 볼륨', 0, 1.5, 0.01, pct], mic2Vol: ['게스트 볼륨', 0, 3, 0.01, pct], bgmVol: ['음악 볼륨', 0, 1.5, 0.01, pct], padVol: ['효과음 볼륨', 0, 1.5, 0.01, pct] };
+
+let BC = { s: { ...BC_DEFAULT }, my: {}, bgm: [], bgmIdx: -1, pads: Array(8).fill(null), loop: false, autoNext: true, shuffle: false, xfade: 3, mode: 'dj', hotkeys: 'off', botSound: false, botLocal: true, sub: 'voice', adv: {} };
+let bcPadPick = -1, bcTesting = false, bcMeterTimer = null, bcRecOn = false, bcRecSince = 0, bcAdvanced = false;
+try {
+  const j = JSON.parse(localStorage.getItem('edinyang_bcast_settings') || 'null');
+  if (j) {
+    BC = { ...BC, ...j, s: { ...BC_DEFAULT, ...(j.s || {}), pcOn: false, micMute: false } };
+    if (!Array.isArray(BC.pads) || BC.pads.length !== 8) BC.pads = Array(8).fill(null);
+    if (!Array.isArray(BC.bgm)) BC.bgm = [];
+  }
+} catch (_) {}
+let bcServerSaveTimer = null;
+function bcSave() {
+  try { localStorage.setItem('edinyang_bcast_settings', JSON.stringify(BC)); } catch (_) {}
+  // ☁️ 서버에도 저장 (자주 바뀌는 슬라이더 때문에 1.5초 모아서 한 번만)
+  if (!window.bcast || typeof SERVER === 'undefined' || typeof authHeaders !== 'function') return;
+  clearTimeout(bcServerSaveTimer);
+  bcServerSaveTimer = setTimeout(() => {
+    fetch(SERVER + '/broadcast/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ data: BC }) }).catch(() => {});
+  }, 1500);
+}
+// ☁️ 서버에 저장된 설정 불러오기 (다른 PC에서 바꾼 값 이어받기) — 로그인 후 방송하기 화면을 처음 열 때 한 번
+let bcServerLoaded = false;
+async function bcLoadFromServer() {
+  if (bcServerLoaded || !window.bcast || typeof SERVER === 'undefined' || typeof authHeaders !== 'function') return;
+  bcServerLoaded = true;
+  try {
+    const r = await fetch(SERVER + '/broadcast/settings', { headers: authHeaders() });
+    const d = await r.json();
+    if (d && d.success && d.data && typeof d.data === 'object') {
+      const j = d.data;
+      BC = { ...BC, ...j, s: { ...BC_DEFAULT, ...(j.s || {}) }, pads: Array.isArray(j.pads) ? j.pads.concat(Array(8).fill(null)).slice(0, 8) : BC.pads, mode: 'dj' };
+      try { localStorage.setItem('edinyang_bcast_settings', JSON.stringify(BC)); } catch (_) {}
+      bcRenderAll(); bcSub(BC.sub || 'voice');
+      bcCall('set', { ...BC.s, pcOn: undefined });
+      if (window.bcast.hotkeys) window.bcast.hotkeys(BC.hotkeys || 'off');
+    }
+  } catch (_) {}
+}
+function bcFilePath(f) { try { return (f && f.path) || (window.bcast && window.bcast.pathOf ? window.bcast.pathOf(f) : '') || ''; } catch (_) { return ''; } }
+async function bcCall(fn, arg) { if (!window.bcast) return { ok: false, error: '업데이트가 필요해요' }; try { return await window.bcast.call(fn, arg); } catch (e) { return { ok: false, error: e.message }; } }
+function bcToast(m) { try { if (typeof showToast === 'function') return showToast(m); } catch (_) {} try { addLog('system', '🎙️방송하기', m); } catch (_) {} }
+function bcSet(p) { Object.assign(BC.s, p); bcSave(); bcCall('set', p); }
+const bcEsc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const BC_FMT = {};
+[...BC_VOICE, ...BC_MUSIC, ...BC_SFX].forEach((c) => c.rows.forEach((r) => { BC_FMT[r[0]] = r[5]; }));
+Object.entries(BC_VOL).forEach(([k, r]) => { BC_FMT[k] = r[4]; });
+function bcRow(key, label, min, max, step, fmt) {
+  const v = BC.s[key];
+  return `<div class="bc-row"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" oninput="bcSlide('${key}', this.value)"><span class="bc-val" id="bcv_${key}">${fmt(v)}</span></div>`;
+}
+function bcVolRow(k) { const r = BC_VOL[k]; return bcRow(k, ...r); }
+function bcSlide(key, val) { const v = +val; BC.s[key] = v; const el = document.getElementById('bcv_' + key); if (el) el.textContent = BC_FMT[key](v); bcSave(); bcCall('set', { [key]: v }); }
+function bcSw(key, label, onchange) { return `<label class="bc-sw"><input type="checkbox" ${BC.s[key] ? 'checked' : ''} onchange="${onchange || `bcSet({${key}:this.checked});bcRenderAll()`}"><i></i>${label || ''}</label>`; }
+function bcCard(c) {
+  const isOn = c.on ? !!BC.s[c.on] : c.onLocal ? !!BC[c.onLocal] : true;
+  const adv = BC.adv && BC.adv[c.id];
+  const simple = c.rows.filter((r) => !r[6]), advRows = c.rows.filter((r) => r[6]);
+  let head = '';
+  if (c.on === 'pcOn') head = `<label class="bc-sw"><input type="checkbox" ${BC.s.pcOn ? 'checked' : ''} onchange="bcSetPc(this.checked)"><i></i></label>`;
+  else if (c.on) head = bcSw(c.on, '');
+  else if (c.onLocal) head = `<label class="bc-sw"><input type="checkbox" ${BC[c.onLocal] ? 'checked' : ''} onchange="BC.${c.onLocal}=this.checked;bcSave();bcRenderAll()"><i></i></label>`;
+  let body = '';
+  if (c.toggles) body += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${c.toggles.map(([k, l]) => bcSw(k, l)).join('')}</div>`;
+  if (c.vc) body += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${[['off', '원래 목소리'], ['up', '🎈 높게'], ['down', '🐻 낮게'], ['robot', '🤖 로봇']].map(([m, l]) => `<button class="bc-chip ${bcVcKey() === m ? 'on' : ''}" onclick="bcVc('${m}')">${l}</button>`).join('')}</div>`;
+  body += simple.filter((r) => !(c.vc && BC.s.vcMode !== 'pitch')).map((r) => bcRow(...r)).join('');
+  if (c.id === 'bot') body += `<div style="margin:6px 0">${`<label class="bc-sw"><input type="checkbox" ${BC.botLocal ? 'checked' : ''} onchange="BC.botLocal=this.checked;bcSave()"><i></i>내 PC 스피커에서도 듣기</label>`}</div>`;
+  if (c.hk) body += `<select class="bc-sel" style="margin:6px 0" onchange="bcSetHotkeys(this.value)">${[['off', '끄기'], ['f', 'F1~F10'], ['ctrl', 'Ctrl+Shift+숫자']].map(([v, l]) => `<option value="${v}" ${BC.hotkeys === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="bc-note">${BC.hotkeys === 'off' ? '단축키를 켜면 방송 중에 키보드로 효과음·마이크·음악을 조절해요' : (BC.hotkeys === 'f' ? '<b>F1~F8</b> 효과음 패드 · <b>F9</b> 마이크 끄기/켜기 · <b>F10</b> 음악 부드럽게 끄기/켜기<br>※ 켜는 동안 다른 프로그램에서 F1~F10 키가 안 먹어요' : '<b>Ctrl+Shift+1~8</b> 효과음 패드 · <b>Ctrl+Shift+9</b> 마이크 끄기/켜기 · <b>Ctrl+Shift+0</b> 음악 부드럽게 끄기/켜기')}</div>`;
+  if (advRows.length) body += `<div class="bc-adv">${advRows.map((r) => bcRow(...r)).join('')}</div><div class="bc-more" onclick="bcAdv('${c.id}')">${adv ? '▲ 간단히' : '▼ 세부 조절'}</div>`;
+  if (c.note) body += `<div class="bc-note" style="margin-top:6px">${c.note}</div>`;
+  return `<div class="bc-fx ${isOn ? '' : 'off'} ${adv ? 'adv' : ''}"><div class="bc-fx-h"><span>${c.h}</span>${head}</div><div class="bc-fx-d">${c.d}</div><div class="bc-fx-body">${body}</div></div>`;
+}
+function bcAdv(id) { BC.adv = BC.adv || {}; BC.adv[id] = !BC.adv[id]; bcSave(); bcRenderAll(); }
+function bcVcKey() { if (BC.s.vcMode === 'robot') return 'robot'; if (BC.s.vcMode === 'pitch') return BC.s.vcPitch >= 0 ? 'up' : 'down'; return 'off'; }
+function bcVc(m) {
+  if (m === 'off') bcSet({ vcMode: 'off' });
+  else if (m === 'robot') bcSet({ vcMode: 'robot' });
+  else bcSet({ vcMode: 'pitch', vcPitch: m === 'up' ? Math.abs(BC.s.vcPitch || 0.4) || 0.4 : -(Math.abs(BC.s.vcPitch || 0.4) || 0.4) });
+  bcRenderAll();
+}
+function bcSub(p) { BC.sub = p; bcSave(); document.querySelectorAll('#tab-broadcast .bc-tab').forEach((b) => b.classList.toggle('on', b.dataset.p === p)); document.querySelectorAll('#tab-broadcast .bc-page').forEach((x) => x.classList.toggle('on', x.id === 'bcPage-' + p)); if (p === 'set') bcLoadDevices(); }
+
+function bcPresetMatch() { for (const [n, p] of Object.entries(BC_PRESETS)) { if (Object.keys(p).every((k) => BC.s[k] === p[k])) return n; } return ''; }
+function bcRenderAll() {
+  const s = BC.s;
+  const cur = bcPresetMatch();
+  document.getElementById('bcQuickPresets').innerHTML = Object.keys(BC_PRESETS).map((n) => `<button class="bc-chip ${cur === n ? 'on' : ''}" onclick="bcApplyPreset('${n}')">${n}</button>`).join('');
+  document.getElementById('bcVoiceFx').innerHTML = BC_VOICE.map(bcCard).join('');
+  document.getElementById('bcMusicFx').innerHTML = BC_MUSIC.map(bcCard).join('');
+  document.getElementById('bcSfxFx').innerHTML = BC_SFX.map(bcCard).join('');
+  document.getElementById('bcMusicVol').innerHTML = bcVolRow('bgmVol');
+  document.getElementById('bcPadVol').innerHTML = bcVolRow('padVol');
+  document.getElementById('bcMicVol').innerHTML = bcVolRow('inGain') + bcVolRow('outGain') + bcVolRow('monitorVol');
+  document.getElementById('bcMic2Vol').innerHTML = bcVolRow('mic2Vol');
+  document.getElementById('bcAutoNext').checked = !!BC.autoNext;
+  document.getElementById('bcShuffle').checked = !!BC.shuffle;
+  document.getElementById('bcBgmLoop').checked = !!BC.loop;
+  document.getElementById('bcXfade').value = BC.xfade; document.getElementById('bcXfadeV').textContent = BC.xfade + '초';
+  const my = document.getElementById('bcMyPresets'); const sel = my.value;
+  my.innerHTML = '<option value="">내 프리셋…</option>' + Object.keys(BC.my || {}).map((n) => `<option ${n === sel ? 'selected' : ''}>${bcEsc(n)}</option>`).join('');
+  bcRenderSet(); bcRenderBgm(); bcRenderPads(); bcRenderMute(); bcRenderMode(); bcRenderRec();
+}
+function bcRenderSet() {
+  document.getElementById('bcEnabled').checked = BC.s.enabled !== false;
+  document.getElementById('bcBitrate').value = String(BC.s.bitrate);
+  document.getElementById('bcStereo').checked = !!BC.s.stereo;
+  document.getElementById('bcMic2On').checked = !!BC.s.mic2On;
+  document.getElementById('bcGuestBox').classList.toggle('off', !BC.s.mic2On);
+}
+function bcPresetKeys() { const ks = new Set(); Object.values(BC_PRESETS).forEach((p) => Object.keys(p).forEach((k) => ks.add(k))); ['vcPitch', 'nsOn', 'deessAmt', 'echoTime', 'echoFb', 'echoMix', 'chorusMix'].forEach((k) => ks.add(k)); return [...ks]; }
+function bcApplyPreset(n) { const p = { ...BC_PRESETS[n] }; Object.assign(BC.s, p); bcSave(); bcCall('set', p); bcRenderAll(); bcToast(`🎚️ "${n}" 적용`); }
+function bcSaveMyPreset() {
+  const box = document.createElement('div');
+  box.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center"><div style="background:var(--surface);color:var(--text);padding:18px 20px;border-radius:12px;width:320px"><div style="font-weight:800;margin-bottom:8px">💾 프리셋 이름</div><input id="bcPresetName" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)" placeholder="예: 새벽 감성"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="bc-btn" id="bcPnCancel">취소</button><button class="bc-btn p" id="bcPnOk">저장</button></div></div></div>`;
+  document.body.appendChild(box);
+  const inp = box.querySelector('#bcPresetName'); inp.focus();
+  const done = (ok) => { const n = inp.value.trim(); box.remove(); if (!ok || !n) return; const p = {}; bcPresetKeys().forEach((k) => { p[k] = BC.s[k]; }); BC.my = BC.my || {}; BC.my[n] = p; bcSave(); bcRenderAll(); document.getElementById('bcMyPresets').value = n; bcToast(`💾 "${n}" 저장`); };
+  box.querySelector('#bcPnOk').onclick = () => done(true); box.querySelector('#bcPnCancel').onclick = () => done(false);
+  inp.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };
+}
+function bcLoadMyPreset() { const n = document.getElementById('bcMyPresets').value; if (!n || !BC.my[n]) return; Object.assign(BC.s, BC.my[n]); bcSave(); bcCall('set', BC.my[n]); bcRenderAll(); document.getElementById('bcMyPresets').value = n; bcToast(`🎚️ "${n}" 불러옴`); }
+function bcDelMyPreset() { const n = document.getElementById('bcMyPresets').value; if (!n) return; delete BC.my[n]; bcSave(); bcRenderAll(); }
+
+async function bcLoadDevices() {
+  const r = await bcCall('devices');
+  const list = (r && r.ok && Array.isArray(r.result)) ? r.result : [];
+  const opts = (sel) => '<option value="">기본 마이크</option>' + list.map((d) => `<option value="${bcEsc(d.id)}" ${d.id === sel ? 'selected' : ''}>${bcEsc(d.label)}</option>`).join('');
+  document.getElementById('bcDevice').innerHTML = opts(BC.s.deviceId);
+  document.getElementById('bcDevice2').innerHTML = opts(BC.s.mic2Id);
+}
+async function bcToggleTest() {
+  bcTesting = !bcTesting;
+  const r = await bcCall('test', bcTesting);
+  if (!r.ok) { bcTesting = false; bcToast('❌ ' + (r.error || '창을 먼저 열어주세요')); }
+  const b = document.getElementById('bcTestBtn'); b.textContent = bcTesting ? '⏹ 듣기 끄기' : '🎧 내 소리 듣기'; b.classList.toggle('ok', bcTesting);
+}
+
+// 🔇 마이크 끄기 — 내 목소리만 끄고 음악·효과음·PC 소리는 계속 나가요 (에디냥 PC를 다시 켜면 켜진 상태로 시작)
+function bcRenderMute() { const m = !!BC.s.micMute, b = document.getElementById('bcMuteBtn'); if (!b) return; b.textContent = m ? '🔇 마이크 꺼짐' : '🎤 마이크 켜짐'; b.classList.toggle('on', m); }
+function bcToggleMute() { bcSet({ micMute: !BC.s.micMute }); bcRenderMute(); bcToast(BC.s.micMute ? '🔇 마이크 껐어요 (음악·효과음은 나가요)' : '🎤 마이크 켰어요'); }
+
+// ⏺ 녹음
+function bcRenderRec() { const b = document.getElementById('bcRecBtn'); if (!b) return; if (bcRecOn) { const s = Math.floor((Date.now() - bcRecSince) / 1000); b.textContent = `⏹ 녹음 ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; } else b.textContent = '⏺ 녹음'; b.classList.toggle('on', bcRecOn); }
+async function bcToggleRec() {
+  const r = await bcCall(bcRecOn ? 'recStop' : 'recStart');
+  if (!r.ok) return bcToast('❌ 녹음: ' + (r.error || '실패'));
+  bcRecOn = !!(r.result && r.result.on); bcRecSince = bcRecOn ? Date.now() : 0; bcRenderRec();
+  if (bcRecOn) bcToast('⏺ 녹음 시작 — 방송으로 나가는 소리를 저장해요');
+}
+if (window.bcast && window.bcast.onRec) window.bcast.onRec((st) => { if (st.saved) bcToast('💾 녹음 저장: ' + String(st.file || '').split(/[\\/]/).pop()); });
+
+// 🔊 PC 소리
+async function bcSetPc(on) {
+  const r = await bcCall('set', { pcOn: !!on });
+  const err = r && r.result && r.result.__pcErr;
+  if (!r.ok || err) { BC.s.pcOn = false; bcToast('❌ PC 소리: ' + (err || r.error || '켜지 못했어요')); }
+  else { BC.s.pcOn = !!on; bcToast(on ? '🔊 PC 소리를 방송에 섞는 중 (내 소리 듣기는 꺼져요)' : '🔇 PC 소리 끔'); }
+  bcSave(); bcRenderAll();
+}
+
+// 🎵 배경음악 — 재생목록 · 자동 다음 곡 · 셔플 · 크로스페이드
+function bcAddBgm(files) { for (const f of files || []) { const p = bcFilePath(f); if (p) BC.bgm.push({ path: p, name: f.name }); } bcSave(); bcRenderBgm(); }
+function bcRenderBgm() {
+  const el = document.getElementById('bcBgmList'); if (!el) return;
+  el.innerHTML = BC.bgm.length ? BC.bgm.map((b, i) => `<div class="bc-li ${i === BC.bgmIdx ? 'on' : ''}"><span title="${bcEsc(b.path)}" ondblclick="bcBgmPlay(${i})">${i === BC.bgmIdx ? '▶ ' : (i + 1) + '. '}${bcEsc(b.name)}</span><button class="bc-btn" onclick="bcBgmPlay(${i})">▶</button><button class="bc-btn" onclick="bcBgmMove(${i},-1)">▲</button><button class="bc-btn" onclick="bcBgmDel(${i})">✕</button></div>`).join('') : '<div class="bc-note" style="padding:14px">mp3·wav·m4a 파일을 추가하세요 (여러 개 한 번에 가능)</div>';
+}
+async function bcBgmPlay(i, fade) {
+  if (i === undefined) i = BC.bgmIdx >= 0 ? BC.bgmIdx : 0;
+  const b = BC.bgm[i]; if (!b) return bcToast('🎵 재생목록에 음악을 추가하세요');
+  const u = await window.bcast.fileUrl(b.path);
+  if (!u.ok) return bcToast('❌ ' + u.error);
+  const r = await bcCall('playBgm', { url: u.url, loop: !!BC.loop, fade: fade == null ? 0 : fade });
+  if (!r.ok) return bcToast('❌ ' + (r.error || '재생 실패'));
+  BC.bgmIdx = i; bcAdvanced = false; bcSave(); bcRenderBgm();
+}
+function bcNextIdx() { if (!BC.bgm.length) return -1; if (BC.shuffle && BC.bgm.length > 1) { let n; do { n = Math.floor(Math.random() * BC.bgm.length); } while (n === BC.bgmIdx); return n; } return (BC.bgmIdx + 1) % BC.bgm.length; }
+function bcBgmPause() { bcCall('bgmPause'); }
+function bcBgmFadeToggle() { bcCall('bgmFade', { secs: Math.max(1, BC.xfade || 2) }); }
+function bcBgmStop() { bcCall('stopBgm', { fade: 1 }); BC.bgmIdx = -1; bcSave(); bcRenderBgm(); }
+function bcBgmNext() { const n = bcNextIdx(); if (n >= 0) bcBgmPlay(n, BC.xfade || 0); }
+function bcBgmDel(i) { BC.bgm.splice(i, 1); if (BC.bgmIdx === i) bcBgmStop(); else if (BC.bgmIdx > i) BC.bgmIdx--; bcSave(); bcRenderBgm(); }
+function bcBgmMove(i, d) { const j = i + d; if (j < 0 || j >= BC.bgm.length) return; [BC.bgm[i], BC.bgm[j]] = [BC.bgm[j], BC.bgm[i]]; if (BC.bgmIdx === i) BC.bgmIdx = j; else if (BC.bgmIdx === j) BC.bgmIdx = i; bcSave(); bcRenderBgm(); }
+function bcBgmClear() { BC.bgm = []; bcBgmStop(); }
+// 곡이 끝나가면 다음 곡으로 (크로스페이드) + 지금 재생 표시
+setInterval(async () => {
+  if (BC.bgmIdx < 0 || !window.bcast) { const t = document.getElementById('bcNowTitle'); if (t) t.textContent = '재생 중인 음악 없음'; return; }
+  const r = await bcCall('status'); const b = r && r.ok && r.result && r.result.bgm;
+  const t = document.getElementById('bcNowTitle'), pg = document.getElementById('bcNowProg');
+  const cur = BC.bgm[BC.bgmIdx];
+  if (t) t.textContent = cur ? `${b && b.playing ? '' : '⏸ '}${cur.name}` : '재생 중인 음악 없음';
+  if (pg && b && b.dur) pg.style.width = Math.min(100, b.cur / b.dur * 100) + '%';
+  if (!b || BC.loop || !BC.autoNext || bcAdvanced) return;
+  const left = b.dur ? b.dur - b.cur : 99;
+  if ((b.playing && b.dur && left <= Math.max(0.4, BC.xfade || 0)) || b.ended) { bcAdvanced = true; const n = bcNextIdx(); if (n >= 0) bcBgmPlay(n, b.ended ? 0 : (BC.xfade || 0)); }
+}, 700);
+
+// 🔔 효과음 패드
+function bcPadKey(i) { return BC.hotkeys === 'f' ? 'F' + (i + 1) : BC.hotkeys === 'ctrl' ? '⌃⇧' + (i + 1) : String(i + 1); }
+function bcRenderPads() {
+  const el = document.getElementById('bcPads'); if (!el) return;
+  el.innerHTML = BC.pads.map((p, i) => `<button class="bc-pad ${p ? 'set' : ''}" id="bcPad${i}" onclick="bcPad(${i})" oncontextmenu="event.preventDefault();bcPadClear(${i})"><span class="k">${bcPadKey(i)}</span>${p ? bcEsc(p.name.replace(/\.[^.]+$/, '')) : '＋'}</button>`).join('');
+}
+async function bcPad(i) {
+  const p = BC.pads[i];
+  if (!p) { bcPadPick = i; document.getElementById('bcPadFile').click(); return; }
+  const el = document.getElementById('bcPad' + i); if (el) { el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 150); }
+  const u = await window.bcast.fileUrl(p.path); if (!u.ok) return bcToast('❌ ' + u.error);
+  const r = await bcCall('playPad', { url: u.url }); if (!r.ok) bcToast('❌ ' + (r.error || '재생 실패'));
+}
+function bcSetPadFile(files) { const f = files && files[0]; const p = bcFilePath(f); if (!f || !p || bcPadPick < 0) return; BC.pads[bcPadPick] = { path: p, name: f.name }; bcPadPick = -1; bcSave(); bcRenderPads(); }
+function bcPadClear(i) { BC.pads[i] = null; bcSave(); bcRenderPads(); }
+
+// ⌨️ 단축키
+async function bcSetHotkeys(mode) {
+  BC.hotkeys = mode; bcSave();
+  const r = window.bcast && window.bcast.hotkeys ? await window.bcast.hotkeys(mode) : null;
+  if (r && r.failed && r.failed.length) bcToast('⚠️ 다른 프로그램이 쓰고 있어서 못 잡은 키: ' + r.failed.join(', '));
+  bcRenderAll();
+}
+if (window.bcast && window.bcast.onHotkey) window.bcast.onHotkey((act) => {
+  if (/^pad\d$/.test(act)) { const i = +act.slice(3) - 1; if (BC.pads[i]) bcPad(i); }
+  else if (act === 'mute') bcToggleMute();
+  else if (act === 'fade') bcBgmFadeToggle();
+});
+
+// 🤖 봇 소리 방송에 섞기 — 봇 창에서 재생되는 효과음·TTS 등을 방송 엔진에서도 같이 재생
+const bcSkipAudio = new WeakSet();
+async function bcToDataUrl(src) {
+  if (/^data:/i.test(src)) return src;
+  const res = await fetch(src); const blob = await res.blob();
+  return await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
+}
+async function bcRelay(src, vol) {
+  try {
+    let url = src;
+    if (/^file:/i.test(src)) { const p = decodeURIComponent(src.replace(/^file:\/+/i, /Win/i.test(navigator.platform) ? '' : '/')); const u = await window.bcast.fileUrl(p); if (!u.ok) return; url = u.url; }
+    else url = await bcToDataUrl(src);
+    await bcCall('playSfx', { url, vol: vol == null ? 1 : vol, bus: 'bot' });
+  } catch (_) {}
+}
+(function () {
+  const origPlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    try {
+      if (BC.botSound && window.bcast && this instanceof HTMLAudioElement && !bcSkipAudio.has(this) && !this.__bcSkip) {
+        const src = this.currentSrc || this.src;
+        if (src) {
+          bcRelay(src, this.volume);
+          if (!BC.botLocal) this.muted = true;
+        }
+      }
+    } catch (_) {}
+    return origPlay.apply(this, arguments);
+  };
+})();
+
+// 📻 에디냥 PC판은 방송 창(스푼 웹) 하나에서만 방송해요 (봇은 서버에서 돌아서 스푼 창이 따로 없음)
+function bcRenderMode() {}
+async function bcOpenWin() {
+  if (!window.bcast || !window.bcast.openWin) return bcToast('에디냥 PC판에서만 쓸 수 있어요');
+  await window.bcast.openWin();
+  setTimeout(() => { bcCall('set', { ...BC.s, pcOn: undefined }); bcLoadDevices(); }, 2500);
+}
+if (window.bcast && window.bcast.onWin) window.bcast.onWin((open) => { if (open) setTimeout(() => { bcCall('set', { ...BC.s, pcOn: undefined }); bcLoadDevices(); }, 2500); });
+
+// 📊 소리 막대 + 상태 (방송하기 화면 볼 때만)
+function bcMeterPct(db) { return Math.max(0, Math.min(100, (db + 60) / 60 * 100)); }
+async function bcTick() {
+  const tab = document.getElementById('tab-broadcast');
+  if (!tab || !tab.classList.contains('active')) { clearInterval(bcMeterTimer); bcMeterTimer = null; return; }
+  const r = await bcCall('levels');
+  const st = document.getElementById('bcState');
+  if (r && r.ok && r.result) {
+    document.getElementById('bcMeterMic').style.width = bcMeterPct(r.result.mic) + '%';
+    document.getElementById('bcMeterOut').style.width = bcMeterPct(r.result.out) + '%';
+    if (r.result.active) { st.textContent = '🔴 방송에 적용 중'; st.style.background = 'rgba(239,68,68,.15)'; st.style.color = '#ef4444'; }
+    else { st.textContent = BC.s.enabled === false ? '꺼짐' : '대기 중 (방송 켜면 적용)'; st.style.background = ''; st.style.color = ''; }
+    if (!!r.result.rec !== bcRecOn) { bcRecOn = !!r.result.rec; if (!bcRecOn) bcRecSince = 0; }
+  } else { st.textContent = '방송 창을 열어주세요'; st.style.background = ''; st.style.color = ''; }
+  bcRenderRec();
+}
+function bcOnShow() { bcLoadFromServer(); bcRenderAll(); bcSub(BC.sub || 'voice'); bcLoadDevices(); bcCall('set', { ...BC.s, pcOn: undefined }); if (!bcMeterTimer) bcMeterTimer = setInterval(bcTick, 120); }
+// 화면 전환은 에디냥 selectPanel('broadcast') 에서 bcOnShow() 를 불러줘요.
+// PC판이면 시작할 때 저장된 설정을 방송 엔진에 넣어두기 (방송하기 화면을 안 열어도 적용) + 단축키 복원
+if (window.bcast) setTimeout(() => {
+  bcCall('set', { ...BC.s, pcOn: undefined });
+  if (BC.hotkeys && BC.hotkeys !== 'off' && window.bcast.hotkeys) window.bcast.hotkeys(BC.hotkeys);
+}, 4000);
+</script>
+</div>
+
 
       <!-- 📊 대시보드 -->
       <div class="panel" data-panel="dashboard">
@@ -6064,12 +6603,15 @@ const PANEL_META={
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
+  broadcast:['🎙️ 방송하기','에디냥 PC판 전용 — 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
 
 document.querySelectorAll('.nav-item').forEach(item=>{
   item.addEventListener('click',()=>selectPanel(item.dataset.panel));
 });
+// 🎙️ 방송하기 메뉴는 에디냥 PC판(window.bcast 가 있는 창)에서만 보여준다
+if(window.bcast&&window.bcast.isEdiNyangDesktop){ const bn=document.getElementById('broadcastNav'); if(bn) bn.style.display=''; }
 
 function selectPanel(name){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.panel===name));
@@ -6090,6 +6632,7 @@ function selectPanel(name){
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
+  if(name==='broadcast'&&typeof bcOnShow==='function')bcOnShow();
   if(name==='dashboard'&&document.getElementById('dashCalGrid'))loadDashboardData();
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();

@@ -1,0 +1,38 @@
+{
+  "name": "edinyang-pc",
+  "productName": "에디냥 PC",
+  "version": "1.0.0",
+  "description": "에디냥 PC판 — 에디냥 웹 + 스푼 방송하기(고음질 사운드)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.edinyang.pc",
+    "productName": "에디냥 PC",
+    "files": [
+      "main.js",
+      "preload-app.js",
+      "preload-spoon.js",
+      "broadcast_inject.js",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "artifactName": "edinyang-pc-setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "에디냥 PC"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  }
+}
