@@ -331,53 +331,36 @@
     const w = Math.min(window.innerWidth, 600), h = Math.min(window.innerHeight, 800)
     return { x: (window.innerWidth - w) / 2, y: (window.innerHeight - h) / 2, w, h }
   }
-  // 💬 선물 애니메이션이 나오는 동안 방송 화면 칸의 채팅 글씨를 감춘다 (폰처럼 애니메이션만 보이게)
-  //  · 방송 칸 안에서 위아래로 스크롤되는 가장 큰 칸(채팅 목록)을 찾아 잠깐 투명하게 → 끝나면 원래대로
-  //  · 못 찾으면 그 칸의 글씨만 투명하게 (위쪽 프로필·아래 입력창은 그대로)
+  // 💬 선물 애니메이션이 나오는 동안 방송 화면 칸의 내용(프로필·숫자·채팅·입력창)만 감춘다 — 배경은 그대로
+  //  · 칸 안을 위에서부터 훑으면서, 칸의 30% 이상을 차지하는 큰 칸(배경·채팅 목록 같은 틀)은 남기고 그 안으로 들어가고,
+  //    그보다 작은 것(프로필·숫자 알약·채팅 한 줄·버튼 등)은 통째로 잠깐 안 보이게 한다 → 끝나면 원래대로
   let chatHidden = null
-  function findChatList(col) {
-    let best = null, bestArea = 0
-    col.querySelectorAll('div,ul,section').forEach((el) => {
-      if (el.offsetHeight < 160 || el.offsetWidth < 160) return
-      const oy = getComputedStyle(el).overflowY
-      if (oy !== 'auto' && oy !== 'scroll') return
-      const area = el.offsetHeight * el.offsetWidth
-      if (area > bestArea) { best = el; bestArea = area }
-    })
-    return best
-  }
-  // 🌑 선물 애니메이션 뒤를 어둡게 덮어서 방송 화면 칸의 내용(프로필·채팅 등)이 비치지 않게 — 선물만 보이게
-  function giftBackdrop(on) {
-    let bg = document.getElementById('__ediGiftBg')
-    if (!on) { if (bg) { bg.style.opacity = '0'; setTimeout(() => { if (bg.style.opacity === '0') bg.remove() }, 320) } return }
-    const a = giftArea()
-    if (!bg) {
-      bg = document.createElement('div'); bg.id = '__ediGiftBg'
-      bg.style.cssText = 'position:fixed;z-index:2147483639;pointer-events:none;background:#0b0b10;opacity:0;transition:opacity .3s ease;border-radius:18px'
-      document.body.appendChild(bg)
-    }
-    bg.style.left = a.x + 'px'; bg.style.top = a.y + 'px'; bg.style.width = a.w + 'px'; bg.style.height = a.h + 'px'
-    requestAnimationFrame(() => { bg.style.opacity = '0.96' })
-  }
   function hideChat(col) {
-    giftBackdrop(true)
     if (chatHidden || !col) return
     try {
       if (!document.getElementById('__ediChatHideCss')) {
         const st = document.createElement('style'); st.id = '__ediChatHideCss'
-        st.textContent = '.__ediChatOff{opacity:0!important;transition:opacity .25s ease!important}.__ediChatFade{transition:opacity .3s ease!important}.__ediChatTxt,.__ediChatTxt *{color:transparent!important;text-shadow:none!important}'
+        st.textContent = '.__ediHid{visibility:hidden!important}'
         ;(document.head || document.documentElement).appendChild(st)
       }
-      const list = findChatList(col)
-      if (list) { list.classList.add('__ediChatFade', '__ediChatOff'); chatHidden = { el: list, cls: '__ediChatOff' } }
-      else { col.classList.add('__ediChatTxt'); chatHidden = { el: col, cls: '__ediChatTxt' } }
+      const cr = col.getBoundingClientRect(), A = Math.max(1, cr.width * cr.height), list = []
+      const walk = (el, depth) => {
+        for (const c of Array.from(el.children)) {
+          if (c.id && c.id.indexOf('__edi') === 0) continue
+          const r = c.getBoundingClientRect(), area = r.width * r.height
+          if (area <= 0) continue
+          if (area >= A * 0.3 && depth < 12) walk(c, depth + 1) // 큰 틀(배경 등)은 남기고 안쪽만
+          else if (!c.classList.contains('__ediHid')) { c.classList.add('__ediHid'); list.push(c) }
+        }
+      }
+      walk(col, 0)
+      chatHidden = list
     } catch (_) { chatHidden = null }
   }
   function showChat() {
-    giftBackdrop(false)
     if (!chatHidden) return
-    const h = chatHidden; chatHidden = null
-    try { h.el.classList.remove(h.cls); setTimeout(() => { try { h.el.classList.remove('__ediChatFade') } catch (_) {} }, 400) } catch (_) {}
+    const list = chatHidden; chatHidden = null
+    list.forEach((c) => { try { c.classList.remove('__ediHid') } catch (_) {} })
   }
   const giftKey = (g) => g.nick + '|' + g.sticker
 
