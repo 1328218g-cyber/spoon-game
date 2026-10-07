@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
 contextBridge.exposeInMainWorld('bcast', {
   isEdiNyangDesktop: true,
   version: () => ipcRenderer.invoke('app:version'),
+  appToken: () => ipcRenderer.invoke('app:token'), // 방송하기 팝업 창 전용 (에디냥 창의 로그인 정보)
   call: (fn, arg) => ipcRenderer.invoke('bcast:call', fn, arg),
   fileUrl: (p) => ipcRenderer.invoke('bcast:file-url', p),
   // 파일 선택창에서 고른 파일의 실제 경로 (음악·효과음 파일을 방송 창에서 재생하려면 경로가 필요)

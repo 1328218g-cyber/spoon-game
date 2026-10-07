@@ -860,6 +860,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="content">
 
 <!-- 🎙️ 방송하기 (에디냥 PC판 전용) — 짜잔 에디봇 방송하기를 그대로 옮김. 스푼 방송 창에 고음질 사운드(효과·음악·효과음·녹음)를 넣어요 -->
+      <!-- BCPANEL:START — 서버 GET /bcpanel 이 여기부터 BCPANEL:END 까지를 잘라 방송 창 팝업 페이지로 쓴다 -->
       <div class="panel" data-panel="broadcast" id="tab-broadcast">
   <!-- 💻 웹(PC 브라우저)으로 들어왔을 때만 보이는 설치 안내 — PC판(window.bcast)에서는 숨기고 아래 방송하기 화면을 보여준다 -->
   <div class="card" id="bcDownloadCard" style="display:none">
@@ -1166,6 +1167,16 @@ async function bcLoadFromServer() {
     }
   } catch (_) {}
 }
+// 🔁 같은 PC의 다른 창(방송 창 팝업 ↔ 에디냥 창)에서 방송하기 설정을 바꾸면 이 창의 값도 바로 맞춘다
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'edinyang_bcast_settings' || !e.newValue) return;
+  try {
+    const j = JSON.parse(e.newValue);
+    BC = { ...BC, ...j, s: { ...BC_DEFAULT, ...(j.s || {}) }, pads: Array.isArray(j.pads) ? j.pads.concat(Array(8).fill(null)).slice(0, 8) : BC.pads, mode: 'dj' };
+    const t = document.getElementById('tab-broadcast');
+    if (t && (t.classList.contains('active') || t.classList.contains('bc-floating'))) { bcRenderAll(); bcSub(BC.sub || 'voice'); }
+  } catch (_) {}
+});
 function bcFilePath(f) { try { return (f && f.path) || (window.bcast && window.bcast.pathOf ? window.bcast.pathOf(f) : '') || ''; } catch (_) { return ''; } }
 async function bcCall(fn, arg) { if (!window.bcast) return { ok: false, error: '업데이트가 필요해요' }; try { return await window.bcast.call(fn, arg); } catch (e) { return { ok: false, error: e.message }; } }
 function bcToast(m) { try { if (typeof showToast === 'function') return showToast(m); } catch (_) {} try { addLog('system', '🎙️방송하기', m); } catch (_) {} }
@@ -1456,6 +1467,7 @@ if (window.bcast) setTimeout(() => {
 }, 4000);
 </script>
 </div>
+      <!-- BCPANEL:END -->
 
 
       <!-- 📊 대시보드 -->

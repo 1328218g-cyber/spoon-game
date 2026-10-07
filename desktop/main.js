@@ -3,7 +3,7 @@
 //  · 창 2 (방송 창): 스푼 웹. 여기서 방송을 켜면 고음질 사운드 엔진(broadcast_inject.js)이 마이크 대신
 //    리버브·EQ·컴프레서·배경음악·효과음이 섞인 소리를 넣는다. (짜잔 에디봇 방송하기와 같은 엔진)
 //  · 에디냥 창의 🎙️ 방송하기 메뉴 → (preload-app.js) → 여기 IPC → 방송 창 엔진(window.__ediAudio) 순서로 조절된다.
-const { app, BrowserWindow, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu } = require('electron')
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -16,6 +16,8 @@ const SPOON_PARTITION = 'persist:edinyang-spoon' // 방송 창 로그인은 따�
 
 let appWin = null
 let bcastWin = null
+let panelWin = null // 방송 창의 🎙️ 버튼으로 여는 방송하기 팝업 창 (서버 /bcpanel)
+let dockView = null // 방송 창 왼쪽(스푼 "오디오 설정" 자리)에 고정으로 붙는 방송하기 화면 (서버 /bcpanel)
 let bcastCloseOk = false
 let engineCode = ''
 let buttonCode = '' // 방송 창에 띄우는 🎙️ 방송하기 버튼 (spoon_button.js)
@@ -28,7 +30,12 @@ const alive = (w) => w && !w.isDestroyed()
 if (!app.requestSingleInstanceLock()) { app.quit() }
 app.on('second-instance', () => { if (alive(appWin)) { if (appWin.isMinimized()) appWin.restore(); appWin.show(); appWin.focus() } })
 
-function sendToApp(channel, data) { if (alive(appWin)) appWin.webContents.send(channel, data) }
+function sendToApp(channel, data) {
+  if (alive(appWin)) appWin.webContents.send(channel, data)
+  // 방송하기 팝업 창에도 상태(녹음·방송 창 열림)는 알려준다 — 단축키는 에디냥 창 한 곳에서만 처리 (두 번 울리지 않게)
+  if (alive(panelWin) && channel !== 'bcast:hotkey') panelWin.webContents.send(channel, data)
+  if (dockView && !dockView.webContents.isDestroyed() && channel !== 'bcast:hotkey') dockView.webContents.send(channel, data)
+}
 
 // ─────────────────────────────────────────────
 // 🎵 음악·효과음 파일 → 방송 창이 재생할 수 있는 주소로 (사용자가 고른 파일만, 127.0.0.1 에서만)
@@ -146,7 +153,7 @@ function openBroadcastWin() {
       if (response === 1) really()
     }).catch(really)
   })
-  bcastWin.on('closed', () => { bcastWin = null; sendToApp('bcast:win', false) })
+  bcastWin.on('closed', () => { destroyDock(); bcastWin = null; sendToApp('bcast:win', false) })
   sendToApp('bcast:win', true)
 }
 
@@ -199,12 +206,58 @@ ipcMain.handle('bcast:file-url', (_e, filePath) => {
 const recDir = () => path.join(app.getPath('downloads'), '에디냥 방송녹음')
 const recFiles = new Map() // id -> { fd, file }
 const pad2 = (n) => String(n).padStart(2, '0')
-// 🎙️ 방송 창의 "방송하기" 버튼 → 에디냥 창을 앞으로 가져오고 방송하기 팝업 열기
+// 🎙️ 방송 창의 "방송하기" 버튼 → 방송 창 위에 방송하기 팝업 창을 띄운다 (에디냥 창은 그대로 두고)
+function openPanelWin() {
+  if (alive(panelWin)) { if (panelWin.isMinimized()) panelWin.restore(); panelWin.show(); panelWin.focus(); return }
+  const { screen } = require('electron')
+  const wa = screen.getPrimaryDisplay().workAreaSize
+  const b = alive(bcastWin) ? bcastWin.getBounds() : { x: 40, y: 0, width: 520 }
+  const width = Math.min(680, wa.width), height = Math.min(860, wa.height)
+  // 방송 창 오른쪽 옆에 붙여서 띄우고, 자리가 없으면 화면 오른쪽 끝
+  const x = Math.min(b.x + b.width + 8, Math.max(0, wa.width - width)), y = Math.max(0, b.y)
+  panelWin = new BrowserWindow({
+    width, height, x, y, title: '🎙️ 에디냥 방송하기',
+    parent: alive(bcastWin) ? bcastWin : undefined, // 방송 창보다 항상 위에
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'preload-app.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  })
+  panelWin.setMenuBarVisibility(false)
+  panelWin.loadURL(SERVER + '/bcpanel')
+  panelWin.on('page-title-updated', (e) => { e.preventDefault() })
+  panelWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
+  panelWin.on('closed', () => { panelWin = null })
+}
+// 📌 방송 창 왼쪽 고정 화면 — 스푼 "오디오 설정" 칸 자리(spoon_button.js 가 알려줌)에 방송하기 화면을 겹쳐 띄운다
+function destroyDock() {
+  if (!dockView) return
+  try { if (alive(bcastWin)) bcastWin.contentView.removeChildView(dockView) } catch (_) {}
+  try { if (!dockView.webContents.isDestroyed()) dockView.webContents.close() } catch (_) {}
+  dockView = null
+}
+ipcMain.on('bcast:slot', (e, rect) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  if (!rect || !(rect.w > 0) || !(rect.h > 0)) { if (dockView) dockView.setVisible(false); return }
+  if (!dockView) {
+    dockView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload-app.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    dockView.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
+    dockView.webContents.loadURL(SERVER + '/bcpanel?dock=1')
+    bcastWin.contentView.addChildView(dockView)
+  }
+  const z = bcastWin.webContents.getZoomFactor() || 1
+  dockView.setBounds({ x: Math.round(rect.x * z), y: Math.round(rect.y * z), width: Math.round(rect.w * z), height: Math.round(rect.h * z) })
+  dockView.setVisible(true)
+})
+
 ipcMain.on('bcast:show-panel', (e) => {
-  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !alive(appWin)) return
-  if (appWin.isMinimized()) appWin.restore()
-  appWin.show(); appWin.focus()
-  appWin.webContents.executeJavaScript("typeof bcFloatOpen === 'function' && (bcFloatOpen(), true)", true).catch(() => {})
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  openPanelWin()
+})
+// 팝업 창이 로그인 정보를 물어볼 때 ("자동 로그인 유지"를 안 켜서 에디냥 창에만 있는 경우)
+ipcMain.handle('app:token', async (e) => {
+  const fromPanel = alive(panelWin) && e.sender === panelWin.webContents
+  const fromDock = dockView && !dockView.webContents.isDestroyed() && e.sender === dockView.webContents
+  if ((!fromPanel && !fromDock) || !alive(appWin)) return ''
+  try { return await appWin.webContents.executeJavaScript("typeof djToken !== 'undefined' ? djToken : ''", true) } catch (_) { return '' }
 })
 
 ipcMain.on('bcast:rec', (e, m) => {

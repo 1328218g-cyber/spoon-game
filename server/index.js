@@ -19851,6 +19851,71 @@ app.post('/admin/autojoin-cleanup-days', auth.requireAuth, (req, res) => {
 // 🎙️ 방송하기 (에디냥 PC판 전용) — 사운드 설정(목소리 효과·프리셋·재생목록·효과음 패드·단축키)을 계정에 저장해서
 // 다른 PC에서 에디냥 PC를 켜도 같은 값으로 이어지게 한다. 화면(index.html 방송하기 패널)의 BC 객체를 통째로 저장한다.
 // 음악·효과음은 PC에 있는 파일 경로만 저장되고 파일 자체는 서버에 올라가지 않는다.
+// 🪟 방송하기 전용 팝업 페이지 (에디냥 PC의 방송 창에서 🎙️ 버튼을 누르면 열리는 작은 창).
+// index.html 안의 방송하기 화면(BCPANEL:START~END)을 그대로 잘라서 쓴다 — 화면 코드는 index.html 한 곳만 관리.
+// 에디냥 전체 화면이 아니라서 실시간 이벤트(SSE)·TTS·입장 효과음이 두 번 나는 일이 없다.
+let _bcPanelCache = { mtime: 0, html: '' }
+app.get('/bcpanel', (req, res) => {
+  try {
+    const fp = path.join(__dirname, 'public', 'index.html')
+    const st = fs.statSync(fp)
+    if (st.mtimeMs !== _bcPanelCache.mtime) {
+      const src = fs.readFileSync(fp, 'utf-8')
+      const css = src.slice(src.indexOf('<style>'), src.indexOf('</style>') + '</style>'.length)
+      const a = src.indexOf('<!-- BCPANEL:START'), b = src.indexOf('<!-- BCPANEL:END -->')
+      if (a < 0 || b < 0) throw new Error('방송하기 화면을 찾지 못했어요')
+      const panel = src.slice(a, b).replace('class="panel" data-panel="broadcast" id="tab-broadcast"', 'class="panel active" data-panel="broadcast" id="tab-broadcast"')
+      _bcPanelCache = { mtime: st.mtimeMs, html: `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🎙️ 에디냥 방송하기</title>
+<script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+${css}
+<style>body{overflow:auto;padding:14px}.panel{max-width:none}#bcDownloadCard,#bcFloatBar{display:none!important}
+/* 📌 방송 창 왼쪽 고정(좁은 칸) — 한 줄로 쌓고 글자·여백을 줄인다 */
+html.bc-dock body{padding:8px}
+html.bc-dock #bcOpenBtn{display:none}
+@media (max-width:560px){
+ html body #tab-broadcast .card{padding:12px}
+ html body #tab-broadcast .bc-grid{grid-template-columns:1fr !important;gap:10px}
+ html body #tab-broadcast .bc-deck{grid-template-columns:1fr;gap:10px}
+ html body{overflow-x:hidden}
+ html body #tab-broadcast .bc-big{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+ html body #tab-broadcast .bc-bigbtn{min-width:0;padding:8px 2px;font-size:11px;border-radius:10px;line-height:1.3}
+ html body #tab-broadcast .bc-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:2px 0 10px}
+ html body #tab-broadcast .bc-tab{padding:7px 4px;font-size:12px;border-radius:10px}
+ html body #tab-broadcast .bc-now .bc-btn{padding:5px 7px;font-size:11.5px}
+ html body #tab-broadcast .bc-now .t{flex:1 1 100%}
+ html body #tab-broadcast .bc-pill{font-size:11px;padding:4px 8px}
+ html body #tab-broadcast .bc-row{grid-template-columns:70px 1fr 44px;gap:6px;font-size:12px}
+ html body #tab-broadcast .bc-now{flex-wrap:wrap;padding:8px}
+ html body #tab-broadcast .bc-pads{grid-template-columns:repeat(2,1fr)}
+ html body #tab-broadcast .bc-fx{padding:10px}
+ html body #tab-broadcast .bc-chip{padding:5px 8px;font-size:11px}
+ html body #tab-broadcast .bc-pad16[style*="flex-wrap"]{gap:4px !important}
+}
+</style>
+<script>if(/[?&]dock=1/.test(location.search))document.documentElement.classList.add('bc-dock');</script>
+<script>
+const SERVER=location.origin;
+let djToken=localStorage.getItem('djToken')||sessionStorage.getItem('djToken')||'';
+function authHeaders(){ return djToken ? {'Authorization':'Bearer '+djToken} : {}; }
+function showToast(msg){ const t=document.getElementById('toast'); if(!t)return; t.textContent=msg; t.classList.add('show'); clearTimeout(t.__h); t.__h=setTimeout(()=>t.classList.remove('show'),2500); }
+function selectPanel(){}
+</script></head><body>
+<div class="toast" id="toast"></div>
+${panel}
+<script>
+(async function(){
+  // "자동 로그인 유지"를 안 켠 경우엔 로그인 정보가 에디냥 창에만 있어서 PC판에 물어본다
+  if(!djToken && window.bcast && window.bcast.appToken){ try{ djToken = (await window.bcast.appToken()) || ''; }catch(e){} }
+  if(!window.bcast){ document.body.innerHTML='<p style="padding:30px;text-align:center">에디냥 PC에서만 열 수 있는 화면이에요.</p>'; return; }
+  bcOnShow();
+})();
+</script></body></html>` }
+    }
+    res.set('Cache-Control', 'no-store').type('html').send(_bcPanelCache.html)
+  } catch (e) { res.status(500).send('방송하기 화면을 만들지 못했어요: ' + e.message) }
+})
+
 app.get('/broadcast/settings', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, data: settings.broadcastAudio || null })
