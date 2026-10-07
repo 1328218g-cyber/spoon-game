@@ -6,7 +6,7 @@ const { ipcRenderer } = require('electron')
 
 const shim = {
   ipcRenderer: {
-    send: (channel, data) => { if (channel === 'bcast:rec' || channel === 'bcast:show-panel' || channel === 'bcast:slot' || channel === 'bcast:preset') ipcRenderer.send(channel, data) },
+    send: (channel, data) => { if (channel === 'bcast:rec' || channel === 'bcast:show-panel' || channel === 'bcast:slot' || channel === 'bcast:menus' || channel === 'bcast:open-menu') ipcRenderer.send(channel, data) },
   },
 }
 try {

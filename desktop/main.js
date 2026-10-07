@@ -263,17 +263,58 @@ ipcMain.on('bcast:show-panel', (e) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
   openPanelWin()
 })
-// 🎚️ 방송 창 위쪽 빠른 프리셋 버튼 (1 기본 · 2 노래방 …) → 방송하기 화면 한 곳에서만 적용 (두 번 적용되지 않게)
-ipcMain.on('bcast:preset', (e, i) => {
+// 🐱 방송 창 위쪽 에디냥 메뉴 바로가기 (spoon_button.js)
+//  · ＋ 를 누르면 에디냥 창의 메뉴 목록(사이드바에 보이는 것)을 넘겨준다
+//  · 바로가기를 누르면 그 메뉴만 보이는 팝업 창을 연다 (메뉴마다 창 하나, 이미 열려 있으면 앞으로)
+ipcMain.on('bcast:menus', async (e) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
-  if (!Number.isInteger(i) || i < 0 || i > 20) return
-  const wc = dockView && !dockView.webContents.isDestroyed() ? dockView.webContents : alive(panelWin) ? panelWin.webContents : alive(appWin) ? appWin.webContents : null
-  if (wc) wc.send('bcast:preset', i)
+  let list = []
+  try {
+    if (alive(appWin)) {
+      list = await appWin.webContents.executeJavaScript(`(() => {
+        const root = document.getElementById('appRoot'); if (!root || !root.classList.contains('ready')) return []
+        return [...document.querySelectorAll('#sidebar .nav-item[data-panel]')]
+          .filter((n) => n.dataset.panel !== 'broadcast' && getComputedStyle(n).display !== 'none')
+          .map((n) => { const img = n.querySelector('.ic img'); const ic = n.querySelector('.ic'); const lb = n.querySelector('.lbl')
+            return { p: n.dataset.panel, l: ((lb || n).textContent || '').trim(), ic: img ? img.src : '', e: !img && ic ? (ic.textContent || '').trim() : '' } })
+      })()`, true)
+    }
+  } catch (_) { list = [] }
+  if (alive(bcastWin)) bcastWin.webContents.executeJavaScript(`window.__ediMenus && window.__ediMenus(${JSON.stringify(Array.isArray(list) ? list : [])})`).catch(() => {})
 })
-// 지금 적용된 프리셋 이름 → 방송 창 프리셋 버튼에 표시
-ipcMain.on('bcast:preset-state', (_e, name) => {
-  if (!alive(bcastWin)) return
-  bcastWin.webContents.executeJavaScript(`window.__ediPresetState && window.__ediPresetState(${JSON.stringify(String(name || ''))})`).catch(() => {})
+const menuWins = new Map() // 메뉴 이름 -> 팝업 창
+ipcMain.on('bcast:open-menu', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const panel = String((m && m.p) || ''), label = String((m && m.l) || panel).slice(0, 40)
+  if (!/^[a-z0-9_-]{1,40}$/i.test(panel)) return
+  const old = menuWins.get(panel)
+  if (alive(old)) { if (old.isMinimized()) old.restore(); old.show(); old.focus(); return }
+  // "자동 로그인 유지"를 안 켜서 에디냥 창에만 로그인 정보가 있는 경우를 위해 같이 넘겨준다
+  let auth = {}
+  try { if (alive(appWin)) auth = await appWin.webContents.executeJavaScript("({ t: typeof djToken !== 'undefined' ? djToken : '', id: typeof djId !== 'undefined' ? djId : '' })", true) || {} } catch (_) {}
+  const { screen } = require('electron')
+  const wa = screen.getPrimaryDisplay().workArea
+  const b = alive(bcastWin) ? bcastWin.getBounds() : { x: wa.x + 40, y: wa.y, width: 520 }
+  const width = Math.min(760, wa.width), height = Math.min(860, wa.height)
+  const n = menuWins.size
+  const w = new BrowserWindow({
+    width, height,
+    x: Math.round(Math.max(wa.x, Math.min(wa.x + wa.width - width, b.x + 140 + n * 28))),
+    y: Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - height, b.y + 70 + n * 28))),
+    title: `🐱 ${label}`,
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-menu.js'),
+      contextIsolation: true, nodeIntegration: false, sandbox: false,
+      additionalArguments: ['--edi-auth=' + Buffer.from(JSON.stringify({ t: String(auth.t || ''), id: String(auth.id || '') })).toString('base64')],
+    },
+  })
+  menuWins.set(panel, w)
+  w.on('page-title-updated', (ev) => { ev.preventDefault() })
+  w.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
+  w.on('closed', () => { if (menuWins.get(panel) === w) menuWins.delete(panel) })
+  w.loadURL(SERVER + '/?menu=' + encodeURIComponent(panel))
 })
 // 팝업 창이 로그인 정보를 물어볼 때 ("자동 로그인 유지"를 안 켜서 에디냥 창에만 있는 경우)
 ipcMain.handle('app:token', async (e) => {

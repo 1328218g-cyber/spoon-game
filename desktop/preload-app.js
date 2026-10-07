@@ -21,6 +21,4 @@ contextBridge.exposeInMainWorld('bcast', {
   onRec: (cb) => ipcRenderer.on('bcast:rec-state', (_e, st) => cb(st || {})),
   hotkeys: (mode) => ipcRenderer.invoke('bcast:hotkeys', mode),
   onHotkey: (cb) => ipcRenderer.on('bcast:hotkey', (_e, act) => cb(act)),
-  onPreset: (cb) => ipcRenderer.on('bcast:preset', (_e, i) => cb(i)), // 방송 창 위쪽 프리셋 버튼을 눌렀을 때
-  presetState: (name) => ipcRenderer.send('bcast:preset-state', String(name || '')),
 })

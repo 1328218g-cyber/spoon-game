@@ -17,6 +17,7 @@
       "main.js",
       "preload-app.js",
       "preload-spoon.js",
+      "preload-menu.js",
       "broadcast_inject.js",
       "spoon_button.js",
       "build/icon.png"

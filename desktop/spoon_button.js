@@ -126,89 +126,156 @@
     lastSlot = key
     if (ipc) ipc.send('bcast:slot', rect)
   }
-  // 🎚️ 방송 화면 위쪽(로고 ~ 라이브 종료 사이)에 빠른 프리셋 버튼 — 숫자 키 1~6 으로도 바꿀 수 있다
-  //  번호 순서는 방송하기 화면(index.html BC_PRESETS)의 빠른 프리셋 순서와 같아야 한다
-  const PRESETS = ['🎙️ 기본', '🎤 노래방', '📻 라디오', '✨ 깨끗하게', '🌙 ASMR', '🕳️ 동굴']
-  let presetCur = ''
-  function presetBar() {
-    let bar = document.getElementById('__ediPresetBar')
-    if (bar || !document.body) return bar
-    if (!document.getElementById('__ediPresetCss')) {
-      const st = document.createElement('style')
-      st.id = '__ediPresetCss'
-      st.textContent = '#__ediPresetBar{position:fixed;z-index:2147483645;display:none;gap:6px;align-items:center;font:700 12px/1 "Segoe UI",sans-serif;white-space:nowrap}' +
-        '#__ediPresetBar button{all:unset;cursor:pointer;padding:6px 10px;border-radius:999px;background:#f3f0ff;color:#4c1d95;border:1px solid #ddd6fe;display:inline-flex;align-items:center;gap:5px}' +
-        '#__ediPresetBar button:hover{background:#ede9fe}' +
-        '#__ediPresetBar button.on{background:#7c3aed;color:#fff;border-color:#7c3aed}' +
-        '#__ediPresetBar b{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(124,58,237,.15);font-size:10.5px}' +
-        '#__ediPresetBar button.on b{background:rgba(255,255,255,.25)}' +
-        '#__ediPresetBar.compact{gap:4px}#__ediPresetBar.compact button{padding:5px 7px}#__ediPresetBar.compact .nm{display:none}' +
-        '#__ediPresetBar.tiny .em{display:none}'
-      ;(document.head || document.documentElement).appendChild(st)
+  // 🐱 방송 화면 위쪽(로고 ~ 라이브 종료 사이)에 에디냥 메뉴 바로가기 — 누르면 그 메뉴가 팝업 창으로 열린다
+  //  ＋ 를 누르면 에디냥 메뉴 목록이 나오고, 체크한 메뉴가 바로가기로 추가된다 (이 PC에 기억)
+  const MKEY = 'edinyang_menu_shortcuts'
+  let shortcuts = []
+  try { shortcuts = JSON.parse(localStorage.getItem(MKEY) || '[]').filter((x) => x && typeof x.p === 'string') } catch (_) { shortcuts = [] }
+  const saveShortcuts = () => { try { localStorage.setItem(MKEY, JSON.stringify(shortcuts)) } catch (_) {} }
+  let menus = null // 에디냥 창에서 받아온 메뉴 목록 [{p,l,ic,e}]
+  function iconEl(m) {
+    if (m.ic) {
+      const img = document.createElement('img')
+      img.alt = ''
+      img.addEventListener('error', () => { const i = document.createElement('i'); i.textContent = m.e || '🔹'; img.replaceWith(i) })
+      img.src = m.ic
+      return img
     }
+    const i = document.createElement('i'); i.textContent = m.e || '🔹'; return i
+  }
+  function menuCss() {
+    if (document.getElementById('__ediMenuCss')) return
+    const st = document.createElement('style')
+    st.id = '__ediMenuCss'
+    st.textContent = [
+      '#__ediMenuBar{position:fixed;z-index:2147483645;display:none;align-items:center;gap:6px;font:700 12px/1 "Segoe UI",sans-serif;white-space:nowrap}',
+      '#__ediMenuBar .lst{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:0 1 auto}',
+      '#__ediMenuBar .lst::-webkit-scrollbar{display:none}',
+      '#__ediMenuBar button{all:unset;box-sizing:border-box;cursor:pointer;height:30px;padding:0 11px;border-radius:999px;background:#f3f0ff;color:#4c1d95;border:1px solid #ddd6fe;display:inline-flex;align-items:center;gap:5px;flex-shrink:0}',
+      '#__ediMenuBar button:hover{background:#ede9fe}',
+      '#__ediMenuBar img,#__ediMenuPick img{width:16px;height:16px;object-fit:contain}',
+      '#__ediMenuBar i,#__ediMenuPick i{font-style:normal}',
+      '#__ediMenuBar .add{width:30px;padding:0;justify-content:center;font-size:18px;font-weight:600;background:#7c3aed;color:#fff;border-color:#7c3aed}',
+      '#__ediMenuBar .add:hover{background:#6d28d9}',
+      '#__ediMenuPick{position:fixed;z-index:2147483647;width:280px;max-height:65vh;display:flex;flex-direction:column;background:#fff;color:#222;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font:500 13px/1.3 "Segoe UI",sans-serif;overflow:hidden}',
+      '#__ediMenuPick .hd{padding:11px 12px 4px;font-weight:800}',
+      '#__ediMenuPick .sub{padding:0 12px 6px;font-size:11.5px;color:#888}',
+      '#__ediMenuPick input.q{margin:2px 10px 6px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font:inherit;outline:none;background:#fff;color:#222}',
+      '#__ediMenuPick .items{overflow-y:auto;padding:2px 6px 8px}',
+      '#__ediMenuPick label{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer}',
+      '#__ediMenuPick label:hover{background:#f5f3ff}',
+      '#__ediMenuPick input[type=checkbox]{accent-color:#7c3aed;margin:0}',
+      '#__ediMenuPick .empty{padding:16px 12px;color:#888;text-align:center}',
+    ].join('')
+    ;(document.head || document.documentElement).appendChild(st)
+  }
+  function menuBar() {
+    let bar = document.getElementById('__ediMenuBar')
+    if (bar || !document.body) return bar
+    menuCss()
     bar = document.createElement('div')
-    bar.id = '__ediPresetBar'
-    PRESETS.forEach((n, i) => {
-      const b = document.createElement('button')
-      b.dataset.name = n
-      b.title = `${n} 프리셋 (숫자 키 ${i + 1})`
-      const emo = n.split(' ')[0]
-      b.innerHTML = `<b>${i + 1}</b><span class="em">${emo}</span><span class="nm">${n.slice(emo.length + 1)}</span>`
-      b.addEventListener('click', () => applyPreset(i))
-      bar.appendChild(b)
-    })
+    bar.id = '__ediMenuBar'
+    const lst = document.createElement('div'); lst.className = 'lst'
+    const add = document.createElement('button'); add.className = 'add'; add.textContent = '+'; add.title = '바로가기 메뉴 추가·빼기'
+    add.addEventListener('click', (e) => { e.stopPropagation(); togglePicker() })
+    bar.appendChild(lst); bar.appendChild(add)
+    bar.addEventListener('mousedown', (e) => e.stopPropagation()) // ＋ 를 다시 누르면 닫히게 (바깥 클릭 닫기와 겹치지 않게)
     document.body.appendChild(bar)
-    paintPreset()
+    renderBar()
     return bar
   }
-  function paintPreset() {
-    const bar = document.getElementById('__ediPresetBar')
-    if (bar) bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.name === presetCur))
+  function renderBar() {
+    const bar = document.getElementById('__ediMenuBar'); if (!bar) return
+    const lst = bar.querySelector('.lst'); lst.innerHTML = ''
+    shortcuts.forEach((m) => {
+      const b = document.createElement('button')
+      b.title = `${m.l} — 누르면 팝업 창으로 열려요`
+      b.appendChild(iconEl(m))
+      const t = document.createElement('span'); t.textContent = m.l; b.appendChild(t)
+      b.addEventListener('click', () => { if (ipc) ipc.send('bcast:open-menu', { p: m.p, l: m.l }) })
+      lst.appendChild(b)
+    })
   }
-  window.__ediPresetState = (name) => { presetCur = name || ''; paintPreset() }
-  function applyPreset(i) {
-    if (!ipc || !PRESETS[i]) return
-    presetCur = PRESETS[i]; paintPreset()
-    ipc.send('bcast:preset', i)
+  // ＋ 메뉴 고르기 창
+  function closePicker() { const pk = document.getElementById('__ediMenuPick'); if (pk) pk.remove() }
+  function togglePicker() {
+    if (document.getElementById('__ediMenuPick')) return closePicker()
+    menuCss()
+    const pk = document.createElement('div')
+    pk.id = '__ediMenuPick'
+    pk.innerHTML = '<div class="hd">🐱 바로가기 메뉴</div><div class="sub">체크한 메뉴가 위쪽에 버튼으로 생겨요</div><input class="q" placeholder="메뉴 찾기"><div class="items"><div class="empty">메뉴 불러오는 중…</div></div>'
+    pk.addEventListener('mousedown', (e) => e.stopPropagation())
+    pk.querySelector('input.q').addEventListener('input', renderPicker)
+    pk.querySelector('input.q').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') closePicker() })
+    document.body.appendChild(pk)
+    placePicker()
+    renderPicker()
+    if (ipc) ipc.send('bcast:menus')
   }
-  // 숫자 키 1~6 — 채팅 입력 중일 때는 동작하지 않는다
-  window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat || e.isComposing) return
-    if (!/^[1-9]$/.test(e.key) || !lastSlot || lastSlot === 'null') return // 방송 화면일 때만
-    const t = e.target
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
-    const i = +e.key - 1
-    if (!PRESETS[i]) return
-    e.preventDefault()
-    applyPreset(i)
-  }, true)
+  function placePicker() {
+    const pk = document.getElementById('__ediMenuPick'); const add = document.querySelector('#__ediMenuBar .add')
+    if (!pk || !add) return
+    const r = add.getBoundingClientRect()
+    pk.style.top = Math.round(r.bottom + 8) + 'px'
+    pk.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - pk.offsetWidth - 8, r.right - pk.offsetWidth))) + 'px'
+  }
+  function renderPicker() {
+    const pk = document.getElementById('__ediMenuPick'); if (!pk) return
+    const box = pk.querySelector('.items')
+    if (menus === null) return
+    if (!menus.length) { box.innerHTML = '<div class="empty">에디냥 창에서 먼저 로그인해 주세요</div>'; return }
+    const q = (pk.querySelector('input.q').value || '').trim().toLowerCase()
+    box.innerHTML = ''
+    const on = new Set(shortcuts.map((x) => x.p))
+    menus.filter((m) => !q || m.l.toLowerCase().includes(q)).forEach((m) => {
+      const lb = document.createElement('label')
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = on.has(m.p)
+      cb.addEventListener('change', () => {
+        if (cb.checked) { if (!shortcuts.some((x) => x.p === m.p)) shortcuts.push({ p: m.p, l: m.l, ic: m.ic || '', e: m.e || '' }) }
+        else shortcuts = shortcuts.filter((x) => x.p !== m.p)
+        saveShortcuts(); renderBar()
+      })
+      const t = document.createElement('span'); t.textContent = m.l
+      lb.appendChild(cb); lb.appendChild(iconEl(m)); lb.appendChild(t)
+      box.appendChild(lb)
+    })
+    if (!box.children.length) box.innerHTML = '<div class="empty">찾는 메뉴가 없어요</div>'
+  }
+  // main.js 가 에디냥 창의 메뉴 목록을 넣어준다
+  window.__ediMenus = (list) => {
+    menus = Array.isArray(list) ? list.filter((m) => m && typeof m.p === 'string' && typeof m.l === 'string') : []
+    // 이름·아이콘이 바뀐 메뉴는 바로가기에도 반영
+    let changed = false
+    shortcuts.forEach((s) => { const m = menus.find((x) => x.p === s.p); if (m && (m.l !== s.l || (m.ic || '') !== s.ic)) { s.l = m.l; s.ic = m.ic || ''; s.e = m.e || ''; changed = true } })
+    if (changed) { saveShortcuts(); renderBar() }
+    renderPicker()
+  }
+  document.addEventListener('mousedown', closePicker)
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker() })
+
   function findLiveEnd() {
     const el = Array.from(document.querySelectorAll('button,a,span,div,p')).find((x) => x.childElementCount === 0 && (x.textContent || '').trim() === '라이브 종료' && x.offsetWidth > 0)
     return el ? (el.closest('button') || el) : null
   }
-  function placePresetBar(onAir) {
-    const bar = presetBar()
+  function placeMenuBar(onAir) {
+    const bar = menuBar()
     if (!bar) return
     const end = onAir ? findLiveEnd() : null
-    if (!end) { bar.style.display = 'none'; return }
-    const r = end.getBoundingClientRect()
-    if (r.top > 120) { bar.style.display = 'none'; return } // 위쪽 막대에 있는 "라이브 종료" 일 때만
+    const r = end && end.getBoundingClientRect()
+    if (!r || r.top > 120) { bar.style.display = 'none'; closePicker(); return } // 위쪽 막대에 "라이브 종료" 가 있는 방송 화면일 때만
     bar.style.display = 'flex'
-    const LOGO = 90 // 왼쪽 로고 자리는 비워둔다
-    const room = r.left - 12 - LOGO
-    // 자리가 좁으면 이름 → 그림까지 줄이고(번호만), 그래도 안 들어가면 감춘다
-    bar.classList.remove('compact', 'tiny')
-    if (bar.offsetWidth > room) bar.classList.add('compact')
-    if (bar.offsetWidth > room) bar.classList.add('tiny')
-    if (bar.offsetWidth > room) { bar.style.display = 'none'; return }
+    const LOGO = 120 // 왼쪽 로고 자리는 비워둔다
+    const room = Math.max(40, r.left - 12 - LOGO)
+    bar.style.maxWidth = room + 'px' // 바로가기가 많으면 옆으로 밀어서 본다
     const w = bar.offsetWidth, h = bar.offsetHeight
     const left = Math.max(LOGO, Math.min(r.left - 12 - w, (window.innerWidth - w) / 2))
     bar.style.left = Math.round(left) + 'px'
     bar.style.top = Math.max(4, Math.round(r.top + (r.height - h) / 2)) + 'px'
+    placePicker()
   }
 
-  setInterval(() => { try { reportSlot() } catch (_) {} try { placePresetBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
-  window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placePresetBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
+  setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
+  window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
   const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
   const startObserver = () => {

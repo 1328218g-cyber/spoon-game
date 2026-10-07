@@ -608,6 +608,25 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sticker-preview-chip span{font-size:12.5px;color:var(--text)}
 </style>
 <script>(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<script>
+// 🐱 에디냥 PC판 방송 창의 "메뉴 바로가기" 팝업 (?menu=메뉴이름) — 그 메뉴 하나만 보여준다.
+// 이 창도 실시간 이벤트를 받기 때문에, 직접 누르지 않은 소리(TTS·효과음 등)는 여기서 내지 않는다 (에디냥 창과 두 번 울리지 않게)
+(function(){try{
+  var m=new URLSearchParams(location.search).get('menu');
+  if(!m||!/^[a-z0-9_-]{1,40}$/i.test(m))return;
+  window.EDI_MENU_POPUP=m;
+  document.documentElement.classList.add('menu-popup');
+  var byUser=function(){try{return !!(navigator.userActivation&&navigator.userActivation.isActive);}catch(e){return false;}};
+  var op=HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play=function(){ if(!byUser()) return Promise.resolve(); return op.apply(this,arguments); };
+  if(window.speechSynthesis){ var sp=window.speechSynthesis.speak.bind(window.speechSynthesis); window.speechSynthesis.speak=function(u){ if(byUser()) sp(u); }; }
+}catch(e){}})();
+</script>
+<style>
+html.menu-popup .sidebar,html.menu-popup .menu-toggle{display:none!important}
+html.menu-popup .topbar{padding:10px 16px}
+html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* 팝업에서 로그아웃하면 에디냥 창까지 로그아웃되니 숨김 */
+</style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@400;700&family=Noto+Emoji:wght@400;700&family=Noto+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Warang+Citi&family=Noto+Sans+Linear+A&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/unifont@latest/index.min.css">
 </head>
@@ -1227,7 +1246,6 @@ function bcRenderAll() {
   const s = BC.s;
   const cur = bcPresetMatch();
   document.getElementById('bcQuickPresets').innerHTML = Object.keys(BC_PRESETS).map((n) => `<button class="bc-chip ${cur === n ? 'on' : ''}" onclick="bcApplyPreset('${n}')">${n}</button>`).join('');
-  try { if (window.bcast && window.bcast.presetState) window.bcast.presetState(cur); } catch (_) {} // 방송 창 위쪽 프리셋 버튼에 지금 프리셋 표시
   document.getElementById('bcVoiceFx').innerHTML = BC_VOICE.map(bcCard).join('');
   document.getElementById('bcMusicFx').innerHTML = BC_MUSIC.map(bcCard).join('');
   document.getElementById('bcSfxFx').innerHTML = BC_SFX.map(bcCard).join('');
@@ -1365,8 +1383,6 @@ if (window.bcast && window.bcast.onHotkey) window.bcast.onHotkey((act) => {
   else if (act === 'mute') bcToggleMute();
   else if (act === 'fade') bcBgmFadeToggle();
 });
-// 🎚️ 방송 창 위쪽 프리셋 버튼 (1 기본 · 2 노래방 …) — 번호 순서는 BC_PRESETS 순서
-if (window.bcast && window.bcast.onPreset) window.bcast.onPreset((i) => { const n = Object.keys(BC_PRESETS)[i]; if (n) bcApplyPreset(n); });
 
 // 🤖 봇 소리 방송에 섞기 — 봇 창에서 재생되는 효과음·TTS 등을 방송 엔진에서도 같이 재생
 const bcSkipAudio = new WeakSet();
@@ -6544,8 +6560,8 @@ function enterApp(){
   applySidebarOrder();
   applySidebarCollapse();
 
-  initApp().then(()=>selectPanel('liverank'));
-  maybeAutoShowTutorial();
+  initApp().then(()=>selectPanel(window.EDI_MENU_POPUP||'liverank'));
+  if(!window.EDI_MENU_POPUP) maybeAutoShowTutorial(); // 메뉴 바로가기 팝업에서는 안내를 띄우지 않는다
 }
 
 async function tryAutoLogin(){
