@@ -1227,6 +1227,7 @@ function bcRenderAll() {
   const s = BC.s;
   const cur = bcPresetMatch();
   document.getElementById('bcQuickPresets').innerHTML = Object.keys(BC_PRESETS).map((n) => `<button class="bc-chip ${cur === n ? 'on' : ''}" onclick="bcApplyPreset('${n}')">${n}</button>`).join('');
+  try { if (window.bcast && window.bcast.presetState) window.bcast.presetState(cur); } catch (_) {} // 방송 창 위쪽 프리셋 버튼에 지금 프리셋 표시
   document.getElementById('bcVoiceFx').innerHTML = BC_VOICE.map(bcCard).join('');
   document.getElementById('bcMusicFx').innerHTML = BC_MUSIC.map(bcCard).join('');
   document.getElementById('bcSfxFx').innerHTML = BC_SFX.map(bcCard).join('');
@@ -1364,6 +1365,8 @@ if (window.bcast && window.bcast.onHotkey) window.bcast.onHotkey((act) => {
   else if (act === 'mute') bcToggleMute();
   else if (act === 'fade') bcBgmFadeToggle();
 });
+// 🎚️ 방송 창 위쪽 프리셋 버튼 (1 기본 · 2 노래방 …) — 번호 순서는 BC_PRESETS 순서
+if (window.bcast && window.bcast.onPreset) window.bcast.onPreset((i) => { const n = Object.keys(BC_PRESETS)[i]; if (n) bcApplyPreset(n); });
 
 // 🤖 봇 소리 방송에 섞기 — 봇 창에서 재생되는 효과음·TTS 등을 방송 엔진에서도 같이 재생
 const bcSkipAudio = new WeakSet();

@@ -3,7 +3,7 @@
 //  · 창 2 (방송 창): 스푼 웹. 여기서 방송을 켜면 고음질 사운드 엔진(broadcast_inject.js)이 마이크 대신
 //    리버브·EQ·컴프레서·배경음악·효과음이 섞인 소리를 넣는다. (짜잔 에디봇 방송하기와 같은 엔진)
 //  · 에디냥 창의 🎙️ 방송하기 메뉴 → (preload-app.js) → 여기 IPC → 방송 창 엔진(window.__ediAudio) 순서로 조절된다.
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu } = require('electron')
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, dialog, desktopCapturer, globalShortcut, Menu, protocol, session, net } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -63,6 +63,17 @@ function serveBcastFile(req, res) {
     res.writeHead(200, { ...cors, 'Content-Type': type, 'Content-Length': size })
     fs.createReadStream(fp).pipe(res)
   }
+}
+
+// 스푼 웹(https)은 보안 규칙(CSP·사설망 차단) 때문에 http://127.0.0.1 음악 주소를 못 불러온다 → "재생 실패".
+// 그래서 방송 창 전용 주소(edinyang-file://f/…)를 따로 만들고, 앱 안에서 로컬 음악 서버로 이어준다 (보안 설정은 그대로).
+const FILE_SCHEME = 'edinyang-file'
+protocol.registerSchemesAsPrivileged([{ scheme: FILE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, bypassCSP: true } }])
+function setupFileScheme() {
+  session.fromPartition(SPOON_PARTITION).protocol.handle(FILE_SCHEME, (req) => {
+    const id = new URL(req.url).pathname.replace(/^\/+/, '')
+    return net.fetch(`http://127.0.0.1:${localPort}/bcast-file/${id}`, { method: req.method, headers: req.headers })
+  })
 }
 
 function startLocalServer() {
@@ -165,7 +176,7 @@ const ALLOWED = new Set(['get', 'set', 'status', 'levels', 'devices', 'test', 'p
 async function callIn(win, fn, arg) {
   const wc = win.webContents
   await wc.executeJavaScript(engineCode, true).catch(() => {}) // 아직 안 들어갔으면 넣기 (이미 있으면 그냥 지나감)
-  return wc.executeJavaScript(`(async () => { const A = window.__ediAudio; if (!A) return { __err: '방송 창 준비 중이에요' }; return await A[${JSON.stringify(fn)}](${JSON.stringify(arg === undefined ? null : arg)}); })()`, true)
+  return wc.executeJavaScript(`(async () => { const A = window.__ediAudio; if (!A) return { __err: '방송 창 준비 중이에요' }; try { return await A[${JSON.stringify(fn)}](${JSON.stringify(arg === undefined ? null : arg)}); } catch (e) { return { __err: String((e && (e.message || e.name)) || e || '재생 실패') }; } })()`, true)
 }
 
 ipcMain.handle('app:version', () => app.getVersion())
@@ -198,7 +209,7 @@ ipcMain.handle('bcast:file-url', (_e, filePath) => {
     if (!BCAST_AUDIO_EXT.has(path.extname(fp).toLowerCase()) || !fs.existsSync(fp)) return { ok: false, error: '음악 파일(mp3·wav·ogg·m4a 등)만 쓸 수 있어요.' }
     const id = crypto.createHash('sha1').update(fp).digest('hex').slice(0, 16) + path.extname(fp).toLowerCase()
     bcastFiles.set(id, fp)
-    return { ok: true, url: `http://127.0.0.1:${localPort}/bcast-file/${encodeURIComponent(id)}`, name: path.basename(fp) }
+    return { ok: true, url: `${FILE_SCHEME}://f/${encodeURIComponent(id)}`, name: path.basename(fp) }
   } catch (e) { return { ok: false, error: e.message } }
 })
 
@@ -251,6 +262,18 @@ ipcMain.on('bcast:slot', (e, rect) => {
 ipcMain.on('bcast:show-panel', (e) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
   openPanelWin()
+})
+// 🎚️ 방송 창 위쪽 빠른 프리셋 버튼 (1 기본 · 2 노래방 …) → 방송하기 화면 한 곳에서만 적용 (두 번 적용되지 않게)
+ipcMain.on('bcast:preset', (e, i) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  if (!Number.isInteger(i) || i < 0 || i > 20) return
+  const wc = dockView && !dockView.webContents.isDestroyed() ? dockView.webContents : alive(panelWin) ? panelWin.webContents : alive(appWin) ? appWin.webContents : null
+  if (wc) wc.send('bcast:preset', i)
+})
+// 지금 적용된 프리셋 이름 → 방송 창 프리셋 버튼에 표시
+ipcMain.on('bcast:preset-state', (_e, name) => {
+  if (!alive(bcastWin)) return
+  bcastWin.webContents.executeJavaScript(`window.__ediPresetState && window.__ediPresetState(${JSON.stringify(String(name || ''))})`).catch(() => {})
 })
 // 팝업 창이 로그인 정보를 물어볼 때 ("자동 로그인 유지"를 안 켜서 에디냥 창에만 있는 경우)
 ipcMain.handle('app:token', async (e) => {
@@ -383,6 +406,7 @@ app.whenReady().then(async () => {
   try { engineCode = fs.readFileSync(path.join(__dirname, 'broadcast_inject.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 엔진 파일 없음:', e.message) }
   try { buttonCode = fs.readFileSync(path.join(__dirname, 'spoon_button.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 버튼 파일 없음:', e.message) }
   await startLocalServer()
+  try { setupFileScheme() } catch (e) { console.warn('[방송하기] 음악 주소 준비 실패:', e.message) }
   createAppWin()
   setupAutoUpdate()
 })

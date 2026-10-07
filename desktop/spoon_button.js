@@ -126,8 +126,89 @@
     lastSlot = key
     if (ipc) ipc.send('bcast:slot', rect)
   }
-  setInterval(() => { try { reportSlot() } catch (_) {} }, 500)
-  window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} })
+  // 🎚️ 방송 화면 위쪽(로고 ~ 라이브 종료 사이)에 빠른 프리셋 버튼 — 숫자 키 1~6 으로도 바꿀 수 있다
+  //  번호 순서는 방송하기 화면(index.html BC_PRESETS)의 빠른 프리셋 순서와 같아야 한다
+  const PRESETS = ['🎙️ 기본', '🎤 노래방', '📻 라디오', '✨ 깨끗하게', '🌙 ASMR', '🕳️ 동굴']
+  let presetCur = ''
+  function presetBar() {
+    let bar = document.getElementById('__ediPresetBar')
+    if (bar || !document.body) return bar
+    if (!document.getElementById('__ediPresetCss')) {
+      const st = document.createElement('style')
+      st.id = '__ediPresetCss'
+      st.textContent = '#__ediPresetBar{position:fixed;z-index:2147483645;display:none;gap:6px;align-items:center;font:700 12px/1 "Segoe UI",sans-serif;white-space:nowrap}' +
+        '#__ediPresetBar button{all:unset;cursor:pointer;padding:6px 10px;border-radius:999px;background:#f3f0ff;color:#4c1d95;border:1px solid #ddd6fe;display:inline-flex;align-items:center;gap:5px}' +
+        '#__ediPresetBar button:hover{background:#ede9fe}' +
+        '#__ediPresetBar button.on{background:#7c3aed;color:#fff;border-color:#7c3aed}' +
+        '#__ediPresetBar b{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(124,58,237,.15);font-size:10.5px}' +
+        '#__ediPresetBar button.on b{background:rgba(255,255,255,.25)}' +
+        '#__ediPresetBar.compact{gap:4px}#__ediPresetBar.compact button{padding:5px 7px}#__ediPresetBar.compact .nm{display:none}' +
+        '#__ediPresetBar.tiny .em{display:none}'
+      ;(document.head || document.documentElement).appendChild(st)
+    }
+    bar = document.createElement('div')
+    bar.id = '__ediPresetBar'
+    PRESETS.forEach((n, i) => {
+      const b = document.createElement('button')
+      b.dataset.name = n
+      b.title = `${n} 프리셋 (숫자 키 ${i + 1})`
+      const emo = n.split(' ')[0]
+      b.innerHTML = `<b>${i + 1}</b><span class="em">${emo}</span><span class="nm">${n.slice(emo.length + 1)}</span>`
+      b.addEventListener('click', () => applyPreset(i))
+      bar.appendChild(b)
+    })
+    document.body.appendChild(bar)
+    paintPreset()
+    return bar
+  }
+  function paintPreset() {
+    const bar = document.getElementById('__ediPresetBar')
+    if (bar) bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.name === presetCur))
+  }
+  window.__ediPresetState = (name) => { presetCur = name || ''; paintPreset() }
+  function applyPreset(i) {
+    if (!ipc || !PRESETS[i]) return
+    presetCur = PRESETS[i]; paintPreset()
+    ipc.send('bcast:preset', i)
+  }
+  // 숫자 키 1~6 — 채팅 입력 중일 때는 동작하지 않는다
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat || e.isComposing) return
+    if (!/^[1-9]$/.test(e.key) || !lastSlot || lastSlot === 'null') return // 방송 화면일 때만
+    const t = e.target
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+    const i = +e.key - 1
+    if (!PRESETS[i]) return
+    e.preventDefault()
+    applyPreset(i)
+  }, true)
+  function findLiveEnd() {
+    const el = Array.from(document.querySelectorAll('button,a,span,div,p')).find((x) => x.childElementCount === 0 && (x.textContent || '').trim() === '라이브 종료' && x.offsetWidth > 0)
+    return el ? (el.closest('button') || el) : null
+  }
+  function placePresetBar(onAir) {
+    const bar = presetBar()
+    if (!bar) return
+    const end = onAir ? findLiveEnd() : null
+    if (!end) { bar.style.display = 'none'; return }
+    const r = end.getBoundingClientRect()
+    if (r.top > 120) { bar.style.display = 'none'; return } // 위쪽 막대에 있는 "라이브 종료" 일 때만
+    bar.style.display = 'flex'
+    const LOGO = 90 // 왼쪽 로고 자리는 비워둔다
+    const room = r.left - 12 - LOGO
+    // 자리가 좁으면 이름 → 그림까지 줄이고(번호만), 그래도 안 들어가면 감춘다
+    bar.classList.remove('compact', 'tiny')
+    if (bar.offsetWidth > room) bar.classList.add('compact')
+    if (bar.offsetWidth > room) bar.classList.add('tiny')
+    if (bar.offsetWidth > room) { bar.style.display = 'none'; return }
+    const w = bar.offsetWidth, h = bar.offsetHeight
+    const left = Math.max(LOGO, Math.min(r.left - 12 - w, (window.innerWidth - w) / 2))
+    bar.style.left = Math.round(left) + 'px'
+    bar.style.top = Math.max(4, Math.round(r.top + (r.height - h) / 2)) + 'px'
+  }
+
+  setInterval(() => { try { reportSlot() } catch (_) {} try { placePresetBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
+  window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placePresetBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
   const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
   const startObserver = () => {
