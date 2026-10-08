@@ -169,8 +169,13 @@ const PROXY_DIRECT_FALLBACK_MS = 30 * 60 * 1000
 const proxyFailover = {} // djId -> { offset, fails, directUntil }
 
 function getWsProxyForDj(djId) {
-  const mode = store.getProxyFailoverMode()
-  if (mode === 'noproxy') return null // 🔌 항상 직접 연결 (공식 에디냥처럼 서버에서 스푼으로 바로)
+  let mode = store.getProxyFailoverMode()
+  if (mode === 'noproxy') {
+    // 🔌 '프록시 안 씀' — 본인 스푼 계정을 연결한 DJ만 직접 연결한다. 공용 계정(sum/sum2/sum3)은 한 계정으로
+    // 여러 방을 여는데, 같은 IP(서버)에서 한꺼번에 열면 스푼이 403(동시 접속 초과)으로 거절해서 프록시를 그대로 쓴다.
+    if (djId && tokenManager.hasCookies(djId)) return null
+    mode = 'both'
+  }
   if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
   const st = proxyFailover[djId]
   if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now()) return null // 직접 연결 중
@@ -180,8 +185,9 @@ function getWsProxyForDj(djId) {
 
 // 스푼 웹소켓이 비정상 종료됐을 때 호출 — 금방 끊긴 연결이면 다음 재접속에 쓸 프록시를 바꾼다.
 function handleProxyFailover(djId, ws, code, heldForSec) {
-  const mode = store.getProxyFailoverMode()
-  if (mode === 'off' || mode === 'noproxy' || !spoonWsProxyPool.length) return
+  let mode = store.getProxyFailoverMode()
+  if (mode === 'noproxy') { if (tokenManager.hasCookies(djId)) return; mode = 'both' } // 공용 계정은 '둘 다' 방식으로
+  if (mode === 'off' || !spoonWsProxyPool.length) return
   const st = proxyFailover[djId] || (proxyFailover[djId] = { offset: 0, fails: 0, directUntil: 0 })
   const quick = code === 1006 && heldForSec != null && heldForSec < PROXY_QUICK_FAIL_SEC
   if (!quick) { st.fails = 0; return } // 충분히 오래 붙어있다 끊긴 건 프록시 탓으로 보지 않는다
