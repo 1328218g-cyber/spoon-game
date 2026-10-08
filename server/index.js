@@ -17209,7 +17209,94 @@ const RECONNECT_GRACE_MS = 60 * 1000 // ⏳ 이 시간 안에 다시 붙으면 �
 
 // 🔄 지금 자동 재접속 중인지 — 끊긴 지 1분 안이고 아직 다시 안 붙었으면 true (이 동안엔 "지금 입장하기"를 막는다)
 function isReconnecting(room) {
-  return !!(room && room.autoJoinedFor && !room.isConnected && room.dropAt && Date.now() - room.dropAt < RECONNECT_GRACE_MS)
+  if (!room || room.isConnected) return false
+  if (room.bootRestoreUntil && room.bootRestoreUntil > Date.now()) return true // 🔁 서버 재시작 후 자동 재입장 순서 기다리는 중
+  return !!(room.autoJoinedFor && room.dropAt && Date.now() - room.dropAt < RECONNECT_GRACE_MS)
+}
+function reconnectUntilOf(room) {
+  if (!isReconnecting(room)) return 0
+  return Math.max(room.bootRestoreUntil || 0, room.dropAt ? room.dropAt + RECONNECT_GRACE_MS : 0)
+}
+
+// ═════════ 🔁 서버 재시작 후 자동 재입장 (공식 에디냥 startAll 처럼) ═════════
+// 누가 어느 방송에 들어가 있었는지를 파일에 적어두고, 서버가 다시 켜지면 한꺼번에 몰리지 않게
+// 2~3초 간격(조금씩 흔들어서)으로 한 명씩 다시 넣어준다. 방송이 끝났으면 건너뛴다.
+const ACTIVE_ROOMS_FILE = path.join(store.DATA_DIR, 'activeRooms.json')
+let lastActiveRoomsJson = ''
+let bootRestoring = true // 재시작 직후 재입장이 끝나기 전엔 목록을 덮어쓰지 않는다 (중간에 또 재시작돼도 안 잃어버리게)
+function saveActiveRooms() {
+  if (bootRestoring) return
+  try {
+    const out = {}
+    for (const djId of store.listDjIds()) {
+      const room = rooms[djId]
+      if (room && room.autoJoinedFor && room.watchingTag) out[djId] = { liveId: String(room.autoJoinedFor), tag: room.watchingTag }
+    }
+    const json = JSON.stringify(out)
+    if (json === lastActiveRoomsJson) return
+    fs.writeFileSync(ACTIVE_ROOMS_FILE + '.tmp', json)
+    fs.renameSync(ACTIVE_ROOMS_FILE + '.tmp', ACTIVE_ROOMS_FILE)
+    lastActiveRoomsJson = json
+  } catch (e) { console.log('[재입장 목록] 저장 실패', e.message) }
+}
+setInterval(saveActiveRooms, 15 * 1000)
+
+async function restoreActiveRoomsOnBoot() {
+  let list = {}
+  try { list = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_FILE, 'utf8') || '{}') } catch (_) { list = {} }
+  const ids = Object.keys(list).filter((djId) => store.listDjIds().includes(djId))
+  if (!ids.length) { bootRestoring = false; return }
+  console.log(`[재입장] 서버 재시작 전 방송에 들어가 있던 ${ids.length}개 계정을 차례대로 다시 넣어요`)
+  // 전부 먼저 "재입장 대기" 표시 → 그동안 "지금 입장하기" 잠금 (한 명당 넉넉히 15초 + 1분)
+  ids.forEach((djId, i) => {
+    const room = getRoom(djId)
+    room.bootRestoreUntil = Date.now() + 60 * 1000 + (i + 1) * 15 * 1000
+    broadcast({ type: 'autojoin', djId, status: 'reconnecting', tag: list[djId].tag, until: room.bootRestoreUntil, msg: '🔄 서버가 다시 켜져서 자동으로 방송에 다시 들어가는 중이에요...' })
+  })
+  for (const djId of ids) {
+    const room = getRoom(djId)
+    const { tag } = list[djId]
+    let liveId = String(list[djId].liveId || '')
+    let quiet = false // 방송 끝남 등 이미 알려준 경우엔 "재입장 실패" 안내를 따로 안 보냄
+    let failed = false
+    try {
+      if (room.isConnected || room.ws || room.reconnectTimer) { quiet = true; continue } // 그 사이 다른 경로로 이미 붙었으면 그대로
+      if (!canAutoJoin(djId) || !tokenManager.getAccessToken(tokenDjIdFor(djId))) { quiet = true; continue }
+      const cur = await fetchUserStatusByTag(tag, djId)
+      if (!cur || !cur.is_live || !cur.current_live_id) {
+        console.log(`[재입장] ${djId} — @${tag} 방송이 끝나서 건너뜀`)
+        broadcast({ type: 'autojoin', djId, status: 'offline', tag })
+        quiet = true; continue
+      }
+      liveId = String(cur.current_live_id)
+      if (findActiveDjIdUsingTag(tag, djId)) { broadcast({ type: 'autojoin', djId, status: 'duplicate', tag }); quiet = true; continue }
+      room.checking = true
+      room.autoJoinedFor = liveId // 입장권 받기에서 실패해도 자동 재접속이 이어받을 수 있게 먼저 적어둔다
+      room.watchingTag = tag
+      broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
+      const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+      await connectSpoonForDj(djId, liveId, roomToken || '')
+      // 소켓이 실제로 열릴 때까지 잠깐 기다린 뒤 다음 사람으로 (한 명씩 차례대로)
+      for (let t = 0; t < 40 && !room.isConnected && room.ws; t++) await new Promise((r) => setTimeout(r, 250))
+      if (room.isConnected) {
+        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId, reconnected: true })
+        console.log(`[재입장] ${djId} → @${tag} (${liveId}) 다시 입장`)
+      }
+    } catch (e) {
+      failed = true
+      console.log(`[재입장] ${djId} 실패:`, e.message)
+      if (room.autoJoinedFor && !room.ws) scheduleReconnect(djId, room, '서버 재시작 후 재입장 실패')
+    } finally {
+      room.checking = false
+      room.bootRestoreUntil = 0
+      if (failed && !quiet && !room.isConnected && !room.reconnectTimer) broadcast({ type: 'autojoin', djId, status: 'error', tag, msg: '서버 재시작 후 자동 재입장이 안 됐어요 — "지금 입장하기"로 다시 들어가 주세요' })
+      if (quiet) broadcast({ type: 'autojoin', djId, status: 'idle', tag }) // 🔓 건너뛴 계정은 버튼 잠금만 풀어준다
+    }
+    await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000)) // 🎲 한꺼번에 몰리지 않게 2~3초 간격
+  }
+  bootRestoring = false
+  saveActiveRooms()
+  console.log('[재입장] 서버 재시작 후 재입장 끝')
 }
 
 // 방송 연결이 끝났을 때 이 방의 기능 타이머들을 정리한다
@@ -17438,6 +17525,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     // ⚡ 1분 안에 같은 방송으로 다시 붙은 거면(잠깐 끊김) 기능 타이머들이 아직 돌고 있으니 그대로 이어간다 — 다시 시작 안 함
     const quickResume = !!room._teardownTimer && !isNewLiveSession
+    room.bootRestoreUntil = 0
+    saveActiveRooms() // 🔁 재시작 대비 — 지금 들어가 있는 방 기록
     if (room.dropAt) { room.dropAt = 0; broadcast({ type: 'autojoin', djId, status: 'joined', tag: room.watchingTag, liveId, reconnected: true }) } // 🔓 다시 붙음 — 버튼 잠금 해제
     if (room._teardownTimer) {
       clearTimeout(room._teardownTimer); room._teardownTimer = null
@@ -24761,6 +24850,7 @@ async function checkAdminAutoJoin() {
     const room = getRoom(djId)
     if (room.checking) continue
     if (room.reconnectTimer) continue // 🔁 자동 재접속이 예약돼 있으면 그쪽에 맡긴다 (동시에 두 번 붙지 않게)
+    if (room.bootRestoreUntil && room.bootRestoreUntil > Date.now()) continue // 🔁 서버 재시작 후 재입장 순서를 기다리는 중
     room.checking = true
 
     try {
@@ -24921,7 +25011,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
 
   // 🔄 잠깐 끊겨서 서버가 자동 재접속 중이면 직접 입장은 막는다 — 여럿이 동시에 누르면 입장권(roomToken)을
   // 크롬으로 새로 받아오는 무거운 작업이 한꺼번에 몰리고, 자동 재접속이랑 겹쳐 두 번 붙으려다 또 끊길 수 있다.
-  if (isReconnecting(room)) return res.json({ success: false, reconnecting: true, until: room.dropAt + RECONNECT_GRACE_MS, error: '🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요. 잠시만 기다려 주세요 (1분 안에 안 붙으면 다시 누를 수 있어요)' })
+  if (isReconnecting(room)) return res.json({ success: false, reconnecting: true, until: reconnectUntilOf(room), error: '🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요. 잠시만 기다려 주세요 (1분 안에 안 붙으면 다시 누를 수 있어요)' })
   // ⏳ 연타 방지 — 같은 계정은 10초에 한 번만
   if (room._lastManualJoinAt && Date.now() - room._lastManualJoinAt < 10 * 1000) return res.json({ success: false, error: '⏳ 방금 입장을 시도했어요. 10초 뒤에 다시 눌러주세요' })
   room._lastManualJoinAt = Date.now()
@@ -24974,6 +25064,7 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
+  saveActiveRooms() // 직접 나갔으니 재시작해도 다시 안 들어가게
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
@@ -24983,7 +25074,7 @@ app.get('/status', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId)
   res.json({
     isConnected: room.isConnected,
-    reconnectUntil: isReconnecting(room) ? room.dropAt + RECONNECT_GRACE_MS : 0, // 🔄 자동 재접속 중이면 이때까지 "지금 입장하기" 잠금
+    reconnectUntil: reconnectUntilOf(room), // 🔄 자동 재접속 중이면 이때까지 "지금 입장하기" 잠금
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
@@ -25136,6 +25227,8 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
+  // 🔁 재시작 전 들어가 있던 방송에 차례대로 다시 입장 (토큰 등 준비될 시간을 조금 주고 시작)
+  setTimeout(() => { restoreActiveRoomsOnBoot().catch((e) => { bootRestoring = false; console.log('[재입장] 오류', e.message) }) }, 8000)
   // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
   startGlobalAnnounceTimer()
   // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
@@ -25232,6 +25325,7 @@ app.listen(PORT, () => {
 // 🛑 배포 플랫폼(Railway/Render)이 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
+  try { saveActiveRooms() } catch (e) {} // 🔁 재시작 후 다시 넣어줄 방 목록 최신으로
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
   try { mcFlushWebDataSync() } catch (e) { console.log('[종료 flush] 몬스터 웹도감 저장 실패', e.message) } // 🐾 레벨/포인트 유실 방지
   process.exit(0)

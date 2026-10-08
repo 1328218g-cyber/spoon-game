@@ -20232,7 +20232,7 @@ function updateAutoJoinStatus(d){
   if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
   if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
   if(!el)return;
-  if(d.status==='reconnecting'){el.textContent='🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요...';ajLock(d.until);return;}
+  if(d.status==='reconnecting'){el.textContent=d.msg||'🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요...';ajLock(d.until);return;}
   if(d.status!=='joining')ajLock(0);
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
   else if(d.status==='joined'){el.textContent='✅ @'+d.tag+(d.reconnected?' 다시 연결됐어요':' 입장 완료!');if(!d.reconnected)showToast('입장 성공! 🎉');}
