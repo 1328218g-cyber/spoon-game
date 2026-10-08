@@ -338,7 +338,7 @@ function getAutoJoinCleanupDays() {
 //   'direct' : 프록시로 연달아 금방 끊기면 잠시(30분) 프록시 없이 직접 연결한다
 //   'both'   : 둘 다 (먼저 포트를 바꿔보고, 모든 포트가 다 실패하면 직접 연결) — 기본값
 //   'off'    : 둘 다 안 함 (예전처럼 4시간 고정 배정)
-const PROXY_FAILOVER_MODES = ['off', 'switch', 'direct', 'both'];
+const PROXY_FAILOVER_MODES = ['off', 'switch', 'direct', 'both', 'noproxy']; // noproxy = 웹소켓은 항상 프록시 없이 직접 연결
 function getProxyFailoverMode() {
   const djs = loadDjs();
   const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.proxyFailoverMode;

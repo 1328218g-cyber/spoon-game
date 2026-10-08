@@ -169,8 +169,9 @@ const PROXY_DIRECT_FALLBACK_MS = 30 * 60 * 1000
 const proxyFailover = {} // djId -> { offset, fails, directUntil }
 
 function getWsProxyForDj(djId) {
-  if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
   const mode = store.getProxyFailoverMode()
+  if (mode === 'noproxy') return null // 🔌 항상 직접 연결 (공식 에디냥처럼 서버에서 스푼으로 바로)
+  if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
   const st = proxyFailover[djId]
   if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now()) return null // 직접 연결 중
   const off = st && (mode === 'switch' || mode === 'both') ? st.offset : 0
@@ -180,7 +181,7 @@ function getWsProxyForDj(djId) {
 // 스푼 웹소켓이 비정상 종료됐을 때 호출 — 금방 끊긴 연결이면 다음 재접속에 쓸 프록시를 바꾼다.
 function handleProxyFailover(djId, ws, code, heldForSec) {
   const mode = store.getProxyFailoverMode()
-  if (mode === 'off' || !spoonWsProxyPool.length) return
+  if (mode === 'off' || mode === 'noproxy' || !spoonWsProxyPool.length) return
   const st = proxyFailover[djId] || (proxyFailover[djId] = { offset: 0, fails: 0, directUntil: 0 })
   const quick = code === 1006 && heldForSec != null && heldForSec < PROXY_QUICK_FAIL_SEC
   if (!quick) { st.fails = 0; return } // 충분히 오래 붙어있다 끊긴 건 프록시 탓으로 보지 않는다
