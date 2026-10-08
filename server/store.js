@@ -336,18 +336,13 @@ function getAutoJoinCleanupDays() {
 // 🔀 스푼 웹소켓 프록시 장애 대응 방식 — 관리자(sum) settings.proxyFailoverMode에 저장한다.
 //   'switch' : 연결 직후 금방 끊기면(1006) 그 DJ를 다른 프록시 포트로 바로 갈아태운다
 //   'direct' : 프록시로 연달아 금방 끊기면 잠시(30분) 프록시 없이 직접 연결한다
-//   'both'   : 둘 다 (먼저 포트를 바꿔보고, 모든 포트가 다 실패하면 직접 연결)
-//   'noproxy': 웹소켓을 항상 프록시 없이 직접 연결 — 기본값
+//   'both'   : 둘 다 (먼저 포트를 바꿔보고, 모든 포트가 다 실패하면 직접 연결) — 기본값
 //   'off'    : 둘 다 안 함 (예전처럼 4시간 고정 배정)
-const PROXY_FAILOVER_MODES = ['off', 'switch', 'direct', 'both', 'noproxy']; // noproxy = 웹소켓은 항상 프록시 없이 직접 연결
+const PROXY_FAILOVER_MODES = ['off', 'switch', 'direct', 'both'];
 function getProxyFailoverMode() {
   const djs = loadDjs();
-  const st = djs['sum'] && djs['sum'].settings;
-  // 🔌 기본값은 '프록시 안 씀'(5번). 예전 기본값으로 저장돼 있던 것도 처음 한 번만 '프록시 안 씀'으로 바꿔준다
-  // (proxyFailoverModeV2 표시가 있으면 그 뒤에 관리자가 직접 고른 값이니 그대로 따른다)
-  if (st && !st.proxyFailoverModeV2) return 'noproxy';
-  const v = st && st.proxyFailoverMode;
-  return PROXY_FAILOVER_MODES.includes(v) ? v : 'noproxy';
+  const v = djs['sum'] && djs['sum'].settings && djs['sum'].settings.proxyFailoverMode;
+  return PROXY_FAILOVER_MODES.includes(v) ? v : 'both';
 }
 
 function setProxyFailoverMode(mode) {
@@ -356,7 +351,6 @@ function setProxyFailoverMode(mode) {
   if (!PROXY_FAILOVER_MODES.includes(mode)) return { ok: false, error: '잘못된 설정값이에요' };
   if (!djs['sum'].settings) djs['sum'].settings = defaultSettings();
   djs['sum'].settings.proxyFailoverMode = mode;
-  djs['sum'].settings.proxyFailoverModeV2 = true; // 관리자가 직접 고른 값
   saveDjs(djs);
   return { ok: true };
 }

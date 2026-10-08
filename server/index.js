@@ -169,14 +169,8 @@ const PROXY_DIRECT_FALLBACK_MS = 30 * 60 * 1000
 const proxyFailover = {} // djId -> { offset, fails, directUntil }
 
 function getWsProxyForDj(djId) {
-  let mode = store.getProxyFailoverMode()
-  if (mode === 'noproxy') {
-    // 🔌 '프록시 안 씀' — 본인 스푼 계정을 연결한 DJ만 직접 연결한다. 공용 계정(sum/sum2/sum3)은 한 계정으로
-    // 여러 방을 여는데, 같은 IP(서버)에서 한꺼번에 열면 스푼이 403(동시 접속 초과)으로 거절해서 프록시를 그대로 쓴다.
-    if (djId && tokenManager.hasCookies(djId)) return null
-    mode = 'both'
-  }
   if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
+  const mode = store.getProxyFailoverMode()
   const st = proxyFailover[djId]
   if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now()) return null // 직접 연결 중
   const off = st && (mode === 'switch' || mode === 'both') ? st.offset : 0
@@ -185,8 +179,7 @@ function getWsProxyForDj(djId) {
 
 // 스푼 웹소켓이 비정상 종료됐을 때 호출 — 금방 끊긴 연결이면 다음 재접속에 쓸 프록시를 바꾼다.
 function handleProxyFailover(djId, ws, code, heldForSec) {
-  let mode = store.getProxyFailoverMode()
-  if (mode === 'noproxy') { if (tokenManager.hasCookies(djId)) return; mode = 'both' } // 공용 계정은 '둘 다' 방식으로
+  const mode = store.getProxyFailoverMode()
   if (mode === 'off' || !spoonWsProxyPool.length) return
   const st = proxyFailover[djId] || (proxyFailover[djId] = { offset: 0, fails: 0, directUntil: 0 })
   const quick = code === 1006 && heldForSec != null && heldForSec < PROXY_QUICK_FAIL_SEC
@@ -6357,6 +6350,10 @@ setInterval(async () => {
     if (isModuleOn(settings, 'dashboard', djId)) {
       const dash = getDashboardData(djId, settings)
       if (dash.djTag) targets.push(djId)
+    }
+    if (isModuleOn(settings, 'liverank', djId)) {
+      const tag = getLiveRankDjTag(settings)
+      if (tag) liveRankTargets.push(djId)
     }
   }
   if (!targets.length && !liveRankTargets.length) return
@@ -17210,113 +17207,7 @@ function rebootDjConnection(djId) {
 //
 // 3초 → 6초 → 12초 → 24초 → 30초(상한)로 간격을 늘려가며 재시도하고, 접속에
 // 성공하면 카운터를 0으로 되돌린다. 방송 자체가 꺼진 게 확인되면 재시도를 멈춘다.
-const RECONNECT_BASE_MS = 2000
-const RECONNECT_GRACE_MS = 60 * 1000 // ⏳ 이 시간 안에 다시 붙으면 기능 타이머를 끄지 않고 그대로 이어간다
-
-// 🔄 지금 자동 재접속 중인지 — 끊긴 지 1분 안이고 아직 다시 안 붙었으면 true (이 동안엔 "지금 입장하기"를 막는다)
-function isReconnecting(room) {
-  if (!room || room.isConnected) return false
-  if (room.bootRestoreUntil && room.bootRestoreUntil > Date.now()) return true // 🔁 서버 재시작 후 자동 재입장 순서 기다리는 중
-  return !!(room.autoJoinedFor && room.dropAt && Date.now() - room.dropAt < RECONNECT_GRACE_MS)
-}
-function reconnectUntilOf(room) {
-  if (!isReconnecting(room)) return 0
-  return Math.max(room.bootRestoreUntil || 0, room.dropAt ? room.dropAt + RECONNECT_GRACE_MS : 0)
-}
-
-// ═════════ 🔁 서버 재시작 후 자동 재입장 (공식 에디냥 startAll 처럼) ═════════
-// 누가 어느 방송에 들어가 있었는지를 파일에 적어두고, 서버가 다시 켜지면 한꺼번에 몰리지 않게
-// 2~3초 간격(조금씩 흔들어서)으로 한 명씩 다시 넣어준다. 방송이 끝났으면 건너뛴다.
-const ACTIVE_ROOMS_FILE = path.join(store.DATA_DIR, 'activeRooms.json')
-let lastActiveRoomsJson = ''
-let bootRestoring = true // 재시작 직후 재입장이 끝나기 전엔 목록을 덮어쓰지 않는다 (중간에 또 재시작돼도 안 잃어버리게)
-function saveActiveRooms() {
-  if (bootRestoring) return
-  try {
-    const out = {}
-    for (const djId of store.listDjIds()) {
-      const room = rooms[djId]
-      if (room && room.autoJoinedFor && room.watchingTag) out[djId] = { liveId: String(room.autoJoinedFor), tag: room.watchingTag }
-    }
-    const json = JSON.stringify(out)
-    if (json === lastActiveRoomsJson) return
-    fs.writeFileSync(ACTIVE_ROOMS_FILE + '.tmp', json)
-    fs.renameSync(ACTIVE_ROOMS_FILE + '.tmp', ACTIVE_ROOMS_FILE)
-    lastActiveRoomsJson = json
-  } catch (e) { console.log('[재입장 목록] 저장 실패', e.message) }
-}
-setInterval(saveActiveRooms, 15 * 1000)
-
-async function restoreActiveRoomsOnBoot() {
-  let list = {}
-  try { list = JSON.parse(fs.readFileSync(ACTIVE_ROOMS_FILE, 'utf8') || '{}') } catch (_) { list = {} }
-  const ids = Object.keys(list).filter((djId) => store.listDjIds().includes(djId))
-  if (!ids.length) { bootRestoring = false; return }
-  console.log(`[재입장] 서버 재시작 전 방송에 들어가 있던 ${ids.length}개 계정을 차례대로 다시 넣어요`)
-  // 전부 먼저 "재입장 대기" 표시 → 그동안 "지금 입장하기" 잠금 (한 명당 넉넉히 15초 + 1분)
-  ids.forEach((djId, i) => {
-    const room = getRoom(djId)
-    room.bootRestoreUntil = Date.now() + 60 * 1000 + (i + 1) * 15 * 1000
-    broadcast({ type: 'autojoin', djId, status: 'reconnecting', tag: list[djId].tag, until: room.bootRestoreUntil, msg: '🔄 서버가 다시 켜져서 자동으로 방송에 다시 들어가는 중이에요...' })
-  })
-  for (const djId of ids) {
-    const room = getRoom(djId)
-    const { tag } = list[djId]
-    let liveId = String(list[djId].liveId || '')
-    let quiet = false // 방송 끝남 등 이미 알려준 경우엔 "재입장 실패" 안내를 따로 안 보냄
-    let failed = false
-    try {
-      if (room.isConnected || room.ws || room.reconnectTimer) { quiet = true; continue } // 그 사이 다른 경로로 이미 붙었으면 그대로
-      if (!canAutoJoin(djId) || !tokenManager.getAccessToken(tokenDjIdFor(djId))) { quiet = true; continue }
-      const cur = await fetchUserStatusByTag(tag, djId)
-      if (!cur || !cur.is_live || !cur.current_live_id) {
-        console.log(`[재입장] ${djId} — @${tag} 방송이 끝나서 건너뜀`)
-        broadcast({ type: 'autojoin', djId, status: 'offline', tag })
-        quiet = true; continue
-      }
-      liveId = String(cur.current_live_id)
-      if (findActiveDjIdUsingTag(tag, djId)) { broadcast({ type: 'autojoin', djId, status: 'duplicate', tag }); quiet = true; continue }
-      room.checking = true
-      room.autoJoinedFor = liveId // 입장권 받기에서 실패해도 자동 재접속이 이어받을 수 있게 먼저 적어둔다
-      room.watchingTag = tag
-      broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-      const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
-      await connectSpoonForDj(djId, liveId, roomToken || '')
-      // 소켓이 실제로 열릴 때까지 잠깐 기다린 뒤 다음 사람으로 (한 명씩 차례대로)
-      for (let t = 0; t < 40 && !room.isConnected && room.ws; t++) await new Promise((r) => setTimeout(r, 250))
-      if (room.isConnected) {
-        broadcast({ type: 'autojoin', djId, status: 'joined', tag, liveId, reconnected: true })
-        console.log(`[재입장] ${djId} → @${tag} (${liveId}) 다시 입장`)
-      }
-    } catch (e) {
-      failed = true
-      console.log(`[재입장] ${djId} 실패:`, e.message)
-      if (room.autoJoinedFor && !room.ws) scheduleReconnect(djId, room, '서버 재시작 후 재입장 실패')
-    } finally {
-      room.checking = false
-      room.bootRestoreUntil = 0
-      if (failed && !quiet && !room.isConnected && !room.reconnectTimer) broadcast({ type: 'autojoin', djId, status: 'error', tag, msg: '서버 재시작 후 자동 재입장이 안 됐어요 — "지금 입장하기"로 다시 들어가 주세요' })
-      if (quiet) broadcast({ type: 'autojoin', djId, status: 'idle', tag }) // 🔓 건너뛴 계정은 버튼 잠금만 풀어준다
-    }
-    await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000)) // 🎲 한꺼번에 몰리지 않게 2~3초 간격
-  }
-  bootRestoring = false
-  saveActiveRooms()
-  console.log('[재입장] 서버 재시작 후 재입장 끝')
-}
-
-// 방송 연결이 끝났을 때 이 방의 기능 타이머들을 정리한다
-function teardownRoomTimers(djId, room) {
-  if (room._teardownTimer) { clearTimeout(room._teardownTimer); room._teardownTimer = null }
-  stopLeavePolling(djId)
-  stopLottoAutoTimer(djId)
-  stopAutoLikeTimer(djId)
-  stopStockTimers(djId)
-  clearReminderTimers(room)
-  clearTtsAccess(room)
-  clearQuizTimers(room)
-  if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
-}
+const RECONNECT_BASE_MS = 3000
 const RECONNECT_MAX_MS = 30 * 1000
 
 function cancelReconnect(room) {
@@ -17334,16 +17225,7 @@ function scheduleReconnect(djId, room, reason) {
   if (!room.autoJoinedFor) return
 
   room.reconnectTries = (room.reconnectTries || 0) + 1
-  // 🎲 공식 에디냥(Open API) 연결 루프처럼 — 첫 재시도는 0.8~2초 안에 바로 붙고, 실패하면 2초→4초→…→30초로 늘린다.
-  // 간격에 ±25% 흔들림(jitter)을 줘서, 여러 DJ가 같은 순간 끊겼을 때 다 같이 한꺼번에 몰려 붙다가 또 거절당하는 걸 막는다.
-  // 🐢 단, 붙은 지 1분도 안 돼서 끊긴 거면(스푼이 "같은 계정 동시 접속"으로 정리 중일 수 있음) 빨리 다시 붙을수록
-  // 또 끊기기 쉬워서, 이럴 땐 첫 재시도도 10~15초 기다리고 이후 최대 60초까지 천천히 늘린다.
-  const quickDrop = room.lastHeldSec != null && room.lastHeldSec < 60
-  const base = quickDrop
-    ? Math.min(10000 * Math.pow(2, room.reconnectTries - 1), 60000) * (1 + Math.random() * 0.5)
-    : room.reconnectTries === 1 ? 800 + Math.random() * 1200
-    : Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 2), RECONNECT_MAX_MS) * (0.75 + Math.random() * 0.5)
-  const delay = Math.round(base)
+  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 1), RECONNECT_MAX_MS)
   console.log(`[${djId}] ${reason} → ${Math.round(delay / 1000)}초 뒤 자동 재접속 시도 (${room.reconnectTries}번째)`)
 
   room.reconnectTimer = setTimeout(async () => {
@@ -17355,14 +17237,12 @@ function scheduleReconnect(djId, room, reason) {
 
       // 방송이 아직 켜져 있는지 먼저 확인한다. 꺼졌으면 재시도를 멈추고, 방송을 껐다 켜서
       // liveId가 바뀌었으면 새 liveId로 갱신해서 붙는다.
-      // ⚡ 첫 재시도는 확인 없이 바로 붙는다 (잠깐 끊긴 대부분의 경우 공백을 줄이려고) — 실패하면 두 번째부터 확인.
-      if (room.watchingTag && room.reconnectTries > 1) {
+      if (room.watchingTag) {
         const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           const endedTag = room.watchingTag
           console.log(`[${djId}] 재접속 중단 — @${endedTag} 방송이 종료된 상태예요`)
           room.autoJoinedFor = ''
-          room.dropAt = 0
           room.watchingTag = ''
           room.reconnectTries = 0
           broadcast({ type: 'status', djId, isConnected: false })
@@ -17534,47 +17414,34 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         .catch(e => { console.log(`[${djId}] 접속 직후 roomToken 예열 실패:`, e.message); return null })
         .finally(() => { room._roomTokenRefreshPromise = null })
     }
-    // ⚡ 1분 안에 같은 방송으로 다시 붙은 거면(잠깐 끊김) 기능 타이머들이 아직 돌고 있으니 그대로 이어간다 — 다시 시작 안 함
-    const quickResume = !!room._teardownTimer && !isNewLiveSession
-    room.bootRestoreUntil = 0
-    saveActiveRooms() // 🔁 재시작 대비 — 지금 들어가 있는 방 기록
-    if (room.dropAt) { room.dropAt = 0; broadcast({ type: 'autojoin', djId, status: 'joined', tag: room.watchingTag, liveId, reconnected: true }) } // 🔓 다시 붙음 — 버튼 잠금 해제
-    if (room._teardownTimer) {
-      clearTimeout(room._teardownTimer); room._teardownTimer = null
-      if (isNewLiveSession) teardownRoomTimers(djId, room) // 다른 방송이면 예전 방송 타이머는 정리하고 새로 시작
-    }
-    if (quickResume) {
-      console.log(`[${djId}] 잠깐 끊겼다 같은 방송(${liveId})에 다시 연결 — 퀴즈·복권·주식 등 진행 중이던 기능 그대로 유지`)
+    // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
+    startLeavePolling(djId, liveId)
+    // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
+    // 봇이 튕겨서 같은 방으로 자동 재접속한 거면 건너뛴다 (안 그러면 재접속 직후 다음
+    // 입장자가 또 1등으로 집계되면서 복권이 중복 지급되는 버그가 있었음).
+    if (isNewLiveSession) {
+      resetLottoRankCounter(room)
     } else {
-      // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
-      startLeavePolling(djId, liveId)
-      // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
-      // 봇이 튕겨서 같은 방으로 자동 재접속한 거면 건너뛴다 (안 그러면 재접속 직후 다음
-      // 입장자가 또 1등으로 집계되면서 복권이 중복 지급되는 버그가 있었음).
-      if (isNewLiveSession) {
-        resetLottoRankCounter(room)
-      } else {
-        console.log(`[${djId}] 같은 방(${liveId})으로 재접속 — 복권 차등지급 등수 카운터 유지 (현재 ${room._lottoRankCounter || 0}명째)`)
-      }
-      // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
-      repeatLastSent[djId] = {}
-      delete repeatSeqState[djId]
-      // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
-      startLottoAutoTimer(djId, liveId)
-      // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
-      startAutoLikeTimer(djId, liveId)
-      // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
-      startStockTimers(djId, liveId)
-      // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
-      startMonsterCatchTimer(djId)
-      startBossTimer(djId)
-      // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
-      try {
-        const s = store.getSettings(djId) || {}
-        const quiz = getQuizSettings(djId, s)
-        if (quiz.autoStartOnRestart && quiz.questions.length) startQuiz(djId)
-      } catch (e) {}
+      console.log(`[${djId}] 같은 방(${liveId})으로 재접속 — 복권 차등지급 등수 카운터 유지 (현재 ${room._lottoRankCounter || 0}명째)`)
     }
+    // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
+    repeatLastSent[djId] = {}
+    delete repeatSeqState[djId]
+    // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
+    startLottoAutoTimer(djId, liveId)
+    // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
+    startAutoLikeTimer(djId, liveId)
+    // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
+    startStockTimers(djId, liveId)
+    // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
+    startMonsterCatchTimer(djId)
+    startBossTimer(djId)
+    // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
+    try {
+      const s = store.getSettings(djId) || {}
+      const quiz = getQuizSettings(djId, s)
+      if (quiz.autoStartOnRestart && quiz.questions.length) startQuiz(djId)
+    } catch (e) {}
   })
 
   ws.on('message', async (data) => {
@@ -17925,7 +17792,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (room.ws && room.ws !== ws) return
 
     const heldForSec = ws.createdAt ? Math.round((Date.now() - ws.createdAt) / 1000) : null
-    room.lastHeldSec = heldForSec // 🐢 붙자마자(1분 안) 끊기는 게 반복되면 재접속을 천천히 (스푼이 이전 접속을 정리할 시간)
     console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
@@ -17941,24 +17807,14 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // 경우 = 수동 나가기/방송 종료 감지/재부팅)일 때만 초기화한다.
     if (!room.autoJoinedFor) room.tokenDjId = null
 
-    // ⏳ 잠깐 끊긴 거면(자동 재접속 대상) 기능들을 바로 끄지 않고 1분 기다린다 — 채팅 전송은 웹소켓이 아니라
-    // 따로 가는 요청이라 그동안도 퀴즈·복권·주식 등은 계속 돌 수 있다. 1분 안에 다시 붙으면 그대로 이어가고
-    // (공식 에디냥처럼 "연결만" 다시 붙임), 못 붙으면 그때 정리한다. 일부러 나간 경우엔 예전처럼 바로 정리.
-    if (room.autoJoinedFor && code !== 1000) {
-      if (room._teardownTimer) clearTimeout(room._teardownTimer)
-      if (!room.dropAt) room.dropAt = Date.now() // 🔄 자동 재접속 시작 — 1분 동안 "지금 입장하기" 잠금
-      broadcast({ type: 'autojoin', djId, status: 'reconnecting', tag: room.watchingTag, until: room.dropAt + RECONNECT_GRACE_MS })
-      room._teardownTimer = setTimeout(() => {
-        room._teardownTimer = null
-        if (getRoom(djId) !== room || room.ws || room.isConnected) return
-        console.log(`[${djId}] 1분 안에 다시 연결되지 않아 방송 기능 타이머 정리`)
-        teardownRoomTimers(djId, room)
-        room.dropAt = 0 // 🔓 1분 넘게 못 붙었으면 "지금 입장하기"를 다시 풀어준다 (자동 재시도는 계속)
-        if (room.autoJoinedFor) broadcast({ type: 'autojoin', djId, status: 'error', tag: room.watchingTag, msg: '자동 재접속이 1분 넘게 안 되고 있어요 — "지금 입장하기"로 다시 들어가 주세요' })
-      }, RECONNECT_GRACE_MS)
-    } else {
-      teardownRoomTimers(djId, room)
-    }
+    stopLeavePolling(djId)
+    stopLottoAutoTimer(djId)
+    stopAutoLikeTimer(djId)
+    stopStockTimers(djId)
+    clearReminderTimers(room)
+    clearTtsAccess(room)
+    clearQuizTimers(room)
+    if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
     broadcast({ type: 'status', djId, isConnected: false })
 
     // 🔁 정상 종료(1000)가 아니면 — code 1006(비정상 종료) 포함 — 곧바로 재접속을 예약한다.
@@ -18013,8 +17869,19 @@ setInterval(() => {
       continue
     }
 
-    // 🔄 4시간 프록시 순환은 이제 방송 중인 연결을 일부러 끊지 않는다 (예전엔 4시간 경계마다 모든 DJ가
-    // 한꺼번에 끊겼다 붙어서 "봇이 튕긴다"로 보였다). 새 배정은 다음에 다시 접속할 때 getWsProxyForDj 가 알아서 적용한다.
+    // 🔄 4시간 프록시 순환 — 지금 붙어있는 프록시가 "지금 이 순간 배정돼야 할" 프록시랑 다르면
+    // (=4시간 구간이 넘어가서 배정이 바뀌었으면) 정상적으로 재연결시켜서 새 프록시를 타게 한다.
+    // 1000(정상 종료)으로 닫아서, 기존 재접속 로직이 그대로 처리하게 둔다.
+    const currentWsEntry = getWsProxyForDj(djId)
+    const currentWsLabel = currentWsEntry ? currentWsEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+    if (ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
+      console.log(`[${djId}] 프록시 순환 시점 — ${ws.spoonProxyLabel} → ${currentWsLabel}로 재연결`)
+      // ⚠️ code 1000(정상 종료)으로 닫으면 재접속 로직이 "의도적으로 나간 것"으로 보고 재연결을
+      // 안 시킨다. 그래서 1000이 아닌 전용 코드(4000)를 쓴다 — 재연결은 일으키되, 진짜 에러(1006 등)와는
+      // 구분해서 로그에 에러로 안 남게 close 핸들러 쪽에서 따로 처리한다.
+      try { ws.close(4000, '프록시 순환') } catch (e) { try { ws.terminate() } catch (e2) {} }
+      continue
+    }
 
     if (ws.isAlive === false) {
       ws.missedPong = (ws.missedPong || 0) + 1
@@ -19470,7 +19337,7 @@ app.get('/announcement', auth.requireAuth, (req, res) => {
   const announcement = store.getAnnouncement()
   if (!announcement) return res.json({ success: true, announcement: null })
   const settings = store.getSettings(req.djId) || {}
-  const seen = settings.lastSeenAnnouncementId === announcement.id // 📢 같은 공지는 계정마다 처음 접속할 때 한 번만 보여준다
+  const seen = settings.lastSeenAnnouncementId === announcement.id && settings.lastSeenAnnouncementDate === todayKST()
   res.json({ success: true, announcement, seen })
 })
 app.post('/announcement', auth.requireAuth, (req, res) => {
@@ -24472,6 +24339,55 @@ app.get('/play/:djId', (req, res) => {
 // ══════════════════════════════════════════════════════
 // 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 기본은 "자동입장"에 등록해둔 고유닉을 그대로
 // 재사용하고, 수동으로 다른 고유닉을 등록해두면 그걸 우선해서 쓴다.
+app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const lr = getLiveRankSettings(req.djId, settings)
+  const autoTag = settings.autoJoinTag || (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags[0]) || ''
+  res.json({ success: true, djTag: getLiveRankDjTag(settings), manualTag: lr.manualTag, autoTag, historyCount: lr.history.length })
+})
+app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
+  const lr = getLiveRankSettings(req.djId, settings)
+  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
+  if (newTag !== lr.manualTag) lr.history = [] // 기준 고유닉이 바뀌면 예전 순위 기록은 의미가 없으니 초기화
+  lr.manualTag = newTag
+  store.saveSettings(req.djId, { liveRank: lr })
+  res.json({ success: true, djTag: getLiveRankDjTag(settings) })
+})
+app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
+  const scanResult = await scanDashRank()
+  if (scanResult.success) {
+    const settings = store.getSettings(req.djId) || {}
+    const lr = getLiveRankSettings(req.djId, settings)
+    recordLiveRankHistory(req.djId, lr, getLiveRankDjTag(settings))
+  }
+  res.json(scanResult)
+})
+
+// 🏆 월간 DJ 컷랭킹 — /liverank/:djId/data 는 관리자 화면(liverank 패널)이 인증된 상태에서
+// fetch로 불러다 그 자리에서 바로 그려주는 용도의 JSON API. 예전엔 시청자용 공개 페이지
+// (/liverank/:djId, liverank.html)로도 열 수 있었지만, 이제 외부에서 여는 방식은 없애고
+// 관리자 화면 안에서만 보이도록 정리했다.
+app.get('/liverank/:djId/data', async (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
+  const lr = getLiveRankSettings(djId, settings)
+  const djTag = getLiveRankDjTag(settings)
+  if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
+  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank()
+    if (!scanResult.success) {
+      console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
+      return res.json({ success: false, error: scanResult.error })
+    }
+  }
+  const snap = buildLiveRankSnapshot(djTag)
+  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
+  res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
+})
+
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
@@ -24862,7 +24778,6 @@ async function checkAdminAutoJoin() {
     const room = getRoom(djId)
     if (room.checking) continue
     if (room.reconnectTimer) continue // 🔁 자동 재접속이 예약돼 있으면 그쪽에 맡긴다 (동시에 두 번 붙지 않게)
-    if (room.bootRestoreUntil && room.bootRestoreUntil > Date.now()) continue // 🔁 서버 재시작 후 재입장 순서를 기다리는 중
     room.checking = true
 
     try {
@@ -25021,13 +24936,6 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
   if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
 
-  // 🔄 잠깐 끊겨서 서버가 자동 재접속 중이면 직접 입장은 막는다 — 여럿이 동시에 누르면 입장권(roomToken)을
-  // 크롬으로 새로 받아오는 무거운 작업이 한꺼번에 몰리고, 자동 재접속이랑 겹쳐 두 번 붙으려다 또 끊길 수 있다.
-  if (isReconnecting(room)) return res.json({ success: false, reconnecting: true, until: reconnectUntilOf(room), error: '🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요. 잠시만 기다려 주세요 (1분 안에 안 붙으면 다시 누를 수 있어요)' })
-  // ⏳ 연타 방지 — 같은 계정은 10초에 한 번만
-  if (room._lastManualJoinAt && Date.now() - room._lastManualJoinAt < 10 * 1000) return res.json({ success: false, error: '⏳ 방금 입장을 시도했어요. 10초 뒤에 다시 눌러주세요' })
-  room._lastManualJoinAt = Date.now()
-
   store.saveSettings(djId, { autoJoinTag: cleanTag })
   commitAutoJoinTagLock(djId, settingsForCheck, [cleanTag])
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
@@ -25076,7 +24984,6 @@ app.post('/room/leave', auth.requireAuth, (req, res) => {
   stopStockTimers(djId)
   clearReminderTimers(room)
   clearTtsAccess(room)
-  saveActiveRooms() // 직접 나갔으니 재시작해도 다시 안 들어가게
   broadcast({ type: 'status', djId, isConnected: false })
   res.json({ success: true, msg: '현재 방에서 나갔어요' })
 })
@@ -25086,7 +24993,6 @@ app.get('/status', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId)
   res.json({
     isConnected: room.isConnected,
-    reconnectUntil: reconnectUntilOf(room), // 🔄 자동 재접속 중이면 이때까지 "지금 입장하기" 잠금
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
@@ -25239,8 +25145,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`서버 실행 중: ${PORT}`)
-  // 🔁 재시작 전 들어가 있던 방송에 차례대로 다시 입장 (토큰 등 준비될 시간을 조금 주고 시작)
-  setTimeout(() => { restoreActiveRoomsOnBoot().catch((e) => { bootRestoring = false; console.log('[재입장] 오류', e.message) }) }, 8000)
   // 📢 전체방 반복 공지 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
   startGlobalAnnounceTimer()
   // 🌍 월드보스 타이머도 서버 시작 시 바로 켠다 (활성화 상태일 때만 실제로 동작함)
@@ -25337,7 +25241,6 @@ app.listen(PORT, () => {
 // 🛑 배포 플랫폼(Railway/Render)이 재배포/재시작할 때 SIGTERM을 보내는데, 그 순간 아직 디스크에 안 쓰인
 // (dirty 상태로만 있던) 귀빈등급/온도랭킹 등의 변경사항을 마지막으로 한 번 저장하고 종료한다.
 function gracefulShutdown() {
-  try { saveActiveRooms() } catch (e) {} // 🔁 재시작 후 다시 넣어줄 방 목록 최신으로
   try { store.flush() } catch (e) { console.log('[종료 flush] 실패', e.message) }
   try { mcFlushWebDataSync() } catch (e) { console.log('[종료 flush] 몬스터 웹도감 저장 실패', e.message) } // 🐾 레벨/포인트 유실 방지
   process.exit(0)
