@@ -2206,11 +2206,11 @@ if (window.bcast) setTimeout(() => {
           <div class="card-title"><span>🔀 봇 연결 끊김 대응 (프록시)</span></div>
           <p class="hint" style="margin-bottom:12px">봇이 방송에 붙은 지 3분 안에 끊기면(code 1006) 어떻게 할지 정해요. <span id="proxyFailoverCount"></span></p>
           <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="both" style="width:auto"><b>① + ② 둘 다</b> — 먼저 다른 프록시로 바꿔보고, 모든 프록시가 다 금방 끊기면 30분간 직접 연결 (추천)</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="both" style="width:auto"><b>① + ② 둘 다</b> — 먼저 다른 프록시로 바꿔보고, 모든 프록시가 다 금방 끊기면 30분간 직접 연결</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="switch" style="width:auto"><b>① 다른 프록시로 바꾸기</b> — 금방 끊기면 그 DJ를 다음 프록시 포트로 바로 옮겨요</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="direct" style="width:auto"><b>② 직접 연결로 바꾸기</b> — 같은 프록시로 2번 연속 금방 끊기면 30분간 프록시 없이 연결해요</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="off" style="width:auto"><b>사용 안 함</b> — 예전처럼 4시간마다 정해진 프록시만 써요</label>
-            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="noproxy" style="width:auto"><b>🔌 프록시 안 씀</b> — 웹소켓을 항상 프록시 없이 서버에서 스푼으로 바로 연결해요 (공식 에디냥 방식 · 다음 접속부터 적용)</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="radio" name="proxyFailoverMode" value="noproxy" style="width:auto"><b>🔌 프록시 안 씀 (기본)</b> — 웹소켓을 항상 프록시 없이 서버에서 스푼으로 바로 연결해요 (공식 에디냥 방식 · 다음 접속부터 적용)</label>
           </div>
           <button class="btn-connect" style="padding:11px 20px" onclick="saveProxyFailoverMode()">저장</button>
         </div>
