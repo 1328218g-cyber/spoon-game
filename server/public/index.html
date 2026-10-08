@@ -5955,11 +5955,7 @@ if (window.bcast) setTimeout(() => {
   <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
     <div class="modal-title"><span>📢 <span id="announcementTitle">업데이트 안내</span></span><button class="icon-btn" onclick="closeAnnouncementModal()">✕</button></div>
     <div id="announcementBody" style="font-size:14px;line-height:1.75;white-space:pre-line"></div>
-    <label style="display:flex;align-items:center;gap:7px;margin-top:16px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none">
-      <input type="checkbox" id="announcementHideTodayCheck" style="width:16px;height:16px;margin:0">
-      오늘 하루 보지 않기
-    </label>
-    <button class="btn-connect" style="width:100%;margin-top:10px" onclick="closeAnnouncementModal()">확인</button>
+    <button class="btn-connect" style="width:100%;margin-top:16px" onclick="closeAnnouncementModal()">확인</button>
   </div>
 </div>
 <!-- 🔔 업데이트 내역(체인지로그) -->
@@ -6509,8 +6505,6 @@ async function checkAnnouncement(thenShowTutorialForNewUser){
     pendingTutorialAfterAnnouncement=!!thenShowTutorialForNewUser;
     document.getElementById('announcementTitle').textContent=d.announcement.title||'업데이트 안내';
     document.getElementById('announcementBody').textContent=d.announcement.content||'';
-    const hideTodayCheck=document.getElementById('announcementHideTodayCheck');
-    if(hideTodayCheck) hideTodayCheck.checked=false; // 매번 접속할 때마다 다시 뜨는 거라, 체크 상태도 매번 초기화
     document.getElementById('announcementOverlay').style.display='flex';
   }catch(e){
     if(thenShowTutorialForNewUser) maybeShowTutorialIfNew();
@@ -6518,14 +6512,10 @@ async function checkAnnouncement(thenShowTutorialForNewUser){
 }
 async function closeAnnouncementModal(){
   document.getElementById('announcementOverlay').style.display='none';
-  const hideToday=document.getElementById('announcementHideTodayCheck')?.checked;
   if(currentAnnouncementId!=null){
     currentAnnouncementId=null;
-    // ⚠️ 체크박스를 체크했을 때만 "오늘 하루 안 봄"으로 서버에 기록한다. 체크 안 하고 그냥
-    // 확인만 누르면 다음에 접속했을 때(같은 날이라도) 이 공지가 또 뜬다 — 의도된 동작.
-    if(hideToday){
-      try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
-    }
+    // 📢 업데이트 안내는 처음 접속했을 때 한 번만 — 닫으면 바로 "봤음"으로 기록해서 다음 접속부터는 안 뜬다 (새 공지가 올라오면 다시 한 번)
+    try{ await fetch(SERVER+'/announcement/seen',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({})}); }catch(e){}
   }
   if(pendingTutorialAfterAnnouncement){
     pendingTutorialAfterAnnouncement=false;

@@ -19458,7 +19458,7 @@ app.get('/announcement', auth.requireAuth, (req, res) => {
   const announcement = store.getAnnouncement()
   if (!announcement) return res.json({ success: true, announcement: null })
   const settings = store.getSettings(req.djId) || {}
-  const seen = settings.lastSeenAnnouncementId === announcement.id && settings.lastSeenAnnouncementDate === todayKST()
+  const seen = settings.lastSeenAnnouncementId === announcement.id // 📢 같은 공지는 계정마다 처음 접속할 때 한 번만 보여준다
   res.json({ success: true, announcement, seen })
 })
 app.post('/announcement', auth.requireAuth, (req, res) => {
