@@ -17336,7 +17336,12 @@ function scheduleReconnect(djId, room, reason) {
   room.reconnectTries = (room.reconnectTries || 0) + 1
   // 🎲 공식 에디냥(Open API) 연결 루프처럼 — 첫 재시도는 0.8~2초 안에 바로 붙고, 실패하면 2초→4초→…→30초로 늘린다.
   // 간격에 ±25% 흔들림(jitter)을 줘서, 여러 DJ가 같은 순간 끊겼을 때 다 같이 한꺼번에 몰려 붙다가 또 거절당하는 걸 막는다.
-  const base = room.reconnectTries === 1 ? 800 + Math.random() * 1200
+  // 🐢 단, 붙은 지 1분도 안 돼서 끊긴 거면(스푼이 "같은 계정 동시 접속"으로 정리 중일 수 있음) 빨리 다시 붙을수록
+  // 또 끊기기 쉬워서, 이럴 땐 첫 재시도도 10~15초 기다리고 이후 최대 60초까지 천천히 늘린다.
+  const quickDrop = room.lastHeldSec != null && room.lastHeldSec < 60
+  const base = quickDrop
+    ? Math.min(10000 * Math.pow(2, room.reconnectTries - 1), 60000) * (1 + Math.random() * 0.5)
+    : room.reconnectTries === 1 ? 800 + Math.random() * 1200
     : Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 2), RECONNECT_MAX_MS) * (0.75 + Math.random() * 0.5)
   const delay = Math.round(base)
   console.log(`[${djId}] ${reason} → ${Math.round(delay / 1000)}초 뒤 자동 재접속 시도 (${room.reconnectTries}번째)`)
@@ -17920,6 +17925,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     if (room.ws && room.ws !== ws) return
 
     const heldForSec = ws.createdAt ? Math.round((Date.now() - ws.createdAt) / 1000) : null
+    room.lastHeldSec = heldForSec // 🐢 붙자마자(1분 안) 끊기는 게 반복되면 재접속을 천천히 (스푼이 이전 접속을 정리할 시간)
     console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
