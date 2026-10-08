@@ -775,7 +775,6 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">모듈</div>
     <div class="nav-item" data-panel="modulemarket"><span class="ic ic-img"><img src="/icons/modulemarket.png" alt=""></span><span class="lbl">모듈 마켓</span><span id="marketNewBadge" style="display:none;color:#ef4444;font-size:11px;font-weight:800;margin-left:6px">NEW</span></div>
@@ -5269,21 +5268,6 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <!-- 🔴 실시간 랭킹 -->
-      <div class="panel" data-panel="liverank">
-        <div class="card">
-          <div class="card-title"><span>🏆 월간 DJ 컷랭킹</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="liveRankRefreshNow()">🔄 새로고침</button></div>
-          <p class="hint">스푼 초이스 월간 랭킹에서 현재 순위, 주요 컷, 바로 위/아래 등수 DJ와의 점수 차이를 여기서 바로 볼 수 있어요. 기본은 "자동입장"에 등록해둔 고유닉을 그대로 쓰고, 다른 고유닉을 보고 싶으면 아래에서 수동 등록하면 돼요. 10분마다 서버가 자동으로 갱신해요.</p>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <input type="text" id="lrDjTag" placeholder="수동 등록할 고유닉 (비워두면 자동입장 값 사용)" style="flex:1">
-            <button class="btn-connect" style="padding:8px 16px;font-size:12.5px" onclick="saveLiveRankSettings()">등록</button>
-          </div>
-          <div class="hint" id="lrStatus" style="margin-top:8px"></div>
-        </div>
-
-        <div id="lrViewWrap"></div>
-      </div>
-
-      <!-- 🏆 박제판 -->
       <div class="panel" data-panel="trophyboard">
         <div class="card" id="trophyEditorCard" style="display:none">
           <div class="card-title"><span>🎨 박제 직접 만들기</span></div>
@@ -6724,7 +6708,7 @@ function enterApp(){
   applySidebarOrder();
   applySidebarCollapse();
 
-  initApp().then(()=>selectPanel(window.EDI_MENU_POPUP||'liverank'));
+  initApp().then(()=>{ const first=[...document.querySelectorAll('#sidebar .nav-item[data-panel]')].find(n=>n.offsetParent!==null); selectPanel(window.EDI_MENU_POPUP||(first?first.dataset.panel:'dashboard')); }); // 첫 화면: 사이드바 맨 위 메뉴
   if(!window.EDI_MENU_POPUP) maybeAutoShowTutorial(); // 메뉴 바로가기 팝업에서는 안내를 띄우지 않는다
 }
 
@@ -6850,7 +6834,6 @@ const PANEL_META={
   pickboard:['🎯 뽑기판','하트·스푼·채팅·퀴즈로 뽑기권을 모아 번호를 뽑는 상품 추첨 미니게임입니다'],
   webpickboard:['🌐 웹뽑기판','시청자가 로그인 없이 웹페이지에서 직접 눌러서 뽑는 등수형 뽑기판입니다 (기존 뽑기판과 별개)'],
   mafia:['🎭 마피아 게임','DJ가 역할을 자유롭게 구성하고, 시청자가 웹페이지+채팅인증으로 참가해 진행하는 마피아 게임입니다'],
-  liverank:['🏆 월간 DJ 컷랭킹','스푼 초이스 월간 랭킹에서 내 순위, 주요 컷, 위/아래 DJ와의 점수 차이를 관리자 화면에서 바로 볼 수 있습니다'],
   trophyboard:['🏆 박제판','선물별 칸을 만들어두면 보낸 사람 닉네임이 자동으로 새겨지는 전시판입니다'],
   giftcapture:['🎬 선물 애니메이션 캡처판','선물별 칸을 만들어두면, 그 선물이 들어올 때마다 애니메이션을 기록해뒀다가 원할 때 클릭해서 팝업으로 다시 재생할 수 있어요'],
   chuseokevent:['🎑 추석 팀배틀 이벤트','라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 !팀이름으로 참여하고, 10스푼 이상 선물이 팀 점수로 쌓여요'],
@@ -6893,7 +6876,6 @@ function selectPanel(name){
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
-  if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='broadcast'&&typeof bcFloatClose==='function')bcFloatClose(); // 팝업으로 떠 있었으면 원래 화면으로
   if(name==='broadcast'&&window.bcast&&typeof bcOnShow==='function')bcOnShow(); // 웹(설치 안내 화면)에서는 엔진 연결 안 함
@@ -7021,7 +7003,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7035,7 +7017,7 @@ const MODULE_ICON_FILES={
   dday:'dday.png',saju:'saju.png',memo2:'memo2.png',plansub:'plansub.png',viptier:'viptier.png',managertoken:'managertoken.png',
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
-  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
+  fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',
   trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
@@ -7053,7 +7035,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -18124,128 +18106,6 @@ async function saveCalImageSettings(){
     const d=await res.json();
     if(!d.success)showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
-}
-
-/* 🔴 실시간 랭킹 */
-async function loadLiveRankSettings(){
-  try{
-    const res=await fetch(SERVER+'/liverank-admin/settings',{headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success){
-      document.getElementById('lrStatus').textContent=d.error?`⚠️ ${d.error}`:'⚠️ 불러오지 못했어요. 새로고침해주세요.';
-      return;
-    }
-    document.getElementById('lrDjTag').value=d.manualTag||'';
-    if(d.manualTag){
-      document.getElementById('lrStatus').textContent=`수동 등록 고유닉 사용 중: ${d.djTag}`;
-    }else if(d.djTag){
-      document.getElementById('lrStatus').textContent=`자동입장 등록 고유닉 사용 중: ${d.djTag}`;
-    }else{
-      document.getElementById('lrStatus').textContent='⚠️ 사용할 고유닉이 없어요. 자동입장에 등록하거나, 위에서 직접 등록해주세요.';
-    }
-    if(d.djTag) loadLiveRankView(); else document.getElementById('lrViewWrap').innerHTML='';
-  }catch(e){
-    document.getElementById('lrStatus').textContent='⚠️ 불러오지 못했어요: '+e.message;
-  }
-}
-async function saveLiveRankSettings(){
-  const djTag=document.getElementById('lrDjTag').value.trim();
-  try{
-    const res=await fetch(SERVER+'/liverank-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({djTag})});
-    const d=await res.json();
-    if(!d.success)return showToast(d.error||'실패');
-    showToast(djTag?'수동으로 등록했어요':'자동입장 값으로 되돌렸어요');
-    loadLiveRankSettings();
-  }catch(e){showToast('오류: '+e.message);}
-}
-async function liveRankRefreshNow(){
-  try{
-    const res=await fetch(SERVER+'/liverank-admin/refresh-now',{method:'POST',headers:authHeaders()});
-    const d=await res.json();
-    if(!d.success)return showToast(d.error||'실패');
-    showToast('랭킹 데이터를 갱신했어요');
-    loadLiveRankSettings();
-  }catch(e){showToast('오류: '+e.message);}
-}
-function lrFmtNum(n){ return n==null?'-':Number(n).toLocaleString('ko-KR'); }
-function lrFmtDiff(n){ return n==null?'-':(n>=0?'+':'')+Number(n).toLocaleString('ko-KR'); }
-function lrAvatarHtml(url,size,emoji){
-  emoji=emoji||'🎙️';
-  const safeUrl=url?escapeAttr(url):'';
-  return `<span style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;display:inline-block">
-    ${safeUrl?`<img src="${safeUrl}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:''}
-    <div style="width:${size}px;height:${size}px;border-radius:50%;background:linear-gradient(160deg,#ddd,#ccc);display:${safeUrl?'none':'flex'};align-items:center;justify-content:center;font-size:${Math.round(size*0.4)}px;position:absolute;top:0;left:0">${emoji}</div>
-  </span>`;
-}
-async function loadLiveRankView(){
-  const wrap=document.getElementById('lrViewWrap');
-  if(!wrap)return;
-  wrap.innerHTML='<div class="card"><p class="hint">불러오는 중...</p></div>';
-  try{
-    const res=await fetch(SERVER+'/liverank/'+djId+'/data');
-    const d=await res.json();
-    if(!d.success){
-      wrap.innerHTML=`<div class="card"><p class="hint">${escapeHtml(d.error||'불러오지 못했어요')}</p></div>`;
-      return;
-    }
-    renderLiveRankView(d);
-  }catch(e){
-    wrap.innerHTML='<div class="card"><p class="hint">불러오지 못했어요.</p></div>';
-  }
-}
-function renderLiveRankView(d){
-  const wrap=document.getElementById('lrViewWrap');
-  const updated=d.updatedAt?new Date(d.updatedAt).toLocaleString('ko-KR'):'-';
-  let html='';
-
-  function neighborCard(n,label,arrow,diffColor,bgColor,borderColor){
-    if(!n) return `<div class="card" style="padding:14px 16px;text-align:center"><span class="hint" style="margin:0">${label} — 없음 (${arrow==='▲'?'현재 1위예요!':'전체 꼴찌예요'})</span></div>`;
-    return `<div class="card" style="padding:14px 18px;background:${bgColor};border:1.5px solid ${borderColor}">
-      <div style="display:flex;align-items:center;gap:12px">
-        ${lrAvatarHtml(n.photo,40)}
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11.5px;font-weight:700;color:${diffColor}">${arrow} ${label} · ${n.rank}위</div>
-          <div style="font-size:14px;font-weight:700;margin-top:2px">${escapeHtml(n.nickname)}</div>
-          <div class="hint" style="margin:0">@${escapeHtml(n.tag)} · 컷 <b>${lrFmtNum(n.cut)}</b></div>
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:18px;font-weight:800;color:${diffColor}">${lrFmtDiff(n.diff)}</div>
-          <div style="font-size:10px;color:var(--muted)">점수차</div>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // 위 → 내 순위 → 아래, 세로로 감싸는 순서로 배치해서 바로 비교되게 한다.
-  if(d.above){
-    // 위 등수와의 격차: 내가 따라잡아야 할 점수라 위험(빨강)으로 강조
-    html+=neighborCard(d.above,'바로 위','▲','#dc2626','rgba(220,38,38,.06)','rgba(220,38,38,.35)');
-  }
-
-  html+=`<div class="card" style="padding:22px;background:linear-gradient(135deg,rgba(14,165,233,.14),rgba(14,165,233,.03));border:2px solid var(--accent);box-shadow:0 4px 16px rgba(14,165,233,.15)">
-    <div class="card-title" style="margin-bottom:12px"><span style="font-size:15px">🙋 내 순위</span></div>
-    <div style="display:flex;align-items:center;gap:16px">
-      ${lrAvatarHtml(d.photo,60)}
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:800;font-size:17px">${escapeHtml(d.nickname)}</div>
-        <div class="hint" style="margin:2px 0">@${escapeHtml(d.tag||djId)}</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
-          <span style="font-size:15px">현재 컷 <b style="font-size:17px;color:var(--accent)">${lrFmtNum(d.cut)}</b></span>
-          <span style="font-size:11px;background:var(--accent);color:#fff;padding:4px 10px;border-radius:999px;font-weight:700">${escapeHtml(d.bracketLabel||'')}</span>
-        </div>
-      </div>
-      <div style="font-size:38px;font-weight:900;color:var(--accent);text-align:right;line-height:1">${d.rank}<span style="display:block;font-size:11px;color:var(--muted);font-weight:600;margin-top:4px">현재 순위</span></div>
-    </div>
-  </div>`;
-
-  if(d.below){
-    // 아래 등수와의 여유분: 내가 안전하게 앞서있는 격차라 안전(초록)으로 강조
-    html+=neighborCard(d.below,'바로 아래','▼','#16a34a','rgba(22,163,74,.06)','rgba(22,163,74,.35)');
-  }
-
-  html+=`<div class="hint" style="text-align:center;margin-top:4px">전체 ${d.total}명 · 마지막 갱신: ${updated}</div>`;
-
-  wrap.innerHTML=html;
 }
 
 function switchFtTab(t){

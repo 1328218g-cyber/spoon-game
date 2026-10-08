@@ -6351,10 +6351,6 @@ setInterval(async () => {
       const dash = getDashboardData(djId, settings)
       if (dash.djTag) targets.push(djId)
     }
-    if (isModuleOn(settings, 'liverank', djId)) {
-      const tag = getLiveRankDjTag(settings)
-      if (tag) liveRankTargets.push(djId)
-    }
   }
   if (!targets.length && !liveRankTargets.length) return
   const scanResult = await scanDashRank()
@@ -24339,55 +24335,6 @@ app.get('/play/:djId', (req, res) => {
 // ══════════════════════════════════════════════════════
 // 🏆 월간 DJ 컷랭킹 — 관리자(DJ) 전용 API. 기본은 "자동입장"에 등록해둔 고유닉을 그대로
 // 재사용하고, 수동으로 다른 고유닉을 등록해두면 그걸 우선해서 쓴다.
-app.get('/liverank-admin/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  const lr = getLiveRankSettings(req.djId, settings)
-  const autoTag = settings.autoJoinTag || (Array.isArray(settings.autoJoinTags) && settings.autoJoinTags[0]) || ''
-  res.json({ success: true, djTag: getLiveRankDjTag(settings), manualTag: lr.manualTag, autoTag, historyCount: lr.history.length })
-})
-app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
-  const settings = store.getSettings(req.djId) || {}
-  if (!isModuleOn(settings, 'liverank', req.djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
-  const lr = getLiveRankSettings(req.djId, settings)
-  const newTag = String((req.body || {}).djTag || '').trim().slice(0, 50)
-  if (newTag !== lr.manualTag) lr.history = [] // 기준 고유닉이 바뀌면 예전 순위 기록은 의미가 없으니 초기화
-  lr.manualTag = newTag
-  store.saveSettings(req.djId, { liveRank: lr })
-  res.json({ success: true, djTag: getLiveRankDjTag(settings) })
-})
-app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
-  const scanResult = await scanDashRank()
-  if (scanResult.success) {
-    const settings = store.getSettings(req.djId) || {}
-    const lr = getLiveRankSettings(req.djId, settings)
-    recordLiveRankHistory(req.djId, lr, getLiveRankDjTag(settings))
-  }
-  res.json(scanResult)
-})
-
-// 🏆 월간 DJ 컷랭킹 — /liverank/:djId/data 는 관리자 화면(liverank 패널)이 인증된 상태에서
-// fetch로 불러다 그 자리에서 바로 그려주는 용도의 JSON API. 예전엔 시청자용 공개 페이지
-// (/liverank/:djId, liverank.html)로도 열 수 있었지만, 이제 외부에서 여는 방식은 없애고
-// 관리자 화면 안에서만 보이도록 정리했다.
-app.get('/liverank/:djId/data', async (req, res) => {
-  const djId = req.params.djId
-  const settings = store.getSettings(djId) || {}
-  if (!isModuleOn(settings, 'liverank', djId)) return res.json({ success: false, error: '월간 DJ 컷랭킹을 찾을 수 없어요.' })
-  const lr = getLiveRankSettings(djId, settings)
-  const djTag = getLiveRankDjTag(settings)
-  if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
-  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
-    const scanResult = await scanDashRank()
-    if (!scanResult.success) {
-      console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
-      return res.json({ success: false, error: scanResult.error })
-    }
-  }
-  const snap = buildLiveRankSnapshot(djTag)
-  if (!snap.success) console.log(`[월간DJ컷랭킹] ${djId} — 고유닉 "${djTag}"을(를) 랭킹(${(dashRankCache.next_choice || []).length}명) 안에서 못 찾음`)
-  res.json({ ...snap, history: lr.history, updatedAt: dashRankCache.lastScanned })
-})
-
 app.get('/fishtournament/settings', auth.requireAuth, requireRequestModuleAccess('fishtournament'), (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const ft = getFishTournamentSettings(req.djId, settings)
