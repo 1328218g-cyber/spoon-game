@@ -2316,7 +2316,7 @@ if (window.bcast) setTimeout(() => {
           <div class="card-title">방 입장</div>
           <label>DJ 고유닉 (@태그)</label>
           <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
-          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
+          <button class="btn-green" id="autoJoinBtn" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
           <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
         </div>
@@ -19779,7 +19779,21 @@ function startSettingsImport(){
   reader.readAsText(file);
 }
 
+// 🔄 자동 재접속 중엔 "지금 입장하기"를 잠근다 (동시에 끊겼을 때 여럿이 눌러 서버에 몰리지 않게) — 다시 붙거나 1분 지나면 풀림
+let ajLockUntil=0, ajLockTimer=null;
+function ajLock(until){
+  ajLockUntil=Number(until)||0;
+  const b=document.getElementById('autoJoinBtn'); if(!b) return;
+  clearTimeout(ajLockTimer);
+  if(ajLockUntil>Date.now()){
+    b.disabled=true; b.style.opacity='.55'; b.style.cursor='not-allowed'; b.textContent='🔄 자동 재접속 중… (잠시만요)';
+    ajLockTimer=setTimeout(()=>ajLock(0), ajLockUntil-Date.now()+500);
+  } else {
+    ajLockUntil=0; b.disabled=false; b.style.opacity=''; b.style.cursor=''; b.textContent='🚪 지금 입장하기';
+  }
+}
 async function startAutoJoin(){
+  if(ajLockUntil>Date.now()) return showToast('🔄 자동으로 다시 붙는 중이에요. 잠시만 기다려 주세요');
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
   document.getElementById('autoJoinStatus').textContent='🚪 입장 시도 중...';
@@ -19787,7 +19801,8 @@ async function startAutoJoin(){
     const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     const d=await res.json();
     showToast(d.msg||d.error||'입장 시도');
-    if(!d.success) document.getElementById('autoJoinStatus').textContent='❌ '+(d.error||'입장 실패');
+    if(d.reconnecting) ajLock(d.until);
+    if(!d.success) document.getElementById('autoJoinStatus').textContent=(d.reconnecting?'':'❌ ')+(d.error||'입장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
 
@@ -20045,7 +20060,7 @@ async function toggleAwayMode(){
 }
 
 async function checkStatus(){
-  try{const res=await fetch(SERVER+'/status',{headers:authHeaders()});const d=await res.json();setStatus(d.isConnected);}catch{}
+  try{const res=await fetch(SERVER+'/status',{headers:authHeaders()});const d=await res.json();setStatus(d.isConnected);if(d.reconnectUntil)ajLock(d.reconnectUntil);}catch{}
 }
 
 function setStatus(on){
@@ -20136,7 +20151,7 @@ function startSSE(){
     else if(d.type==='raw_event'){ if(typeof pushEventViewerLog==='function') pushEventViewerLog(d); }
     else if(d.type==='debuglog'){ if(typeof pushDebugLog==='function') pushDebugLog(d); }
     else if(d.type==='admin_error'){ if(typeof pushErrorLog==='function') pushErrorLog(d.entry); }
-    else if(d.type==='status')setStatus(d.isConnected);
+    else if(d.type==='status'){ setStatus(d.isConnected); if(d.isConnected) ajLock(0); }
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
     else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
@@ -20216,8 +20231,10 @@ function updateAutoJoinStatus(d){
   if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
   if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
   if(!el)return;
+  if(d.status==='reconnecting'){el.textContent='🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요...';ajLock(d.until);return;}
+  if(d.status!=='joining')ajLock(0);
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
-  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}
+  else if(d.status==='joined'){el.textContent='✅ @'+d.tag+(d.reconnected?' 다시 연결됐어요':' 입장 완료!');if(!d.reconnected)showToast('입장 성공! 🎉');}
   else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
   else if(d.status==='duplicate'){el.textContent='⚠️ @'+d.tag+' 고유닉은 이미 다른 계정에서 사용 중이에요';showToast('⚠️ 이 고유닉은 이미 다른 계정에서 사용 중이에요');}
   else if(d.status==='error')el.textContent='❌ '+d.msg;

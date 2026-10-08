@@ -17206,6 +17206,11 @@ function rebootDjConnection(djId) {
 const RECONNECT_BASE_MS = 2000
 const RECONNECT_GRACE_MS = 60 * 1000 // ⏳ 이 시간 안에 다시 붙으면 기능 타이머를 끄지 않고 그대로 이어간다
 
+// 🔄 지금 자동 재접속 중인지 — 끊긴 지 1분 안이고 아직 다시 안 붙었으면 true (이 동안엔 "지금 입장하기"를 막는다)
+function isReconnecting(room) {
+  return !!(room && room.autoJoinedFor && !room.isConnected && room.dropAt && Date.now() - room.dropAt < RECONNECT_GRACE_MS)
+}
+
 // 방송 연결이 끝났을 때 이 방의 기능 타이머들을 정리한다
 function teardownRoomTimers(djId, room) {
   if (room._teardownTimer) { clearTimeout(room._teardownTimer); room._teardownTimer = null }
@@ -17258,6 +17263,7 @@ function scheduleReconnect(djId, room, reason) {
           const endedTag = room.watchingTag
           console.log(`[${djId}] 재접속 중단 — @${endedTag} 방송이 종료된 상태예요`)
           room.autoJoinedFor = ''
+          room.dropAt = 0
           room.watchingTag = ''
           room.reconnectTries = 0
           broadcast({ type: 'status', djId, isConnected: false })
@@ -17431,6 +17437,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
     // ⚡ 1분 안에 같은 방송으로 다시 붙은 거면(잠깐 끊김) 기능 타이머들이 아직 돌고 있으니 그대로 이어간다 — 다시 시작 안 함
     const quickResume = !!room._teardownTimer && !isNewLiveSession
+    if (room.dropAt) { room.dropAt = 0; broadcast({ type: 'autojoin', djId, status: 'joined', tag: room.watchingTag, liveId, reconnected: true }) } // 🔓 다시 붙음 — 버튼 잠금 해제
     if (room._teardownTimer) {
       clearTimeout(room._teardownTimer); room._teardownTimer = null
       if (isNewLiveSession) teardownRoomTimers(djId, room) // 다른 방송이면 예전 방송 타이머는 정리하고 새로 시작
@@ -17837,11 +17844,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // (공식 에디냥처럼 "연결만" 다시 붙임), 못 붙으면 그때 정리한다. 일부러 나간 경우엔 예전처럼 바로 정리.
     if (room.autoJoinedFor && code !== 1000) {
       if (room._teardownTimer) clearTimeout(room._teardownTimer)
+      if (!room.dropAt) room.dropAt = Date.now() // 🔄 자동 재접속 시작 — 1분 동안 "지금 입장하기" 잠금
+      broadcast({ type: 'autojoin', djId, status: 'reconnecting', tag: room.watchingTag, until: room.dropAt + RECONNECT_GRACE_MS })
       room._teardownTimer = setTimeout(() => {
         room._teardownTimer = null
         if (getRoom(djId) !== room || room.ws || room.isConnected) return
         console.log(`[${djId}] 1분 안에 다시 연결되지 않아 방송 기능 타이머 정리`)
         teardownRoomTimers(djId, room)
+        room.dropAt = 0 // 🔓 1분 넘게 못 붙었으면 "지금 입장하기"를 다시 풀어준다 (자동 재시도는 계속)
+        if (room.autoJoinedFor) broadcast({ type: 'autojoin', djId, status: 'error', tag: room.watchingTag, msg: '자동 재접속이 1분 넘게 안 되고 있어요 — "지금 입장하기"로 다시 들어가 주세요' })
       }, RECONNECT_GRACE_MS)
     } else {
       teardownRoomTimers(djId, room)
@@ -24907,6 +24918,13 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
   if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
 
+  // 🔄 잠깐 끊겨서 서버가 자동 재접속 중이면 직접 입장은 막는다 — 여럿이 동시에 누르면 입장권(roomToken)을
+  // 크롬으로 새로 받아오는 무거운 작업이 한꺼번에 몰리고, 자동 재접속이랑 겹쳐 두 번 붙으려다 또 끊길 수 있다.
+  if (isReconnecting(room)) return res.json({ success: false, reconnecting: true, until: room.dropAt + RECONNECT_GRACE_MS, error: '🔄 연결이 잠깐 끊겨서 자동으로 다시 붙는 중이에요. 잠시만 기다려 주세요 (1분 안에 안 붙으면 다시 누를 수 있어요)' })
+  // ⏳ 연타 방지 — 같은 계정은 10초에 한 번만
+  if (room._lastManualJoinAt && Date.now() - room._lastManualJoinAt < 10 * 1000) return res.json({ success: false, error: '⏳ 방금 입장을 시도했어요. 10초 뒤에 다시 눌러주세요' })
+  room._lastManualJoinAt = Date.now()
+
   store.saveSettings(djId, { autoJoinTag: cleanTag })
   commitAutoJoinTagLock(djId, settingsForCheck, [cleanTag])
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
@@ -24964,6 +24982,7 @@ app.get('/status', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId)
   res.json({
     isConnected: room.isConnected,
+    reconnectUntil: isReconnecting(room) ? room.dropAt + RECONNECT_GRACE_MS : 0, // 🔄 자동 재접속 중이면 이때까지 "지금 입장하기" 잠금
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
