@@ -17203,7 +17203,21 @@ function rebootDjConnection(djId) {
 //
 // 3초 → 6초 → 12초 → 24초 → 30초(상한)로 간격을 늘려가며 재시도하고, 접속에
 // 성공하면 카운터를 0으로 되돌린다. 방송 자체가 꺼진 게 확인되면 재시도를 멈춘다.
-const RECONNECT_BASE_MS = 3000
+const RECONNECT_BASE_MS = 2000
+const RECONNECT_GRACE_MS = 60 * 1000 // ⏳ 이 시간 안에 다시 붙으면 기능 타이머를 끄지 않고 그대로 이어간다
+
+// 방송 연결이 끝났을 때 이 방의 기능 타이머들을 정리한다
+function teardownRoomTimers(djId, room) {
+  if (room._teardownTimer) { clearTimeout(room._teardownTimer); room._teardownTimer = null }
+  stopLeavePolling(djId)
+  stopLottoAutoTimer(djId)
+  stopAutoLikeTimer(djId)
+  stopStockTimers(djId)
+  clearReminderTimers(room)
+  clearTtsAccess(room)
+  clearQuizTimers(room)
+  if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+}
 const RECONNECT_MAX_MS = 30 * 1000
 
 function cancelReconnect(room) {
@@ -17221,7 +17235,11 @@ function scheduleReconnect(djId, room, reason) {
   if (!room.autoJoinedFor) return
 
   room.reconnectTries = (room.reconnectTries || 0) + 1
-  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 1), RECONNECT_MAX_MS)
+  // 🎲 공식 에디냥(Open API) 연결 루프처럼 — 첫 재시도는 0.8~2초 안에 바로 붙고, 실패하면 2초→4초→…→30초로 늘린다.
+  // 간격에 ±25% 흔들림(jitter)을 줘서, 여러 DJ가 같은 순간 끊겼을 때 다 같이 한꺼번에 몰려 붙다가 또 거절당하는 걸 막는다.
+  const base = room.reconnectTries === 1 ? 800 + Math.random() * 1200
+    : Math.min(RECONNECT_BASE_MS * Math.pow(2, room.reconnectTries - 2), RECONNECT_MAX_MS) * (0.75 + Math.random() * 0.5)
+  const delay = Math.round(base)
   console.log(`[${djId}] ${reason} → ${Math.round(delay / 1000)}초 뒤 자동 재접속 시도 (${room.reconnectTries}번째)`)
 
   room.reconnectTimer = setTimeout(async () => {
@@ -17233,7 +17251,8 @@ function scheduleReconnect(djId, room, reason) {
 
       // 방송이 아직 켜져 있는지 먼저 확인한다. 꺼졌으면 재시도를 멈추고, 방송을 껐다 켜서
       // liveId가 바뀌었으면 새 liveId로 갱신해서 붙는다.
-      if (room.watchingTag) {
+      // ⚡ 첫 재시도는 확인 없이 바로 붙는다 (잠깐 끊긴 대부분의 경우 공백을 줄이려고) — 실패하면 두 번째부터 확인.
+      if (room.watchingTag && room.reconnectTries > 1) {
         const cur = await fetchUserStatusByTag(room.watchingTag, djId)
         if (!cur || !cur.is_live || !cur.current_live_id) {
           const endedTag = room.watchingTag
@@ -17410,34 +17429,44 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         .catch(e => { console.log(`[${djId}] 접속 직후 roomToken 예열 실패:`, e.message); return null })
         .finally(() => { room._roomTokenRefreshPromise = null })
     }
-    // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
-    startLeavePolling(djId, liveId)
-    // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
-    // 봇이 튕겨서 같은 방으로 자동 재접속한 거면 건너뛴다 (안 그러면 재접속 직후 다음
-    // 입장자가 또 1등으로 집계되면서 복권이 중복 지급되는 버그가 있었음).
-    if (isNewLiveSession) {
-      resetLottoRankCounter(room)
-    } else {
-      console.log(`[${djId}] 같은 방(${liveId})으로 재접속 — 복권 차등지급 등수 카운터 유지 (현재 ${room._lottoRankCounter || 0}명째)`)
+    // ⚡ 1분 안에 같은 방송으로 다시 붙은 거면(잠깐 끊김) 기능 타이머들이 아직 돌고 있으니 그대로 이어간다 — 다시 시작 안 함
+    const quickResume = !!room._teardownTimer && !isNewLiveSession
+    if (room._teardownTimer) {
+      clearTimeout(room._teardownTimer); room._teardownTimer = null
+      if (isNewLiveSession) teardownRoomTimers(djId, room) // 다른 방송이면 예전 방송 타이머는 정리하고 새로 시작
     }
-    // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
-    repeatLastSent[djId] = {}
-    delete repeatSeqState[djId]
-    // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
-    startLottoAutoTimer(djId, liveId)
-    // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
-    startAutoLikeTimer(djId, liveId)
-    // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
-    startStockTimers(djId, liveId)
-    // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
-    startMonsterCatchTimer(djId)
-    startBossTimer(djId)
-    // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
-    try {
-      const s = store.getSettings(djId) || {}
-      const quiz = getQuizSettings(djId, s)
-      if (quiz.autoStartOnRestart && quiz.questions.length) startQuiz(djId)
-    } catch (e) {}
+    if (quickResume) {
+      console.log(`[${djId}] 잠깐 끊겼다 같은 방송(${liveId})에 다시 연결 — 퀴즈·복권·주식 등 진행 중이던 기능 그대로 유지`)
+    } else {
+      // 🚪 퇴장 감지 폴링 시작 (스푼은 퇴장 소켓 이벤트를 안 보내서 명단 폴링으로 대체)
+      startLeavePolling(djId, liveId)
+      // 🎟️ 복권 차등지급 등수 카운터 — "새 방송이 시작됐을 때"만 0부터 다시 센다.
+      // 봇이 튕겨서 같은 방으로 자동 재접속한 거면 건너뛴다 (안 그러면 재접속 직후 다음
+      // 입장자가 또 1등으로 집계되면서 복권이 중복 지급되는 버그가 있었음).
+      if (isNewLiveSession) {
+        resetLottoRankCounter(room)
+      } else {
+        console.log(`[${djId}] 같은 방(${liveId})으로 재접속 — 복권 차등지급 등수 카운터 유지 (현재 ${room._lottoRankCounter || 0}명째)`)
+      }
+      // 🔁 반복 문구 타이머도 이번 입장 시점부터 새로 시작
+      repeatLastSent[djId] = {}
+      delete repeatSeqState[djId]
+      // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
+      startLottoAutoTimer(djId, liveId)
+      // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
+      startAutoLikeTimer(djId, liveId)
+      // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
+      startStockTimers(djId, liveId)
+      // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
+      startMonsterCatchTimer(djId)
+      startBossTimer(djId)
+      // 🧩 "서버 재시작 시 퀴즈 자동 시작"이 켜져 있으면, 방에 들어갈 때마다 퀴즈를 자동으로 시작한다.
+      try {
+        const s = store.getSettings(djId) || {}
+        const quiz = getQuizSettings(djId, s)
+        if (quiz.autoStartOnRestart && quiz.questions.length) startQuiz(djId)
+      } catch (e) {}
+    }
   })
 
   ws.on('message', async (data) => {
@@ -17803,14 +17832,20 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // 경우 = 수동 나가기/방송 종료 감지/재부팅)일 때만 초기화한다.
     if (!room.autoJoinedFor) room.tokenDjId = null
 
-    stopLeavePolling(djId)
-    stopLottoAutoTimer(djId)
-    stopAutoLikeTimer(djId)
-    stopStockTimers(djId)
-    clearReminderTimers(room)
-    clearTtsAccess(room)
-    clearQuizTimers(room)
-    if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+    // ⏳ 잠깐 끊긴 거면(자동 재접속 대상) 기능들을 바로 끄지 않고 1분 기다린다 — 채팅 전송은 웹소켓이 아니라
+    // 따로 가는 요청이라 그동안도 퀴즈·복권·주식 등은 계속 돌 수 있다. 1분 안에 다시 붙으면 그대로 이어가고
+    // (공식 에디냥처럼 "연결만" 다시 붙임), 못 붙으면 그때 정리한다. 일부러 나간 경우엔 예전처럼 바로 정리.
+    if (room.autoJoinedFor && code !== 1000) {
+      if (room._teardownTimer) clearTimeout(room._teardownTimer)
+      room._teardownTimer = setTimeout(() => {
+        room._teardownTimer = null
+        if (getRoom(djId) !== room || room.ws || room.isConnected) return
+        console.log(`[${djId}] 1분 안에 다시 연결되지 않아 방송 기능 타이머 정리`)
+        teardownRoomTimers(djId, room)
+      }, RECONNECT_GRACE_MS)
+    } else {
+      teardownRoomTimers(djId, room)
+    }
     broadcast({ type: 'status', djId, isConnected: false })
 
     // 🔁 정상 종료(1000)가 아니면 — code 1006(비정상 종료) 포함 — 곧바로 재접속을 예약한다.
@@ -17865,19 +17900,8 @@ setInterval(() => {
       continue
     }
 
-    // 🔄 4시간 프록시 순환 — 지금 붙어있는 프록시가 "지금 이 순간 배정돼야 할" 프록시랑 다르면
-    // (=4시간 구간이 넘어가서 배정이 바뀌었으면) 정상적으로 재연결시켜서 새 프록시를 타게 한다.
-    // 1000(정상 종료)으로 닫아서, 기존 재접속 로직이 그대로 처리하게 둔다.
-    const currentWsEntry = getWsProxyForDj(djId)
-    const currentWsLabel = currentWsEntry ? currentWsEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
-    if (ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
-      console.log(`[${djId}] 프록시 순환 시점 — ${ws.spoonProxyLabel} → ${currentWsLabel}로 재연결`)
-      // ⚠️ code 1000(정상 종료)으로 닫으면 재접속 로직이 "의도적으로 나간 것"으로 보고 재연결을
-      // 안 시킨다. 그래서 1000이 아닌 전용 코드(4000)를 쓴다 — 재연결은 일으키되, 진짜 에러(1006 등)와는
-      // 구분해서 로그에 에러로 안 남게 close 핸들러 쪽에서 따로 처리한다.
-      try { ws.close(4000, '프록시 순환') } catch (e) { try { ws.terminate() } catch (e2) {} }
-      continue
-    }
+    // 🔄 4시간 프록시 순환은 이제 방송 중인 연결을 일부러 끊지 않는다 (예전엔 4시간 경계마다 모든 DJ가
+    // 한꺼번에 끊겼다 붙어서 "봇이 튕긴다"로 보였다). 새 배정은 다음에 다시 접속할 때 getWsProxyForDj 가 알아서 적용한다.
 
     if (ws.isAlive === false) {
       ws.missedPong = (ws.missedPong || 0) + 1
