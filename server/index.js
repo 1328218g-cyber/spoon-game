@@ -24936,6 +24936,12 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   const tagCheck = checkAutoJoinTagChangeAllowed(djId, settingsForCheck, [cleanTag])
   if (!tagCheck.ok) return res.json({ success: false, error: tagCheck.error })
 
+  // 🚪 이미 입장 중이면(앞에 누른 게 아직 진행 중) 다시 누른 건 무시 — 같은 방에 두 번 붙으려다 서로 끊기는 걸 막는다
+  if (room._manualJoiningUntil && room._manualJoiningUntil > Date.now()) {
+    return res.json({ success: false, joining: true, error: '🚪 지금 입장 중이에요. 잠시만 기다려 주세요' })
+  }
+  room._manualJoiningUntil = Date.now() + 60 * 1000 // 혹시 멈춰도 1분 뒤엔 다시 누를 수 있게
+
   store.saveSettings(djId, { autoJoinTag: cleanTag })
   commitAutoJoinTagLock(djId, settingsForCheck, [cleanTag])
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
@@ -24964,6 +24970,8 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   } catch (e) {
     broadcast({ type: 'autojoin', djId, status: 'error', tag: cleanTag, msg: e.message })
     res.json({ success: false, error: '입장 중 오류: ' + e.message })
+  } finally {
+    room._manualJoiningUntil = 0
   }
 })
 

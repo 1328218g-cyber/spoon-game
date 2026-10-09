@@ -2317,7 +2317,7 @@ if (window.bcast) setTimeout(() => {
           <div class="card-title">방 입장</div>
           <label>DJ 고유닉 (@태그)</label>
           <input type="text" id="autoJoinTag" placeholder="@고유닉 입력" style="margin-bottom:10px">
-          <button class="btn-green" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
+          <button class="btn-green" id="autoJoinBtn" style="width:100%" onclick="startAutoJoin()">🚪 지금 입장하기</button>
           <button class="btn-full" style="border-color:var(--danger);color:var(--danger)" onclick="leaveCurrentRoom()">✋ 현재 방 나가기</button>
           <div class="autojoin-status" id="autoJoinStatus">방송 중일 때 "지금 입장하기"를 눌러주세요</div>
         </div>
@@ -19919,16 +19919,29 @@ function startSettingsImport(){
   reader.readAsText(file);
 }
 
+// 🚪 입장 중일 때는 "지금 입장하기"를 못 누르게 잠근다 (입장 완료·실패·방송 아님이 오면 풀림, 혹시 몰라 1분 뒤 자동으로 풀림)
+let ajJoinTimer=null;
+function ajSetJoining(on){
+  const b=document.getElementById('autoJoinBtn'); if(!b) return;
+  clearTimeout(ajJoinTimer);
+  b.disabled=!!on; b.style.opacity=on?'.55':''; b.style.cursor=on?'not-allowed':'';
+  b.textContent=on?'🚪 입장 중... (잠시만요)':'🚪 지금 입장하기';
+  if(on) ajJoinTimer=setTimeout(()=>ajSetJoining(false),60000);
+}
 async function startAutoJoin(){
+  const b=document.getElementById('autoJoinBtn');
+  if(b&&b.disabled)return showToast('🚪 지금 입장 중이에요. 잠시만 기다려 주세요');
   const tag=document.getElementById('autoJoinTag').value.trim();
   if(!tag)return showToast('DJ 고유닉을 입력해주세요');
+  ajSetJoining(true);
   document.getElementById('autoJoinStatus').textContent='🚪 입장 시도 중...';
   try{
     const res=await fetch(SERVER+'/autojoin',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({tag})});
     const d=await res.json();
     showToast(d.msg||d.error||'입장 시도');
-    if(!d.success) document.getElementById('autoJoinStatus').textContent='❌ '+(d.error||'입장 실패');
-  }catch(e){showToast('오류: '+e.message);}
+    if(!d.success && !d.joining) document.getElementById('autoJoinStatus').textContent='❌ '+(d.error||'입장 실패');
+    if(!d.joining) ajSetJoining(false);
+  }catch(e){showToast('오류: '+e.message);ajSetJoining(false);}
 }
 
 async function leaveCurrentRoom(){
@@ -20356,6 +20369,7 @@ function updateAutoJoinStatus(d){
   if(d.status==='off'){ if(watchEl)watchEl.textContent='감시 꺼짐'; return; }
   if(d.status==='live'){ if(watchEl)watchEl.textContent='🔴 @'+d.tag+' 방송 중 감지!'; return; }
   if(!el)return;
+  ajSetJoining(d.status==='joining');
   if(d.status==='joining')el.textContent='🚪 @'+d.tag+' 방송 입장 중...';
   else if(d.status==='joined'){el.textContent='✅ @'+d.tag+' 입장 완료!';showToast('입장 성공! 🎉');}
   else if(d.status==='offline')el.textContent='⏳ @'+d.tag+' 현재 방송 중이 아니에요';
