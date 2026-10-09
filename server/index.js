@@ -1495,7 +1495,7 @@ async function isPermTagUser(djId, room, liveId, author, permList) {
 }
 
 // 펀딩 명령어 처리: "!펀딩", "!펀딩 1", "!펀딩 1 200" (음수면 차감)
-async function handleFundingCommand(djId, room, settings, author, authorId, text, liveId) {
+async function handleFundingCommand(djId, room, settings, author, authorId, text, liveId, actTag) {
   if (!isModuleOn(settings, 'funding', djId)) return
   const funding = settings.funding
   if (!funding || !funding.cmd || !funding.items || !funding.items.length) return
@@ -1533,7 +1533,15 @@ async function handleFundingCommand(djId, room, settings, author, authorId, text
     const act = settings.activity || {}
     allowed = (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
   }
-  if (!allowed && (funding.perms || []).length) allowed = await isPermTagUser(djId, room, liveId, author, funding.perms)
+  if (!allowed && (funding.perms || []).length) {
+    // 🆔 채팅 친 사람의 실제 고유닉(스푼 userId 로 조회한 값)이 권한 목록에 있으면 바로 통과 — 닉네임 매칭보다 정확
+    const perms = funding.perms.map(t => String(t).replace('@', '').trim().toLowerCase()).filter(Boolean)
+    let tag = actTag
+    if (!tag && authorId != null) { try { tag = await getCachedUserTag(room, liveId, authorId, tokenManager.getAccessToken(tokenDjIdFor(djId))) } catch (_) {} }
+    if (tag && perms.includes(String(tag).trim().toLowerCase())) allowed = true
+    if (!allowed) allowed = await isPermTagUser(djId, room, liveId, author, funding.perms)
+    if (!allowed) console.log(`[펀딩 권한] ${djId} — ${author}(고유닉 ${tag || '조회 실패'}) 은 권한 목록(${perms.join(', ')})에 없음`)
+  }
   if (!allowed) {
     setTimeout(() => sendChatToRoom(djId, '❌ 펀딩 조절 권한이 없어요'), 400)
     return
@@ -17517,7 +17525,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
 
           await handleShieldCommand(djId, room, settings, author, authorId, liveId, text)
           handleFlagCommand(djId, room, settings, author, authorId, text)
-          handleFundingCommand(djId, room, settings, author, authorId, text, liveId).catch(e => console.log('[펀딩 명령어 오류]', e.message))
+          handleFundingCommand(djId, room, settings, author, authorId, text, liveId, actTag).catch(e => console.log('[펀딩 명령어 오류]', e.message))
           handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleBlindDateCommand(djId, room, settings, text, isDj, isManager)
           handleAwayModeCommand(djId, settings, text, isDj)
