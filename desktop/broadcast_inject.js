@@ -18,6 +18,7 @@
     mic2On: false, mic2Id: '', mic2Vol: 1.0,
     // 👥 게스트 마이크 따로 설정 (mic2Link=true 면 지금처럼 메인 마이크 효과를 같이 받음)
     mic2Link: true, mic2Duck: false,
+    g2Back: false, g2BackAmt: 10, g2BackThr: -45, // 🎙️ 메인이 말하면 게스트를 뒤로 (작게 + 멀리 있는 소리처럼)
     g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
     g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
     hpfOn: true, hpfFreq: 80,
@@ -117,7 +118,9 @@
     g.anRaw = an(); // 마이크 원음 (마이크 꺼짐·찢어짐 확인용 — 끄기 전 소리)
     g.m1.connect(g.vIn);
     g.m2Link = gain(1); g.m2Own = gain(0); // 👥 게스트: 메인 효과 같이 받기 ↔ 따로 처리
-    g.m2.connect(g.m2Link); g.m2Link.connect(g.vIn); g.m2.connect(g.m2Own);
+    g.m2Far = bq('lowpass', 20000, 0.5); g.m2Back = gain(1); // 🎙️ 메인이 말하면 게스트 뒤로
+    g.m2.connect(g.m2Far); g.m2Far.connect(g.m2Back);
+    g.m2Back.connect(g.m2Link); g.m2Link.connect(g.vIn); g.m2Far.connect(g.m2Own); // 따로 처리일 땐 컴프 뒤에서 줄여요 (컴프가 다시 키우지 않게)
     g.hpf = bq('highpass', 80, 0.7);
     g.gate = gain(); g.anGate = an();
     g.deessBand = bq('bandpass', 7000, 1.0); g.anDeess = an();
@@ -153,8 +156,9 @@
     g.mk2 = gain(); g.anV2 = an(); g.rev2 = gain(0); g.echo2 = gain(0);
     g.m2Own.connect(g.hpf2); g.hpf2.connect(g.anGate2); g.hpf2.connect(g.gate2);
     g.gate2.connect(g.eq2L); g.eq2L.connect(g.eq2M); g.eq2M.connect(g.eq2H); g.eq2H.connect(g.comp2); g.comp2.connect(g.mk2);
-    g.mk2.connect(g.anV2); g.mk2.connect(g.voiceBus);
-    g.mk2.connect(g.rev2); g.rev2.connect(g.preDelay); g.mk2.connect(g.echo2); g.echo2.connect(g.echoDelay);
+    g.back2 = gain(1); g.mk2.connect(g.back2);
+    g.back2.connect(g.anV2); g.back2.connect(g.voiceBus);
+    g.back2.connect(g.rev2); g.rev2.connect(g.preDelay); g.back2.connect(g.echo2); g.echo2.connect(g.echoDelay);
     g.chSend = gain(); g.chWet = gain(0);
     const voice = (base, rate, panV) => {
       const d = ctx.createDelay(0.1); d.delayTime.value = base;
@@ -197,13 +201,20 @@
   function startLoop() {
     const b1 = new Float32Array(1024), b2 = new Float32Array(1024), b3 = new Float32Array(1024);
     const b4 = new Float32Array(1024), b5 = new Float32Array(1024);
-    let duckHold = 0;
+    let duckHold = 0, backHold = 0;
+    const b6 = new Float32Array(1024);
     loopTimer = setInterval(() => {
       if (!G) return;
       if (S.gateOn) { const open = rmsDb(G.anGate, b1) > S.gateDb; try { G.gate.gain.setTargetAtTime(open ? 1 : 0, T(), open ? 0.005 : 0.08); } catch (_) {} }
       else setP(G.gate.gain, 1);
       if (S.deessOn) { const hot = rmsDb(G.anDeess, b2) > -38; try { G.deess.gain.setTargetAtTime(hot ? -S.deessAmt : 0, T(), hot ? 0.003 : 0.05); } catch (_) {} }
       else setP(G.deess.gain, 0);
+      // 🎙️ 메인 마이크로 말하는 동안 게스트를 작게 + 고음을 깎아서 멀리 있는 소리처럼 (따로 처리일 땐 컴프 뒤에서 줄여서 컴프가 다시 키우지 않게)
+      if (S.mic2On && S.g2Back) {
+        if (!S.micMute && S.inGain > 0 && mic.s && rmsDb(G.anRaw, b6) > S.g2BackThr) backHold = Date.now() + 450;
+        const back = Date.now() < backHold, bg = back ? db2lin(-S.g2BackAmt) : 1, tc = back ? 0.05 : 0.4;
+        try { G.m2Back.gain.setTargetAtTime(bg, T(), tc); G.back2.gain.setTargetAtTime(bg, T(), tc); G.m2Far.frequency.setTargetAtTime(back ? 3000 : 20000, T(), tc); } catch (_) {}
+      } else { setP(G.m2Back.gain, 1); setP(G.back2.gain, 1); setP(G.m2Far.frequency, 20000); }
       const own2 = S.mic2On && !S.mic2Link;
       if (own2 && S.g2GateOn) { const open = rmsDb(G.anGate2, b4) > S.g2GateDb; try { G.gate2.gain.setTargetAtTime(open ? 1 : 0, T(), open ? 0.005 : 0.08); } catch (_) {} }
       else setP(G.gate2.gain, 1);

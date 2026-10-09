@@ -1125,6 +1125,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
 const BC_DEFAULT = {
   enabled: true, deviceId: '', inGain: 1.0, micMute: false, nsOn: false,
   mic2On: false, mic2Id: '', mic2Vol: 1.0,
+  g2Back: false, g2BackAmt: 10, g2BackThr: -45, // 🎙️ 메인이 말하면 게스트 뒤로
   mic2Link: true, mic2Duck: false, // 👥 게스트 마이크: 메인 설정 따라가기(기본) ↔ 따로 설정
   g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
   g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
@@ -1258,10 +1259,13 @@ const BC_GUEST_ROWS = [
   ['g2EqLow', '저음', -12, 12, 0.5, dbf], ['g2EqMid', '중음', -12, 12, 0.5, dbf], ['g2EqHigh', '고음', -12, 12, 0.5, dbf],
   ['g2CompThr', '컴프 기준', -50, 0, 1, (v) => v + 'dB'], ['g2CompRatio', '컴프 세기', 1, 12, 0.5, (v) => v + ':1'],
   ['g2RevMix', '리버브 양', 0, 1, 0.01, pct], ['g2EchoMix', '에코 양', 0, 0.6, 0.01, pct],
+  ['g2BackAmt', '뒤로 빼는 양', 3, 30, 1, (v) => '-' + v + 'dB'], ['g2BackThr', '민감도', -70, -20, 1, (v) => v + 'dB'],
 ];
 function bcGuestHtml() {
   const own = BC.s.mic2Link === false;
   let h = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><button class="bc-chip ${own ? '' : 'on'}" onclick="bcSet({mic2Link:true});bcRenderAll()">🔗 메인 마이크랑 같게</button><button class="bc-chip ${own ? 'on' : ''}" onclick="bcSet({mic2Link:false});bcRenderAll()">🎚️ 게스트만 따로 설정</button></div>`;
+  h += `<div style="margin:8px 0 2px">${bcSw('g2Back', '🎙️ 메인이 말하면 게스트 뒤로 빼기')}</div>`;
+  if (BC.s.g2Back) h += bcRow(...BC_GUEST_ROWS.find((r) => r[0] === 'g2BackAmt')) + bcRow(...BC_GUEST_ROWS.find((r) => r[0] === 'g2BackThr')) + `<div class="bc-note">메인 마이크로 말하는 동안 게스트 소리가 작아지고 멀리서 말하는 것처럼 먹먹해져요 · 메인이 말을 멈추면 다시 원래대로 · 민감도는 숫자가 낮을수록 작은 목소리에도 반응해요</div>`;
   if (!own) return h + `<div class="bc-note">게스트 목소리에도 메인 마이크의 잡음 정리·음색·리버브·에코·보이스 체인저가 똑같이 걸려요</div>`;
   const R = (k) => bcRow(...BC_GUEST_ROWS.find((r) => r[0] === k));
   h += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${bcSw('g2HpfOn', '저음 웅웅 제거')}${bcSw('g2GateOn', '노이즈 게이트')}${bcSw('g2CompOn', '컴프레서')}</div>`;
