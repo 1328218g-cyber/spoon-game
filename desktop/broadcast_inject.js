@@ -21,6 +21,7 @@
     g2Back: false, g2BackAmt: 10, g2BackThr: -45, // 🎙️ 메인이 말하면 게스트를 뒤로 (작게 + 멀리 있는 소리처럼)
     g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
     g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
+    g2RevSize: 1.8, g2EchoTime: 0.28, g2EchoFb: 0.3, g2ChorusOn: false, g2ChorusMix: 0.35, g2VcMode: 'off', g2VcPitch: 0.4,
     hpfOn: true, hpfFreq: 80,
     gateOn: false, gateDb: -50,
     deessOn: false, deessAmt: 6,
@@ -47,7 +48,7 @@
   let ctx = null, G = null, dest = null, outTrack = null, active = false, testing = false;
   const mic = { s: null, src: null, key: '' }, mic2 = { s: null, src: null, key: '' };
   const pc = { stream: null, src: null };
-  let loopTimer = null, irTimer = null, lastIrSize = 0;
+  let loopTimer = null, irTimer = null, lastIrSize = 0, irTimer2 = null, lastIrSize2 = 0;
   const bgm = { cur: null, url: '', fadingOut: false };
   const rec = { mr: null, dest: null, id: 0, since: 0 };
   let ipc = null;
@@ -156,17 +157,29 @@
     g.mk2 = gain(); g.anV2 = an(); g.rev2 = gain(0); g.echo2 = gain(0);
     g.m2Own.connect(g.hpf2); g.hpf2.connect(g.anGate2); g.hpf2.connect(g.gate2);
     g.gate2.connect(g.eq2L); g.eq2L.connect(g.eq2M); g.eq2M.connect(g.eq2H); g.eq2H.connect(g.comp2); g.comp2.connect(g.mk2);
-    g.back2 = gain(1); g.mk2.connect(g.back2);
-    g.back2.connect(g.anV2); g.back2.connect(g.voiceBus);
-    g.back2.connect(g.rev2); g.rev2.connect(g.preDelay); g.back2.connect(g.echo2); g.echo2.connect(g.echoDelay);
+    g.back2 = gain(1); g.mk2.connect(g.back2); g.back2.connect(g.anV2);
+    // 게스트 전용 보이스 체인저 (음높이 → 로봇)
+    g.p2In = gain(); g.p2Dry = gain(1); g.p2Wet = gain(0); g.p2Out = gain(); g.pitch2 = createPitchShifter();
+    g.back2.connect(g.p2In); g.p2In.connect(g.p2Dry); g.p2Dry.connect(g.p2Out); g.p2In.connect(g.pitch2.input); g.pitch2.output.connect(g.p2Wet); g.p2Wet.connect(g.p2Out);
+    g.r2Dry = gain(1); g.r2Wet = gain(0); g.ring2 = gain(0); g.v2Post = gain();
+    g.robotOsc.connect(g.ring2.gain);
+    g.p2Out.connect(g.r2Dry); g.r2Dry.connect(g.v2Post); g.p2Out.connect(g.ring2); g.ring2.connect(g.r2Wet); g.r2Wet.connect(g.v2Post);
+    g.v2Post.connect(g.voiceBus);
+    // 게스트 전용 리버브 · 에코 · 코러스 (공간 크기 · 간격도 따로)
+    g.preDelay2 = ctx.createDelay(1.0); g.conv2 = ctx.createConvolver();
+    g.v2Post.connect(g.rev2); g.rev2.connect(g.preDelay2); g.preDelay2.connect(g.conv2); g.conv2.connect(g.voiceBus);
+    g.echoDelay2 = ctx.createDelay(2.0); g.echoFb2 = gain();
+    g.v2Post.connect(g.echo2); g.echo2.connect(g.echoDelay2); g.echoDelay2.connect(g.echoFb2); g.echoFb2.connect(g.echoDelay2); g.echoDelay2.connect(g.voiceBus);
+    g.ch2Send = gain(0); g.ch2Wet = gain(1); g.v2Post.connect(g.ch2Send); g.ch2Wet.connect(g.voiceBus);
     g.chSend = gain(); g.chWet = gain(0);
-    const voice = (base, rate, panV) => {
+    const voice = (base, rate, panV, send = g.chSend, wet = g.chWet) => {
       const d = ctx.createDelay(0.1); d.delayTime.value = base;
       const lfo = ctx.createOscillator(); lfo.frequency.value = rate; const depth = gain(0.003); lfo.connect(depth); depth.connect(d.delayTime); lfo.start();
       const p = ctx.createStereoPanner(); p.pan.value = panV;
-      g.chSend.connect(d); d.connect(p); p.connect(g.chWet);
+      send.connect(d); d.connect(p); p.connect(wet);
     };
     voice(0.019, 0.31, -0.7); voice(0.027, 0.43, 0.7);
+    voice(0.021, 0.29, -0.7, g.ch2Send, g.ch2Wet); voice(0.025, 0.41, 0.7, g.ch2Send, g.ch2Wet);
     g.vPost.connect(g.chSend); g.chWet.connect(g.voiceBus);
     // 🎵 음악: 배경음악(보컬 제거 선택) + PC 소리 → 덕킹
     g.bgmPre = gain();
@@ -243,6 +256,16 @@
     } else { setP(G.comp2.threshold, 0); setP(G.comp2.ratio, 1); setP(G.mk2.gain, 1); }
     setP(G.rev2.gain, !link2 && S.g2RevOn ? S.g2RevMix : 0);
     setP(G.echo2.gain, !link2 && S.g2EchoOn ? S.g2EchoMix : 0);
+    setP(G.echoDelay2.delayTime, Math.max(0.05, Math.min(1.5, S.g2EchoTime))); setP(G.echoFb2.gain, Math.max(0, Math.min(0.85, S.g2EchoFb)));
+    setP(G.preDelay2.delayTime, Math.max(0, Math.min(0.2, S.revPre)));
+    setP(G.ch2Send.gain, !link2 && S.g2ChorusOn ? S.g2ChorusMix : 0);
+    const p2 = S.g2VcMode === 'pitch', r2 = S.g2VcMode === 'robot';
+    setP(G.p2Dry.gain, p2 ? 0 : 1); setP(G.p2Wet.gain, p2 ? 1 : 0); G.pitch2.set(p2 ? (S.g2VcPitch || 0.0001) : 0.0001);
+    setP(G.r2Dry.gain, r2 ? 0 : 1); setP(G.r2Wet.gain, r2 ? 1.6 : 0);
+    if (Math.abs(lastIrSize2 - S.g2RevSize) > 0.01) {
+      clearTimeout(irTimer2);
+      irTimer2 = setTimeout(() => { lastIrSize2 = S.g2RevSize; try { G.conv2.buffer = irBuffer(Math.max(0.2, Math.min(6, S.g2RevSize))); } catch (_) {} }, lastIrSize2 ? 250 : 0);
+    }
     setP(G.hpf.frequency, S.hpfOn ? Math.max(20, Math.min(300, S.hpfFreq)) : 10);
     setP(G.eqLow.gain, S.eqLow); setP(G.eqMid.gain, S.eqMid); setP(G.eqHigh.gain, S.eqHigh);
     if (S.compOn) {

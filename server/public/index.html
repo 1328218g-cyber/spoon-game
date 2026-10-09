@@ -1129,6 +1129,7 @@ const BC_DEFAULT = {
   mic2Link: true, mic2Duck: false, // 👥 게스트 마이크: 메인 설정 따라가기(기본) ↔ 따로 설정
   g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
   g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
+  g2RevSize: 1.8, g2EchoTime: 0.28, g2EchoFb: 0.3, g2ChorusOn: false, g2ChorusMix: 0.35, g2VcMode: 'off', g2VcPitch: 0.4,
   hpfOn: true, hpfFreq: 80, gateOn: false, gateDb: -50, deessOn: false, deessAmt: 6,
   eqLow: 0, eqMid: 0, eqHigh: 0, compOn: true, compThr: -20, compRatio: 3, limOn: true,
   revOn: true, revMix: 0.18, revSize: 1.8, revPre: 0.02,
@@ -1258,7 +1259,9 @@ const BC_GUEST_ROWS = [
   ['g2GateDb', '게이트 기준', -80, -20, 1, (v) => v + 'dB'],
   ['g2EqLow', '저음', -12, 12, 0.5, dbf], ['g2EqMid', '중음', -12, 12, 0.5, dbf], ['g2EqHigh', '고음', -12, 12, 0.5, dbf],
   ['g2CompThr', '컴프 기준', -50, 0, 1, (v) => v + 'dB'], ['g2CompRatio', '컴프 세기', 1, 12, 0.5, (v) => v + ':1'],
-  ['g2RevMix', '리버브 양', 0, 1, 0.01, pct], ['g2EchoMix', '에코 양', 0, 0.6, 0.01, pct],
+  ['g2RevMix', '리버브 양', 0, 1, 0.01, pct], ['g2RevSize', '공간 크기', 0.3, 5, 0.1, (v) => (+v).toFixed(1) + '초'],
+  ['g2EchoMix', '에코 양', 0, 0.6, 0.01, pct], ['g2EchoTime', '에코 간격', 0.05, 0.8, 0.01, (v) => Math.round(v * 1000) + 'ms'], ['g2EchoFb', '에코 반복', 0, 0.8, 0.01, pct],
+  ['g2ChorusMix', '코러스 양', 0, 1, 0.01, pct], ['g2VcPitch', '음높이', -1, 1, 0.05, (v) => (v > 0 ? '+' : '') + Math.round(v * 100) + '%'],
   ['g2BackAmt', '뒤로 빼는 양', 3, 30, 1, (v) => '-' + v + 'dB'], ['g2BackThr', '민감도', -70, -20, 1, (v) => v + 'dB'],
 ];
 function bcGuestHtml() {
@@ -1272,10 +1275,14 @@ function bcGuestHtml() {
   if (BC.s.g2GateOn) h += R('g2GateDb');
   h += R('g2EqLow') + R('g2EqMid') + R('g2EqHigh');
   if (BC.s.g2CompOn) h += R('g2CompThr') + R('g2CompRatio');
-  h += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${bcSw('g2RevOn', '🌫️ 리버브')}${bcSw('g2EchoOn', '🔁 에코')}${bcSw('mic2Duck', '🦆 게스트 말할 때 음악 줄이기')}</div>`;
-  if (BC.s.g2RevOn) h += R('g2RevMix');
-  if (BC.s.g2EchoOn) h += R('g2EchoMix');
-  return h + `<div class="bc-note">메인 마이크 효과와 상관없이 게스트에만 적용돼요 · 리버브 공간 크기·에코 간격, 음악 줄이는 양·민감도는 메인 설정 값을 같이 써요 · 보이스 체인저·코러스는 메인 마이크에만 걸려요</div>`;
+  h += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${bcSw('g2RevOn', '🌫️ 리버브')}${bcSw('g2EchoOn', '🔁 에코')}${bcSw('g2ChorusOn', '🎶 코러스')}${bcSw('mic2Duck', '🦆 게스트 말할 때 음악 줄이기')}</div>`;
+  if (BC.s.g2RevOn) h += R('g2RevMix') + R('g2RevSize');
+  if (BC.s.g2EchoOn) h += R('g2EchoMix') + R('g2EchoTime') + R('g2EchoFb');
+  if (BC.s.g2ChorusOn) h += R('g2ChorusMix');
+  const vk = BC.s.g2VcMode === 'robot' ? 'robot' : BC.s.g2VcMode === 'pitch' ? (BC.s.g2VcPitch >= 0 ? 'up' : 'down') : 'off';
+  h += `<div class="bc-row" style="margin-top:6px"><span>🎭 보이스 체인저</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">${[['off', '원래 목소리'], ['up', '🎈 높게'], ['down', '🐻 낮게'], ['robot', '🤖 로봇']].map(([m, l]) => `<button class="bc-chip ${vk === m ? 'on' : ''}" onclick="bcVc2('${m}')">${l}</button>`).join('')}</div>`;
+  if (BC.s.g2VcMode === 'pitch') h += R('g2VcPitch');
+  return h + `<div class="bc-note">메인 마이크 효과와 상관없이 게스트에만 적용돼요 · 음악 줄이는 양·민감도는 메인 덕킹 설정 값을 같이 써요</div>`;
 }
 const BC_FMT = {};
 BC_GUEST_ROWS.forEach((r) => { BC_FMT[r[0]] = r[5]; });
@@ -1310,6 +1317,11 @@ function bcCard(c) {
   return `<div class="bc-fx ${isOn ? '' : 'off'} ${adv ? 'adv' : ''}"><div class="bc-fx-h"><span>${c.h}</span>${head}</div><div class="bc-fx-d">${c.d}</div><div class="bc-fx-body">${body}</div></div>`;
 }
 function bcAdv(id) { BC.adv = BC.adv || {}; BC.adv[id] = !BC.adv[id]; bcSave(); bcRenderAll(); }
+function bcVc2(m) {
+  const a = Math.abs(BC.s.g2VcPitch || 0.4) || 0.4;
+  if (m === 'off' || m === 'robot') bcSet({ g2VcMode: m }); else bcSet({ g2VcMode: 'pitch', g2VcPitch: m === 'up' ? a : -a });
+  bcRenderAll();
+}
 function bcVcKey() { if (BC.s.vcMode === 'robot') return 'robot'; if (BC.s.vcMode === 'pitch') return BC.s.vcPitch >= 0 ? 'up' : 'down'; return 'off'; }
 function bcVc(m) {
   if (m === 'off') bcSet({ vcMode: 'off' });
