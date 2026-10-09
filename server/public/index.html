@@ -1092,9 +1092,10 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
       </div>
       <div class="bc-fx" id="bcGuestBox">
         <div class="bc-fx-h"><span>👥 게스트 마이크 (마이크 2)</span><label class="bc-sw"><input type="checkbox" id="bcMic2On" onchange="bcSet({mic2On:this.checked});bcRenderSet()"><i></i></label></div>
-        <div class="bc-fx-d">두 번째 마이크·오디오 장치를 같이 섞어요 (내 목소리와 같은 효과가 걸려요)</div>
+        <div class="bc-fx-d">두 번째 마이크·오디오 장치를 같이 섞어요</div>
         <select id="bcDevice2" class="bc-sel" onchange="bcSet({mic2Id:this.value})"></select>
         <div id="bcMic2Vol"></div>
+        <div id="bcGuestFx"></div>
       </div>
       <div class="bc-fx">
         <div class="bc-fx-h"><span>📡 음질</span></div>
@@ -1124,6 +1125,9 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
 const BC_DEFAULT = {
   enabled: true, deviceId: '', inGain: 1.0, micMute: false, nsOn: false,
   mic2On: false, mic2Id: '', mic2Vol: 1.0,
+  mic2Link: true, mic2Duck: false, // 👥 게스트 마이크: 메인 설정 따라가기(기본) ↔ 따로 설정
+  g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
+  g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
   hpfOn: true, hpfFreq: 80, gateOn: false, gateDb: -50, deessOn: false, deessAmt: 6,
   eqLow: 0, eqMid: 0, eqHigh: 0, compOn: true, compThr: -20, compRatio: 3, limOn: true,
   revOn: true, revMix: 0.18, revSize: 1.8, revPre: 0.02,
@@ -1248,7 +1252,29 @@ function bcToast(m) { try { if (typeof showToast === 'function') return showToas
 function bcSet(p) { Object.assign(BC.s, p); bcSave(); bcCall('set', p); }
 const bcEsc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// 👥 게스트 마이크 따로 설정 (게스트 상자 안에 그려짐)
+const BC_GUEST_ROWS = [
+  ['g2GateDb', '게이트 기준', -80, -20, 1, (v) => v + 'dB'],
+  ['g2EqLow', '저음', -12, 12, 0.5, dbf], ['g2EqMid', '중음', -12, 12, 0.5, dbf], ['g2EqHigh', '고음', -12, 12, 0.5, dbf],
+  ['g2CompThr', '컴프 기준', -50, 0, 1, (v) => v + 'dB'], ['g2CompRatio', '컴프 세기', 1, 12, 0.5, (v) => v + ':1'],
+  ['g2RevMix', '리버브 양', 0, 1, 0.01, pct], ['g2EchoMix', '에코 양', 0, 0.6, 0.01, pct],
+];
+function bcGuestHtml() {
+  const own = BC.s.mic2Link === false;
+  let h = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><button class="bc-chip ${own ? '' : 'on'}" onclick="bcSet({mic2Link:true});bcRenderAll()">🔗 메인 마이크랑 같게</button><button class="bc-chip ${own ? 'on' : ''}" onclick="bcSet({mic2Link:false});bcRenderAll()">🎚️ 게스트만 따로 설정</button></div>`;
+  if (!own) return h + `<div class="bc-note">게스트 목소리에도 메인 마이크의 잡음 정리·음색·리버브·에코·보이스 체인저가 똑같이 걸려요</div>`;
+  const R = (k) => bcRow(...BC_GUEST_ROWS.find((r) => r[0] === k));
+  h += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${bcSw('g2HpfOn', '저음 웅웅 제거')}${bcSw('g2GateOn', '노이즈 게이트')}${bcSw('g2CompOn', '컴프레서')}</div>`;
+  if (BC.s.g2GateOn) h += R('g2GateDb');
+  h += R('g2EqLow') + R('g2EqMid') + R('g2EqHigh');
+  if (BC.s.g2CompOn) h += R('g2CompThr') + R('g2CompRatio');
+  h += `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${bcSw('g2RevOn', '🌫️ 리버브')}${bcSw('g2EchoOn', '🔁 에코')}${bcSw('mic2Duck', '🦆 게스트 말할 때 음악 줄이기')}</div>`;
+  if (BC.s.g2RevOn) h += R('g2RevMix');
+  if (BC.s.g2EchoOn) h += R('g2EchoMix');
+  return h + `<div class="bc-note">메인 마이크 효과와 상관없이 게스트에만 적용돼요 · 리버브 공간 크기·에코 간격, 음악 줄이는 양·민감도는 메인 설정 값을 같이 써요 · 보이스 체인저·코러스는 메인 마이크에만 걸려요</div>`;
+}
 const BC_FMT = {};
+BC_GUEST_ROWS.forEach((r) => { BC_FMT[r[0]] = r[5]; });
 [...BC_VOICE, ...BC_MUSIC, ...BC_SFX, ...BC_SET].forEach((c) => c.rows.forEach((r) => { BC_FMT[r[0]] = r[5]; }));
 Object.entries(BC_VOL).forEach(([k, r]) => { BC_FMT[k] = r[4]; });
 function bcRow(key, label, min, max, step, fmt) {
@@ -1302,6 +1328,7 @@ function bcRenderAll() {
   document.getElementById('bcPadVol').innerHTML = bcVolRow('padVol');
   document.getElementById('bcMicVol').innerHTML = bcVolRow('inGain') + bcVolRow('outGain') + bcVolRow('monitorVol');
   document.getElementById('bcMic2Vol').innerHTML = bcVolRow('mic2Vol');
+  const gfx = document.getElementById('bcGuestFx'); if (gfx) gfx.innerHTML = bcGuestHtml();
   document.getElementById('bcAutoNext').checked = !!BC.autoNext;
   document.getElementById('bcShuffle').checked = !!BC.shuffle;
   document.getElementById('bcBgmLoop').checked = !!BC.loop;

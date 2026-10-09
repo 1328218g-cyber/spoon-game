@@ -16,6 +16,10 @@
   const S = {
     enabled: true, deviceId: '', inGain: 1.0, micMute: false, nsOn: false,
     mic2On: false, mic2Id: '', mic2Vol: 1.0,
+    // 👥 게스트 마이크 따로 설정 (mic2Link=true 면 지금처럼 메인 마이크 효과를 같이 받음)
+    mic2Link: true, mic2Duck: false,
+    g2HpfOn: true, g2GateOn: false, g2GateDb: -50, g2EqLow: 0, g2EqMid: 0, g2EqHigh: 0,
+    g2CompOn: true, g2CompThr: -20, g2CompRatio: 3, g2RevOn: false, g2RevMix: 0.18, g2EchoOn: false, g2EchoMix: 0.15,
     hpfOn: true, hpfFreq: 80,
     gateOn: false, gateDb: -50,
     deessOn: false, deessAmt: 6,
@@ -111,7 +115,9 @@
     // 🎤 목소리
     g.m1 = gain(); g.m2 = gain(0); g.vIn = gain();
     g.anRaw = an(); // 마이크 원음 (마이크 꺼짐·찢어짐 확인용 — 끄기 전 소리)
-    g.m1.connect(g.vIn); g.m2.connect(g.vIn);
+    g.m1.connect(g.vIn);
+    g.m2Link = gain(1); g.m2Own = gain(0); // 👥 게스트: 메인 효과 같이 받기 ↔ 따로 처리
+    g.m2.connect(g.m2Link); g.m2Link.connect(g.vIn); g.m2.connect(g.m2Own);
     g.hpf = bq('highpass', 80, 0.7);
     g.gate = gain(); g.anGate = an();
     g.deessBand = bq('bandpass', 7000, 1.0); g.anDeess = an();
@@ -140,6 +146,15 @@
     g.vPost.connect(g.revSend); g.revSend.connect(g.preDelay); g.preDelay.connect(g.conv); g.conv.connect(g.revWet); g.revWet.connect(g.voiceBus);
     g.echoSend = gain(); g.echoDelay = ctx.createDelay(2.0); g.echoFb = gain(); g.echoWet = gain();
     g.vPost.connect(g.echoSend); g.echoSend.connect(g.echoDelay); g.echoDelay.connect(g.echoFb); g.echoFb.connect(g.echoDelay); g.echoDelay.connect(g.echoWet); g.echoWet.connect(g.voiceBus);
+    // 👥 게스트 전용 처리: 웅웅 제거 → 게이트 → 음색 → 컴프레서 → (울림·에코는 양만 따로, 공간은 같이)
+    g.hpf2 = bq('highpass', 80, 0.7); g.gate2 = gain(); g.anGate2 = an();
+    g.eq2L = bq('lowshelf', 120); g.eq2M = bq('peaking', 1500, 0.9); g.eq2H = bq('highshelf', 6000);
+    g.comp2 = ctx.createDynamicsCompressor(); g.comp2.attack.value = 0.005; g.comp2.release.value = 0.18; g.comp2.knee.value = 6;
+    g.mk2 = gain(); g.anV2 = an(); g.rev2 = gain(0); g.echo2 = gain(0);
+    g.m2Own.connect(g.hpf2); g.hpf2.connect(g.anGate2); g.hpf2.connect(g.gate2);
+    g.gate2.connect(g.eq2L); g.eq2L.connect(g.eq2M); g.eq2M.connect(g.eq2H); g.eq2H.connect(g.comp2); g.comp2.connect(g.mk2);
+    g.mk2.connect(g.anV2); g.mk2.connect(g.voiceBus);
+    g.mk2.connect(g.rev2); g.rev2.connect(g.preDelay); g.mk2.connect(g.echo2); g.echo2.connect(g.echoDelay);
     g.chSend = gain(); g.chWet = gain(0);
     const voice = (base, rate, panV) => {
       const d = ctx.createDelay(0.1); d.delayTime.value = base;
@@ -181,6 +196,7 @@
   // ⏱️ 게이트 · 치찰음 · 덕킹 — 소리 크기를 보고 실시간으로 조절
   function startLoop() {
     const b1 = new Float32Array(1024), b2 = new Float32Array(1024), b3 = new Float32Array(1024);
+    const b4 = new Float32Array(1024), b5 = new Float32Array(1024);
     let duckHold = 0;
     loopTimer = setInterval(() => {
       if (!G) return;
@@ -188,8 +204,13 @@
       else setP(G.gate.gain, 1);
       if (S.deessOn) { const hot = rmsDb(G.anDeess, b2) > -38; try { G.deess.gain.setTargetAtTime(hot ? -S.deessAmt : 0, T(), hot ? 0.003 : 0.05); } catch (_) {} }
       else setP(G.deess.gain, 0);
-      if (S.duckOn) {
-        const talking = !S.micMute && rmsDb(G.anVoice, b3) > S.duckThr;
+      const own2 = S.mic2On && !S.mic2Link;
+      if (own2 && S.g2GateOn) { const open = rmsDb(G.anGate2, b4) > S.g2GateDb; try { G.gate2.gain.setTargetAtTime(open ? 1 : 0, T(), open ? 0.005 : 0.08); } catch (_) {} }
+      else setP(G.gate2.gain, 1);
+      // 🦆 덕킹: 메인은 덕킹 켜짐일 때 · 게스트는 따로 설정이면 "게스트 말할 때도 줄이기"로 따로 정해요
+      const guestDuck = S.mic2On && (S.mic2Link ? S.duckOn : S.mic2Duck);
+      if (S.duckOn || guestDuck) {
+        const talking = !S.micMute && ((S.duckOn && rmsDb(G.anVoice, b3) > S.duckThr) || (guestDuck && !S.mic2Link && rmsDb(G.anV2, b5) > S.duckThr));
         if (talking) duckHold = Date.now() + 350;
         const down = Date.now() < duckHold;
         try { G.duck.gain.setTargetAtTime(down ? db2lin(-S.duckAmt) : 1, T(), down ? 0.04 : 0.35); } catch (_) {}
@@ -201,6 +222,16 @@
     if (!G) return;
     setP(G.m1.gain, S.micMute ? 0 : S.inGain); // 🔇 마이크 끄기 — 음악·효과음·PC 소리는 그대로
     setP(G.m2.gain, S.mic2On && !S.micMute ? S.mic2Vol : 0);
+    const link2 = S.mic2Link !== false;
+    setP(G.m2Link.gain, link2 ? 1 : 0); setP(G.m2Own.gain, link2 ? 0 : 1);
+    setP(G.hpf2.frequency, S.g2HpfOn ? Math.max(20, Math.min(300, S.hpfFreq)) : 10);
+    setP(G.eq2L.gain, S.g2EqLow); setP(G.eq2M.gain, S.g2EqMid); setP(G.eq2H.gain, S.g2EqHigh);
+    if (S.g2CompOn) {
+      setP(G.comp2.threshold, S.g2CompThr); setP(G.comp2.ratio, S.g2CompRatio);
+      setP(G.mk2.gain, db2lin(Math.min(12, Math.max(0, (-S.g2CompThr) * (1 - 1 / S.g2CompRatio) * 0.4))));
+    } else { setP(G.comp2.threshold, 0); setP(G.comp2.ratio, 1); setP(G.mk2.gain, 1); }
+    setP(G.rev2.gain, !link2 && S.g2RevOn ? S.g2RevMix : 0);
+    setP(G.echo2.gain, !link2 && S.g2EchoOn ? S.g2EchoMix : 0);
     setP(G.hpf.frequency, S.hpfOn ? Math.max(20, Math.min(300, S.hpfFreq)) : 10);
     setP(G.eqLow.gain, S.eqLow); setP(G.eqMid.gain, S.eqMid); setP(G.eqHigh.gain, S.eqHigh);
     if (S.compOn) {
@@ -213,9 +244,9 @@
     G.pitch.set(pitchOn ? (S.vcPitch || 0.0001) : 0.0001);
     setP(G.robotDry.gain, robotOn ? 0 : 1); setP(G.robotWet.gain, robotOn ? 1.6 : 0);
     // 공간
-    setP(G.revSend.gain, S.revOn ? 1 : 0); setP(G.revWet.gain, S.revOn ? S.revMix : 0);
+    setP(G.revSend.gain, S.revOn ? S.revMix : 0); setP(G.revWet.gain, 1); // 양은 보내는 쪽에서 (게스트는 자기 양으로 같은 울림에 보냄)
     setP(G.preDelay.delayTime, Math.max(0, Math.min(0.2, S.revPre)));
-    setP(G.echoSend.gain, S.echoOn ? 1 : 0); setP(G.echoWet.gain, S.echoOn ? S.echoMix : 0);
+    setP(G.echoSend.gain, S.echoOn ? S.echoMix : 0); setP(G.echoWet.gain, 1);
     setP(G.echoDelay.delayTime, Math.max(0.05, Math.min(1.5, S.echoTime))); setP(G.echoFb.gain, Math.max(0, Math.min(0.85, S.echoFb)));
     setP(G.chSend.gain, S.chorusOn ? 1 : 0); setP(G.chWet.gain, S.chorusOn ? S.chorusMix : 0);
     // 음악 · 효과음
