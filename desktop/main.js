@@ -402,6 +402,58 @@ ipcMain.handle('app:token', async (e) => {
   try { return await appWin.webContents.executeJavaScript("typeof djToken !== 'undefined' ? djToken : ''", true) } catch (_) { return '' }
 })
 
+// 🤖 봇으로 쓸 계정 — "내 DJ 계정"이면 방송 창에 로그인한 스푼 세션을 에디냥 서버에 올려서 봇이 DJ 계정으로 동작
+//    (세션은 메인 프로세스가 직접 서버로 보내요 — 에디냥 웹 화면에는 쿠키를 넘기지 않아요)
+//    로그인 바뀔 때 · 25분마다 다시 올려서 토큰이 만료되지 않게
+let botAcctMode = 'edinyang', botSyncTimer = null, botSyncDebounce = null, botSyncLast = null
+async function appDjToken() {
+  if (!alive(appWin)) return ''
+  try { return await appWin.webContents.executeJavaScript("typeof djToken !== 'undefined' ? djToken : ''", true) } catch (_) { return '' }
+}
+async function syncBotSession() {
+  if (botAcctMode !== 'dj') return { ok: false, error: '봇 계정이 내 DJ 계정이 아니에요' }
+  const token = await appDjToken()
+  if (!token) return { ok: false, error: '에디냥 로그인이 필요해요' }
+  const ss = session.fromPartition(SPOON_PARTITION)
+  const sameSite = { no_restriction: 'None', lax: 'Lax', strict: 'Strict' }
+  const cookies = (await ss.cookies.get({})).filter((c) => /(^|\.)spooncast\.net$/.test(String(c.domain || '').replace(/^\./, '')))
+    .map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly, expires: c.expirationDate || undefined, sameSite: sameSite[c.sameSite] }))
+  if (!cookies.some((c) => c.name === 'spoon_at_kr' && c.value)) return { ok: false, error: '방송 창에서 DJ 계정으로 스푼 로그인을 먼저 해주세요' }
+  let ls = null
+  try {
+    if (alive(bcastWin) && /spooncast\.net/.test(bcastWin.webContents.getURL())) {
+      ls = JSON.parse(await bcastWin.webContents.executeJavaScript('(()=>{try{const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);o[k]=localStorage.getItem(k)}return JSON.stringify(o)}catch(_){return "null"}})()', true))
+    }
+  } catch (_) { ls = null }
+  try {
+    const r = await net.fetch(SERVER + '/session/upload-pc', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ cookies, localStorage: ls }) })
+    const j = await r.json()
+    botSyncLast = { at: Date.now(), ok: !!j.success, error: j.error || '' }
+    return j.success ? { ok: true, using: j.using, reconnect: !!j.reconnect } : { ok: false, error: j.error || '업로드 실패' }
+  } catch (e) { botSyncLast = { at: Date.now(), ok: false, error: e.message }; return { ok: false, error: '서버 연결 실패' } }
+}
+function setBotAcctMode(mode) {
+  botAcctMode = mode === 'dj' ? 'dj' : 'edinyang'
+  clearInterval(botSyncTimer); botSyncTimer = null
+  if (botAcctMode === 'dj') botSyncTimer = setInterval(() => { syncBotSession().catch(() => {}) }, 25 * 60 * 1000)
+}
+// 방송 창에서 로그인·로그아웃하면 (토큰 쿠키가 바뀌면) 3초 뒤 다시 올려요
+app.whenReady().then(() => {
+  try {
+    session.fromPartition(SPOON_PARTITION).cookies.on('changed', (_e, c, _cause, removed) => {
+      if (botAcctMode !== 'dj' || !c || c.name !== 'spoon_at_kr' || removed) return
+      clearTimeout(botSyncDebounce); botSyncDebounce = setTimeout(() => { syncBotSession().catch(() => {}) }, 3000)
+    })
+  } catch (_) {}
+})
+const fromAppOrDock = (e) => (alive(appWin) && e.sender === appWin.webContents) || (dockView && !dockView.webContents.isDestroyed() && e.sender === dockView.webContents) || (alive(panelWin) && e.sender === panelWin.webContents)
+ipcMain.handle('bcast:bot-account', async (e, mode) => {
+  if (!fromAppOrDock(e)) return { ok: false }
+  setBotAcctMode(mode)
+  if (botAcctMode !== 'dj') return { ok: true }
+  return syncBotSession()
+})
+
 ipcMain.on('bcast:rec', (e, m) => {
   try {
     if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return // 방송 창에서 온 것만

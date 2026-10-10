@@ -427,8 +427,15 @@ function pickSharedTokenDjId() {
 // 여기서 room을 새로 만들면 방송 안 하는 계정들 것까지 room 객체가 계속 쌓이게 된다.
 // 이미 room이 있는(=실제 접속을 시도해본 적 있는) DJ에 한해서만 배정을 room에 기억해두고
 // 재사용한다(재부팅 전까진 안 바뀜) — 없으면 그냥 매번 다시 고르되 아무것도 안 남긴다.
+// 🤖 봇으로 쓸 계정 — PC판 방송하기에서 "에디냥 봇"을 고르면(botAccountMode='edinyang') 본인 계정 세션이 올라가 있어도
+// 공용 계정으로 들어가요. 값이 없으면(기존 사용자) 예전처럼 본인 세션이 있으면 본인 계정.
+function ownAccountOn(djId) {
+  if (!tokenManager.hasCookies(djId)) return false
+  try { if ((store.getSettings(djId) || {}).botAccountMode === 'edinyang') return false } catch (e) {}
+  return true
+}
 function tokenDjIdFor(djId) {
-  if (tokenManager.hasCookies(djId)) return djId
+  if (ownAccountOn(djId)) return djId
   const existingRoom = rooms[djId]
 
   // 🎯 DJ가 입장설정에서 특정 공용 계정을 직접 골라뒀으면 1순위로 그 계정을 쓰되,
@@ -25012,7 +25019,7 @@ app.get('/status', auth.requireAuth, (req, res) => {
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
-    usingOwnAccount: tokenManager.hasCookies(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
+    usingOwnAccount: ownAccountOn(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
   })
 })
 
@@ -25078,6 +25085,43 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
   } else {
     res.json({ success: true, applied: false, msg: `쿠키 업로드 완료. 약 ${up.nextApplyInMin}분 뒤(2시간 주기)에 적용돼요.` })
   }
+})
+
+// 🤖 PC판(에디냥 PC) 방송하기 — 봇으로 쓸 계정 고르기: 'edinyang'(공용 봇 계정) / 'dj'(방송 창에 로그인한 내 DJ 계정)
+// 'dj'는 PC가 방송 창 세션을 /session/upload-pc 로 올려줘요 (세션 연결 메뉴·관리자 제한과 상관없이 — PC판에서 직접 고른 거라서)
+// ⚠️ 공용 계정 풀(sum/sum2…) 자체는 여기서 바꾸면 모든 DJ의 봇이 바뀌어서 막아요
+app.get('/session/bot-account', auth.requireAuth, (req, res) => {
+  const s = store.getSettings(req.djId) || {}
+  res.json({ success: true, mode: s.botAccountMode === 'dj' ? 'dj' : 'edinyang', hasOwn: tokenManager.hasCookies(req.djId), using: ownAccountOn(req.djId) ? 'dj' : 'edinyang', pool: SHARED_TOKEN_POOL.includes(req.djId) })
+})
+app.post('/session/bot-account', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const mode = (req.body || {}).mode === 'dj' ? 'dj' : 'edinyang'
+  if (mode === 'dj' && SHARED_TOKEN_POOL.includes(djId)) return res.json({ success: false, error: '공용 봇 계정이라 바꿀 수 없어요' })
+  const before = tokenDjIdFor(djId)
+  store.saveSettings(djId, { botAccountMode: mode })
+  if (rooms[djId]) delete rooms[djId].tokenDjId
+  const after = tokenDjIdFor(djId)
+  // 이미 방에 들어가 있으면 새 계정으로 다시 들어가게 (자동입장이 다시 붙여요)
+  const reconnect = before !== after && !!(rooms[djId] && rooms[djId].isConnected)
+  if (reconnect) rebootDjConnection(djId)
+  res.json({ success: true, mode, using: ownAccountOn(djId) ? 'dj' : 'edinyang', reconnect })
+})
+app.post('/session/upload-pc', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  if (SHARED_TOKEN_POOL.includes(djId)) return res.json({ success: false, error: '공용 봇 계정이라 바꿀 수 없어요' })
+  if ((store.getSettings(djId) || {}).botAccountMode !== 'dj') return res.json({ success: false, error: '봇 계정이 "내 DJ 계정"이 아니에요' })
+  const { cookies, localStorage } = req.body || {}
+  if (!Array.isArray(cookies) || !cookies.some((c) => c && c.name === 'spoon_at_kr' && c.value)) return res.json({ success: false, error: '방송 창에 스푼 로그인이 안 돼 있어요' })
+  const before = tokenDjIdFor(djId)
+  tokenManager.receiveUpload(djId, { cookies, localStorage: localStorage && typeof localStorage === 'object' ? localStorage : null, sessionStorage: null })
+  tokenManager.ensureAutoRefresh(djId, 30)
+  if (rooms[djId]) delete rooms[djId].tokenDjId
+  const after = tokenDjIdFor(djId)
+  const reconnect = before !== after && !!(rooms[djId] && rooms[djId].isConnected)
+  if (reconnect) rebootDjConnection(djId)
+  console.log(`[세션:${djId}] PC 방송 창 세션 업로드 (${cookies.length}개)${reconnect ? ' → 내 DJ 계정으로 다시 입장' : ''}`)
+  res.json({ success: true, using: ownAccountOn(djId) ? 'dj' : 'edinyang', reconnect })
 })
 
 // 인증 없이도 확인 가능한 "관리자 공용 계정" 상태 체크 (로그인 전 랜딩 화면 등에서 사용).

@@ -22,4 +22,5 @@ contextBridge.exposeInMainWorld('bcast', {
   hotkeys: (mode) => ipcRenderer.invoke('bcast:hotkeys', mode),
   onHotkey: (cb) => ipcRenderer.on('bcast:hotkey', (_e, act) => cb(act)),
   giftFx: (d) => ipcRenderer.send('bcast:gift', d), // 🎁 선물 받으면 방송 창에 이펙트
+  botAccount: (mode) => ipcRenderer.invoke('bcast:bot-account', mode), // 🤖 봇으로 쓸 계정 ('edinyang' | 'dj')
 })
