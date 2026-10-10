@@ -1392,8 +1392,8 @@ function bcRenderBotAcct() {
   const m = bcBotAcct.mode, dis = bcBotAcct.busy ? 'disabled' : '';
   const st = m === 'dj' ? (bcBotAcct.using === 'dj' ? '✅ 지금 봇: <b>내 DJ 계정</b>' : '⚠️ 아직 에디냥 봇으로 들어가요 — ' + bcEsc(bcBotAcct.msg || '방송 창에서 DJ 계정으로 스푼 로그인을 해주세요')) : '✅ 지금 봇: <b>에디냥 봇</b>';
   el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-    <label style="font-size:13px;cursor:pointer"><input type="radio" name="bcBotAcct" ${m === 'edinyang' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('edinyang')"> 🐱 에디냥 봇 <span class="bc-note">(에디냥 봇 계정이 방에 들어가요)</span></label>
-    <label style="font-size:13px;cursor:pointer"><input type="radio" name="bcBotAcct" ${m === 'dj' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('dj')"> 🎙️ 내 DJ 계정 <span class="bc-note">(방송 창에 로그인한 DJ 계정이 봇으로)</span></label>
+    <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'edinyang' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('edinyang')"> 🐱 에디냥 봇 <span class="bc-note">(에디냥 봇 계정이 방에 들어가요)</span></label>
+    <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'dj' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('dj')"> 🎙️ 내 DJ 계정 <span class="bc-note">(방송 창에 로그인한 DJ 계정이 봇으로)</span></label>
   </div><div class="bc-note" style="margin-top:6px">${bcBotAcct.busy ? '⏳ 바꾸는 중…' : st}</div>
   <div class="bc-note" style="margin-top:4px">내 DJ 계정이면 봇 메시지(룰렛·인사 등)가 DJ 이름으로 올라가요 · 에디냥 PC가 켜져 있는 동안 25분마다 로그인 정보를 새로 올려요 · 이미 방에 들어가 있으면 바뀐 계정으로 다시 들어가요</div>`;
 }
