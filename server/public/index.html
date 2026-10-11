@@ -4252,7 +4252,8 @@ if (window.bcast) setTimeout(() => {
           <p class="hint">게임 전반 동작을 설정합니다.</p>
           <label class="fish-toggle-bar"><input type="checkbox" id="fishEnabled" checked> 게임 활성화</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr;margin-top:14px">
-            <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"><div class="hint" style="margin-top:4px">낚시 재사용 대기 시간</div></div>
+            <div><label>낚시 쿨타임 (초)</label><input type="number" id="fishCooldown" value="120"><div class="hint" style="margin-top:4px">낚시 재사용 대기 시간 (!낚시온 자동 낚시 간격도 이 값)</div></div>
+            <div><label>자동 낚시 결과 채팅</label><select id="fishAutoMsg"><option value="short">간단하게 (한 줄)</option><option value="full">자세히 (일반 낚시와 같게)</option><option value="off">끄기 (채팅 안 나옴)</option></select><div class="hint" style="margin-top:4px">!낚시온 으로 자동 낚시할 때 나오는 멘트</div></div>
             <div><label>일일 보너스 금액 (원)</label><input type="number" id="fishDailyMoney" value="10000"><div class="hint" style="margin-top:4px">!돈줘 명령어로 받는 금액</div></div>
             <div><label>슬롯 최소 베팅 (원)</label><input type="number" id="fishSlotMinBet" value="1000"></div>
             <div><label>주사위 승리 경험치</label><input type="number" id="fishDiceWinExp" value="10"></div>
@@ -17040,6 +17041,7 @@ async function loadFishingSettings(){
     const c=d.config;
     document.getElementById('fishEnabled').checked=c.enabled!==false;
     document.getElementById('fishCooldown').value=c.fishingCooldown??120;
+    document.getElementById('fishAutoMsg').value=c.autoFishMsg||'short';
     document.getElementById('fishDailyMoney').value=c.dailyMoney??10000;
     document.getElementById('fishSlotMinBet').value=c.slotMinBet??1000;
     document.getElementById('fishDiceWinExp').value=c.diceWinExp??10;
@@ -17072,6 +17074,7 @@ async function saveFishingSettings(){
   const body={
     enabled:document.getElementById('fishEnabled').checked,
     fishingCooldown:Number(document.getElementById('fishCooldown').value)||120,
+    autoFishMsg:document.getElementById('fishAutoMsg').value||'short',
     dailyMoney:Number(document.getElementById('fishDailyMoney').value)||10000,
     slotMinBet:Number(document.getElementById('fishSlotMinBet').value)||1000,
     diceWinExp:Number(document.getElementById('fishDiceWinExp').value)||10,

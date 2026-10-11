@@ -7101,7 +7101,7 @@ function fishReply(djId, msg) {
 
 // ── 명령어 핸들러 (전부 djId/room/settings/author/authorId/tag/parts 형태로 통일) ──
 
-async function fishCmdFishing(djId, room, settings, author, tag) {
+async function fishCmdFishing(djId, room, settings, author, tag, auto = false) {
   const fishing = getFishingSettings(djId, settings)
   const cfg = fishing.config
   if (!cfg.enabled) return
@@ -7145,6 +7145,12 @@ async function fishCmdFishing(djId, room, settings, author, tag) {
   else { user.caught_fish[caught.name] = (user.caught_fish[caught.name] || 0) + 1 }
   const leveled = _fishCheckLevelUp(user)
   saveFishingUser(djId, fishing)
+  // 🤖 자동 낚시(!낚시온) 결과 채팅 — 낚시 설정의 "자동 낚시 결과 채팅": short(한 줄, 기본) / full(일반 낚시와 같게) / off(안 보냄)
+  if (auto) {
+    const mode = cfg.autoFishMsg || 'short'
+    if (mode === 'off') return
+    if (mode === 'short') { fishReply(djId, `🎣 ${author} ${caught.name} ₩${value.toLocaleString()}${toBag ? ' 🧺' : ''}${leveled ? ` 🎉Lv.${user.level}` : ''}`); return }
+  }
   const hasRange = minVal !== maxVal
   let msg = `🎣 와! ${author}님 ${caught.name}를 낚았습니다!\n`
   if (incomeItem && incomeItem.effect_value > 0) {
@@ -7180,7 +7186,7 @@ function _fishAutoSchedule(djId, room, key, ms) {
     const settings = store.getSettings(djId) || {}
     const fishing = getFishingSettings(djId, settings)
     if (!isModuleOn(settings, 'fishing', djId) || !fishing.config.enabled) { _fishAutoStop(room, key); return }
-    try { await fishCmdFishing(djId, room, settings, a.author, a.tag) } catch (e) { console.log('[자동낚시 오류]', e.message) }
+    try { await fishCmdFishing(djId, room, settings, a.author, a.tag, true) } catch (e) { console.log('[자동낚시 오류]', e.message) }
     _fishAutoSchedule(djId, room, key, (fishing.config.fishingCooldown || 120) * 1000 + 1000)
   }, Math.max(1000, ms))
 }
@@ -22141,6 +22147,7 @@ app.post('/fishing/settings', auth.requireAuth, (req, res) => {
   const numKeys = ['fishingCooldown', 'dailyMoney', 'slotMinBet', 'diceWinExp', 'diceLoseExp', 'creditTier1Points', 'creditTier1Loan', 'creditTier2Points', 'creditTier2Loan', 'creditTier3Points', 'creditTier3Loan', 'theftBaseRate', 'theftLevelBonus', 'theftMaxRate']
   const textKeys = ['fishList', 'eventFishList', 'shopProducts', 'itemShop', 'collections', 'djTags']
   if (body.enabled != null) fishing.config.enabled = !!body.enabled
+  if (body.autoFishMsg != null) fishing.config.autoFishMsg = ['short', 'full', 'off'].includes(body.autoFishMsg) ? body.autoFishMsg : 'short'
   numKeys.forEach(k => { if (body[k] != null) fishing.config[k] = Number(body[k]) || 0 })
   textKeys.forEach(k => { if (body[k] != null) fishing.config[k] = String(body[k]).slice(0, 20000) })
   store.saveSettings(req.djId, { fishing })
