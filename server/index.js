@@ -7131,7 +7131,13 @@ async function fishCmdFishing(djId, room, settings, author, tag) {
   const baseValue = minVal === maxVal ? minVal : Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal
   let value = baseValue
   if (incomeItem && incomeItem.effect_value > 0) value = Math.floor(value * (1 + incomeItem.effect_value / 100))
-  user.balance += value
+  // 🧺 식빵주식이 켜져 있으면 잡은 물고기는 어망에 넣고(!물고기판매로 팔면 식빵 증권 계좌로 입금), 꺼져 있으면 예전처럼 바로 잔액에
+  const toBag = _fishStockLinked(djId, settings)
+  if (toBag) {
+    if (!user.fish_bag || typeof user.fish_bag !== 'object') user.fish_bag = {}
+    const b = user.fish_bag[caught.name] || (user.fish_bag[caught.name] = { count: 0, total: 0 })
+    b.count++; b.total += value
+  } else user.balance += value
   user.exp += caught.exp
   user.total_fish_count++
   user.last_fishing_time = new Date().toISOString()
@@ -7147,9 +7153,57 @@ async function fishCmdFishing(djId, room, settings, author, tag) {
   } else {
     msg += hasRange ? `💰 ₩${value.toLocaleString()}원 (₩${minVal.toLocaleString()}~₩${maxVal.toLocaleString()})\n` : `💰 ₩${value.toLocaleString()}원\n`
   }
-  msg += `현재 잔액: ₩${user.balance.toLocaleString()}원`
+  if (toBag) {
+    const bagN = Object.values(user.fish_bag).reduce((n, b) => n + (b.count || 0), 0)
+    msg += `🧺 어망에 넣었어요 (${bagN}마리) · !물고기판매 하면 식빵 증권 계좌로 입금돼요`
+  } else msg += `현재 잔액: ₩${user.balance.toLocaleString()}원`
   if (leveled) msg += `\n🎉 레벨업! Lv.${user.level}`
   fishReply(djId, msg)
+}
+
+// 🍞 식빵주식 연동 — 식빵주식(증권거래소)이 켜져 있는 방이면 잡은 물고기 판매금이 식빵 증권 계좌(현금)로 들어가요
+function _fishStockLinked(djId, settings) {
+  try { return isModuleOn(settings, 'stock', djId) && getStockSettings(djId, settings).config.enabled !== false } catch (e) { return false }
+}
+// 🧺 !어망 — 아직 안 판 물고기 보기
+function fishCmdBag(djId, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const list = Object.entries(user.fish_bag || {}).filter(([, b]) => b && b.count > 0)
+  if (!list.length) { fishReply(djId, `🧺 ${author}님의 어망이 비어 있어요`); return }
+  const sum = list.reduce((t, [, b]) => t + (b.total || 0), 0)
+  fishReply(djId, `🧺 ${author}님의 어망\n${list.map(([n, b]) => `${n} ${b.count}마리 · ₩${(b.total || 0).toLocaleString()}`).join('\n')}\n💰 전부 팔면 ₩${sum.toLocaleString()}원\n!물고기판매 (전부) · !물고기판매 [이름]`)
+}
+// 💰 !물고기판매 [이름] — 어망 물고기 팔기 → 판매금은 식빵 증권 계좌로 (식빵주식이 꺼져 있으면 낚시 잔액으로)
+function fishCmdSell(djId, settings, author, tag, parts) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  const user = getFishingUser(fishing, tag, author)
+  const bag = user.fish_bag || {}
+  const want = parts.slice(1).join(' ').trim()
+  const names = want ? Object.keys(bag).filter((n) => n === want) : Object.keys(bag)
+  const sold = names.map((n) => [n, bag[n]]).filter(([, b]) => b && b.count > 0)
+  if (!sold.length) { fishReply(djId, want ? `❌ 어망에 ${want}가 없어요 (!어망 으로 확인)` : `🧺 팔 물고기가 없어요`); return }
+  const total = sold.reduce((t, [, b]) => t + (b.total || 0), 0)
+  const cnt = sold.reduce((t, [, b]) => t + (b.count || 0), 0)
+  sold.forEach(([n]) => { delete bag[n] })
+  user.fish_bag = bag
+  let where
+  if (_fishStockLinked(djId, settings)) {
+    const stock = getStockSettings(djId, settings)
+    const su = stkGetUser(stock, tag, author)
+    stkAddIncome(djId, stock, su, total)
+    saveStock(djId, stock)
+    where = `🍞 식빵 증권 계좌로 입금 · 현금 ${stkFmt(su.cash)}${su.started ? '' : `\n(아직 증권거래소를 시작 안 했어요 — ${stock.config.cmdStart || '!시작'} 하면 시작금과 같이 쓸 수 있어요)`}`
+  } else {
+    user.balance += total
+    where = `💰 낚시 잔액: ₩${user.balance.toLocaleString()}원`
+  }
+  saveFishingUser(djId, fishing)
+  fishReply(djId, `💰 ${author}님 물고기 ${cnt}마리 판매! +₩${total.toLocaleString()}원\n${where}`)
 }
 
 async function fishCmdDailyMoney(djId, settings, author, tag) {
@@ -7576,7 +7630,7 @@ async function fishCmdGiveMoney(djId, room, settings, author, authorId, parts) {
 }
 
 function fishCmdHelp(djId) {
-  let msg = '🎣 낚시 게임 명령어\n!낚시 / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
+  let msg = '🎣 낚시 게임 명령어\n!낚시 / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!어망 / !물고기판매 [이름] (판매금 → 식빵 증권 계좌)\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
   fishReply(djId, msg)
 }
 
@@ -7588,7 +7642,7 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   const parts = msg.split(/\s+/)
   const cmd = parts[0]
 
-  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어']
+  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어', '!어망', '!물고기판매']
   if (!FISH_CMDS.includes(cmd)) return
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -7620,6 +7674,8 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
     case '!신용정보': return fishCmdCreditInfo(djId, settings, author, tag)
     case '!컬렉션': return fishCmdCollections(djId, settings, author, tag)
     case '!낚시도움말': case '!낚시명령어': return fishCmdHelp(djId)
+    case '!어망': return fishCmdBag(djId, settings, author, tag)
+    case '!물고기판매': return fishCmdSell(djId, settings, author, tag, parts)
   }
 }
 
@@ -19760,6 +19816,7 @@ app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
 
 // 본인 계정 전용 — 지금 저장된 모든 봇 설정을 JSON으로 그대로 내보낸다. (백업 / 다른 계정으로 옮길 때 사용)
 app.get('/account/settings-export', auth.requireAuth, (req, res) => {
+  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '설정 내보내기는 관리자만 쓸 수 있어요' }) // 💾 관리자만
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, djId: req.djId, exportedAt: new Date().toISOString(), settings })
 })
