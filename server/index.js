@@ -7161,6 +7161,52 @@ async function fishCmdFishing(djId, room, settings, author, tag) {
   fishReply(djId, msg)
 }
 
+// 🤖 !낚시온 / !낚시오프 — 설정된 낚시 쿨타임마다 자동으로 !낚시 (방송이 끝나거나 봇이 다시 접속하면 저절로 꺼져요)
+function _fishAutoStop(room, key) {
+  const a = room._autoFish && room._autoFish.get(key)
+  if (!a) return false
+  clearTimeout(a.timer); room._autoFish.delete(key)
+  return true
+}
+function _fishAutoSchedule(djId, room, key, ms) {
+  const a = room._autoFish && room._autoFish.get(key)
+  if (!a) return
+  clearTimeout(a.timer)
+  a.timer = setTimeout(async () => {
+    const cur = room._autoFish && room._autoFish.get(key)
+    if (cur !== a) return
+    // 봇이 다시 접속했거나(방 새로 만들어짐) · 방송이 바뀌었거나 · 연결이 끊겼으면 멈춤
+    if (rooms[djId] !== room || !room.isConnected || room.liveId !== a.liveId) { _fishAutoStop(room, key); return }
+    const settings = store.getSettings(djId) || {}
+    const fishing = getFishingSettings(djId, settings)
+    if (!isModuleOn(settings, 'fishing', djId) || !fishing.config.enabled) { _fishAutoStop(room, key); return }
+    try { await fishCmdFishing(djId, room, settings, a.author, a.tag) } catch (e) { console.log('[자동낚시 오류]', e.message) }
+    _fishAutoSchedule(djId, room, key, (fishing.config.fishingCooldown || 120) * 1000 + 1000)
+  }, Math.max(1000, ms))
+}
+function fishCmdAutoOn(djId, room, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 자동 낚시를 할 수 있습니다.'); return }
+  const key = String(tag).toLowerCase()
+  if (!room._autoFish) room._autoFish = new Map()
+  const cdSec = fishing.config.fishingCooldown || 120
+  if (room._autoFish.has(key)) { fishReply(djId, `🤖 ${author}님은 이미 자동 낚시 중이에요 (${cdSec}초마다) · 끄려면 !낚시오프`); return }
+  room._autoFish.set(key, { author, tag, liveId: room.liveId, timer: null })
+  // 쿨타임이 남아 있으면 끝나는 대로, 아니면 바로 첫 낚시
+  const user = getFishingUser(fishing, tag, author)
+  const left = user.last_fishing_time ? cdSec * 1000 - (Date.now() - new Date(user.last_fishing_time).getTime()) : 0
+  fishReply(djId, `🤖 ${author}님 자동 낚시 시작! ${cdSec}초마다 자동으로 낚시해요 · 끄려면 !낚시오프`)
+  _fishAutoSchedule(djId, room, key, left > 0 ? left + 1000 : 1500)
+}
+function fishCmdAutoOff(djId, room, settings, author, tag) {
+  const fishing = getFishingSettings(djId, settings)
+  if (!fishing.config.enabled) return
+  if (!tag) { fishReply(djId, '❌ 고유닉이 있어야 합니다.'); return }
+  if (!room._autoFish || !_fishAutoStop(room, String(tag).toLowerCase())) { fishReply(djId, `🤖 ${author}님은 자동 낚시 중이 아니에요`); return }
+  fishReply(djId, `🛑 ${author}님 자동 낚시를 껐어요`)
+}
+
 // 🍞 식빵주식 연동 — 식빵주식(증권거래소)이 켜져 있는 방이면 잡은 물고기 판매금이 식빵 증권 계좌(현금)로 들어가요
 function _fishStockLinked(djId, settings) {
   try { return isModuleOn(settings, 'stock', djId) && getStockSettings(djId, settings).config.enabled !== false } catch (e) { return false }
@@ -7630,7 +7676,7 @@ async function fishCmdGiveMoney(djId, room, settings, author, authorId, parts) {
 }
 
 function fishCmdHelp(djId) {
-  let msg = '🎣 낚시 게임 명령어\n!낚시 / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!어망 / !물고기판매 [이름] (판매금 → 식빵 증권 계좌)\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
+  let msg = '🎣 낚시 게임 명령어\n!낚시 / !낚시온 / !낚시오프 (쿨타임마다 자동) / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!어망 / !물고기판매 [이름] (판매금 → 식빵 증권 계좌)\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
   fishReply(djId, msg)
 }
 
@@ -7642,7 +7688,7 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
   const parts = msg.split(/\s+/)
   const cmd = parts[0]
 
-  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어', '!어망', '!물고기판매']
+  const FISH_CMDS = ['!낚시', '!돈줘', '!잔액', '!상태', '!지갑', '!레벨', '!도감', '!도감공유', '!상점', '!구매', '!아이템상점', '!아이템구매', '!슬롯', '!주사위', '!홀', '!짝', '!송금', '!도둑', '!돈주기', '!대출', '!상환', '!신용정보', '!컬렉션', '!낚시도움말', '!낚시명령어', '!어망', '!물고기판매', '!낚시온', '!낚시오프']
   if (!FISH_CMDS.includes(cmd)) return
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -7676,6 +7722,8 @@ async function handleFishingCommand(djId, room, settings, author, authorId, live
     case '!낚시도움말': case '!낚시명령어': return fishCmdHelp(djId)
     case '!어망': return fishCmdBag(djId, settings, author, tag)
     case '!물고기판매': return fishCmdSell(djId, settings, author, tag, parts)
+    case '!낚시온': return fishCmdAutoOn(djId, room, settings, author, tag)
+    case '!낚시오프': return fishCmdAutoOff(djId, room, settings, author, tag)
   }
 }
 
