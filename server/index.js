@@ -1078,6 +1078,8 @@ app.get('/internal/edinyang/live-members', async (req, res) => {
     res.status(502).json({ success: false, error: e.message })
   }
 })
+// 🎁 [에디냥 연동] 선물카드 갤러리용 — 에디냥 서버가 물어보는 동안 그 방에 같이 들어가서 선물 정보(스티커·콤보·사진)를 넘겨줘요
+const edinyangGift = require('./edinyangGift')({ app, tokenManager, WebSocket, getRooms: () => rooms, findLiveIdForEdinyang, fetchLiveInfo, getCachedUserTag, findStickerImage, findStickerAnim, getWsProxyForDj, CHROME_UA, SHARED_TOKEN_DJID })
 
 // 지금 방송에 실제로 접속 중인 사람인지 태그 또는 닉네임으로 확인한다. (룰렛지급/복권지급/상점 등
 // DJ가 직접 대상을 지정하는 명령어에서, 고유닉을 잘못 입력해도 조용히 지급되던 문제를 막기 위해 사용)
@@ -17884,6 +17886,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         const lottieUrl = sticker ? (await findStickerAnim(sticker)).lottieUrl : '' // 🎁 에디냥 PC 방송 창 선물 이펙트용 (스푼 원본 애니메이션)
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, lottieUrl, profileUrl: donorProfileUrl })
+        try { edinyangGift.onRoomGift(liveId, eventPayload) } catch (e) {} // 🎁 에디냥 선물 연동 (이 방을 같이 보고 있으면)
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
