@@ -475,6 +475,45 @@ ipcMain.on('bcast:mailbox', async (e) => {
   } catch (err) { toSpoon('__ediMailbox', { error: err.message || String(err) }) }
 })
 
+// 📦 컨텐츠 — 투표 시작/종료 · 편지함 열기/닫기 (스푼 PC 웹엔 없는 기능이라 보내는 값은 시청자 화면에서 본 모양으로 맞춤)
+//    스푼이 거절하면 응답을 그대로 방송 창에 보여주고 기록 파일에도 남김 → 그걸 보고 값을 고쳐요
+ipcMain.on('bcast:play-act', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !m) return
+  const done = (r) => toSpoon('__ediPlayCreated', r)
+  try {
+    const tok = await spoonToken(); if (!tok) return done({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
+    const st = await ediApi('/status')
+    const liveId = st && st.liveId ? Number(st.liveId) : 0
+    if (!liveId) return done({ error: '에디냥 봇이 방에 들어와 있어야 해요 (방송 번호를 몰라요)' })
+    let method = 'POST', url = '', body = null
+    if (m.act === 'poll-create') {
+      const items = (Array.isArray(m.items) ? m.items : []).map((n) => String(n).slice(0, 30)).filter(Boolean).slice(0, 5)
+      url = 'https://kr-api.spooncast.net/play/poll/'
+      body = { live_id: liveId, title: String(m.title || '').slice(0, 40), items: items.map((name, i) => ({ item_order: i + 1, name })) }
+    } else if (m.act === 'mailbox-create') {
+      url = 'https://kr-api.spooncast.net/play/mailbox/'
+      body = { live_id: liveId, title: String(m.title || '').slice(0, 40) }
+    } else if (m.act === 'poll-end' || m.act === 'mailbox-end') {
+      method = 'PUT'
+      url = `https://kr-api.spooncast.net/play/${m.act === 'poll-end' ? 'poll' : 'mailbox'}/${encodeURIComponent(m.id)}/`
+      body = { live_id: liveId }
+    } else return
+    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000)
+    const r = await session.fromPartition(SPOON_PARTITION).fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, body: JSON.stringify(body), signal: ac.signal })
+    clearTimeout(to)
+    const text = (await r.text()).slice(0, 3000)
+    // 기록 (다운로드 › 에디냥_스푼놀이_기록.json)
+    try {
+      const f = path.join(app.getPath('downloads'), '에디냥_스푼놀이_기록.json')
+      let log = []; try { log = JSON.parse(fs.readFileSync(f, 'utf-8')) } catch (_) {}
+      log.push({ at: new Date().toISOString(), from: 'edinyang', method, url, body: JSON.stringify(body), status: r.status, response: text })
+      fs.writeFileSync(f, JSON.stringify(log.slice(-200), null, 1), 'utf-8')
+    } catch (_) {}
+    const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요' }[m.act]
+    done(r.ok ? { ok: true, msg: label } : { error: `스푼이 거절했어요 (${r.status}) — 아래 내용을 캡처해서 보내주세요`, body: `${method} ${url.replace('https://kr-api.spooncast.net', '')}\n보낸 값: ${JSON.stringify(body)}\n받은 값: ${text}` })
+  } catch (err) { done({ error: err.message || String(err) }) }
+})
+
 // 📊 스푼 투표 — 투표 번호는 LivePlayPoll 이벤트(에디냥 봇 → /status), 선택지·득표는 GET /play/poll/{번호}/ (방송 창 DJ 로그인)
 ipcMain.on('bcast:poll', async (e) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return

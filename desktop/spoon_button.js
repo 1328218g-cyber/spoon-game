@@ -501,93 +501,122 @@
     timer = setTimeout(finish, 3000)
   }
 
-  // 📮 스푼 기능 — 오른쪽 "받은 아이템" 탭을 누르면 편지함 · 투표 · 라이브게임 메뉴가 먼저 나와요
-  //  (맨 아래 "받은 아이템 보기"로 원래 스푼 화면) · 편지함은 스푼이 보내주는 편지함 번호로 사연 목록을 불러와요
-  let playBypass = false, playTimer = null, playKind = 'mailbox'
-  function patchItemTab() {
-    const cand = [...document.querySelectorAll('button,[role=tab],li,a,div,span')].filter((el) => !el.closest('#__ediPlay') && el.children.length <= 2 && (el.textContent || '').trim() === '받은 아이템')
-    for (const el of cand) {
-      let tab = el
-      while (tab.parentElement && (tab.parentElement.textContent || '').trim() === '받은 아이템') tab = tab.parentElement
-      if (tab.dataset.ediPlay) continue
-      tab.dataset.ediPlay = '1'
-      tab.addEventListener('click', (e) => { if (playBypass) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); togglePlay(tab) }, true)
-    }
-  }
+  // 📦 컨텐츠 — 오른쪽 "실시간 랭킹" 탭을 "컨텐츠"로 바꾸고, 누르면 그 아래 칸에 📊 투표함 · ✉️ 편지함 · 🎮 라이브게임
+  //  (스푼 PC 웹에는 없는 모바일 기능 · 투표 번호/편지함 번호는 스푼 이벤트를 에디냥 봇이 받아서 알려줌)
+  let playTimer = null, playKind = 'poll', contentsTab = null
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
-  function closePlay() { const b = document.getElementById('__ediPlay'); if (b) b.remove(); clearInterval(playTimer); playTimer = null }
-  function togglePlay(anchor) {
-    if (document.getElementById('__ediPlay')) return closePlay()
-    const box = document.createElement('div')
-    box.id = '__ediPlay'
-    const r = anchor.getBoundingClientRect()
-    const w = Math.min(380, window.innerWidth - 16)
-    box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(r.bottom + 6)}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px;width:${w}px;max-height:${Math.round(window.innerHeight - r.bottom - 20)}px;overflow:auto;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
-    const tabBtn = 'flex:1;padding:9px 4px;border-radius:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer'
-    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">스푼 기능<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
-      <div style="display:flex;gap:6px">${[['mailbox', '✉️ 편지함'], ['poll', '📊 투표'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<button data-k="${k}" style="${tabBtn}">${l}</button>`).join('')}</div>
-      <div id="__ediPlayOut" style="margin-top:10px"></div>
-      <div style="margin-top:10px;text-align:right"><span id="__ediPlayItems" style="cursor:pointer;color:#7c3aed;font-size:12px">받은 아이템 보기 ›</span></div>`
-    document.body.appendChild(box)
-    box.querySelector('#__ediPlayX').onclick = closePlay
-    box.querySelector('#__ediPlayItems').onclick = () => { closePlay(); playBypass = true; try { anchor.click() } finally { playBypass = false } }
-    box.querySelectorAll('button[data-k]').forEach((b) => { b.onclick = () => playOpen(b.dataset.k) })
+  function patchItemTab() { // (이름은 예전 그대로 — 화면이 다시 그려질 때마다 불림)
+    const tabs = [...document.querySelectorAll('button,[role=tab],li,a,div,span')].filter((el) => !el.closest('#__ediContents') && el.children.length <= 2 && /^(실시간 랭킹|컨텐츠)$/.test((el.textContent || '').trim()))
+    for (const el of tabs) {
+      let tab = el
+      while (tab.parentElement && /^(실시간 랭킹|컨텐츠)$/.test((tab.parentElement.textContent || '').trim())) tab = tab.parentElement
+      // 위쪽 큰 탭만 (청취자 탭 안의 '실시간 랭킹' 버튼은 제외) — 같은 줄에 '받은 아이템'·'보관함' 탭이 있는 것
+      const row = tab.parentElement; if (!row || !/받은 아이템/.test(row.textContent || '') || !/보관함/.test(row.textContent || '')) continue
+      if (tab.dataset.ediContents) continue
+      tab.dataset.ediContents = '1'; contentsTab = tab
+      const leaf = [...tab.querySelectorAll('*')].reverse().find((n) => (n.textContent || '').trim() === '실시간 랭킹' && !n.children.length) || tab
+      leaf.textContent = '컨텐츠'
+      tab.addEventListener('click', () => setTimeout(openContents, 60), true) // 스푼이 탭을 바꾼 뒤 그 아래 칸을 덮어요
+      // 다른 탭을 누르면 닫기
+      ;[...row.children].forEach((sib) => { if (sib !== tab && !sib.dataset.ediOther) { sib.dataset.ediOther = '1'; sib.addEventListener('click', closeContents, true) } })
+    }
+    placeContents()
+  }
+  function contentsRect() {
+    if (!contentsTab || !contentsTab.isConnected) return null
+    const row = contentsTab.parentElement, rr = row.getBoundingClientRect()
+    // 탭 줄 아래 ~ 오른쪽 칸 끝까지 (탭 줄을 감싼 칸 기준)
+    let col = row; for (let i = 0; i < 4 && col.parentElement; i++) { const r = col.parentElement.getBoundingClientRect(); if (r.height > rr.height * 4) { col = col.parentElement; break } col = col.parentElement }
+    const cr = col.getBoundingClientRect()
+    return { x: rr.left, y: rr.bottom, w: rr.width, h: Math.max(200, Math.min(cr.bottom, window.innerHeight) - rr.bottom) }
+  }
+  function placeContents() {
+    const box = document.getElementById('__ediContents'); if (!box) return
+    const r = contentsRect(); if (!r) return closeContents()
+    Object.assign(box.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' })
+  }
+  function closeContents() { const b = document.getElementById('__ediContents'); if (b) b.remove(); clearInterval(playTimer); playTimer = null }
+  function openContents() {
+    if (document.getElementById('__ediContents')) return
+    const r = contentsRect(); if (!r) return
+    const box = document.createElement('div'); box.id = '__ediContents'
+    box.style.cssText = `position:fixed;z-index:2147483645;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
+    const chip = 'padding:7px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;cursor:pointer;background:#fff;white-space:nowrap'
+    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
+    document.body.appendChild(box); placeContents()
+    box.querySelectorAll('[data-k]').forEach((c) => { c.onclick = () => playOpen(c.dataset.k) })
+    box.querySelector('#__ctRef').onclick = () => playOpen(playKind)
     playOpen(playKind)
   }
   function playOpen(kind) {
     playKind = kind
-    const box = document.getElementById('__ediPlay'), out = document.getElementById('__ediPlayOut'); if (!box || !out) return
-    box.querySelectorAll('button[data-k]').forEach((b) => { const on = b.dataset.k === kind; b.style.background = on ? '#fdf2f8' : '#f8fafc'; b.style.borderColor = on ? '#f9a8d4' : '#e5e7eb' })
+    const box = document.getElementById('__ediContents'), out = document.getElementById('__ediPlayOut'); if (!box || !out) return
+    box.querySelectorAll('[data-k]').forEach((c) => { const on = c.dataset.k === kind; c.style.background = on ? '#111' : '#fff'; c.style.color = on ? '#fff' : '#374151'; c.style.borderColor = on ? '#111' : '#d1d5db' })
     clearInterval(playTimer); playTimer = null
-    if (kind === 'poll') {
-      out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
-      const loadP = () => { if (ipc) ipc.send('bcast:poll', {}) }
-      loadP(); playTimer = setInterval(loadP, 5000) // 열어둔 동안 5초마다 득표 갱신
-      return
-    }
-    if (kind === 'livegame') { out.innerHTML = '<div style="color:#64748b">○ 라이브게임은 준비 중이에요</div>'; return }
+    if (kind === 'livegame') { out.innerHTML = '<div style="font-weight:700">○ 라이브게임</div><div style="color:#64748b;font-size:12px">준비 중이에요</div>'; return }
     out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
-    const load = () => { if (ipc) ipc.send('bcast:mailbox', {}) }
-    load(); playTimer = setInterval(load, 8000) // 열어둔 동안 8초마다 새 사연 확인
+    const ch = kind === 'poll' ? 'bcast:poll' : 'bcast:mailbox'
+    const load = () => { if (ipc) ipc.send(ch, {}) }
+    load(); playTimer = setInterval(load, kind === 'poll' ? 5000 : 8000)
   }
-  const ago = (t) => { const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000); return s < 60 ? '방금' : s < 3600 ? Math.floor(s / 60) + '분 전' : Math.floor(s / 3600) + '시간 전' }
-  // 📊 투표 — 스푼이 주는 값 이름이 아직 확실하지 않아서 여러 이름을 다 받아보고, 못 읽으면 원래 내용을 작게 보여줘요
+  const inp = 'width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #e5e7eb;border-radius:9px;font:inherit;margin-top:6px'
+  const bigBtn = (bg) => `width:100%;margin-top:8px;padding:10px;border-radius:10px;border:none;background:${bg};color:#fff;font-weight:800;cursor:pointer;font:inherit;font-weight:800`
+  const resBox = '<div id="__ctRes" style="margin-top:8px;font-size:12px"></div>'
+  // 만들기/종료 결과 (스푼이 거절하면 이유를 그대로 보여줘요 — 그걸 보고 보낼 값을 맞춰요)
+  window.__ediPlayCreated = (r) => {
+    const el = document.getElementById('__ctRes'); if (!el) return
+    if (r && r.ok) { el.style.color = '#16a34a'; el.textContent = '✅ ' + (r.msg || '완료'); setTimeout(() => playOpen(playKind), 1200) }
+    else { el.style.color = '#dc2626'; el.innerHTML = '❌ ' + esc((r && r.error) || '실패') + (r && r.body ? `<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#fef2f2;border-radius:6px;padding:6px;margin:4px 0 0;max-height:120px;overflow:auto">${esc(r.body)}</pre>` : '') }
+  }
+  const sendPlay = (msg) => { const el = document.getElementById('__ctRes'); if (el) { el.style.color = '#64748b'; el.textContent = '⏳ 스푼에 보내는 중…' } clearInterval(playTimer); playTimer = null; if (ipc) ipc.send('bcast:play-act', msg) }
+  // 📊 투표 — 진행 중이면 선택지·총 투표 수 + 종료, 없으면 만들기
   window.__ediPoll = (r) => {
     const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'poll') return
-    const btn = 'padding:9px;border-radius:10px;border:1px solid #fbcfe8;background:#fdf2f8;font-weight:700;cursor:pointer;flex:1'
-    const refresh = `<div style="display:flex;gap:6px;margin-top:8px"><button id="__plRef" style="${btn}">새로고침</button></div>`
-    if (!r || (r.error && !r.poll)) out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>` + refresh
-    else if (!r.poll || !r.poll.id || /END|CLOSE|FINISH/i.test(r.poll.command || '')) out.innerHTML = `<div style="font-weight:700">○ 진행 중인 투표 없음</div><div style="color:#64748b;font-size:12px;margin-top:2px">스푼 앱에서 투표를 열면 여기에 득표가 보여요</div>` + refresh
-    else {
-      const d = r.detail || {}
-      const raw = (d.items || d.options || d.poll_options || d.pollOptions || d.choices || r.poll.options || []).slice().sort((a, b) => (Number(a && a.item_order) || 0) - (Number(b && b.item_order) || 0))
-      const pick = (o, ks) => { for (const k of ks) if (o && o[k] != null && o[k] !== '') return o[k]; return null }
-      const opts = (Array.isArray(raw) ? raw : []).map((o, i) => typeof o === 'string' ? { label: o, n: null } : { label: String(pick(o, ['name', 'title', 'text', 'content', 'option', 'label']) || ('선택지 ' + (i + 1))), n: pick(o, ['count', 'poll_count', 'vote_count', 'voteCount', 'select_count', 'selectCount', 'votes']) })
-      const hasCounts = opts.some((o) => o.n != null)
-      opts.forEach((o) => { o.n = Number(o.n) || 0 })
-      // 총 투표 수: 스푼 이벤트(pollTotalCount)가 제일 최신 · 그다음 투표 정보(poll_count)
-      const total = Math.max(Number(r.poll.total) || 0, Number(pick(d, ['poll_count', 'total_count', 'totalCount', 'total'])) || 0, opts.reduce((t, o) => t + o.n, 0))
-      out.innerHTML = `<div style="font-weight:700">● ${esc(pick(d, ['title', 'poll_title']) || r.poll.title || '투표')} <span style="color:#db2777">${total}표</span></div>` + refresh +
-        (opts.length && !hasCounts ? `<div style="margin-top:8px">${opts.map((o, i) => `<div style="padding:7px 10px;margin:6px 0;border:1px solid #f1f5f9;border-radius:10px;background:#fafafa"><b style="color:#db2777;margin-right:6px">${i + 1}</b>${esc(o.label)}</div>`).join('')}<div style="color:#94a3b8;font-size:11px">스푼이 항목별 득표 수는 주지 않아서 총 투표 수만 실시간으로 보여요</div></div>`
-        : opts.length ? `<div style="margin-top:8px">${opts.map((o) => { const pct = total ? Math.round(o.n / total * 100) : 0; return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><b>${esc(o.label)}</b><span style="color:#64748b">${o.n}표 · ${pct}%</span></div><div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f472b6,#a78bfa)"></div></div></div>` }).join('')}</div>`
-          : `<div style="color:#64748b;font-size:12px;margin-top:8px">선택지를 아직 못 읽었어요${r.error ? ' (' + esc(r.error) + ')' : ''}</div>${r.detail ? `<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#f8fafc;border-radius:6px;padding:6px;max-height:140px;overflow:auto;margin-top:6px">${esc(JSON.stringify(r.detail, null, 1).slice(0, 2000))}</pre>` : ''}`)
+    if (document.activeElement && out.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return // 입력 중엔 다시 그리지 않음
+    if (!r || (r.error && !r.poll)) { out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>`; return }
+    if (!r.poll || !r.poll.id || /END|CLOSE|FINISH|DONE/i.test(r.poll.command || '')) {
+      out.innerHTML = `<div style="font-weight:700">○ 진행 중인 투표 없음</div>
+        <input id="__pT" placeholder="투표 제목" maxlength="40" style="${inp}">
+        <div id="__pOpts">${[1, 2].map((i) => `<input class="__pO" placeholder="선택지 ${i}" maxlength="20" style="${inp}">`).join('')}</div>
+        <div id="__pAdd" style="margin-top:6px;color:#7c3aed;font-size:12px;cursor:pointer">＋ 선택지 추가 (최대 5개)</div>
+        <button id="__pGo" style="${bigBtn('#db2777')}">투표 시작</button>${resBox}`
+      out.querySelector('#__pAdd').onclick = () => { const w = out.querySelector('#__pOpts'); const n = w.querySelectorAll('.__pO').length; if (n >= 5) return; w.insertAdjacentHTML('beforeend', `<input class="__pO" placeholder="선택지 ${n + 1}" maxlength="20" style="${inp}">`) }
+      out.querySelector('#__pGo').onclick = () => {
+        const title = out.querySelector('#__pT').value.trim(), items = [...out.querySelectorAll('.__pO')].map((x) => x.value.trim()).filter(Boolean)
+        if (!title || items.length < 2) return window.__ediPlayCreated({ error: '제목과 선택지 2개 이상을 적어주세요' })
+        sendPlay({ act: 'poll-create', title, items })
+      }
+      return
     }
-    const rf = document.getElementById('__plRef'); if (rf) rf.onclick = () => { if (ipc) ipc.send('bcast:poll', {}) }
+    const d = r.detail || {}
+    const raw = (d.items || d.options || r.poll.options || []).slice().sort((a, b) => (Number(a && a.item_order) || 0) - (Number(b && b.item_order) || 0))
+    const total = Math.max(Number(r.poll.total) || 0, Number(d.poll_count) || 0)
+    out.innerHTML = `<div style="font-weight:700">● ${esc(d.title || r.poll.title || '투표')} <span style="color:#db2777">${total}표</span></div>` +
+      (raw.length ? raw.map((o, i) => `<div style="padding:8px 10px;margin:6px 0;border:1px solid #f1f5f9;border-radius:10px;background:#fafafa"><b style="color:#db2777;margin-right:6px">${i + 1}</b>${esc((o && (o.name || o.title)) || o)}${o && o.count != null ? ` <span style="color:#64748b;float:right">${Number(o.count)}표</span>` : ''}</div>`).join('') : '') +
+      `<button id="__pEnd" style="${bigBtn('#475569')}">투표 종료</button>${resBox}`
+    out.querySelector('#__pEnd').onclick = () => sendPlay({ act: 'poll-end', id: r.poll.id })
   }
+  const ago = (t) => { const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000); return s < 60 ? '방금' : s < 3600 ? Math.floor(s / 60) + '분 전' : Math.floor(s / 3600) + '시간 전' }
+  // ✉️ 편지함 — 진행 중이면 사연 목록 + 닫기, 없으면 열기
   window.__ediMailbox = (r) => {
     const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'mailbox') return
-    const btn = 'padding:9px;border-radius:10px;border:1px solid #fbcfe8;background:#fdf2f8;font-weight:700;cursor:pointer;flex:1'
-    const refresh = `<div style="display:flex;gap:6px;margin-top:8px"><button id="__mbRef" style="${btn}">새로고침</button></div>`
-    if (!r || r.error) { out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>` + refresh }
-    else if (!r.mailbox || !r.mailbox.id || /END|CLOSE|FINISH/i.test(r.mailbox.command || '')) {
-      out.innerHTML = `<div style="font-weight:700">○ 진행 중인 편지함 없음</div><div style="color:#64748b;font-size:12px;margin-top:2px">스푼 앱에서 편지함을 열면 여기에 사연이 보여요</div>` + refresh
-    } else {
-      const list = (r.messages || []).slice().sort((a, b) => new Date(b.created) - new Date(a.created))
-      out.innerHTML = `<div style="font-weight:700">● ${esc(r.mailbox.title || '편지함')} <span style="color:#db2777">${list.length || r.mailbox.count || 0}개</span></div>` + refresh +
-        `<div style="margin-top:8px">${list.length ? list.map((m) => `<div style="display:flex;gap:8px;padding:8px 0;border-top:1px solid #f1f5f9">${m.is_anonymous || !m.profile_url ? '<div style="width:32px;height:32px;border-radius:50%;background:#e5e7eb;flex-shrink:0;display:flex;align-items:center;justify-content:center">✉️</div>' : `<img src="${esc(m.profile_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">`}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">${m.is_anonymous ? '익명' : esc(m.nickname || '?')} <span style="color:#94a3b8;font-weight:400">${esc(ago(m.created))}${m.status ? '' : ' · <span style="color:#db2777">새 사연</span>'}</span></div><div style="white-space:pre-wrap;word-break:break-all">${esc(m.message)}</div></div></div>`).join('') : '<div style="color:#64748b">아직 받은 사연이 없어요</div>'}</div>`
+    if (document.activeElement && out.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return
+    if (!r || (r.error && !r.mailbox)) { out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>`; return }
+    if (!r.mailbox || !r.mailbox.id || /END|CLOSE|FINISH|DONE/i.test(r.mailbox.command || '')) {
+      out.innerHTML = `<div style="font-weight:700">○ 진행 중인 편지함 없음</div>
+        <input id="__mT" placeholder="편지함 제목 (예: 신청곡 접수 받아요)" maxlength="40" style="${inp}">
+        <button id="__mGo" style="${bigBtn('#db2777')}">편지함 열기</button>${resBox}`
+      out.querySelector('#__mGo').onclick = () => { const title = out.querySelector('#__mT').value.trim(); if (!title) return window.__ediPlayCreated({ error: '편지함 제목을 적어주세요' }); sendPlay({ act: 'mailbox-create', title }) }
+      return
     }
-    const rf = document.getElementById('__mbRef'); if (rf) rf.onclick = () => { if (ipc) ipc.send('bcast:mailbox', {}) }
+    const list = (r.messages || []).slice().sort((a, b) => new Date(b.created) - new Date(a.created))
+    out.innerHTML = `<div style="font-weight:700">● ${esc(r.mailbox.title || '편지함')} <span style="color:#db2777">${list.length || r.mailbox.count || 0}개</span></div>` +
+      `<button id="__mEnd" style="${bigBtn('#475569')}">편지함 닫기</button>${resBox}` +
+      (r.error ? `<div style="color:#dc2626;font-size:12px;margin-top:6px">❌ ${esc(r.error)}</div>` : '') +
+      `<div style="margin-top:8px">${list.length ? list.map((m) => `<div style="display:flex;gap:8px;padding:8px 0;border-top:1px solid #f1f5f9">${m.is_anonymous || !m.profile_url ? '<div style="width:32px;height:32px;border-radius:50%;background:#e5e7eb;flex-shrink:0;display:flex;align-items:center;justify-content:center">✉️</div>' : `<img src="${esc(m.profile_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">`}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">${m.is_anonymous ? '익명' : esc(m.nickname || '?')} <span style="color:#94a3b8;font-weight:400">${esc(ago(m.created))}</span></div><div style="white-space:pre-wrap;word-break:break-all">${esc(m.message)}</div></div></div>`).join('') : '<div style="color:#64748b">아직 받은 사연이 없어요</div>'}</div>`
+    out.querySelector('#__mEnd').onclick = () => sendPlay({ act: 'mailbox-end', id: r.mailbox.id })
   }
+  window.addEventListener('resize', placeContents)
 
   // 🎁 청취자 목록에서 시청자를 누르면 복권 · 룰렛권을 바로 지급 (에디냥 "실시간 지급"과 같은 기능)
   //  · 메뉴 맨 아래 "스푼 프로필 보기"를 누르면 원래 스푼 동작(프로필 창)으로 넘어가요
@@ -679,7 +708,7 @@
     if (r && r.ok) { const box = document.getElementById('__ediGrant'); setTimeout(() => { if (box && box.isConnected && document.getElementById('__gOut') === out) box.remove() }, 1200) }
   }
 
-  setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
+  setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} try { placeContents() } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
   const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} try { patchItemTab() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
