@@ -1759,7 +1759,7 @@ if (window.bcast) setTimeout(() => {
     const c = e.code || '';
     const k = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? 'Num' + c.slice(6) : /^F\d{1,2}$/.test(c) ? c : null;
     if (!k) return null;
-    return { name: (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + k, ok: e.ctrlKey || e.altKey || /^F\d/.test(k) };
+    return { name: (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + k, ok: e.ctrlKey || e.altKey || /^F\d/.test(k) || (!e.shiftKey && /^(\d|Num\d)$/.test(k)) }; // 숫자 하나 · F1~F12 · Ctrl/Alt+숫자·영문
   };
   function decorate() {
     for (const i of swInputs()) {
@@ -1789,7 +1789,7 @@ if (window.bcast) setTimeout(() => {
       let key = '';
       if (e.key !== 'Backspace' && e.key !== 'Delete') {
         const c = keyCombo(e); if (!c) return;
-        if (!c.ok) { b.textContent = 'Ctrl·Alt 같이 / F1~F12'; return; }
+        if (!c.ok) { b.textContent = '숫자·F키·Ctrl/Alt+키만'; return; }
         key = c.name;
       }
       try { binds = await window.bcast.hkSetToggle({ sel: selOf(i), label: labelOf(i), key }) || binds } catch (_) {}
@@ -1797,6 +1797,9 @@ if (window.bcast) setTimeout(() => {
     };
   }
   window.bcast.hkToggles().then((l) => { binds = Array.isArray(l) ? l : []; decorate() }).catch(() => {});
+  // 글자 입력칸에 있을 땐 숫자 하나짜리 단축키는 안 써요
+  const isTyping = (el) => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(checkbox|radio|range|button|submit|color|file)$/i.test(el.type || '')));
+  if (window.bcast.hkTyping) { document.addEventListener('focusin', (e) => window.bcast.hkTyping(isTyping(e.target)), true); document.addEventListener('focusout', () => setTimeout(() => window.bcast.hkTyping(isTyping(document.activeElement)), 0), true); }
   if (window.bcast.onHkChanged) window.bcast.onHkChanged((l) => { binds = Array.isArray(l) ? l : []; decorate() });
   let t = null;
   const root = document.getElementById('tab-broadcast');

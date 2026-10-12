@@ -682,7 +682,7 @@
           e.preventDefault(); e.stopPropagation()
           if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') { k.value = ''; return }
           const c = keyCombo(e); if (!c) return
-          if (!c.ok) { k.value = ''; k.placeholder = 'Ctrl·Alt를 같이 누르거나 F1~F12를 써주세요'; return }
+          if (!c.ok) { k.value = ''; k.placeholder = '숫자 · F1~F12 · Ctrl/Alt+숫자·영문만 돼요'; return }
           wrap.querySelectorAll('.__qK').forEach((o) => { if (o !== k && o.value === c.name) o.value = '' }) // 같은 단축키는 하나만
           k.value = c.name
         }
@@ -703,7 +703,7 @@
     const k = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? 'Num' + c.slice(6) : /^F\d{1,2}$/.test(c) ? c : null
     if (!k) return null
     const name = (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + k
-    return { name, ok: e.ctrlKey || e.altKey || /^F\d/.test(k) }
+    return { name, ok: e.ctrlKey || e.altKey || /^F\d/.test(k) || (!e.shiftKey && /^(\d|Num\d)$/.test(k)) } // 숫자 하나 · F1~F12 · Ctrl/Alt+숫자·영문
   }
   function qSend(q) {
     if (!q || !ipc) return
@@ -712,6 +712,10 @@
     ipc.send('bcast:quick-send', { title: q.title, message: q.text })
   }
   // (단축키는 PC판(main)이 방송 창 전체에서 받아서 처리해요 — 왼쪽 방송하기 화면을 보고 있어도 동작)
+  // 글자 입력칸(채팅 등)에 있을 땐 숫자 하나짜리 단축키는 안 써요 — main 에 알려줘요
+  const isTyping = (el) => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(checkbox|radio|range|button|submit|color|file)$/i.test(el.type || '')));
+  document.addEventListener('focusin', (e) => { if (ipc) ipc.send('bcast:hk-typing', isTyping(e.target)) }, true)
+  document.addEventListener('focusout', () => { setTimeout(() => { if (ipc) ipc.send('bcast:hk-typing', isTyping(document.activeElement)) }, 0) }, true)
   function qToast(t, bad) {
     let d = document.getElementById('__ediQToast')
     if (!d) { d = document.createElement('div'); d.id = '__ediQToast'; document.body.appendChild(d) }
@@ -733,13 +737,13 @@
     el.tabIndex = 0
     el.onclick = () => { el.focus() }
     el.onfocus = () => { el.dataset.old = el.textContent; el.textContent = '키 누르기…'; el.style.background = '#fef3c7'; if (ipc) ipc.send('bcast:hk-capture', true) }
-    el.onblur = () => { if (el.textContent === '키 누르기…' || el.textContent === 'Ctrl·Alt / F키') el.textContent = el.dataset.old || '지정'; el.style.background = ''; if (ipc) ipc.send('bcast:hk-capture', false) }
+    el.onblur = () => { if (el.textContent === '키 누르기…' || el.textContent === '이 키는 안 돼요') el.textContent = el.dataset.old || '지정'; el.style.background = ''; if (ipc) ipc.send('bcast:hk-capture', false) }
     el.onkeydown = (e) => {
       e.preventDefault(); e.stopPropagation()
       if (e.key === 'Escape') return el.blur()
       if (e.key === 'Backspace' || e.key === 'Delete') { el.dataset.old = '지정'; el.blur(); return onKey('') }
       const c = keyCombo(e); if (!c) return
-      if (!c.ok) { el.textContent = 'Ctrl·Alt / F키'; return }
+      if (!c.ok) { el.textContent = '이 키는 안 돼요'; return }
       el.dataset.old = c.name; el.blur(); onKey(c.name)
     }
   }
@@ -760,7 +764,7 @@
     let add = ''
     if (hkAdding) {
       const opts = [...(hkAdding.toggles || []).map((t, i) => `<option value="t${i}">🎚️ ${esc(t.label)}${t.checked ? ' (켜짐)' : ''}</option>`), ...ql.map((q, i) => `<option value="q${i}">⚡ ${esc(q.title || q.text.slice(0, 10))}</option>`)]
-      add = `<div style="display:flex;gap:6px;align-items:center;margin-top:8px"><select id="__hkPick" style="flex:1;min-width:0;padding:5px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:12px">${opts.length ? opts.join('') : '<option value="">(지정할 게 없어요)</option>'}</select><span id="__hkNewKey" style="${kbd}">지정</span><button id="__hkAddX" style="${smallBtn}">취소</button></div><div style="color:#94a3b8;font-size:11px;margin-top:3px">고르고 → "지정" 누르고 → 키 누르기 (Ctrl·Alt 같이 또는 F1~F12)</div>`
+      add = `<div style="display:flex;gap:6px;align-items:center;margin-top:8px"><select id="__hkPick" style="flex:1;min-width:0;padding:5px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:12px">${opts.length ? opts.join('') : '<option value="">(지정할 게 없어요)</option>'}</select><span id="__hkNewKey" style="${kbd}">지정</span><button id="__hkAddX" style="${smallBtn}">취소</button></div><div style="color:#94a3b8;font-size:11px;margin-top:3px">고르고 → "지정" 누르고 → 키 누르기 (숫자 · F1~F12 · Ctrl/Alt+숫자·영문)</div>`
     }
     box.innerHTML = `<div style="display:flex;align-items:center"><b style="flex:1">⌨️ 단축키</b>${hkAdding ? '' : `<button id="__hkAdd" style="${smallBtn};color:#7c3aed">＋ 추가</button>`}</div>` +
       (rows.length ? rows.map((r, n) => `<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-top:${n ? '1px solid #f1f5f9' : '0'}"><span class="__hkKey" data-n="${n}" style="${kbd}">${esc(r.key)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.label)}</span><button class="__hkGo" data-n="${n}" title="지금 실행" style="${smallBtn}">▶</button><button class="__hkDel" data-n="${n}" title="단축키 지우기" style="${smallBtn};color:#dc2626">✕</button></div>`).join('')

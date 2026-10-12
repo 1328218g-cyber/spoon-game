@@ -799,6 +799,7 @@ const hkFile = () => path.join(app.getPath('userData'), 'edinyang_hotkeys.json')
 let hkToggles = []
 try { const j = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'edinyang_hotkeys.json'), 'utf-8')); if (Array.isArray(j.toggles)) hkToggles = j.toggles } catch (_) {}
 let hkQuick = [], hkCapturing = false
+const hkTyping = new Map() // 화면별로 지금 글자 입력칸에 있는지 (그땐 숫자 하나짜리 단축키는 안 가로채요 — 채팅에 숫자 칠 수 있게)
 const hkSave = () => { try { fs.writeFileSync(hkFile(), JSON.stringify({ toggles: hkToggles }), 'utf-8') } catch (_) {} }
 const hkTarget = () => (dockView && !dockView.webContents.isDestroyed() ? dockView.webContents : alive(appWin) ? appWin.webContents : alive(panelWin) ? panelWin.webContents : null)
 const hkSendList = () => { toSpoon('__ediHkList', { toggles: hkToggles, quick: hkQuick }); sendToApp('bcast:hk-changed', hkToggles) }
@@ -824,13 +825,15 @@ function hkComboOf(input) {
   const c = String(input.code || '')
   const k = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? 'Num' + c.slice(6) : /^F\d{1,2}$/.test(c) ? c : null
   if (!k) return null
-  if (!(input.control || input.alt || /^F\d/.test(k))) return null
+  // 숫자 하나 · F1~F12 · Ctrl/Alt+숫자·영문
+  if (!(input.control || input.alt || /^F\d/.test(k) || (!input.shift && /^(\d|Num\d)$/.test(k)))) return null
   return (input.control ? 'Ctrl+' : '') + (input.alt ? 'Alt+' : '') + (input.shift ? 'Shift+' : '') + k
 }
 function hkAttach(wc) {
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat || hkCapturing) return
     const combo = hkComboOf(input); if (!combo) return
+    if (!input.control && !input.alt && !/F\d/.test(combo) && hkTyping.get(wc.id)) return
     const t = hkToggles.find((x) => x.key === combo)
     const q = !t && hkQuick.find((x) => x.key === combo)
     if (!t && !q) return
@@ -841,6 +844,7 @@ function hkAttach(wc) {
 ipcMain.handle('bcast:hk-toggles', () => hkToggles)
 ipcMain.handle('bcast:hk-set-toggle', (_e, b) => hkSetToggle(b))
 ipcMain.on('bcast:hk-capture', (_e, on) => { hkCapturing = !!on })
+ipcMain.on('bcast:hk-typing', (e, on) => { hkTyping.set(e.sender.id, !!on) })
 // 방송 창(오른쪽 단축키 목록)에서
 ipcMain.on('bcast:quick-keys', (e, l) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
