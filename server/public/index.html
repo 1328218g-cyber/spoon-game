@@ -15434,6 +15434,32 @@ async function loadTtsData(){
     }
     if(aD.success){ ttsActiveUsers=aD.active||[]; renderTtsActiveList(); }
   }catch(e){}
+  ttsKeepAwakeSync();
+}
+
+// 🔊 웹(크롬 등)에서 창·탭을 내려도 TTS가 밀렸다 한꺼번에 나오지 않게 — 크롬은 "소리를 내고 있는 탭"에는 절전을
+// 안 걸어서, TTS가 켜져 있는 동안 귀에 안 들리는 아주 낮은 소리(15Hz, -54dB)를 계속 틀어둔다.
+// (에디냥 PC는 프로그램이 절전을 꺼둬서 필요 없음 · 브라우저 규칙상 화면을 한 번 클릭/키 입력해야 시작돼요)
+let ttsWakeCtx=null, ttsWakeArmed=false;
+function ttsKeepAwakeSync(){
+  try{
+    if(window.bcast||window.EDI_MENU_POPUP) return;
+    if(!ttsData||!ttsData.enabled){ if(ttsWakeCtx&&ttsWakeCtx.state==='running') ttsWakeCtx.suspend().catch(()=>{}); return; }
+    if(!ttsWakeCtx){
+      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      ttsWakeCtx=new AC();
+      const o=ttsWakeCtx.createOscillator(), g=ttsWakeCtx.createGain();
+      o.frequency.value=15; g.gain.value=0.002; o.connect(g); g.connect(ttsWakeCtx.destination); o.start();
+    }
+    if(ttsWakeCtx.state!=='running'){
+      ttsWakeCtx.resume().catch(()=>{});
+      if(!ttsWakeArmed){
+        ttsWakeArmed=true;
+        const go=()=>{ if(ttsData&&ttsData.enabled&&ttsWakeCtx&&ttsWakeCtx.state!=='running') ttsWakeCtx.resume().catch(()=>{}); };
+        ['pointerdown','keydown','touchstart'].forEach((ev)=>document.addEventListener(ev,go,{capture:true,passive:true}));
+      }
+    }
+  }catch(_){}
 }
 
 // loadTtsData 중에 화면만 갱신하고, saveTtsSettings는 호출하지 않는 버전 (불필요한 저장 방지)
@@ -15466,7 +15492,7 @@ async function saveTtsSettings(){
   try{
     const res=await fetch(SERVER+'/tts/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
     const d=await res.json();
-    if(d.success){Object.assign(ttsData,body);showToast('TTS 설정 저장 완료 ✓');}
+    if(d.success){Object.assign(ttsData,body);ttsKeepAwakeSync();showToast('TTS 설정 저장 완료 ✓');}
     else showToast(d.error||'저장 실패');
   }catch(e){showToast('오류: '+e.message);}
 }
@@ -15558,6 +15584,7 @@ async function removeTtsChime(){
 
 function ttsEnqueue(nickname,text){
   if(!ttsData.enabled)return;
+  ttsKeepAwakeSync();
   const clean=String(text||'').trim();
   if(!clean||clean.startsWith('!'))return;
   const maxLen=ttsData.maxLen||50;
