@@ -568,13 +568,14 @@
     const r = contentsRect(); if (!r) return
     const box = document.createElement('div'); box.id = '__ediContents'
     // 오른쪽 칸 안에 넣고 z-index도 낮게 — 스푼의 투표 결과 같은 팝업이 위에 보이도록 (예전엔 맨 위에 떠서 팝업을 가렸어요)
-    box.style.cssText = `position:fixed;z-index:5;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
+    box.style.cssText = `position:fixed;z-index:5;background:#fff;color:#111;overflow:hidden;display:flex;flex-direction:column;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
     const chip = 'padding:7px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;cursor:pointer;background:#fff;white-space:nowrap'
-    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['quick', '⚡ 퀵 메시지']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
+    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['quick', '⚡ 퀵 메시지']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px;flex:1 1 auto;min-height:0;overflow:auto"></div><div id="__ediHkBox" style="flex:0 1 auto;max-height:48%;overflow:auto;border-top:1px solid #e5e7eb;background:#fafafa;padding:10px 16px 14px"></div>`
     ;(r.col && r.col !== document.documentElement ? r.col : document.body).appendChild(box); placeContents()
     box.querySelectorAll('[data-k]').forEach((c) => { c.onclick = () => playOpen(c.dataset.k) })
     box.querySelector('#__ctRef').onclick = () => playOpen(playKind)
     playOpen(playKind)
+    hkDraw(); if (ipc) ipc.send('bcast:hk-list') // ⌨️ 아래쪽 단축키 목록은 항상 보여요
   }
   function playOpen(kind) {
     playKind = kind
@@ -653,7 +654,9 @@
   //    (이 PC에 저장 · 제목 10자 · 내용 200자 — 스푼 퀵 메시지와 같은 길이)
   const QKEY = 'edinyang_quick_msgs'
   const qLoad = () => { try { const a = JSON.parse(localStorage.getItem(QKEY) || '[]'); return Array.isArray(a) ? a : [] } catch (_) { return [] } }
-  const qSave = (a) => { try { localStorage.setItem(QKEY, JSON.stringify(a)) } catch (_) {} }
+  const qSave = (a) => { try { localStorage.setItem(QKEY, JSON.stringify(a)) } catch (_) {} qReport(a) }
+  const qReport = (a) => { if (ipc) ipc.send('bcast:quick-keys', (a || qLoad()).filter((q) => q.key && q.text)) } // 단축키는 PC판(main)이 받아서 처리
+  setTimeout(() => qReport(), 1500)
   function quickDraw(edit) {
     const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'quick') return
     const list = qLoad()
@@ -673,6 +676,8 @@
     const bindDel = () => {
       wrap.querySelectorAll('.__qDel').forEach((d) => { d.onclick = () => { d.closest('.__qRow').remove(); renum() } })
       wrap.querySelectorAll('.__qK').forEach((k) => {
+        k.onfocus = () => { if (ipc) ipc.send('bcast:hk-capture', true) }
+        k.onblur = () => { if (ipc) ipc.send('bcast:hk-capture', false) }
         k.onkeydown = (e) => {
           e.preventDefault(); e.stopPropagation()
           if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') { k.value = ''; return }
@@ -706,13 +711,7 @@
     if (el && playKind === 'quick') { el.style.color = '#64748b'; el.textContent = '⏳ 보내는 중…' }
     ipc.send('bcast:quick-send', { title: q.title, message: q.text })
   }
-  document.addEventListener('keydown', (e) => {
-    if (e.repeat || (e.target && e.target.classList && e.target.classList.contains('__qK'))) return
-    const c = keyCombo(e); if (!c || !c.ok) return
-    const q = qLoad().find((x) => x.key && x.key === c.name); if (!q) return
-    e.preventDefault(); e.stopPropagation()
-    qSend(q)
-  }, true)
+  // (단축키는 PC판(main)이 방송 창 전체에서 받아서 처리해요 — 왼쪽 방송하기 화면을 보고 있어도 동작)
   function qToast(t, bad) {
     let d = document.getElementById('__ediQToast')
     if (!d) { d = document.createElement('div'); d.id = '__ediQToast'; document.body.appendChild(d) }
@@ -725,6 +724,68 @@
     if (el && playKind === 'quick' && document.getElementById('__ediContents')) { el.style.color = r && r.ok ? '#16a34a' : '#dc2626'; el.textContent = msg }
     else qToast('⚡ ' + msg, !(r && r.ok)) // 컨텐츠 칸이 닫혀 있으면 아래쪽에 잠깐 알림
   }
+  // ⌨️ 단축키 목록 (컨텐츠 칸 아래 · 항상 보임) — 퀵 메시지 + 방송하기 화면 켜기/끄기
+  //   · 키 칸을 누르고 새 키를 누르면 바꾸기 · Backspace 지우기 · ▶ 바로 실행 · ＋ 추가에서 새로 지정
+  let hkData = { toggles: [], quick: [] }, hkAdding = null
+  const kbd = 'display:inline-block;min-width:54px;text-align:center;padding:2px 8px;border-radius:7px;border:1px solid #c4b5fd;background:#f3f0ff;color:#5b21b6;font-size:11px;font-weight:800;cursor:pointer;outline:none'
+  const smallBtn = 'all:unset;cursor:pointer;padding:2px 7px;border-radius:7px;border:1px solid #e5e7eb;background:#fff;font-size:11px;font-weight:700'
+  function hkCaptureEl(el, onKey) {
+    el.tabIndex = 0
+    el.onclick = () => { el.focus() }
+    el.onfocus = () => { el.dataset.old = el.textContent; el.textContent = '키 누르기…'; el.style.background = '#fef3c7'; if (ipc) ipc.send('bcast:hk-capture', true) }
+    el.onblur = () => { if (el.textContent === '키 누르기…' || el.textContent === 'Ctrl·Alt / F키') el.textContent = el.dataset.old || '지정'; el.style.background = ''; if (ipc) ipc.send('bcast:hk-capture', false) }
+    el.onkeydown = (e) => {
+      e.preventDefault(); e.stopPropagation()
+      if (e.key === 'Escape') return el.blur()
+      if (e.key === 'Backspace' || e.key === 'Delete') { el.dataset.old = '지정'; el.blur(); return onKey('') }
+      const c = keyCombo(e); if (!c) return
+      if (!c.ok) { el.textContent = 'Ctrl·Alt / F키'; return }
+      el.dataset.old = c.name; el.blur(); onKey(c.name)
+    }
+  }
+  function qSetKey(idx, key) {
+    const a = qLoad(); if (!a[idx]) return
+    if (key) a.forEach((q, i) => { if (i !== idx && q.key === key) q.key = '' })
+    a[idx].key = key; qSave(a)
+    if (playKind === 'quick' && document.getElementById('__ediContents')) quickDraw(false)
+  }
+  function hkDraw() {
+    const box = document.getElementById('__ediHkBox'); if (!box) return
+    const ae = document.activeElement; if (ae && box.contains(ae) && ae.matches && ae.matches('.__hkKey,#__hkNewKey')) return // 키 입력 중엔 그대로
+    const ql = qLoad()
+    const rows = [
+      ...hkData.toggles.map((t) => ({ kind: 't', key: t.key, label: '🎚️ ' + t.label, sel: t.sel })),
+      ...ql.map((q, i) => ({ kind: 'q', key: q.key, label: '⚡ ' + (q.title || q.text.slice(0, 10)), idx: i })).filter((r) => r.key),
+    ].sort((a, b) => a.key.localeCompare(b.key))
+    let add = ''
+    if (hkAdding) {
+      const opts = [...(hkAdding.toggles || []).map((t, i) => `<option value="t${i}">🎚️ ${esc(t.label)}${t.checked ? ' (켜짐)' : ''}</option>`), ...ql.map((q, i) => `<option value="q${i}">⚡ ${esc(q.title || q.text.slice(0, 10))}</option>`)]
+      add = `<div style="display:flex;gap:6px;align-items:center;margin-top:8px"><select id="__hkPick" style="flex:1;min-width:0;padding:5px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:12px">${opts.length ? opts.join('') : '<option value="">(지정할 게 없어요)</option>'}</select><span id="__hkNewKey" style="${kbd}">지정</span><button id="__hkAddX" style="${smallBtn}">취소</button></div><div style="color:#94a3b8;font-size:11px;margin-top:3px">고르고 → "지정" 누르고 → 키 누르기 (Ctrl·Alt 같이 또는 F1~F12)</div>`
+    }
+    box.innerHTML = `<div style="display:flex;align-items:center"><b style="flex:1">⌨️ 단축키</b>${hkAdding ? '' : `<button id="__hkAdd" style="${smallBtn};color:#7c3aed">＋ 추가</button>`}</div>` +
+      (rows.length ? rows.map((r, n) => `<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-top:${n ? '1px solid #f1f5f9' : '0'}"><span class="__hkKey" data-n="${n}" style="${kbd}">${esc(r.key)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.label)}</span><button class="__hkGo" data-n="${n}" title="지금 실행" style="${smallBtn}">▶</button><button class="__hkDel" data-n="${n}" title="단축키 지우기" style="${smallBtn};color:#dc2626">✕</button></div>`).join('')
+        : '<div style="color:#64748b;font-size:12px;margin-top:4px">지정된 단축키가 없어요 — ＋ 추가 또는 왼쪽 방송하기 화면 스위치 옆 ⌨ 로 지정해요</div>') + add
+    const setKey = (r, key) => { if (r.kind === 't') { if (ipc) ipc.send('bcast:hk-set', { sel: r.sel, label: r.label.replace(/^🎚️ /, ''), key }) } else qSetKey(r.idx, key) }
+    box.querySelectorAll('.__hkKey').forEach((el) => { const r = rows[Number(el.dataset.n)]; hkCaptureEl(el, (key) => { if (key && key !== r.key) { /* 다른 항목이 같은 키를 쓰면 그쪽은 지워져요 */ } setKey(r, key) }) })
+    box.querySelectorAll('.__hkGo').forEach((b) => { b.onclick = () => { const r = rows[Number(b.dataset.n)]; if (r.kind === 't') { if (ipc) ipc.send('bcast:hk-run', { sel: r.sel }) } else qSend(ql[r.idx]) } })
+    box.querySelectorAll('.__hkDel').forEach((b) => { b.onclick = () => setKey(rows[Number(b.dataset.n)], '') })
+    const addB = box.querySelector('#__hkAdd'); if (addB) addB.onclick = () => { hkAdding = { toggles: [] }; hkDraw(); if (ipc) ipc.send('bcast:hk-all') }
+    const ax = box.querySelector('#__hkAddX'); if (ax) ax.onclick = () => { hkAdding = null; hkDraw() }
+    const nk = box.querySelector('#__hkNewKey')
+    if (nk) hkCaptureEl(nk, (key) => {
+      const v = (box.querySelector('#__hkPick') || {}).value || ''
+      if (!key || !v) return hkDraw()
+      const all = hkAdding.toggles || []
+      hkAdding = null
+      if (v[0] === 't') { const t = all[Number(v.slice(1))]; if (t && ipc) ipc.send('bcast:hk-set', { sel: t.sel, label: t.label, key }) }
+      else qSetKey(Number(v.slice(1)), key)
+      hkDraw()
+    })
+  }
+  window.__ediHkList = (d) => { hkData = { toggles: (d && d.toggles) || [], quick: (d && d.quick) || [] }; hkDraw() }
+  window.__ediHkAllToggles = (l) => { if (!hkAdding) return; hkAdding.toggles = Array.isArray(l) ? l : []; hkDraw() }
+  window.__ediQuickClearKey = (key) => { const a = qLoad(); let ch = false; a.forEach((q) => { if (q.key === key) { q.key = ''; ch = true } }); if (ch) { qSave(a); if (playKind === 'quick' && document.getElementById('__ediContents')) quickDraw(false) } }
+  window.__ediHkToast = (r) => qToast(r && r.ok ? `🎚️ ${r.label} ${r.checked ? '켜짐' : '꺼짐'}` : '❌ ' + ((r && r.error) || '실패'), !(r && r.ok))
   window.addEventListener('resize', placeContents)
 
   // 🎁 청취자 목록에서 시청자를 누르면 복권 · 룰렛권을 바로 지급 (에디냥 "실시간 지급"과 같은 기능)

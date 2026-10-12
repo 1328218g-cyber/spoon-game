@@ -218,6 +218,7 @@ function openBroadcastWin() {
   hookEngine(bcastWin)
   setupLoopback(bcastWin.webContents.session)
   try { recordPlayRequests(bcastWin) } catch (_) {}
+  hkAttach(bcastWin.webContents)
   bcastWin.loadURL(SPOON_URL)
   bcastWin.on('page-title-updated', (e) => { e.preventDefault() })
   // 🩺 방송 창이 하얗게 멈출 때 원인 기록 (다운로드 › 에디냥_방송창_오류.txt)
@@ -349,6 +350,7 @@ ipcMain.on('bcast:slot', (e, rect) => {
     dockView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload-app.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
     dockView.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
     dockView.webContents.loadURL(SERVER + '/bcpanel?dock=1')
+    hkAttach(dockView.webContents)
     bcastWin.contentView.addChildView(dockView)
   }
   const z = bcastWin.webContents.getZoomFactor() || 1
@@ -770,10 +772,9 @@ ipcMain.on('bcast:relay-chat', async (e, m) => {
   } catch (_) {}
 })
 // ⚡ 퀵 메시지 — 방송 창 컨텐츠 › 퀵 메시지에서 누르면 DJ 계정으로 채팅 (스푼 퀵 메시지 3개 제한 없이)
-ipcMain.on('bcast:quick-send', async (e, m) => {
-  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !m) return
+async function quickSend(m) {
   const done = (r) => toSpoon('__ediQuickSent', r)
-  const message = String(m.message || '').slice(0, 200)
+  const message = String((m && m.message) || '').slice(0, 200)
   if (!message.trim()) return done({ error: '보낼 내용이 없어요' })
   try {
     const tok = await spoonToken(); if (!tok) return done({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
@@ -783,8 +784,78 @@ ipcMain.on('bcast:quick-send', async (e, m) => {
     const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 5000)
     const r = await session.fromPartition(SPOON_PARTITION).fetch(`https://kr-gw.spooncast.net/lives/${encodeURIComponent(stream)}/chat/message`, { method: 'POST', headers, body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' }), signal: ac.signal })
     clearTimeout(to)
-    done(r.ok ? { ok: true, title: m.title || '' } : { error: `스푼이 거절했어요 (${r.status})` })
+    done(r.ok ? { ok: true, title: (m && m.title) || '' } : { error: `스푼이 거절했어요 (${r.status})` })
   } catch (err) { done({ error: err.message || String(err) }) }
+}
+ipcMain.on('bcast:quick-send', (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !m) return
+  quickSend(m)
+})
+
+// ⌨️ 방송 창 단축키 (퀵 메시지 + 방송하기 화면 켜기/끄기)
+//   · 방송 창(스푼 화면 · 왼쪽 방송하기 화면)이 앞에 있을 때 키를 가로채서 처리 — 어느 칸을 보고 있어도 동작
+//   · 켜기/끄기 단축키는 이 PC에 저장 (edinyang_hotkeys.json) · 퀵 메시지 단축키는 방송 창이 알려줌
+const hkFile = () => path.join(app.getPath('userData'), 'edinyang_hotkeys.json')
+let hkToggles = []
+try { const j = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'edinyang_hotkeys.json'), 'utf-8')); if (Array.isArray(j.toggles)) hkToggles = j.toggles } catch (_) {}
+let hkQuick = [], hkCapturing = false
+const hkSave = () => { try { fs.writeFileSync(hkFile(), JSON.stringify({ toggles: hkToggles }), 'utf-8') } catch (_) {} }
+const hkTarget = () => (dockView && !dockView.webContents.isDestroyed() ? dockView.webContents : alive(appWin) ? appWin.webContents : alive(panelWin) ? panelWin.webContents : null)
+const hkSendList = () => { toSpoon('__ediHkList', { toggles: hkToggles, quick: hkQuick }); sendToApp('bcast:hk-changed', hkToggles) }
+function hkSetToggle(b) {
+  if (!b || typeof b.sel !== 'string' || !b.sel) return hkToggles
+  const key = String(b.key || '').slice(0, 30)
+  hkToggles = hkToggles.filter((x) => x.sel !== b.sel && (!key || x.key !== key))
+  if (key) {
+    hkToggles.push({ sel: b.sel, label: String(b.label || '').slice(0, 30), key })
+    if (hkQuick.some((q) => q.key === key)) toSpoon('__ediQuickClearKey', key) // 같은 키를 쓰던 퀵 메시지는 단축키를 지워요
+  }
+  hkSave(); hkSendList()
+  return hkToggles
+}
+async function hkRunToggle(t) {
+  const wc = hkTarget(); if (!wc) return toSpoon('__ediHkToast', { error: '방송하기 화면이 안 열려 있어요' })
+  try {
+    const r = await wc.executeJavaScript(`window.__ediHkRun ? window.__ediHkRun(${JSON.stringify(t.sel)}) : null`, true)
+    toSpoon('__ediHkToast', r && r.ok ? { ok: true, label: r.label || t.label, checked: r.checked } : { error: `"${t.label}" 스위치를 못 찾았어요` })
+  } catch (_) { toSpoon('__ediHkToast', { error: '방송하기 화면이 응답하지 않아요' }) }
+}
+function hkComboOf(input) {
+  const c = String(input.code || '')
+  const k = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? 'Num' + c.slice(6) : /^F\d{1,2}$/.test(c) ? c : null
+  if (!k) return null
+  if (!(input.control || input.alt || /^F\d/.test(k))) return null
+  return (input.control ? 'Ctrl+' : '') + (input.alt ? 'Alt+' : '') + (input.shift ? 'Shift+' : '') + k
+}
+function hkAttach(wc) {
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat || hkCapturing) return
+    const combo = hkComboOf(input); if (!combo) return
+    const t = hkToggles.find((x) => x.key === combo)
+    const q = !t && hkQuick.find((x) => x.key === combo)
+    if (!t && !q) return
+    e.preventDefault()
+    if (t) hkRunToggle(t); else quickSend({ title: q.title, message: q.text })
+  })
+}
+ipcMain.handle('bcast:hk-toggles', () => hkToggles)
+ipcMain.handle('bcast:hk-set-toggle', (_e, b) => hkSetToggle(b))
+ipcMain.on('bcast:hk-capture', (_e, on) => { hkCapturing = !!on })
+// 방송 창(오른쪽 단축키 목록)에서
+ipcMain.on('bcast:quick-keys', (e, l) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  hkQuick = (Array.isArray(l) ? l : []).filter((q) => q && q.key && q.text).map((q) => ({ key: String(q.key).slice(0, 30), title: String(q.title || '').slice(0, 10), text: String(q.text).slice(0, 200) }))
+  hkToggles = hkToggles.filter((t) => !hkQuick.some((q) => q.key === t.key)) // 퀵 메시지에 새로 준 키가 겹치면 그쪽이 이겨요
+  hkSave(); hkSendList()
+})
+ipcMain.on('bcast:hk-list', (e) => { if (alive(bcastWin) && e.sender === bcastWin.webContents) hkSendList() })
+ipcMain.on('bcast:hk-set', (e, b) => { if (alive(bcastWin) && e.sender === bcastWin.webContents) hkSetToggle(b) })
+ipcMain.on('bcast:hk-run', (e, b) => { if (alive(bcastWin) && e.sender === bcastWin.webContents && b) { const t = hkToggles.find((x) => x.sel === b.sel); if (t) hkRunToggle(t) } })
+ipcMain.on('bcast:hk-all', async (e) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const wc = hkTarget(); let l = []
+  try { if (wc) l = (await wc.executeJavaScript('window.__ediHkAll ? window.__ediHkAll() : []', true)) || [] } catch (_) {}
+  toSpoon('__ediHkAllToggles', l)
 })
 
 ipcMain.on('bcast:rec', (e, m) => {
