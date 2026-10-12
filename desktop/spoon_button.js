@@ -660,30 +660,71 @@
     const list = qLoad()
     if (!edit) {
       out.innerHTML = `<div style="display:flex;align-items:center"><div style="font-weight:700;flex:1">⚡ 퀵 메시지 <span style="color:#94a3b8;font-weight:400;font-size:12px">누르면 바로 채팅으로 나가요</span></div><span id="__qEdit" style="cursor:pointer;color:#7c3aed;font-size:12px;font-weight:700">✏️ 편집</span></div>` +
-        (list.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${list.map((q, i) => `<button data-q="${i}" title="${esc(q.text)}" style="padding:8px 14px;border-radius:999px;border:1px solid #d1d5db;background:#fff;color:#111;font:inherit;font-weight:700;cursor:pointer">${esc(q.title || q.text.slice(0, 10))}</button>`).join('')}</div>` : '<div style="color:#64748b;margin-top:10px">아직 없어요 — ✏️ 편집에서 만들어 주세요</div>') + resBox
+        (list.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${list.map((q, i) => `<button data-q="${i}" title="${esc(q.text)}" style="padding:8px 14px;border-radius:999px;border:1px solid #d1d5db;background:#fff;color:#111;font:inherit;font-weight:700;cursor:pointer">${esc(q.title || q.text.slice(0, 10))}${q.key ? ` <span style="color:#94a3b8;font-weight:400;font-size:11px">${esc(q.key)}</span>` : ''}</button>`).join('')}</div>` : '<div style="color:#64748b;margin-top:10px">아직 없어요 — ✏️ 편집에서 만들어 주세요</div>') + resBox
       out.querySelector('#__qEdit').onclick = () => quickDraw(true)
-      out.querySelectorAll('button[data-q]').forEach((b) => { b.onclick = () => { const q = list[Number(b.dataset.q)]; if (!q) return; const el = document.getElementById('__ctRes'); if (el) { el.style.color = '#64748b'; el.textContent = '⏳ 보내는 중…' } if (ipc) ipc.send('bcast:quick-send', { title: q.title, message: q.text }) } })
+      out.querySelectorAll('button[data-q]').forEach((b) => { b.onclick = () => qSend(list[Number(b.dataset.q)]) })
       return
     }
-    const row = (q, i) => `<div class="__qRow" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-top:8px;background:#fafafa"><div style="display:flex;align-items:center;font-size:12px;font-weight:700">${i + 1}. 제목<span class="__qDel" style="margin-left:auto;color:#dc2626;cursor:pointer">삭제</span></div><input class="__qT" maxlength="10" placeholder="제목 (10자)" value="${esc(q.title)}" style="${inp}"><div style="font-size:12px;font-weight:700;margin-top:8px">내용</div><textarea class="__qX" maxlength="200" rows="2" placeholder="퀵 메시지 (200자)" style="${inp};resize:vertical">${esc(q.text)}</textarea></div>`
+    const row = (q, i) => `<div class="__qRow" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-top:8px;background:#fafafa"><div style="display:flex;align-items:center;font-size:12px;font-weight:700">${i + 1}. 제목<span class="__qDel" style="margin-left:auto;color:#dc2626;cursor:pointer">삭제</span></div><input class="__qT" maxlength="10" placeholder="제목 (10자)" value="${esc(q.title)}" style="${inp}"><div style="font-size:12px;font-weight:700;margin-top:8px">내용</div><textarea class="__qX" maxlength="200" rows="2" placeholder="퀵 메시지 (200자)" style="${inp};resize:vertical">${esc(q.text)}</textarea><div style="font-size:12px;font-weight:700;margin-top:8px">단축키 <span style="color:#94a3b8;font-weight:400">(칸을 누르고 키를 누르세요 · 지우기는 Backspace)</span></div><input class="__qK" readonly placeholder="예: Ctrl+1, Alt+Q, F2" value="${esc(q.key || '')}" style="${inp};cursor:pointer"></div>`
     out.innerHTML = `<div style="font-weight:700">✏️ 퀵 메시지 편집</div><div id="__qRows">${(list.length ? list : [{ title: '', text: '' }]).map(row).join('')}</div>` +
       `<div id="__qAdd" style="margin-top:8px;color:#7c3aed;font-size:12px;cursor:pointer;font-weight:700">＋ 퀵 메시지 추가</div>` +
       `<button id="__qSave" style="${bigBtn('#db2777')}">저장</button><button id="__qCancel" style="${bigBtn('#94a3b8')}">취소</button>`
     const wrap = out.querySelector('#__qRows')
     const renum = () => [...wrap.querySelectorAll('.__qRow')].forEach((r, i) => { r.firstChild.firstChild.nodeValue = `${i + 1}. 제목` })
-    const bindDel = () => wrap.querySelectorAll('.__qDel').forEach((d) => { d.onclick = () => { d.closest('.__qRow').remove(); renum() } })
+    const bindDel = () => {
+      wrap.querySelectorAll('.__qDel').forEach((d) => { d.onclick = () => { d.closest('.__qRow').remove(); renum() } })
+      wrap.querySelectorAll('.__qK').forEach((k) => {
+        k.onkeydown = (e) => {
+          e.preventDefault(); e.stopPropagation()
+          if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') { k.value = ''; return }
+          const c = keyCombo(e); if (!c) return
+          if (!c.ok) { k.value = ''; k.placeholder = 'Ctrl·Alt를 같이 누르거나 F1~F12를 써주세요'; return }
+          wrap.querySelectorAll('.__qK').forEach((o) => { if (o !== k && o.value === c.name) o.value = '' }) // 같은 단축키는 하나만
+          k.value = c.name
+        }
+      })
+    }
     bindDel()
     out.querySelector('#__qAdd').onclick = () => { wrap.insertAdjacentHTML('beforeend', row({ title: '', text: '' }, wrap.querySelectorAll('.__qRow').length)); bindDel() }
     out.querySelector('#__qCancel').onclick = () => quickDraw(false)
     out.querySelector('#__qSave').onclick = () => {
-      const a = [...wrap.querySelectorAll('.__qRow')].map((r) => ({ title: r.querySelector('.__qT').value.trim().slice(0, 10), text: r.querySelector('.__qX').value.trim().slice(0, 200) })).filter((q) => q.text)
+      const a = [...wrap.querySelectorAll('.__qRow')].map((r) => ({ title: r.querySelector('.__qT').value.trim().slice(0, 10), text: r.querySelector('.__qX').value.trim().slice(0, 200), key: r.querySelector('.__qK').value || '' })).filter((q) => q.text)
       qSave(a); quickDraw(false)
     }
   }
+  // ⌨️ 단축키 — Ctrl/Alt 를 같이 누르거나 F1~F12 (그냥 글자 키는 채팅 칠 때 겹쳐서 안 받아요) · 방송 창이 앞에 있을 때만 동작
+  function keyCombo(e) {
+    if (/^(Control|Alt|Shift|Meta)$/.test(e.key)) return null
+    const c = e.code || ''
+    const k = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? 'Num' + c.slice(6) : /^F\d{1,2}$/.test(c) ? c : null
+    if (!k) return null
+    const name = (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '') + k
+    return { name, ok: e.ctrlKey || e.altKey || /^F\d/.test(k) }
+  }
+  function qSend(q) {
+    if (!q || !ipc) return
+    const el = document.getElementById('__ctRes')
+    if (el && playKind === 'quick') { el.style.color = '#64748b'; el.textContent = '⏳ 보내는 중…' }
+    ipc.send('bcast:quick-send', { title: q.title, message: q.text })
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat || (e.target && e.target.classList && e.target.classList.contains('__qK'))) return
+    const c = keyCombo(e); if (!c || !c.ok) return
+    const q = qLoad().find((x) => x.key && x.key === c.name); if (!q) return
+    e.preventDefault(); e.stopPropagation()
+    qSend(q)
+  }, true)
+  function qToast(t, bad) {
+    let d = document.getElementById('__ediQToast')
+    if (!d) { d = document.createElement('div'); d.id = '__ediQToast'; document.body.appendChild(d) }
+    d.style.cssText = `position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;background:${bad ? 'rgba(185,28,28,.92)' : 'rgba(17,17,17,.88)'};color:#fff;font:700 13px/1.4 "Segoe UI","Malgun Gothic",sans-serif;padding:9px 16px;border-radius:12px;pointer-events:none`
+    d.textContent = t; clearTimeout(d._t); d._t = setTimeout(() => d.remove(), 1800)
+  }
   window.__ediQuickSent = (r) => {
-    const el = document.getElementById('__ctRes'); if (!el) return
-    if (r && r.ok) { el.style.color = '#16a34a'; el.textContent = '✅ 보냈어요' + (r.title ? ` (${r.title})` : '') }
-    else { el.style.color = '#dc2626'; el.textContent = '❌ ' + ((r && r.error) || '실패') }
+    const msg = r && r.ok ? '✅ 보냈어요' + (r.title ? ` (${r.title})` : '') : '❌ ' + ((r && r.error) || '실패')
+    const el = document.getElementById('__ctRes')
+    if (el && playKind === 'quick' && document.getElementById('__ediContents')) { el.style.color = r && r.ok ? '#16a34a' : '#dc2626'; el.textContent = msg }
+    else qToast('⚡ ' + msg, !(r && r.ok)) // 컨텐츠 칸이 닫혀 있으면 아래쪽에 잠깐 알림
   }
   window.addEventListener('resize', placeContents)
 
