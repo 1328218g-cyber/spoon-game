@@ -17657,6 +17657,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const isLurker = settings.botEnabled === false
 
       if (eventName === 'ChatMessage') {
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17776,6 +17777,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         room.lastLiveMeta = eventPayload
 
       } else if (eventName === 'RoomJoin') {
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17905,6 +17907,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const lottieUrl = sticker ? (await findStickerAnim(sticker)).lottieUrl : '' // 🎁 에디냥 PC 방송 창 선물 이펙트용 (스푼 원본 애니메이션)
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, lottieUrl, profileUrl: donorProfileUrl })
         try { edinyangGift.onRoomGift(liveId, eventPayload) } catch (e) {} // 🎁 에디냥 선물 연동 (이 방을 같이 보고 있으면)
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {}
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
