@@ -346,6 +346,46 @@ ipcMain.on('bcast:gift', async (e, d) => {
 })
 // 📸 방송 화면 캡처 — 방송 창 가운데 칸(선물 애니메이션 포함)을 사진으로: 사진\에디냥 캡처 폴더에 저장 + 클립보드에 복사
 const captureDir = () => path.join(app.getPath('pictures'), '에디냥 캡처')
+// ⚙️ 방송 설정(투표함·편지함) — 방송 창의 DJ 로그인으로 스푼에 "조회"만 해서 결과를 보여주고 기록해둔다
+//    (요청 형식이 확인된 게 주소뿐이라 지금은 GET 만 · 결과를 보고 만들기/보내기를 붙일 예정)
+ipcMain.on('bcast:play', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const kind = m && m.kind === 'poll' ? 'poll' : m && m.kind === 'mailbox' ? 'mailbox' : ''
+  if (!kind) return
+  const reply = (r) => { try { bcastWin.webContents.executeJavaScript(`window.__ediPlayResult && window.__ediPlayResult(${JSON.stringify(kind)}, ${JSON.stringify(r)})`, true).catch(() => {}) } catch (_) {} }
+  try {
+    const ss = session.fromPartition(SPOON_PARTITION)
+    const at = (await ss.cookies.get({ name: 'spoon_at_kr' })).find((c) => c.value)
+    if (!at) return reply({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
+    const lm = String(bcastWin.webContents.getURL()).match(/\/live\/(\d+)/)
+    const liveId = lm ? lm[1] : ''
+    const q = liveId ? `?live_id=${liveId}` : ''
+    const paths = kind === 'poll'
+      ? ['/play/poll/' + q, liveId ? `/play/${liveId}/status/${q}` : null]
+      : ['/play/mailbox/' + q, '/play/mailbox/current/' + q, '/play/mailbox/messages/' + q, '/play/mailbox/my/' + q]
+    const results = []
+    for (const p of paths.filter(Boolean)) {
+      let status = 0, body = ''
+      try {
+        const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 6000)
+        const r = await ss.fetch('https://kr-api.spooncast.net' + p, { headers: { Authorization: 'Bearer ' + at.value, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, signal: ac.signal })
+        clearTimeout(to)
+        status = r.status; body = (await r.text()).slice(0, 4000)
+        try { body = JSON.stringify(JSON.parse(body), null, 1).slice(0, 4000) } catch (_) {}
+      } catch (err) { body = '요청 실패: ' + (err && err.message) }
+      results.push({ path: p, status, body })
+    }
+    reply({ liveId, results })
+    // 📝 다운로드 폴더에 기록 (토큰은 안 남김) — 이걸 보고 실제 기능을 붙여요
+    try {
+      const f = path.join(app.getPath('downloads'), '에디냥_스푼놀이_조회.json')
+      let log = []; try { log = JSON.parse(fs.readFileSync(f, 'utf-8')) } catch (_) {}
+      log.push({ at: new Date().toISOString(), kind, liveId, results })
+      fs.writeFileSync(f, JSON.stringify(log.slice(-40), null, 1), 'utf-8')
+    } catch (_) {}
+  } catch (err) { reply({ error: err.message || String(err) }) }
+})
+
 ipcMain.on('bcast:capture', async (e, r) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
   const wc = bcastWin.webContents

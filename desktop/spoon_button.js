@@ -501,10 +501,59 @@
     timer = setTimeout(finish, 3000)
   }
 
+  // ⚙️ 방송 설정 — 오른쪽 "받은 아이템" 탭을 ⚙️ 아이콘으로 바꾸고, 누르면 🗳️ 투표함 · 💌 편지함 · 🎮 라이브게임
+  //  (스푼 모바일에만 있는 기능 · 지금은 스푼에 "조회"만 해서 결과를 보여줘요 — 만들기/보내기는 요청 형식을 확인한 뒤에)
+  function patchItemTab() {
+    const cand = [...document.querySelectorAll('button,[role=tab],li,a,div,span')].filter((el) => !el.closest('#__ediPlay') && el.children.length <= 2 && (el.textContent || '').trim() === '받은 아이템')
+    for (const el of cand) {
+      // 글자를 가진 가장 바깥 탭 요소 (클릭이 걸린 곳)
+      let tab = el
+      while (tab.parentElement && (tab.parentElement.textContent || '').trim() === '받은 아이템') tab = tab.parentElement
+      if (tab.dataset.ediPlay) continue
+      tab.dataset.ediPlay = '1'
+      tab.title = '방송 설정 (투표함 · 편지함 · 라이브게임)'
+      const leaf = [...tab.querySelectorAll('*')].reverse().find((n) => (n.textContent || '').trim() === '받은 아이템' && !n.children.length) || tab
+      leaf.textContent = '⚙️ 방송 설정'
+      tab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); togglePlay(tab) }, true)
+    }
+  }
+  function togglePlay(anchor) {
+    let box = document.getElementById('__ediPlay')
+    if (box) { box.remove(); return }
+    box = document.createElement('div')
+    box.id = '__ediPlay'
+    const r = anchor.getBoundingClientRect()
+    const w = Math.min(360, window.innerWidth - 16)
+    box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(r.bottom + 6)}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px;width:${w}px;max-height:${Math.round(window.innerHeight - r.bottom - 20)}px;overflow:auto;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">⚙️ 방송 설정<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
+      <div style="display:flex;gap:6px">${[['poll', '🗳️ 투표함'], ['mailbox', '💌 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<button data-k="${k}" style="flex:1;padding:9px 4px;border-radius:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer">${l}</button>`).join('')}</div>
+      <div id="__ediPlayOut" style="margin-top:10px;color:#475569;font-size:12px">메뉴를 골라주세요</div>`
+    document.body.appendChild(box)
+    box.querySelector('#__ediPlayX').onclick = () => box.remove()
+    box.querySelectorAll('button[data-k]').forEach((b) => { b.onclick = () => playOpen(b.dataset.k) })
+  }
+  function playOpen(kind) {
+    const out = document.getElementById('__ediPlayOut'); if (!out) return
+    if (kind === 'livegame') {
+      out.innerHTML = '🎮 <b>라이브게임</b>은 스푼 라이브콜(실시간 통신) 위에서 게임 초대·수락을 주고받는 방식이라, 통신 형식을 확인한 뒤에 붙일게요.'
+      return
+    }
+    out.textContent = '⏳ 스푼에서 불러오는 중…'
+    if (ipc) ipc.send('bcast:play', { kind })
+    else out.textContent = '❌ 에디냥 PC 방송 창에서만 돼요'
+  }
+  const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  window.__ediPlayResult = (kind, r) => {
+    const out = document.getElementById('__ediPlayOut'); if (!out) return
+    const name = kind === 'poll' ? '🗳️ 투표함' : '💌 편지함'
+    if (!r || r.error) { out.innerHTML = `${name} — ❌ ${esc((r && r.error) || '실패')}`; return }
+    out.innerHTML = `<b>${name}</b> <span style="color:#94a3b8">(방송 ${esc(r.liveId || '?')})</span>` + r.results.map((x) => `<div style="margin-top:8px;border-top:1px solid #f1f5f9;padding-top:6px"><div style="font-weight:700;color:${x.status >= 200 && x.status < 300 ? '#16a34a' : '#dc2626'}">${x.status} <span style="color:#64748b;font-weight:400">${esc(x.path)}</span></div><pre style="white-space:pre-wrap;word-break:break-all;margin:4px 0 0;font-size:11px;background:#f8fafc;border-radius:6px;padding:6px;max-height:160px;overflow:auto">${esc(x.body)}</pre></div>`).join('') + `<div style="margin-top:8px;color:#94a3b8;font-size:11px">지금은 조회만 해요 · 결과는 <b>다운로드 › 에디냥_스푼놀이_조회.json</b> 에도 저장돼요</div>`
+  }
+
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
-  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
+  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} try { patchItemTab() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
   const startObserver = () => {
     if (!document.body) return setTimeout(startObserver, 300)
     hideAudioPanel()
