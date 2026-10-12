@@ -744,12 +744,18 @@
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} try { placeContents() } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
-  // 📊 스푼 투표 창의 "투표 종료" 버튼은 감춰요 — 그걸로 끝내면 방송 창이 하얗게 멈춰서, 오른쪽 컨텐츠 › 투표 종료로만 끝내요
+  // 📊 스푼 투표 창 아래의 "투표 종료 · 투표하기" 버튼 줄은 통째로 감춰요
+  //    (스푼 쪽 투표 종료로 끝내면 방송 창이 하얗게 멈춰서 — 투표는 오른쪽 컨텐츠 › 투표 종료로만 끝내요)
   function hideSpoonPollEnd() {
-    for (const el of document.querySelectorAll('button,[role=button]')) {
-      if (el.dataset.ediPollEnd || el.closest('[id^="__edi"]')) continue
-      if ((el.textContent || '').trim() !== '투표 종료') continue
-      el.dataset.ediPollEnd = '1'; el.style.setProperty('display', 'none', 'important')
+    const norm = (el) => (el.textContent || '').replace(/\s+/g, '')
+    for (const el of document.querySelectorAll('button,[role=button],div,span,a')) {
+      if (el.children.length > 2 || el.dataset.ediPollEnd || el.closest('[id^="__edi"]')) continue
+      const t = norm(el); if (t !== '투표종료' && t !== '투표하기') continue
+      let btn = el; while (btn.parentElement && norm(btn.parentElement) === t) btn = btn.parentElement
+      const row = btn.parentElement
+      const target = row && /^(투표종료투표하기|투표하기투표종료)$/.test(norm(row)) ? row : btn
+      target.dataset.ediPollEnd = '1'; el.dataset.ediPollEnd = '1'
+      target.style.setProperty('display', 'none', 'important')
     }
   }
   const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} try { patchItemTab() } catch (_) {} try { hideSpoonPollEnd() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
