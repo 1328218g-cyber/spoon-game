@@ -560,12 +560,16 @@
     else if (!r.poll || !r.poll.id || /END|CLOSE|FINISH/i.test(r.poll.command || '')) out.innerHTML = `<div style="font-weight:700">○ 진행 중인 투표 없음</div><div style="color:#64748b;font-size:12px;margin-top:2px">스푼 앱에서 투표를 열면 여기에 득표가 보여요</div>` + refresh
     else {
       const d = r.detail || {}
-      const raw = d.options || d.poll_options || d.pollOptions || d.items || d.choices || d.selects || r.poll.options || []
+      const raw = (d.items || d.options || d.poll_options || d.pollOptions || d.choices || r.poll.options || []).slice().sort((a, b) => (Number(a && a.item_order) || 0) - (Number(b && b.item_order) || 0))
       const pick = (o, ks) => { for (const k of ks) if (o && o[k] != null && o[k] !== '') return o[k]; return null }
-      const opts = (Array.isArray(raw) ? raw : []).map((o, i) => typeof o === 'string' ? { label: o, n: 0 } : { label: String(pick(o, ['title', 'name', 'text', 'content', 'option', 'label']) || ('선택지 ' + (i + 1))), n: Number(pick(o, ['count', 'vote_count', 'voteCount', 'select_count', 'selectCount', 'total', 'votes'])) || 0 })
-      const total = Number(pick(d, ['total_count', 'totalCount', 'total'])) || r.poll.total || opts.reduce((t, o) => t + o.n, 0)
+      const opts = (Array.isArray(raw) ? raw : []).map((o, i) => typeof o === 'string' ? { label: o, n: null } : { label: String(pick(o, ['name', 'title', 'text', 'content', 'option', 'label']) || ('선택지 ' + (i + 1))), n: pick(o, ['count', 'poll_count', 'vote_count', 'voteCount', 'select_count', 'selectCount', 'votes']) })
+      const hasCounts = opts.some((o) => o.n != null)
+      opts.forEach((o) => { o.n = Number(o.n) || 0 })
+      // 총 투표 수: 스푼 이벤트(pollTotalCount)가 제일 최신 · 그다음 투표 정보(poll_count)
+      const total = Math.max(Number(r.poll.total) || 0, Number(pick(d, ['poll_count', 'total_count', 'totalCount', 'total'])) || 0, opts.reduce((t, o) => t + o.n, 0))
       out.innerHTML = `<div style="font-weight:700">● ${esc(pick(d, ['title', 'poll_title']) || r.poll.title || '투표')} <span style="color:#db2777">${total}표</span></div>` + refresh +
-        (opts.length ? `<div style="margin-top:8px">${opts.map((o) => { const pct = total ? Math.round(o.n / total * 100) : 0; return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><b>${esc(o.label)}</b><span style="color:#64748b">${o.n}표 · ${pct}%</span></div><div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f472b6,#a78bfa)"></div></div></div>` }).join('')}</div>`
+        (opts.length && !hasCounts ? `<div style="margin-top:8px">${opts.map((o, i) => `<div style="padding:7px 10px;margin:6px 0;border:1px solid #f1f5f9;border-radius:10px;background:#fafafa"><b style="color:#db2777;margin-right:6px">${i + 1}</b>${esc(o.label)}</div>`).join('')}<div style="color:#94a3b8;font-size:11px">스푼이 항목별 득표 수는 주지 않아서 총 투표 수만 실시간으로 보여요</div></div>`
+        : opts.length ? `<div style="margin-top:8px">${opts.map((o) => { const pct = total ? Math.round(o.n / total * 100) : 0; return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><b>${esc(o.label)}</b><span style="color:#64748b">${o.n}표 · ${pct}%</span></div><div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f472b6,#a78bfa)"></div></div></div>` }).join('')}</div>`
           : `<div style="color:#64748b;font-size:12px;margin-top:8px">선택지를 아직 못 읽었어요${r.error ? ' (' + esc(r.error) + ')' : ''}</div>${r.detail ? `<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#f8fafc;border-radius:6px;padding:6px;max-height:140px;overflow:auto;margin-top:6px">${esc(JSON.stringify(r.detail, null, 1).slice(0, 2000))}</pre>` : ''}`)
     }
     const rf = document.getElementById('__plRef'); if (rf) rf.onclick = () => { if (ipc) ipc.send('bcast:poll', {}) }
