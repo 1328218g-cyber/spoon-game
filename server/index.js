@@ -429,11 +429,22 @@ function pickSharedTokenDjId() {
 // 재사용한다(재부팅 전까진 안 바뀜) — 없으면 그냥 매번 다시 고르되 아무것도 안 남긴다.
 // 🤖 봇으로 쓸 계정 — PC판 방송하기에서 "에디냥 봇"을 고르면(botAccountMode='edinyang') 본인 계정 세션이 올라가 있어도
 // 공용 계정으로 들어가요. 값이 없으면(기존 사용자) 예전처럼 본인 세션이 있으면 본인 계정.
+// ⚠️ PC판에서 "내 DJ 계정"을 고른 경우(botAccountMode='dj')도 방 접속은 에디냥 봇 계정으로 한다 — DJ가 PC로 방송 중인
+//    방에 같은 DJ 계정으로 서버가 한 번 더 접속하면 스푼이 받아주지 않아서(봇이 오프라인) 대신 "말하기"만 PC 방송 창이
+//    DJ 계정으로 대신 보낸다 (아래 PC 채팅 대신 보내기). 값이 없는 기존 사용자는 예전처럼 본인 세션이 있으면 본인 계정.
 function ownAccountOn(djId) {
   if (!tokenManager.hasCookies(djId)) return false
-  try { if ((store.getSettings(djId) || {}).botAccountMode === 'edinyang') return false } catch (e) {}
+  try { const m = (store.getSettings(djId) || {}).botAccountMode; if (m === 'edinyang' || m === 'dj') return false } catch (e) {}
   return true
 }
+// 🎙️ PC 채팅 대신 보내기 — "내 DJ 계정"이고 PC 방송 창이 살아 있으면(20초마다 신호) 봇 메시지를 PC가 DJ 계정으로 보낸다
+const pcChatRelay = new Map() // djId -> { at, pending: Map(id -> resolve) }
+function pcRelayAlive(djId) {
+  const r = pcChatRelay.get(djId)
+  if (!r || Date.now() - r.at > 45000) return false
+  try { return (store.getSettings(djId) || {}).botAccountMode === 'dj' } catch (e) { return false }
+}
+let pcRelaySeq = 0
 function tokenDjIdFor(djId) {
   if (ownAccountOn(djId)) return djId
   const existingRoom = rooms[djId]
@@ -1216,6 +1227,21 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
 
 async function sendChatToRoom(djId, message, _isRetry) {
   const room = getRoom(djId)
+  // 🎙️ 내 DJ 계정 — PC 방송 창이 DJ 계정으로 대신 보내요 (6초 안에 못 보내면 원래대로 봇 계정으로)
+  if (!_isRetry && pcRelayAlive(djId) && room.isConnected) {
+    const r = pcChatRelay.get(djId)
+    const id = ++pcRelaySeq
+    const ok = await new Promise((resolve) => {
+      const t = setTimeout(() => { r.pending.delete(id); resolve(false) }, 6000)
+      r.pending.set(id, (v) => { clearTimeout(t); resolve(!!v) })
+      broadcast({ type: 'chatrelay', djId, id, message: String(message), stream: room.streamName || '' })
+    })
+    if (ok) {
+      try { if (!room._recentSentTexts) room._recentSentTexts = []; room._recentSentTexts.push({ text: String(message), ts: Date.now() }); if (room._recentSentTexts.length > 30) room._recentSentTexts.shift() } catch (e) {}
+      return true
+    }
+    console.log(`[${djId}] PC 대신 보내기 실패 → 봇 계정으로 보냄`)
+  }
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
     console.log(`[채팅전송 실패][${djId}] streamName=${room.streamName || '없음'}, accessToken=${accessToken ? '있음' : '없음'} — 메시지가 전송되지 않았어요:`, message)
@@ -25274,7 +25300,24 @@ app.post('/session/upload', auth.requireAuth, (req, res) => {
 // ⚠️ 공용 계정 풀(sum/sum2…) 자체는 여기서 바꾸면 모든 DJ의 봇이 바뀌어서 막아요
 app.get('/session/bot-account', auth.requireAuth, (req, res) => {
   const s = store.getSettings(req.djId) || {}
-  res.json({ success: true, mode: s.botAccountMode === 'dj' ? 'dj' : 'edinyang', hasOwn: tokenManager.hasCookies(req.djId), using: ownAccountOn(req.djId) ? 'dj' : 'edinyang', pool: SHARED_TOKEN_POOL.includes(req.djId) })
+  res.json({ success: true, mode: s.botAccountMode === 'dj' ? 'dj' : 'edinyang', hasOwn: tokenManager.hasCookies(req.djId), using: (ownAccountOn(req.djId) || pcRelayAlive(req.djId)) ? 'dj' : 'edinyang', relay: pcRelayAlive(req.djId), pool: SHARED_TOKEN_POOL.includes(req.djId) })
+})
+// 🎙️ PC 방송 창 "대신 보내기" — 살아 있다는 신호(20초마다) · 보낸 결과
+app.post('/session/pc-relay/ping', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  if (SHARED_TOKEN_POOL.includes(djId)) return res.json({ success: false, error: '공용 봇 계정이라 쓸 수 없어요' })
+  const on = !!(req.body || {}).on
+  if (!on) { pcChatRelay.delete(djId); return res.json({ success: true, relay: false }) }
+  const r = pcChatRelay.get(djId) || { at: 0, pending: new Map() }
+  r.at = Date.now(); pcChatRelay.set(djId, r)
+  res.json({ success: true, relay: pcRelayAlive(djId) })
+})
+app.post('/session/pc-relay/result', auth.requireAuth, (req, res) => {
+  const r = pcChatRelay.get(req.djId)
+  const { id, ok } = req.body || {}
+  const fn = r && r.pending.get(Number(id))
+  if (fn) { r.pending.delete(Number(id)); fn(!!ok) }
+  res.json({ success: true })
 })
 app.post('/session/bot-account', auth.requireAuth, (req, res) => {
   const djId = req.djId

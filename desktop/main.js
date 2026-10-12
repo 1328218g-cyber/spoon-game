@@ -520,47 +520,48 @@ ipcMain.handle('app:token', async (e) => {
   try { return await appWin.webContents.executeJavaScript("typeof djToken !== 'undefined' ? djToken : ''", true) } catch (_) { return '' }
 })
 
-// 🤖 봇으로 쓸 계정 — "내 DJ 계정"이면 방송 창에 로그인한 스푼 세션을 에디냥 서버에 올려서 봇이 DJ 계정으로 동작
-//    (세션은 메인 프로세스가 직접 서버로 보내요 — 에디냥 웹 화면에는 쿠키를 넘기지 않아요)
-//    로그인 바뀔 때 · 25분마다 다시 올려서 토큰이 만료되지 않게
-let botAcctMode = 'edinyang', botSyncTimer = null, botSyncDebounce = null, botSyncLast = null
+// 🤖 봇으로 쓸 계정 — "내 DJ 계정"이면 방 접속은 에디냥 봇이 하고, 봇이 하는 말만 이 방송 창이 DJ 계정으로 대신 보낸다
+//    (DJ가 방송 중인 방에 같은 DJ 계정으로 서버가 또 접속하면 스푼이 안 받아줘서 → 말하기만 여기서)
+//    · 방송 창이 살아 있고 스푼 로그인이 돼 있으면 20초마다 서버에 "대신 보낼 수 있어요" 신호
+//    · 서버가 보낼 말을 주면(에디냥 창 SSE → bcast:relay-chat) 방송 창 세션으로 스푼 채팅 API 호출 → 결과를 서버에 알려줌
+//      (실패하면 서버가 6초 뒤 원래대로 봇 계정으로 보냄)
+let botAcctMode = 'edinyang', relayTimer = null, relayLive = { auth: '', stream: '', at: 0 }
 async function appDjToken() {
   if (!alive(appWin)) return ''
   try { return await appWin.webContents.executeJavaScript("typeof djToken !== 'undefined' ? djToken : ''", true) } catch (_) { return '' }
 }
-async function syncBotSession() {
-  if (botAcctMode !== 'dj') return { ok: false, error: '봇 계정이 내 DJ 계정이 아니에요' }
-  const token = await appDjToken()
-  if (!token) return { ok: false, error: '에디냥 로그인이 필요해요' }
-  const ss = session.fromPartition(SPOON_PARTITION)
-  const sameSite = { no_restriction: 'None', lax: 'Lax', strict: 'Strict' }
-  const cookies = (await ss.cookies.get({})).filter((c) => /(^|\.)spooncast\.net$/.test(String(c.domain || '').replace(/^\./, '')))
-    .map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly, expires: c.expirationDate || undefined, sameSite: sameSite[c.sameSite] }))
-  if (!cookies.some((c) => c.name === 'spoon_at_kr' && c.value)) return { ok: false, error: '방송 창에서 DJ 계정으로 스푼 로그인을 먼저 해주세요' }
-  let ls = null
+async function spoonToken() {
+  try { const c = (await session.fromPartition(SPOON_PARTITION).cookies.get({ name: 'spoon_at_kr' })).find((x) => x.value); return c ? c.value : '' } catch (_) { return '' }
+}
+async function relayPing() {
+  const token = await appDjToken(); if (!token) return { ok: false, error: '에디냥 로그인이 필요해요' }
+  const on = botAcctMode === 'dj' && alive(bcastWin) && !!(await spoonToken())
   try {
-    if (alive(bcastWin) && /spooncast\.net/.test(bcastWin.webContents.getURL())) {
-      ls = JSON.parse(await bcastWin.webContents.executeJavaScript('(()=>{try{const o={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);o[k]=localStorage.getItem(k)}return JSON.stringify(o)}catch(_){return "null"}})()', true))
-    }
-  } catch (_) { ls = null }
-  try {
-    const r = await net.fetch(SERVER + '/session/upload-pc', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ cookies, localStorage: ls }) })
+    const r = await net.fetch(SERVER + '/session/pc-relay/ping', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ on }) })
     const j = await r.json()
-    botSyncLast = { at: Date.now(), ok: !!j.success, error: j.error || '' }
-    return j.success ? { ok: true, using: j.using, reconnect: !!j.reconnect } : { ok: false, error: j.error || '업로드 실패' }
-  } catch (e) { botSyncLast = { at: Date.now(), ok: false, error: e.message }; return { ok: false, error: '서버 연결 실패' } }
+    if (!j.success) return { ok: false, error: j.error || '실패' }
+    return on ? { ok: true } : { ok: false, error: alive(bcastWin) ? '방송 창에서 DJ 계정으로 스푼 로그인을 먼저 해주세요' : '📻 방송 창을 열고 DJ 계정으로 로그인해 주세요' }
+  } catch (e) { return { ok: false, error: '서버 연결 실패' } }
 }
 function setBotAcctMode(mode) {
   botAcctMode = mode === 'dj' ? 'dj' : 'edinyang'
-  clearInterval(botSyncTimer); botSyncTimer = null
-  if (botAcctMode === 'dj') botSyncTimer = setInterval(() => { syncBotSession().catch(() => {}) }, 25 * 60 * 1000)
+  clearInterval(relayTimer); relayTimer = null
+  if (botAcctMode === 'dj') relayTimer = setInterval(() => { relayPing().catch(() => {}) }, 20000)
 }
-// 방송 창에서 로그인·로그아웃하면 (토큰 쿠키가 바뀌면) 3초 뒤 다시 올려요
+// 방송 창(스푼 웹)이 보내는 요청에서 방송 입장권(x-live-authorization)과 방송 이름을 기억 — 채팅을 대신 보낼 때 같이 씀
 app.whenReady().then(() => {
   try {
-    session.fromPartition(SPOON_PARTITION).cookies.on('changed', (_e, c, _cause, removed) => {
-      if (botAcctMode !== 'dj' || !c || c.name !== 'spoon_at_kr' || removed) return
-      clearTimeout(botSyncDebounce); botSyncDebounce = setTimeout(() => { syncBotSession().catch(() => {}) }, 3000)
+    session.fromPartition(SPOON_PARTITION).webRequest.onBeforeSendHeaders({ urls: ['https://kr-gw.spooncast.net/*', 'https://kr-api.spooncast.net/*'] }, (d, cb) => {
+      try {
+        const h = d.requestHeaders || {}
+        const la = h['x-live-authorization'] || h['X-Live-Authorization']
+        if (la) {
+          relayLive.auth = la; relayLive.at = Date.now()
+          const m = String(d.url).match(/\/lives\/([^/?#]+)\//)
+          if (m && !/^(popular|donations|subscribed)$/.test(m[1])) relayLive.stream = m[1]
+        }
+      } catch (_) {}
+      cb({ requestHeaders: d.requestHeaders })
     })
   } catch (_) {}
 })
@@ -568,8 +569,31 @@ const fromAppOrDock = (e) => (alive(appWin) && e.sender === appWin.webContents) 
 ipcMain.handle('bcast:bot-account', async (e, mode) => {
   if (!fromAppOrDock(e)) return { ok: false }
   setBotAcctMode(mode)
-  if (botAcctMode !== 'dj') return { ok: true }
-  return syncBotSession()
+  const r = await relayPing()
+  return botAcctMode === 'dj' ? r : { ok: true }
+})
+// 서버가 "이 말을 DJ 계정으로 보내줘" → 스푼 채팅 API (방송 창 로그인으로)
+ipcMain.on('bcast:relay-chat', async (e, m) => {
+  if (!(alive(appWin) && e.sender === appWin.webContents)) return
+  if (botAcctMode !== 'dj' || !m || !m.id) return
+  let ok = false
+  try {
+    const tok = await spoonToken()
+    const stream = String(m.stream || relayLive.stream || '')
+    if (tok && stream && alive(bcastWin)) {
+      const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok, Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }
+      if (relayLive.auth) headers['x-live-authorization'] = relayLive.auth
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 5000)
+      const r = await session.fromPartition(SPOON_PARTITION).fetch(`https://kr-gw.spooncast.net/lives/${encodeURIComponent(stream)}/chat/message`, { method: 'POST', headers, body: JSON.stringify({ message: String(m.message || ''), messageType: 'GENERAL_MESSAGE' }), signal: ac.signal })
+      clearTimeout(to)
+      ok = r.ok
+      if (!ok) console.log('[대신 보내기] 스푼 응답', r.status, (await r.text().catch(() => '')).slice(0, 200))
+    }
+  } catch (err) { console.log('[대신 보내기] 실패', err && err.message) }
+  try {
+    const token = await appDjToken()
+    if (token) await net.fetch(SERVER + '/session/pc-relay/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ id: m.id, ok }) })
+  } catch (_) {}
 })
 
 ipcMain.on('bcast:rec', (e, m) => {

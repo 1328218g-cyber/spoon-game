@@ -1382,7 +1382,7 @@ async function bcSetBotAcct(mode) {
     const x = await window.bcast.botAccount(mode);
     bcBotAcct.msg = mode === 'dj' && !(x && x.ok) ? ((x && x.error) || '세션을 못 올렸어요') : '';
     await bcBotAcctLoad();
-    bcToast(mode === 'dj' ? (bcBotAcct.using === 'dj' ? '🤖 이제 내 DJ 계정이 봇이에요' : '⚠️ ' + bcBotAcct.msg) : '🤖 이제 에디냥 봇이 들어가요');
+    bcToast(mode === 'dj' ? (bcBotAcct.using === 'dj' ? '🤖 이제 봇 메시지가 DJ 이름으로 나가요' : '⚠️ ' + bcBotAcct.msg) : '🤖 이제 에디냥 봇 이름으로 나가요');
   } catch (_) { bcToast('❌ 서버 연결 실패'); }
   finally { bcBotAcct.busy = false; bcRenderBotAcct(); }
 }
@@ -1390,12 +1390,12 @@ function bcRenderBotAcct() {
   const el = document.getElementById('bcBotAcct'); if (!el) return;
   if (bcBotAcct.pool) { el.innerHTML = '<div class="bc-note" style="margin-top:6px">공용 봇 계정이라 바꿀 수 없어요</div>'; return; }
   const m = bcBotAcct.mode, dis = bcBotAcct.busy ? 'disabled' : '';
-  const st = m === 'dj' ? (bcBotAcct.using === 'dj' ? '✅ 지금 봇: <b>내 DJ 계정</b>' : '⚠️ 아직 에디냥 봇으로 들어가요 — ' + bcEsc(bcBotAcct.msg || '방송 창에서 DJ 계정으로 스푼 로그인을 해주세요')) : '✅ 지금 봇: <b>에디냥 봇</b>';
+  const st = m === 'dj' ? (bcBotAcct.using === 'dj' ? '✅ 봇 메시지가 <b>내 DJ 계정</b>으로 나가요' : '⚠️ 아직 에디냥 봇 이름으로 나가요 — ' + bcEsc(bcBotAcct.msg || '📻 방송 창을 열고 DJ 계정으로 스푼 로그인을 해주세요')) : '✅ 지금 봇: <b>에디냥 봇</b>';
   el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
     <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'edinyang' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('edinyang')"> 🐱 에디냥 봇 <span class="bc-note">(에디냥 봇 계정이 방에 들어가요)</span></label>
     <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'dj' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('dj')"> 🎙️ 내 DJ 계정 <span class="bc-note">(방송 창에 로그인한 DJ 계정이 봇으로)</span></label>
   </div><div class="bc-note" style="margin-top:6px">${bcBotAcct.busy ? '⏳ 바꾸는 중…' : st}</div>
-  <div class="bc-note" style="margin-top:4px">내 DJ 계정이면 봇 메시지(룰렛·인사 등)가 DJ 이름으로 올라가요 · 에디냥 PC가 켜져 있는 동안 25분마다 로그인 정보를 새로 올려요 · 이미 방에 들어가 있으면 바뀐 계정으로 다시 들어가요</div>`;
+  <div class="bc-note" style="margin-top:4px">내 DJ 계정이면 방에는 에디냥 봇이 들어가서 채팅을 듣고, 봇 메시지(룰렛·인사 등)는 📻 방송 창이 <b>DJ 이름으로</b> 대신 보내요 · 에디냥 PC와 방송 창이 켜져 있을 때만 · 방송 창이 꺼지거나 못 보내면 에디냥 봇 이름으로 나가요</div>`;
 }
 function bcRenderSet() {
   bcRenderBotAcct();
@@ -20378,6 +20378,7 @@ function startSSE(){
     const d=JSON.parse(e.data);
     // session/admin_gift 이벤트는 공용(admin_gift는 관리자 화면에서만 실제로 처리함), 나머지는 내 계정 것만 반영
     if(d.type!=='session' && d.type!=='admin_gift' && d.djId && d.djId!==djId) return;
+    if(d.type==='chatrelay'){ /* 🎙️ 내 DJ 계정 — 봇이 할 말을 PC 방송 창이 DJ 계정으로 대신 보냄 */ if(window.bcast&&window.bcast.relayChat&&!window.EDI_MENU_POPUP&&!sessionStorage.getItem('adminOriginalToken')) window.bcast.relayChat({id:d.id,message:d.message,stream:d.stream}); return; }
     if(d.type==='chat'){ addLog(d.nick,d.text,'user',d.profileUrl,{isDj:d.isDj,isManager:d.isManager}); if(d.ttsEligible) ttsEnqueue(d.nick,d.text); if(document.querySelector('.panel[data-panel="chat"]')?.classList.contains('active')) loadChatTodayMvp(); }
     else if(d.type==='awaymode')renderAwayModeState(!!d.enabled);
     else if(d.type==='join')addLog('입장',d.nick+'님이 입장했습니다','sys');
