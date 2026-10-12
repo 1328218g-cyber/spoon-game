@@ -1,5 +1,8 @@
-// edinyangGift.js — 🔗 [에디냥(공식 API) 연동] 선물 정보 그대로 넘겨주기
-// 공식 API 선물 이벤트엔 스티커·콤보·프로필 사진이 없어서, 에디냥 서버가 "선물카드 갤러리"를 켠 DJ 방송에 대해
+// edinyangGift.js — 🔗 [에디냥(공식 API) 연동] 선물 정보 · 시청자 고유닉 그대로 넘겨주기
+//  · 선물: 공식 API 선물 이벤트엔 스티커·콤보·프로필 사진이 없어요.
+//  · 고유닉: 공식 API 는 시청자 고유닉을 안 줘요 → 방에서 채팅·입장·좋아요·선물한 사람의 고유닉을 스푼에서 찾아
+//    (닉네임 + 고유닉 + 프로필 사진) 같이 넘겨줘요 (people).
+// 에디냥 서버가 방송 중인 DJ 방송에 대해
 // 여기에 몇 초마다 물어봐요 (GET /internal/edinyang/gifts). 물어보는 동안에는 이 서버가 그 방에 같이 들어가서
 // 선물 이벤트를 그대로 모아두고, 에디냥 서버가 가져가요. 1분 30초 넘게 안 물어보면 방에서 나와요.
 //  · 들어가는 계정: 환경변수 EDINYANG_GIFT_ACCOUNT (기본 sum1004) — 이 서버에 가입하고 세션 연결해둔 계정
@@ -14,7 +17,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
   const IDLE_MS = 90 * 1000 // 이만큼 안 물어보면 방에서 나와요
   const LIVE_CHECK_MS = 60 * 1000 // 방송이 바뀌었는지(껐다 켰는지) 확인 간격
   const watchers = new Map() // dj -> watcher
-  const stats = { gifts: 0, joins: 0, errors: 0, lastError: '' }
+  const stats = { gifts: 0, people: 0, joins: 0, errors: 0, lastError: '' }
 
   const token = () => tokenManager.getAccessToken(ACCOUNT) || tokenManager.getAccessToken(SHARED_TOKEN_DJID) || ''
   const ownCount = () => [...watchers.values()].filter(w => w.ws).length
@@ -28,6 +31,24 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
     if (w.pingTimer) { clearInterval(w.pingTimer); w.pingTimer = null }
     if (w.ws) { const ws = w.ws; w.ws = null; try { ws.terminate() } catch (e) {} }
     w.connected = false
+  }
+
+  // 시청자 고유닉 → 넘겨줄 모양 (한 방송에서 같은 사람은 한 번만 · 닉네임이 바뀌면 다시)
+  async function addPerson(w, p) {
+    const gen = p.generator || {}
+    const nick = String(gen.nickname || p.nickname || '').trim()
+    const userId = gen.id != null ? Number(gen.id) : (p.userId != null ? Number(p.userId) : (p.user_id != null ? Number(p.user_id) : null))
+    if (!nick || userId == null) return
+    const seen = w.seenPeople.get(userId)
+    if (seen === nick) return
+    w.seenPeople.set(userId, nick)
+    let tag = String(gen.tag || p.tag || '').replace(/^@/, '').trim()
+    if (!tag) { try { tag = (await getCachedUserTag(w, w.liveId, userId, token())) || '' } catch (e) {} }
+    if (!tag) { w.seenPeople.delete(userId); return } // 다음 이벤트 때 다시
+    const img = gen.profileUrl || p.profileUrl || p.profile_url || ''
+    w.people.push({ seq: ++w.pseq, nick, tag, img })
+    if (w.people.length > 500) w.people.splice(0, w.people.length - 500)
+    stats.people++
   }
 
   // 선물 이벤트 → 넘겨줄 모양
@@ -81,6 +102,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
           const body = JSON.parse((msg.payload && msg.payload.body) || '{}')
           const ev = body.eventName
           if (ev === 'LiveDonation' || ev === 'live_present' || ev === 'DonationMessage') addGift(w, body.eventPayload || {}).catch(() => {})
+          if (ev === 'ChatMessage' || ev === 'RoomJoin' || ev === 'LiveFreeLike' || ev === 'LivePaidLike' || ev === 'LiveDonation' || ev === 'live_present' || ev === 'DonationMessage') addPerson(w, body.eventPayload || {}).catch(() => {})
         } catch (e) {}
       })
       ws.on('unexpected-response', (req, res) => { w.error = (res.statusCode === 403 || res.statusCode === 429) ? `스푼이 ${ACCOUNT} 동시 접속을 막았어요 (status ${res.statusCode})` : `스푼이 접속을 거절했어요 (status ${res.statusCode})`; stats.errors++; stats.lastError = w.error; try { ws.terminate() } catch (e) {} })
@@ -113,7 +135,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
       const liveId = found && found.liveId ? String(found.liveId) : ''
       if (found && found.djPhoto) w.djPhoto = found.djPhoto
       w.why = liveId ? '' : (findLiveIdForEdinyang.why || '방송을 못 찾음')
-      if (liveId !== w.liveId) { closeWs(w); w.liveId = liveId; w.tries = 0; w.retryAt = 0; if (w.tagCache) w.tagCache.clear() }
+      if (liveId !== w.liveId) { closeWs(w); w.liveId = liveId; w.tries = 0; w.retryAt = 0; if (w.tagCache) w.tagCache.clear(); w.seenPeople.clear() }
     }
     if (!w.liveId) return
     w.shared = !!sharedRoom(w.liveId)
@@ -124,6 +146,10 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
   // 짜잔에디봇이 들어가 있는 방의 선물 (index.js 선물 처리에서 불러요)
   function onRoomGift(liveId, payload) {
     for (const w of watchers.values()) if (w.shared && String(w.liveId) === String(liveId)) addGift(w, payload).catch(() => {})
+  }
+  // 짜잔에디봇이 들어가 있는 방의 채팅·입장·좋아요·선물한 사람 (고유닉 넘겨주기용)
+  function onRoomPerson(liveId, payload) {
+    for (const w of watchers.values()) if (w.shared && String(w.liveId) === String(liveId)) addPerson(w, payload).catch(() => {})
   }
 
   // 고유닉 찾는 중인 선물이 있으면 그 앞까지만 줘요 (순서대로 가져가게 · 20초 넘게 걸리면 그냥 줘요)
@@ -145,9 +171,10 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
     const nick = String(req.query.nick || '').trim().slice(0, 60)
     if (!dj && !nick) return res.status(400).json({ success: false, error: 'dj 가 필요해요' })
     const since = Number(req.query.since) || 0
+    const psince = Number(req.query.psince) || 0
     let w = watchers.get(dj || nick)
     if (!w) {
-      w = { dj: dj || nick, nick, liveId: '', liveAt: 0, ws: null, connected: false, shared: false, busy: false, gifts: [], seq: Date.now(), tagCache: new Map(), tagToNickname: new Map(), djPhoto: '', error: '', tries: 0, retryAt: 0 }
+      w = { dj: dj || nick, nick, liveId: '', liveAt: 0, ws: null, connected: false, shared: false, busy: false, gifts: [], seq: Date.now(), people: [], pseq: Date.now(), seenPeople: new Map(), tagCache: new Map(), tagToNickname: new Map(), djPhoto: '', error: '', tries: 0, retryAt: 0 }
       watchers.set(w.dj, w)
     }
     if (nick) w.nick = nick
@@ -159,6 +186,8 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
       djPhoto: w.djPhoto || '', seq: w.seq,
       // since 가 0 이면 처음 묻는 거라 예전 선물은 안 줘요 (지금 번호만 알려줘요)
       gifts: since ? readyGifts(w, since) : [],
+      // 시청자 고유닉 (psince 다음부터 · 처음 물을 땐 이번 방송에서 이미 찾은 사람 전부)
+      pseq: w.pseq, people: w.people.filter(x => x.seq > psince),
     })
   })
 
@@ -168,5 +197,5 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
     for (const [k, w] of watchers) if (now - (w.lastPoll || 0) > IDLE_MS) { closeWs(w); watchers.delete(k); console.log(`[에디냥 선물 연동] ${k} 방에서 나옴 (에디냥 서버가 안 물어봐요)`) }
   }, 30000).unref()
 
-  return { onRoomGift, stats: () => ({ ...stats, account: ACCOUNT, watching: watchers.size, own: ownCount() }) }
+  return { onRoomGift, onRoomPerson, stats: () => ({ ...stats, account: ACCOUNT, watching: watchers.size, own: ownCount() }) }
 }

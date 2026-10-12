@@ -16992,6 +16992,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const isLurker = settings.botEnabled === false
 
       if (eventName === 'ChatMessage') {
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17110,6 +17111,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         room.lastLiveMeta = eventPayload
 
       } else if (eventName === 'RoomJoin') {
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17238,6 +17240,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
         try { edinyangGift.onRoomGift(liveId, eventPayload) } catch (e) {} // 🎁 에디냥 선물 연동 (이 방을 같이 보고 있으면)
+        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {}
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
