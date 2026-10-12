@@ -383,12 +383,17 @@ ipcMain.on('bcast:grant-menu', async (e, m) => {
   let u = Date.now() - grantMembers.at < 60000 ? findMember(grantMembers.list, nick) : null
   toSpoon('__ediGrantMenu', { nick: (u && u.nickname) || nick, tag: (u && u.tag) || '', roulettes })
   if (u && u.tag) return
-  // ② 고유닉은 접속자 목록에서 찾아서 이어서 알려줌 (방금 들어온 사람이면 새로 받아서 한 번 더)
-  try {
-    u = findMember(await grantMembersGet(60000), nick)
-    if (!u) u = findMember(await grantMembersGet(0), nick)
-    toSpoon('__ediGrantTag', u && u.tag ? { tag: u.tag } : { error: `'${nick}'님을 지금 접속자에서 못 찾았어요 (잠시 후 다시)` })
-  } catch (err) { toSpoon('__ediGrantTag', { error: err.message || String(err) }) }
+  // ② 고유닉은 접속자 목록에서 찾아서 이어서 알려줌 — 실패하거나(봇이 막 들어오는 중 등) 목록에 없으면 새로 받아서 최대 3번
+  let lastErr = ''
+  for (let i = 0; i < 3; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 1500 * i))
+    try {
+      u = findMember(await grantMembersGet(i ? 0 : 60000), nick)
+      if (u && u.tag) return toSpoon('__ediGrantTag', { tag: u.tag })
+      lastErr = `'${nick}'님을 지금 접속자에서 못 찾았어요`
+    } catch (err) { lastErr = err.message || String(err) }
+  }
+  toSpoon('__ediGrantTag', { error: lastErr, retry: true })
 })
 ipcMain.on('bcast:grant', async (e, m) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return

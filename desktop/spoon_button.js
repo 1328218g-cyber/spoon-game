@@ -607,7 +607,7 @@
       ${(m.roulettes || []).length ? `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><select id="__gRi" style="flex:1;min-width:0;padding:6px;border:1px solid #e5e7eb;border-radius:8px">${m.roulettes.map((n, i) => `<option value="${i + 1}">🎡 룰렛${i + 1}${n ? ' ' + esc(n) : ''}</option>`).join('')}</select><input id="__gR" type="number" min="1" value="1" style="${num}"><button data-g="roulette" style="${btn}">지급</button></div>` : '<div style="margin-top:8px;color:#94a3b8;font-size:12px">🎡 등록된 룰렛이 없어요</div>'}
       <div id="__gOut" style="margin-top:8px;font-size:12px;color:#16a34a"></div>` + prof
     bindProf()
-    box._tag = m.tag || ''
+    box._tag = m.tag || ''; box._nick = m.nick
     const setBtns = () => body.querySelectorAll('button[data-g]').forEach((b) => { b.disabled = !box._tag; b.style.opacity = box._tag ? '1' : '.5' })
     box._setTag = (t) => { box._tag = t; const el = document.getElementById('__gTag'); if (el) el.textContent = '@' + t; setBtns() }
     setBtns()
@@ -626,12 +626,18 @@
   window.__ediGrantTag = (r) => {
     const box = document.getElementById('__ediGrant'); if (!box || !box._setTag) return
     if (r && r.tag) return box._setTag(r.tag)
-    const el = document.getElementById('__gTag'); if (el) { el.style.color = '#dc2626'; el.textContent = '❌ ' + ((r && r.error) || '고유닉을 못 찾았어요') }
+    const el = document.getElementById('__gTag'); if (!el) return
+    el.style.color = '#dc2626'
+    el.innerHTML = '❌ ' + esc((r && r.error) || '고유닉을 못 찾았어요') + ' <span id="__gRetry" style="cursor:pointer;color:#7c3aed;margin-left:4px">다시 시도</span>'
+    const rt = document.getElementById('__gRetry')
+    if (rt) rt.onclick = () => { el.style.color = '#94a3b8'; el.textContent = '⏳ 고유닉 확인 중…'; ipc.send('bcast:grant-menu', { nick: box._nick, retryOnly: true }) }
   }
   window.__ediGrantDone = (r) => {
     const out = document.getElementById('__gOut'); if (!out) return
     out.style.color = r && r.ok ? '#16a34a' : '#dc2626'
     out.textContent = r && r.ok ? '✅ ' + r.msg : '❌ ' + ((r && r.error) || '실패')
+    // 지급되면 잠깐 결과만 보여주고 저절로 닫혀요
+    if (r && r.ok) { const box = document.getElementById('__ediGrant'); setTimeout(() => { if (box && box.isConnected && document.getElementById('__gOut') === out) box.remove() }, 1200) }
   }
 
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
