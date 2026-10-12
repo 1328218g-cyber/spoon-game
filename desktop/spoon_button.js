@@ -643,7 +643,7 @@
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
-  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} try { patchItemTab() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
+  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // (방송 설정 메뉴(patchItemTab)는 투표함·편지함 형식을 알아낼 때까지 뺌 — '받은 아이템' 탭 그대로) // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
   const startObserver = () => {
     if (!document.body) return setTimeout(startObserver, 300)
     hideAudioPanel()
