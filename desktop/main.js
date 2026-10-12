@@ -130,6 +130,22 @@ const bcastBoundsFile = () => path.join(app.getPath('userData'), 'bcast-window.j
 // 📝 스푼 투표·편지함 요청 기록 — 방송 창(스푼 웹)에서 DJ가 스푼 화면의 투표·편지함 버튼을 쓰면, 스푼이 주고받는
 //    /play/ 요청(방식·주소·보낸 값·받은 값)을 다운로드 폴더 '에디냥_스푼놀이_기록.json' 에 남긴다
 //    (로그인 토큰 같은 헤더는 안 남김) → 이걸 보고 PC에서 투표·편지함 시작/종료 버튼을 붙인다
+const spoonWsIds = new Set()
+let roomFrames = [], roomFrameTimer = null
+function queueRoomFrame(d) {
+  roomFrames.push(d); if (roomFrames.length > 500) roomFrames.shift()
+  if (!roomFrameTimer) roomFrameTimer = setTimeout(flushRoomFrames, 250)
+}
+async function flushRoomFrames() {
+  roomFrameTimer = null
+  if (!roomFrames.length) return
+  const frames = roomFrames.splice(0, 200)
+  try {
+    const token = await appDjToken(); if (!token) return
+    await net.fetch(SERVER + '/session/pc-relay/events', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ frames }) })
+  } catch (_) {}
+  if (roomFrames.length) roomFrameTimer = setTimeout(flushRoomFrames, 250)
+}
 function recordPlayRequests(win) {
   const dbg = win.webContents.debugger
   const reqs = new Map()
@@ -145,6 +161,13 @@ function recordPlayRequests(win) {
   attach()
   dbg.on('message', async (_e, method, p) => {
     try {
+      // 📻 내 DJ 계정 모드 — 방송 창이 받은 스푼 방 소식(웹소켓)을 서버로 넘겨줘서, 에디냥 봇이 방에 안 들어가도 되게
+      if (method === 'Network.webSocketCreated') { if (/^wss:\/\/kr-wala\.spooncast\.net\/ws/.test(String(p.url || ''))) spoonWsIds.add(p.requestId); return }
+      if (method === 'Network.webSocketClosed') { spoonWsIds.delete(p.requestId); return }
+      if (method === 'Network.webSocketFrameReceived') {
+        if (botAcctMode === 'dj' && spoonWsIds.has(p.requestId)) { const d = String((p.response && p.response.payloadData) || ''); if (d.includes('"MESSAGE"')) queueRoomFrame(d) }
+        return
+      }
       if (method === 'Network.requestWillBeSent') {
         const u = String(p.request && p.request.url || '')
         if (!/^https:\/\/kr-api\.spooncast\.net\/play\//.test(u) || p.request.method === 'OPTIONS') return

@@ -514,8 +514,9 @@
       const row = tab.parentElement; if (!row || !/받은 아이템/.test(row.textContent || '') || !/보관함/.test(row.textContent || '')) continue
       if (tab.dataset.ediContents) continue
       tab.dataset.ediContents = '1'; contentsTab = tab
-      const leaf = [...tab.querySelectorAll('*')].reverse().find((n) => (n.textContent || '').trim() === '실시간 랭킹' && !n.children.length) || tab
-      leaf.textContent = '컨텐츠'
+      // 글자(텍스트)만 바꿔요 — 감싸고 있는 칸을 지우면 스푼의 가운데 정렬이 깨져서 글씨가 위로 붙어요
+      const tw = document.createTreeWalker(tab, NodeFilter.SHOW_TEXT)
+      for (let n = tw.nextNode(); n; n = tw.nextNode()) { if (n.nodeValue.trim() === '실시간 랭킹') { n.nodeValue = n.nodeValue.replace('실시간 랭킹', '컨텐츠'); break } }
       tab.addEventListener('click', () => setTimeout(openContents, 60), true) // 스푼이 탭을 바꾼 뒤 그 아래 칸을 덮어요
       // 다른 탭을 누르면 닫기
       ;[...row.children].forEach((sib) => { if (sib !== tab && !sib.dataset.ediOther) { sib.dataset.ediOther = '1'; sib.addEventListener('click', closeContents, true) } })

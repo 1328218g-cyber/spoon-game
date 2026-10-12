@@ -445,6 +445,33 @@ function pcRelayAlive(djId) {
   try { return (store.getSettings(djId) || {}).botAccountMode === 'dj' } catch (e) { return false }
 }
 let pcRelaySeq = 0
+// 📻 PC 방송 창이 방 소식을 대신 받아주는 "가짜 연결" — "내 DJ 계정" + PC 방송 창이 살아 있으면 에디냥 봇은 방에 안 들어가고,
+//    PC 방송 창(DJ 로 이미 방에 있음)이 받은 스푼 웹소켓 메시지를 /session/pc-relay/events 로 넘겨주면 그걸 이 연결의 'message' 로 흘려보낸다.
+//    기존 봇 연결(ws) 처리 코드를 그대로 쓰려고 WebSocket 처럼 생긴 껍데기만 만든다 (open/message/close/ping→pong).
+const { EventEmitter } = require('events')
+class PcRelaySocket extends EventEmitter {
+  constructor(djId) {
+    super()
+    this.djId = djId; this.pcRelay = true; this.readyState = WebSocket.CONNECTING
+    this.createdAt = Date.now(); this.isAlive = true; this.missedPong = 0; this.lastPingAt = 0; this.spoonProxyLabel = ''
+    setTimeout(() => { if (this.readyState === WebSocket.CONNECTING) { this.readyState = WebSocket.OPEN; this.emit('open') } }, 50)
+  }
+  send() {}
+  ping() { setImmediate(() => this.emit('pong')) }
+  close(code = 1000) { if (this.readyState === WebSocket.CLOSED) return; this.readyState = WebSocket.CLOSED; setImmediate(() => this.emit('close', code, Buffer.from('pc'))) }
+  terminate() { this.close(1006) }
+  feed(str) { if (this.readyState === WebSocket.OPEN) this.emit('message', Buffer.from(String(str))) }
+}
+function pcModeFor(djId) { return pcRelayAlive(djId) }
+// 방 입장권(roomToken)은 Puppeteer 로 봇 계정이 실제 방 페이지에 들어가서 받는 거라 — PC 방송 창 모드면 받지 않음 (봇이 방에 안 보이게)
+async function roomTokenFor(djId, liveId) { if (pcModeFor(djId)) return ''; return tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId) }
+// PC 방송 창이 꺼지거나 신호가 끊기면 가짜 연결을 닫아서 → 원래대로 에디냥 봇이 들어가게 (재접속 로직이 처리)
+setInterval(() => {
+  for (const djId of Object.keys(rooms)) {
+    const room = rooms[djId]
+    if (room && room.ws && room.ws.pcRelay && !pcRelayAlive(djId)) { console.log(`[${djId}] PC 방송 창 신호 끊김 → 에디냥 봇 연결로 전환`); try { room.ws.close(4000) } catch (e) {} }
+  }
+}, 10000)
 function tokenDjIdFor(djId) {
   if (ownAccountOn(djId)) return djId
   const existingRoom = rooms[djId]
@@ -542,6 +569,7 @@ tokenManager.setOnTokenUpdate((djId) => {
   // 가드를 그대로 재사용해서, 마침 채팅 실패로 이미 재발급이 진행 중이면 중복 실행하지 않는다)
   Object.values(rooms).forEach(room => {
     if (room.tokenDjId !== djId || !room.autoJoinedFor || !room.isConnected) return
+    if (room.ws && room.ws.pcRelay) return // 📻 PC 방송 창 모드 — 봇이 방에 안 들어가 있음
     if (room._roomTokenRefreshPromise) return
     room._roomTokenRefreshPromise = tokenManager.fetchRoomToken(djId, room.autoJoinedFor)
       .then(rt => { if (rt) room.roomToken = rt; return rt })
@@ -1267,6 +1295,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
 
 async function sendChatToRoom(djId, message, _isRetry) {
   const room = getRoom(djId)
+  if (room.ws && room.ws.pcRelay && !pcRelayAlive(djId)) { console.log(`[${djId}] PC 방송 창 신호 끊김 — 메시지 못 보냄:`, message); return false }
   // 🎙️ 내 DJ 계정 — PC 방송 창이 DJ 계정으로 대신 보내요 (6초 안에 못 보내면 원래대로 봇 계정으로)
   if (!_isRetry && pcRelayAlive(djId) && room.isConnected) {
     const r = pcChatRelay.get(djId)
@@ -1280,6 +1309,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
       try { if (!room._recentSentTexts) room._recentSentTexts = []; room._recentSentTexts.push({ text: String(message), ts: Date.now() }); if (room._recentSentTexts.length > 30) room._recentSentTexts.shift() } catch (e) {}
       return true
     }
+    if (room.ws && room.ws.pcRelay) { console.log(`[${djId}] PC 대신 보내기 실패 (PC 방송 창 모드라 봇 계정으로는 안 보냄):`, message); return false }
     console.log(`[${djId}] PC 대신 보내기 실패 → 봇 계정으로 보냄`)
   }
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
@@ -17511,7 +17541,7 @@ function scheduleReconnect(djId, room, reason) {
         }
       }
 
-      const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
+      const roomToken = await roomTokenFor(djId, room.autoJoinedFor)
       await connectSpoonForDj(djId, room.autoJoinedFor, roomToken || '')
     } catch (e) {
       console.log(`[${djId}] 자동 재접속 실패:`, e.message)
@@ -17583,8 +17613,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     }
   }
 
-  const spoonProxyEntry = getWsProxyForDj(djId)
-  const ws = new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
+  const pcMode = pcModeFor(djId)
+  room.pcMode = pcMode
+  const spoonProxyEntry = pcMode ? null : getWsProxyForDj(djId)
+  const ws = pcMode ? new PcRelaySocket(djId) : new WebSocket(`wss://kr-wala.spooncast.net/ws?token=${accessToken}`, {
     agent: spoonProxyEntry ? spoonProxyEntry.wsAgent : undefined,
     headers: {
       'Origin': 'https://www.spooncast.net',
@@ -17595,7 +17627,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.ws = ws
   // 🩺 이 계정이 지금 어느 프록시로 붙었는지 기록해둔다 — 특정 프록시만 유독 자주 끊기는지
   // 확인하려면 "연결 종료" 로그만으론 안 되고, 어느 IP를 통해 연결됐었는지도 같이 남아야 한다.
-  ws.spoonProxyLabel = spoonProxyEntry ? spoonProxyEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+  ws.spoonProxyLabel = pcMode ? 'PC 방송 창' : spoonProxyEntry ? spoonProxyEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
   ws.createdAt = Date.now() // 💓 프록시 경유로 연결에 시간이 걸릴 때, "아직 연결 중"인 걸 "죽은 연결"로 오판하지 않기 위한 기준시각
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
   ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
@@ -17665,7 +17697,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // 실패하고, 그걸 감지해서 재발급하는 동안 봇이 실제로 방을 여러 번 들락날락하며 자기소개를
     // 반복하는 문제로 이어졌다. 접속하자마자 한 번 더 roomToken을 조용히 재확인해두면 이 첫
     // 실패 자체를 미리 막을 수 있다 (기존 실패시 재발급 가드를 그대로 재사용해서 중복 실행 방지).
-    if (room.autoJoinedFor && !room._roomTokenRefreshPromise) {
+    if (!ws.pcRelay && room.autoJoinedFor && !room._roomTokenRefreshPromise) {
       room._roomTokenRefreshPromise = tokenManager.fetchRoomToken(tokenDjIdFor(djId), room.autoJoinedFor)
         .then(rt => { if (rt) room.roomToken = rt; return rt })
         .catch(e => { console.log(`[${djId}] 접속 직후 roomToken 예열 실패:`, e.message); return null })
@@ -17687,7 +17719,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // 🎟️ 복권 자동 지급 타이머도 이번 입장 시점부터 새로 시작 (설정이 켜져있을 때만 실제로 동작)
     startLottoAutoTimer(djId, liveId)
     // ❤️ 자동 좋아요 타이머도 이번 입장 시점부터 새로 시작 — 1분10초 뒤 1회, 이후 11분마다 반복
-    startAutoLikeTimer(djId, liveId)
+    if (!ws.pcRelay) startAutoLikeTimer(djId, liveId) // PC 방송 창 모드면 봇이 방에 없으니 자동 좋아요는 안 해요
     // 🍞 증권거래소 타이머(시세/뉴스/배당/이벤트)도 이번 입장 시점부터 새로 시작
     startStockTimers(djId, liveId)
     // 🐾 몬스터 잡기 등장 타이머도 이번 입장 시점부터 새로 시작
@@ -17743,6 +17775,8 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 나중에 sum이 다시 이 방에 들어오면(재접속 등) 자기 자신을 못 알아보고 또 입장인사를
           // 반복하는 문제가 있었다 — Set으로 누적해서 한 번 학습된 계정은 계속 기억하게 한다.
           if (matched) { if (!room._selfGeneratorIds) room._selfGeneratorIds = new Set(); room._selfGeneratorIds.add(authorId) }
+          // 📻 PC 방송 창 모드 — 봇이 DJ 이름으로 보낸 말이 DJ 채팅으로 되돌아온 것: 화면엔 보여주고 명령어로는 처리 안 함
+          if (matched && ws.pcRelay) { broadcast({ type: 'chat', djId, nick: author, text, profileUrl: (eventPayload.generator || {}).profileUrl || '', isDj: true }); return }
         }
 
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
@@ -18069,7 +18103,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
     if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
-    if (code !== 1000 && code !== 4000) { try { handleProxyFailover(djId, ws, code, heldForSec) } catch (e) { console.log('[프록시 전환] 오류', e.message) } }
+    if (code !== 1000 && code !== 4000 && !ws.pcRelay) { try { handleProxyFailover(djId, ws, code, heldForSec) } catch (e) { console.log('[프록시 전환] 오류', e.message) } }
     room.isConnected = false
     room.ws = null
 
@@ -18147,7 +18181,7 @@ setInterval(() => {
     // 1000(정상 종료)으로 닫아서, 기존 재접속 로직이 그대로 처리하게 둔다.
     const currentWsEntry = getWsProxyForDj(djId)
     const currentWsLabel = currentWsEntry ? currentWsEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
-    if (ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
+    if (!ws.pcRelay && ws.spoonProxyLabel && currentWsLabel !== ws.spoonProxyLabel) {
       console.log(`[${djId}] 프록시 순환 시점 — ${ws.spoonProxyLabel} → ${currentWsLabel}로 재연결`)
       // ⚠️ code 1000(정상 종료)으로 닫으면 재접속 로직이 "의도적으로 나간 것"으로 보고 재연결을
       // 안 시킨다. 그래서 1000이 아닌 전용 코드(4000)를 쓴다 — 재연결은 일으키되, 진짜 에러(1006 등)와는
@@ -25092,7 +25126,7 @@ async function checkAdminAutoJoin() {
           }
           const liveId = String(status.current_live_id)
           broadcast({ type: 'autojoin', djId, status: 'joining', tag, liveId })
-          const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+          const roomToken = await roomTokenFor(djId, liveId)
           room.autoJoinedFor = liveId
           room.watchingTag = tag
           await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -25239,7 +25273,7 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
     }
 
     const liveId = String(status.current_live_id)
-    const roomToken = await tokenManager.fetchRoomToken(tokenDjIdFor(djId), liveId)
+    const roomToken = await roomTokenFor(djId, liveId)
     room.autoJoinedFor = liveId
     room.watchingTag = cleanTag
     await connectSpoonForDj(djId, liveId, roomToken || '')
@@ -25368,7 +25402,23 @@ app.post('/session/pc-relay/ping', auth.requireAuth, (req, res) => {
   if (!on) { pcChatRelay.delete(djId); return res.json({ success: true, relay: false }) }
   const r = pcChatRelay.get(djId) || { at: 0, pending: new Map() }
   r.at = Date.now(); pcChatRelay.set(djId, r)
-  res.json({ success: true, relay: pcRelayAlive(djId) })
+  // 이미 에디냥 봇이 방에 들어가 있으면 → PC 방송 창 모드로 갈아타기 (봇은 방에서 나가고 PC가 소식을 넘겨줌)
+  const room = rooms[djId]
+  if (pcRelayAlive(djId) && room && room.ws && !room.ws.pcRelay && room.isConnected && room.autoJoinedFor) {
+    console.log(`[${djId}] PC 방송 창 연결됨 → 에디냥 봇은 방에서 나가고 PC 방송 창으로 받기`)
+    try { room.ws.close(4000, 'PC 방송 창으로 전환') } catch (e) { try { room.ws.terminate() } catch (e2) {} }
+  }
+  res.json({ success: true, relay: pcRelayAlive(djId), pcMode: !!(room && room.ws && room.ws.pcRelay && room.isConnected) })
+})
+// 📻 PC 방송 창이 받은 스푼 웹소켓 메시지 → 가짜 연결로 흘려보내기 (기존 봇 처리 그대로)
+app.post('/session/pc-relay/events', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const frames = Array.isArray((req.body || {}).frames) ? req.body.frames.slice(0, 200) : []
+  const r = pcChatRelay.get(djId); if (r) r.at = Date.now()
+  const room = rooms[djId]
+  let fed = 0
+  if (room && room.ws && room.ws.pcRelay) for (const f of frames) { if (typeof f === 'string' && f.length < 20000) { room.ws.feed(f); fed++ } }
+  res.json({ success: true, fed, pcMode: !!(room && room.ws && room.ws.pcRelay) })
 })
 app.post('/session/pc-relay/result', auth.requireAuth, (req, res) => {
   const r = pcChatRelay.get(req.djId)

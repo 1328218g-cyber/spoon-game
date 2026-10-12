@@ -1395,7 +1395,7 @@ function bcRenderBotAcct() {
     <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'edinyang' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('edinyang')"> 🐱 에디냥 봇 <span class="bc-note">(에디냥 봇 계정이 방에 들어가요)</span></label>
     <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><input type="radio" style="width:auto;margin:0;flex:0 0 auto" name="bcBotAcct" ${m === 'dj' ? 'checked' : ''} ${dis} onchange="bcSetBotAcct('dj')"> 🎙️ 내 DJ 계정 <span class="bc-note">(방송 창에 로그인한 DJ 계정이 봇으로)</span></label>
   </div><div class="bc-note" style="margin-top:6px">${bcBotAcct.busy ? '⏳ 바꾸는 중…' : st}</div>
-  <div class="bc-note" style="margin-top:4px">내 DJ 계정이면 방에는 에디냥 봇이 들어가서 채팅을 듣고, 봇 메시지(룰렛·인사 등)는 📻 방송 창이 <b>DJ 이름으로</b> 대신 보내요 · 에디냥 PC와 방송 창이 켜져 있을 때만 · 방송 창이 꺼지거나 못 보내면 에디냥 봇 이름으로 나가요</div>`;
+  <div class="bc-note" style="margin-top:4px">내 DJ 계정이면 <b>에디냥 봇은 방에 안 들어가요</b> — 📻 방송 창(DJ)이 받은 방 소식으로 봇이 동작하고, 봇 메시지(룰렛·인사 등)도 <b>DJ 이름으로</b> 나가요 · 에디냥 PC와 방송 창이 켜져 있을 때만 · 방송 창을 닫으면 원래대로 에디냥 봇이 들어가요</div>`;
 }
 function bcRenderSet() {
   bcRenderBotAcct();
