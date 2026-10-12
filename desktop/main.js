@@ -494,7 +494,14 @@ ipcMain.on('bcast:mailbox', async (e) => {
       messages = messages.concat(Array.isArray(j.results) ? j.results : [])
       url = j.next && /^https:\/\/kr-api\.spooncast\.net\//.test(j.next) ? j.next : null
     }
-    toSpoon('__ediMailbox', { mailbox: mb, messages: messages.map((m) => ({ id: m.id, message: m.message, created: m.created, is_anonymous: !!m.is_anonymous, nickname: m.nickname, profile_url: m.profile_url, status: m.status })) })
+    // 지금 시청자에게 공개 중인 사연 (GET /play/mailbox/{번호}/current/) — 없으면 그냥 넘어가요
+    let currentId = null
+    try {
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 5000)
+      const r = await ss.fetch(`https://kr-api.spooncast.net/play/mailbox/${encodeURIComponent(mb.id)}/current/`, { headers, signal: ac.signal }); clearTimeout(to)
+      if (r.ok) { const j = await r.json(); const c = Array.isArray(j.results) ? j.results[0] : j; if (c) currentId = c.id || c.message_id || c.mailbox_message_id || null }
+    } catch (_) {}
+    toSpoon('__ediMailbox', { mailbox: mb, currentId, messages: messages.map((m) => ({ id: m.id, message: m.message, created: m.created, is_anonymous: !!m.is_anonymous, nickname: m.nickname, profile_url: m.profile_url, status: m.status })) })
   } catch (err) { toSpoon('__ediMailbox', { error: err.message || String(err) }) }
 })
 
@@ -520,6 +527,11 @@ ipcMain.on('bcast:play-act', async (e, m) => {
       method = 'PUT'
       url = `https://kr-api.spooncast.net/play/${m.act === 'poll-end' ? 'poll' : 'mailbox'}/${encodeURIComponent(m.id)}/`
       body = { live_id: liveId }
+    } else if (m.act === 'mailbox-show') {
+      // ✉️ 사연을 시청자에게 공개 — PUT /play/mailbox/{번호}/current/ (보내는 값 모양은 아래에서 차례로 시도)
+      method = 'PUT'
+      url = `https://kr-api.spooncast.net/play/mailbox/${encodeURIComponent(m.id)}/current/`
+      body = { live_id: liveId, message_id: m.msgId }
     } else return
     const send = async (b) => {
       const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000)
@@ -548,7 +560,16 @@ ipcMain.on('bcast:play-act', async (e, m) => {
       ]
       for (const b of tries) { ({ r, text } = await send(b)); body = b; if (r.status !== 400) break }
     }
-    const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요' }[m.act]
+    if (m.act === 'mailbox-show' && !r.ok && r.status >= 400 && r.status < 500) {
+      const tries = [
+        { live_id: liveId, mailbox_message_id: m.msgId },
+        { live_id: liveId, id: m.msgId },
+        { live_id: liveId, message: m.msgId },
+        { message_id: m.msgId },
+      ]
+      for (const b of tries) { ({ r, text } = await send(b)); body = b; if (r.ok) break }
+    }
+    const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요', 'mailbox-show': '사연을 시청자에게 공개했어요' }[m.act]
     done(r.ok ? { ok: true, msg: label } : { error: `스푼이 거절했어요 (${r.status}) — 아래 내용을 캡처해서 보내주세요`, body: `${method} ${url.replace('https://kr-api.spooncast.net', '')}\n보낸 값: ${JSON.stringify(body)}\n받은 값: ${text}` })
   } catch (err) { done({ error: err.message || String(err) }) }
 })
