@@ -1803,7 +1803,8 @@ if (window.bcast) setTimeout(() => {
   if (window.bcast.onHkChanged) window.bcast.onHkChanged((l) => { binds = Array.isArray(l) ? l : []; decorate() });
   let t = null;
   const root = document.getElementById('tab-broadcast');
-  if (root) new MutationObserver(() => { clearTimeout(t); t = setTimeout(decorate, 150) }).observe(root, { childList: true, subtree: true });
+  // 화면이 자주 다시 그려져도(소리 막대 등) 밀리지 않게 — 0.15초마다 한 번씩만
+  if (root) new MutationObserver(() => { if (t) return; t = setTimeout(() => { t = null; decorate() }, 150) }).observe(root, { childList: true, subtree: true });
   decorate();
 })();
 </script>
