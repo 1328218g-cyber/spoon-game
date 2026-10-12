@@ -15591,7 +15591,7 @@ async function ttsPlayNext(){
   const item=ttsQueue.shift();
   let done=false;
   const watchdog=setTimeout(()=>{ if(!done) afterPlay(); },TTS_WATCHDOG_MS);
-  const afterPlay=()=>{ if(done)return; done=true; clearTimeout(watchdog); ttsPlaying=false; setTimeout(ttsPlayNext,150); };
+  const afterPlay=()=>{ if(done)return; done=true; clearTimeout(watchdog); ttsPlaying=false; Promise.resolve().then(ttsPlayNext); }; /* 타이머 대신 바로 다음 — 창을 내렸을 때 브라우저가 타이머를 묶어서 TTS가 밀렸다 한꺼번에 나오지 않게 */
   const preset=ttsResolvePreset(item.nickname);
   if('mediaSession' in navigator){
     try{

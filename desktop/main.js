@@ -14,6 +14,14 @@ const SERVER = (process.env.EDINYANG_SERVER || 'https://spoon-game-server.onrend
 const SPOON_URL = process.env.EDINYANG_SPOON_URL || 'https://www.spooncast.net/kr' // (테스트용으로만 바꿈)
 const SPOON_PARTITION = 'persist:edinyang-spoon' // 방송 창 로그인은 따로 저장 (껐다 켜도 유지)
 
+// 🔊 창을 내리거나(최소화) 다른 창에 가려져도 에디냥 창의 TTS·효과음이 밀렸다가 한꺼번에 나오지 않게 —
+//    크롬의 백그라운드 절전(숨은 창 타이머를 1분에 한 번으로 묶기 · 가려진 창 멈추기)을 프로그램 전체에서 끈다.
+//    (창마다 준 backgroundThrottling:false 만으로는 윈도우에서 최소화했을 때 계속 묶이는 경우가 있었다)
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling')
+
 let appWin = null
 let bcastWin = null
 let panelWin = null // 방송 창의 🎙️ 버튼으로 여는 방송하기 팝업 창 (서버 /bcpanel)
