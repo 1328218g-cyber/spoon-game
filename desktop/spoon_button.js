@@ -24,6 +24,29 @@
   }
   hideBadge()
 
+  // 🩺 스푼 화면이 하얗게 멈추면 (스푼 화면 오류로 내용이 다 사라짐) — 원인을 보여주고 다시 불러오기 버튼
+  ;(function blankGuard() {
+    const errs = []
+    window.addEventListener('error', (e) => { errs.push(String((e && (e.error && e.error.stack || e.message)) || e).slice(0, 600)); if (errs.length > 5) errs.shift() }, true)
+    window.addEventListener('unhandledrejection', (e) => { const r = e && e.reason; errs.push(String((r && (r.stack || r.message)) || r).slice(0, 600)); if (errs.length > 5) errs.shift() })
+    let seen = false, blankSince = 0
+    setInterval(() => {
+      if (!document.body || document.getElementById('__ediBlank')) return
+      let len = 0
+      for (const el of document.body.children) { if (el.id && el.id.startsWith('__edi')) continue; len += (el.innerText || '').trim().length; if (len > 40) break }
+      if (len > 40) { seen = true; blankSince = 0; return }
+      if (!seen) return
+      if (!blankSince) { blankSince = Date.now(); return }
+      if (Date.now() - blankSince < 3000) return
+      const d = document.createElement('div'); d.id = '__ediBlank'
+      d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#fff;font:14px/1.6 "Segoe UI","Malgun Gothic",sans-serif;color:#111'
+      d.innerHTML = '<div style="max-width:560px;padding:20px;text-align:center"><div style="font-size:18px;font-weight:800">스푼 화면이 멈췄어요</div><div style="color:#64748b;margin-top:6px">다시 불러오면 돌아와요. 아래 내용을 캡처해서 보내주시면 원인을 고칠게요.</div><button id="__ediBlankGo" style="margin-top:14px;padding:10px 22px;border-radius:10px;border:none;background:#db2777;color:#fff;font:inherit;font-weight:800;cursor:pointer">다시 불러오기</button><pre id="__ediBlankErr" style="text-align:left;white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f8fafc;border-radius:8px;padding:8px;margin-top:14px;max-height:40vh;overflow:auto"></pre></div>'
+      document.body.appendChild(d)
+      d.querySelector('#__ediBlankErr').textContent = errs.length ? errs.join('\n\n') : '(오류 내용이 안 잡혔어요 — 다운로드 › 에디냥_방송창_오류.txt 를 보내주세요)'
+      d.querySelector('#__ediBlankGo').onclick = () => location.reload()
+    }, 1000)
+  })()
+
   // 🗑️ 떠 있는 보라색 "🎙️ 방송하기" 버튼은 없앰 (방송하기는 왼쪽 고정 화면 · 위쪽 메뉴 바로가기 · 에디냥 창에서 열어요)
   const SHOW_FLOAT_BTN = false
   function mount() {

@@ -220,6 +220,26 @@ function openBroadcastWin() {
   try { recordPlayRequests(bcastWin) } catch (_) {}
   bcastWin.loadURL(SPOON_URL)
   bcastWin.on('page-title-updated', (e) => { e.preventDefault() })
+  // 🩺 방송 창이 하얗게 멈출 때 원인 기록 (다운로드 › 에디냥_방송창_오류.txt)
+  //    · 스푼 화면 오류(콘솔 빨간 글씨) · 방송 창 자체가 죽은 경우(render-process-gone) 둘 다 남겨요
+  const bcastErrLog = (line) => {
+    try {
+      const f = path.join(app.getPath('downloads'), '에디냥_방송창_오류.txt')
+      let old = ''; try { old = fs.readFileSync(f, 'utf-8') } catch (_) {}
+      fs.writeFileSync(f, (old + `[${new Date().toLocaleString('ko-KR')}] ${line}\n`).slice(-60000), 'utf-8')
+    } catch (_) {}
+  }
+  bcastWin.webContents.on('console-message', (e, level, message, line, sourceId) => {
+    const lv = typeof level === 'number' ? level : (e && e.level === 'error' ? 3 : 0)
+    const msg = typeof message === 'string' ? message : (e && e.message) || ''
+    if (lv >= 3) bcastErrLog(`스푼 화면 오류: ${String(msg).slice(0, 2000)} (${sourceId || (e && e.sourceId) || ''}:${line || (e && e.lineNumber) || ''})`)
+  })
+  bcastWin.webContents.on('render-process-gone', async (e, d) => {
+    bcastErrLog(`방송 창이 멈췄어요: ${d && d.reason} (코드 ${d && d.exitCode})`)
+    if (!alive(bcastWin)) return
+    const { response } = await dialog.showMessageBox(bcastWin, { type: 'warning', buttons: ['다시 불러오기', '그대로 두기'], defaultId: 0, cancelId: 1, message: `방송 창이 멈췄어요 (${d && d.reason}).\n다시 불러올까요? 원인은 다운로드 › 에디냥_방송창_오류.txt 에 남겼어요.`, noLink: true })
+    if (response === 0 && alive(bcastWin)) bcastWin.webContents.reload()
+  })
   // 스푼 웹 안에서 새 창으로 여는 링크는 같은 창에서 (스푼 외 주소는 기본 브라우저로)
   // 스푼 로그인(카카오·구글·네이버·애플 등)은 작은 팝업 창을 열어서 진행하고, 끝나면 팝업이 스스로 닫힌다.
   // ⚠️ 예전엔 이 팝업 주소를 방송 창 자체에 열어서, 로그인이 끝나 팝업이 닫힐 때 방송 창까지 닫혀버렸다.
