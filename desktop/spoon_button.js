@@ -539,13 +539,37 @@
     const box = document.getElementById('__ediPlay'), out = document.getElementById('__ediPlayOut'); if (!box || !out) return
     box.querySelectorAll('button[data-k]').forEach((b) => { const on = b.dataset.k === kind; b.style.background = on ? '#fdf2f8' : '#f8fafc'; b.style.borderColor = on ? '#f9a8d4' : '#e5e7eb' })
     clearInterval(playTimer); playTimer = null
-    if (kind === 'poll') { out.innerHTML = '<div style="color:#64748b">○ 투표는 준비 중이에요 — 스푼 투표 요청 형식을 확인하면 붙일게요</div>'; return }
+    if (kind === 'poll') {
+      out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
+      const loadP = () => { if (ipc) ipc.send('bcast:poll', {}) }
+      loadP(); playTimer = setInterval(loadP, 5000) // 열어둔 동안 5초마다 득표 갱신
+      return
+    }
     if (kind === 'livegame') { out.innerHTML = '<div style="color:#64748b">○ 라이브게임은 준비 중이에요</div>'; return }
     out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
     const load = () => { if (ipc) ipc.send('bcast:mailbox', {}) }
     load(); playTimer = setInterval(load, 8000) // 열어둔 동안 8초마다 새 사연 확인
   }
   const ago = (t) => { const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000); return s < 60 ? '방금' : s < 3600 ? Math.floor(s / 60) + '분 전' : Math.floor(s / 3600) + '시간 전' }
+  // 📊 투표 — 스푼이 주는 값 이름이 아직 확실하지 않아서 여러 이름을 다 받아보고, 못 읽으면 원래 내용을 작게 보여줘요
+  window.__ediPoll = (r) => {
+    const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'poll') return
+    const btn = 'padding:9px;border-radius:10px;border:1px solid #fbcfe8;background:#fdf2f8;font-weight:700;cursor:pointer;flex:1'
+    const refresh = `<div style="display:flex;gap:6px;margin-top:8px"><button id="__plRef" style="${btn}">새로고침</button></div>`
+    if (!r || (r.error && !r.poll)) out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>` + refresh
+    else if (!r.poll || !r.poll.id || /END|CLOSE|FINISH/i.test(r.poll.command || '')) out.innerHTML = `<div style="font-weight:700">○ 진행 중인 투표 없음</div><div style="color:#64748b;font-size:12px;margin-top:2px">스푼 앱에서 투표를 열면 여기에 득표가 보여요</div>` + refresh
+    else {
+      const d = r.detail || {}
+      const raw = d.options || d.poll_options || d.pollOptions || d.items || d.choices || d.selects || r.poll.options || []
+      const pick = (o, ks) => { for (const k of ks) if (o && o[k] != null && o[k] !== '') return o[k]; return null }
+      const opts = (Array.isArray(raw) ? raw : []).map((o, i) => typeof o === 'string' ? { label: o, n: 0 } : { label: String(pick(o, ['title', 'name', 'text', 'content', 'option', 'label']) || ('선택지 ' + (i + 1))), n: Number(pick(o, ['count', 'vote_count', 'voteCount', 'select_count', 'selectCount', 'total', 'votes'])) || 0 })
+      const total = Number(pick(d, ['total_count', 'totalCount', 'total'])) || r.poll.total || opts.reduce((t, o) => t + o.n, 0)
+      out.innerHTML = `<div style="font-weight:700">● ${esc(pick(d, ['title', 'poll_title']) || r.poll.title || '투표')} <span style="color:#db2777">${total}표</span></div>` + refresh +
+        (opts.length ? `<div style="margin-top:8px">${opts.map((o) => { const pct = total ? Math.round(o.n / total * 100) : 0; return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><b>${esc(o.label)}</b><span style="color:#64748b">${o.n}표 · ${pct}%</span></div><div style="height:8px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f472b6,#a78bfa)"></div></div></div>` }).join('')}</div>`
+          : `<div style="color:#64748b;font-size:12px;margin-top:8px">선택지를 아직 못 읽었어요${r.error ? ' (' + esc(r.error) + ')' : ''}</div>${r.detail ? `<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#f8fafc;border-radius:6px;padding:6px;max-height:140px;overflow:auto;margin-top:6px">${esc(JSON.stringify(r.detail, null, 1).slice(0, 2000))}</pre>` : ''}`)
+    }
+    const rf = document.getElementById('__plRef'); if (rf) rf.onclick = () => { if (ipc) ipc.send('bcast:poll', {}) }
+  }
   window.__ediMailbox = (r) => {
     const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'mailbox') return
     const btn = 'padding:9px;border-radius:10px;border:1px solid #fbcfe8;background:#fdf2f8;font-weight:700;cursor:pointer;flex:1'

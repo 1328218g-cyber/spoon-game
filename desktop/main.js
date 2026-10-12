@@ -439,6 +439,28 @@ ipcMain.on('bcast:mailbox', async (e) => {
   } catch (err) { toSpoon('__ediMailbox', { error: err.message || String(err) }) }
 })
 
+// 📊 스푼 투표 — 투표 번호는 LivePlayPoll 이벤트(에디냥 봇 → /status), 선택지·득표는 GET /play/poll/{번호}/ (방송 창 DJ 로그인)
+ipcMain.on('bcast:poll', async (e) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  try {
+    const st = await ediApi('/status')
+    if (!st || !st.isConnected) return toSpoon('__ediPoll', { error: '에디냥 봇이 방에 들어와 있어야 투표를 볼 수 있어요' })
+    const pl = st.poll
+    if (!pl || !pl.id) return toSpoon('__ediPoll', { poll: null })
+    let detail = null, err = ''
+    const tok = await spoonToken()
+    if (tok) {
+      try {
+        const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 6000)
+        const r = await session.fromPartition(SPOON_PARTITION).fetch(`https://kr-api.spooncast.net/play/poll/${encodeURIComponent(pl.id)}/`, { headers: { Authorization: 'Bearer ' + tok, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, signal: ac.signal })
+        clearTimeout(to)
+        if (r.ok) { const j = await r.json(); detail = Array.isArray(j.results) ? j.results[0] : j } else err = `스푼 응답 ${r.status}`
+      } catch (x) { err = x.message || String(x) }
+    }
+    toSpoon('__ediPoll', { poll: pl, detail, error: detail ? '' : err })
+  } catch (err) { toSpoon('__ediPoll', { error: err.message || String(err) }) }
+})
+
 ipcMain.on('bcast:capture', async (e, r) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
   const wc = bcastWin.webContents
