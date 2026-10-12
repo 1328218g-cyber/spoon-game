@@ -127,6 +127,41 @@ function hookEngine(win) {
 }
 
 const bcastBoundsFile = () => path.join(app.getPath('userData'), 'bcast-window.json')
+// 📝 스푼 투표·편지함 요청 기록 — 방송 창(스푼 웹)에서 DJ가 스푼 화면의 투표·편지함 버튼을 쓰면, 스푼이 주고받는
+//    /play/ 요청(방식·주소·보낸 값·받은 값)을 다운로드 폴더 '에디냥_스푼놀이_기록.json' 에 남긴다
+//    (로그인 토큰 같은 헤더는 안 남김) → 이걸 보고 PC에서 투표·편지함 시작/종료 버튼을 붙인다
+function recordPlayRequests(win) {
+  const dbg = win.webContents.debugger
+  const reqs = new Map()
+  const file = () => path.join(app.getPath('downloads'), '에디냥_스푼놀이_기록.json')
+  const save = (entry) => {
+    try {
+      let log = []; try { log = JSON.parse(fs.readFileSync(file(), 'utf-8')) } catch (_) {}
+      log.push(entry); fs.writeFileSync(file(), JSON.stringify(log.slice(-200), null, 1), 'utf-8')
+    } catch (_) {}
+  }
+  const attach = () => { try { if (!dbg.isAttached()) { dbg.attach('1.3'); dbg.sendCommand('Network.enable').catch(() => {}) } } catch (_) {} }
+  win.webContents.on('did-start-loading', attach)
+  attach()
+  dbg.on('message', async (_e, method, p) => {
+    try {
+      if (method === 'Network.requestWillBeSent') {
+        const u = String(p.request && p.request.url || '')
+        if (!/^https:\/\/kr-api\.spooncast\.net\/play\//.test(u) || p.request.method === 'OPTIONS') return
+        reqs.set(p.requestId, { at: new Date().toISOString(), method: p.request.method, url: u, body: p.request.postData || null })
+      } else if (method === 'Network.responseReceived') {
+        const r = reqs.get(p.requestId); if (r) r.status = p.response && p.response.status
+      } else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+        const r = reqs.get(p.requestId); if (!r) return
+        reqs.delete(p.requestId)
+        if (method === 'Network.loadingFinished') { try { const b = await dbg.sendCommand('Network.getResponseBody', { requestId: p.requestId }); r.response = String(b.body || '').slice(0, 4000) } catch (_) {} }
+        else r.error = p.errorText
+        if (r.method === 'GET' && /\/messages\/|\/my\/|\/current\//.test(r.url) && r.status === 200) return // 자주 오는 목록 조회는 빼고
+        save(r)
+      }
+    } catch (_) {}
+  })
+}
 function openBroadcastWin() {
   if (alive(bcastWin)) {
     if (bcastWin.isMinimized()) bcastWin.restore()
@@ -159,6 +194,7 @@ function openBroadcastWin() {
   bcastWin.setMenuBarVisibility(false)
   hookEngine(bcastWin)
   setupLoopback(bcastWin.webContents.session)
+  try { recordPlayRequests(bcastWin) } catch (_) {}
   bcastWin.loadURL(SPOON_URL)
   bcastWin.on('page-title-updated', (e) => { e.preventDefault() })
   // 스푼 웹 안에서 새 창으로 여는 링크는 같은 창에서 (스푼 외 주소는 기본 브라우저로)
