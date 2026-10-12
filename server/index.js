@@ -25172,6 +25172,7 @@ app.get('/status', auth.requireAuth, (req, res) => {
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
+    liveId: room.isConnected ? String(room.autoJoinedFor || '') : '', // 🎙️ PC 방송 창(⚙️ 방송 설정)이 지금 방송 번호를 알 수 있게
     usingOwnAccount: ownAccountOn(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
   })
 })

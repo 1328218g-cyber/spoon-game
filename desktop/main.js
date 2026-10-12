@@ -396,12 +396,16 @@ ipcMain.on('bcast:play', async (e, m) => {
     const ss = session.fromPartition(SPOON_PARTITION)
     const at = (await ss.cookies.get({ name: 'spoon_at_kr' })).find((c) => c.value)
     if (!at) return reply({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
+    // 방송 번호 — 방송 창 주소에 있으면 그걸, 없으면(DJ 방송 화면은 주소에 번호가 없음) 에디냥 봇이 들어가 있는 방 번호
     const lm = String(bcastWin.webContents.getURL()).match(/\/live\/(\d+)/)
-    const liveId = lm ? lm[1] : ''
+    let liveId = lm ? lm[1] : ''
+    if (!liveId) { try { const st = await ediApi('/status'); if (st && st.liveId) liveId = String(st.liveId) } catch (_) {} }
+    if (!liveId) return reply({ error: '방송 번호를 못 찾았어요 — 방송을 켜고 에디냥 봇이 방에 들어온 뒤에 다시 눌러주세요' })
     const q = liveId ? `?live_id=${liveId}` : ''
+    // 조회 주소 후보들 (/play/mailbox/ 자체는 GET 이 안 되는 '만들기(POST)' 주소로 확인됨 → 조회에서 뺌)
     const paths = kind === 'poll'
-      ? ['/play/poll/' + q, liveId ? `/play/${liveId}/status/${q}` : null]
-      : ['/play/mailbox/' + q, '/play/mailbox/current/' + q, '/play/mailbox/messages/' + q, '/play/mailbox/my/' + q]
+      ? [`/play/${liveId}/status/${q}`, '/play/poll/' + q, `/play/poll/${liveId}/`, `/play/poll/current/${q}`]
+      : [`/play/${liveId}/status/${q}`, '/play/mailbox/current/' + q, `/play/mailbox/${liveId}/`, '/play/mailbox/messages/' + q, '/play/mailbox/my/' + q]
     const results = []
     for (const p of paths.filter(Boolean)) {
       let status = 0, body = ''
