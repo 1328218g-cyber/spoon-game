@@ -550,6 +550,72 @@
     out.innerHTML = `<b>${name}</b> <span style="color:#94a3b8">(방송 ${esc(r.liveId || '?')})</span>` + r.results.map((x) => `<div style="margin-top:8px;border-top:1px solid #f1f5f9;padding-top:6px"><div style="font-weight:700;color:${x.status >= 200 && x.status < 300 ? '#16a34a' : '#dc2626'}">${x.status} <span style="color:#64748b;font-weight:400">${esc(x.path)}</span></div><pre style="white-space:pre-wrap;word-break:break-all;margin:4px 0 0;font-size:11px;background:#f8fafc;border-radius:6px;padding:6px;max-height:160px;overflow:auto">${esc(x.body)}</pre></div>`).join('') + `<div style="margin-top:8px;color:#94a3b8;font-size:11px">지금은 조회만 해요 · 결과는 <b>다운로드 › 에디냥_스푼놀이_조회.json</b> 에도 저장돼요</div>`
   }
 
+  // 🎁 청취자 목록에서 시청자를 누르면 복권 · 룰렛권을 바로 지급 (에디냥 "실시간 지급"과 같은 기능)
+  //  · 메뉴 맨 아래 "스푼 프로필 보기"를 누르면 원래 스푼 동작(프로필 창)으로 넘어가요
+  let grantBypass = false
+  function listenerRow(t) {
+    if (!t || !t.closest || t.closest('#__ediGrant,#__ediPlay,#__ediMenuBar')) return null
+    // 위로 올라가면서 "아바타 이미지 + 짧은 글자"를 가진 줄을 찾고, 그 줄이 "누적 N명/애칭온도"가 있는 청취자 목록 안인지 확인
+    let row = null
+    for (let el = t, i = 0; el && el !== document.body && i < 8; el = el.parentElement, i++) {
+      const r = el.getBoundingClientRect()
+      if (r.height >= 36 && r.height <= 120 && el.querySelector('img') && (el.textContent || '').trim().length <= 60) { row = el; break }
+    }
+    if (!row) return null
+    let inList = false
+    for (let el = row.parentElement, i = 0; el && el !== document.body && i < 6; el = el.parentElement, i++) {
+      if (/누적\s*\d+\s*명|애칭온도|현재\s*\d+\s*명/.test((el.textContent || '').slice(0, 300))) { inList = true; break }
+    }
+    if (!inList) return null
+    const lines = (row.innerText || '').split('\n').map((x) => x.trim()).filter((x) => x && !/°C|^\d+$|^(DJ|매니저|팬)$/.test(x))
+    return lines[0] ? { row, nick: lines[0] } : null
+  }
+  document.addEventListener('click', (e) => {
+    if (grantBypass || !ipc) return
+    const hit = listenerRow(e.target)
+    if (!hit) return
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
+    openGrant(hit)
+  }, true)
+  function openGrant(hit) {
+    let box = document.getElementById('__ediGrant'); if (box) box.remove()
+    box = document.createElement('div'); box.id = '__ediGrant'
+    const r = hit.row.getBoundingClientRect(), w = Math.min(300, window.innerWidth - 16)
+    box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(Math.min(r.bottom + 4, window.innerHeight - 300))}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.left)))}px;width:${w}px;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800">🎁 <span style="flex:1;margin-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(hit.nick)}</span><span id="__ediGrantX" style="cursor:pointer;padding:0 4px">✕</span></div><div id="__ediGrantBody" style="margin-top:8px;color:#64748b">⏳ 불러오는 중…</div>`
+    document.body.appendChild(box)
+    box.querySelector('#__ediGrantX').onclick = () => box.remove()
+    box._row = hit.row
+    ipc.send('bcast:grant-menu', { nick: hit.nick })
+  }
+  window.__ediGrantMenu = (m) => {
+    const box = document.getElementById('__ediGrant'), body = document.getElementById('__ediGrantBody'); if (!box || !body) return
+    const prof = `<div style="margin-top:10px;text-align:right"><span id="__ediGrantProf" style="cursor:pointer;color:#7c3aed;font-size:12px">스푼 프로필 보기 ›</span></div>`
+    const bindProf = () => { const p = document.getElementById('__ediGrantProf'); if (p) p.onclick = () => { const row = box._row; box.remove(); grantBypass = true; try { row && row.click() } finally { grantBypass = false } } }
+    if (!m || m.error) { body.innerHTML = `<div style="color:#dc2626">❌ ${esc((m && m.error) || '실패')}</div>` + prof; bindProf(); return }
+    const btn = 'padding:7px 10px;border-radius:9px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer'
+    const num = 'width:52px;padding:6px;border:1px solid #e5e7eb;border-radius:8px;text-align:center'
+    body.innerHTML = `<div style="color:#94a3b8;font-size:11px">@${esc(m.tag)}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:8px"><b style="flex:1">🎫 복권</b><input id="__gL" type="number" min="1" value="1" style="${num}"><button data-g="lotto" style="${btn}">지급</button></div>
+      ${(m.roulettes || []).length ? `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><select id="__gRi" style="flex:1;min-width:0;padding:6px;border:1px solid #e5e7eb;border-radius:8px">${m.roulettes.map((n, i) => `<option value="${i + 1}">🎡 룰렛${i + 1}${n ? ' ' + esc(n) : ''}</option>`).join('')}</select><input id="__gR" type="number" min="1" value="1" style="${num}"><button data-g="roulette" style="${btn}">지급</button></div>` : '<div style="margin-top:8px;color:#94a3b8;font-size:12px">🎡 등록된 룰렛이 없어요</div>'}
+      <div id="__gOut" style="margin-top:8px;font-size:12px;color:#16a34a"></div>` + prof
+    bindProf()
+    body.querySelectorAll('button[data-g]').forEach((b) => {
+      b.onclick = () => {
+        const kind = b.dataset.g
+        const amount = Math.max(1, Math.floor(Number(document.getElementById(kind === 'lotto' ? '__gL' : '__gR').value) || 1))
+        const idx = kind === 'roulette' ? Number(document.getElementById('__gRi').value) : 0
+        document.getElementById('__gOut').style.color = '#64748b'; document.getElementById('__gOut').textContent = '⏳ 지급 중…'
+        ipc.send('bcast:grant', { kind, tag: m.tag, nick: m.nick, idx, amount })
+      }
+    })
+  }
+  window.__ediGrantDone = (r) => {
+    const out = document.getElementById('__gOut'); if (!out) return
+    out.style.color = r && r.ok ? '#16a34a' : '#dc2626'
+    out.textContent = r && r.ok ? '✅ ' + r.msg : '❌ ' + ((r && r.error) || '실패')
+  }
+
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null

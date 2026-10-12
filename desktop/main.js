@@ -346,6 +346,45 @@ ipcMain.on('bcast:gift', async (e, d) => {
 })
 // 📸 방송 화면 캡처 — 방송 창 가운데 칸(선물 애니메이션 포함)을 사진으로: 사진\에디냥 캡처 폴더에 저장 + 클립보드에 복사
 const captureDir = () => path.join(app.getPath('pictures'), '에디냥 캡처')
+// 🎁 방송 창 청취자 목록에서 시청자를 누르면 → 복권 · 룰렛권 바로 지급 (에디냥 "실시간 지급"과 같은 서버 기능을 PC가 대신 호출)
+async function ediApi(p, body) {
+  const token = await appDjToken()
+  if (!token) throw new Error('에디냥 창에 로그인해주세요')
+  const r = await net.fetch(SERVER + p, body ? { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(body) } : { headers: { Authorization: 'Bearer ' + token } })
+  return r.json()
+}
+const toSpoon = (fn, arg) => { try { if (alive(bcastWin)) bcastWin.webContents.executeJavaScript(`window.${fn} && window.${fn}(${JSON.stringify(arg)})`, true).catch(() => {}) } catch (_) {} }
+ipcMain.on('bcast:grant-menu', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const nick = String((m && m.nick) || '').trim()
+  try {
+    const d = await ediApi('/live/members')
+    if (!d || !d.success) return toSpoon('__ediGrantMenu', { error: (d && d.error) || '접속자 목록을 못 불러왔어요' })
+    const low = nick.toLowerCase()
+    const u = (d.members || []).find((x) => (x.nickname || '') === nick) || (d.members || []).find((x) => String(x.nickname || '').trim().toLowerCase() === low)
+    if (!u || !u.tag) return toSpoon('__ediGrantMenu', { error: `'${nick}'님을 지금 접속자에서 못 찾았어요 (잠시 후 다시)` })
+    let roulettes = []
+    try { if (alive(appWin)) roulettes = await appWin.webContents.executeJavaScript("typeof rouletteData!=='undefined'&&rouletteData.list?rouletteData.list.map(r=>r.name||''):[]", true) } catch (_) {}
+    toSpoon('__ediGrantMenu', { nick: u.nickname || nick, tag: u.tag, roulettes })
+  } catch (err) { toSpoon('__ediGrantMenu', { error: err.message || String(err) }) }
+})
+ipcMain.on('bcast:grant', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  const tag = String((m && m.tag) || '').trim(), nick = String((m && m.nick) || '').trim()
+  const amount = Math.max(1, Math.min(9999, Math.floor(Number(m && m.amount) || 1)))
+  try {
+    if (!tag) throw new Error('고유닉이 없어요')
+    if (m.kind === 'lotto') {
+      const d = await ediApi('/activity/grant-lotto', { target: tag, amount, nickname: nick })
+      toSpoon('__ediGrantDone', d && d.success ? { ok: true, msg: `복권 ${amount}장 지급 (보유 ${d.lotto}장)` } : { error: (d && d.error) || '실패' })
+    } else if (m.kind === 'roulette') {
+      const idx = Math.max(1, Math.floor(Number(m.idx) || 1))
+      const d = await ediApi('/roulette/history/' + encodeURIComponent(tag) + '/coupon', { idx, delta: amount, nickname: nick })
+      toSpoon('__ediGrantDone', d && d.success ? { ok: true, msg: `룰렛${idx} ${amount}장 지급 (보유 ${(d.coupons && d.coupons[idx]) || amount}장)` } : { error: (d && d.error) || '실패' })
+    }
+  } catch (err) { toSpoon('__ediGrantDone', { error: err.message || String(err) }) }
+})
+
 // ⚙️ 방송 설정(투표함·편지함) — 방송 창의 DJ 로그인으로 스푼에 "조회"만 해서 결과를 보여주고 기록해둔다
 //    (요청 형식이 확인된 게 주소뿐이라 지금은 GET 만 · 결과를 보고 만들기/보내기를 붙일 예정)
 ipcMain.on('bcast:play', async (e, m) => {
