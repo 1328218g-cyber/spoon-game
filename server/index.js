@@ -767,6 +767,7 @@ app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+let lastStatusFail = null // 🔗 에디냥 연동 진단용 — 마지막으로 방송 상태 조회가 실패한 이유
 async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -785,12 +786,13 @@ async function fetchUserStatusByTag(tag, djId = null) {
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '')
       console.log(`[방송상태조회:${cleanTag}] 응답 ${res.status} (실패) — 몸통:`, bodyText.slice(0, 300).replace(/\s+/g, ' '))
+      lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 응답 ${res.status}` }
       return null
     }
     const json = await res.json()
     const results = json.results || []
     const match = results.find(u => u.tag === cleanTag)
-    if (!match || !match.id) return null
+    if (!match || !match.id) { lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${results.length}명)` }; return null }
     return {
       id: match.id,
       tag: match.tag,
@@ -804,6 +806,7 @@ async function fetchUserStatusByTag(tag, djId = null) {
     // e.cause에 따로 담아둔다. e.message만 찍으면 전부 "fetch failed"로 뭉뚱그려져서 원인을
     // 구분할 수 없었다 — 이제 cause까지 같이 남긴다.
     console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
+    lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 요청 실패: ${e.message}${e.cause ? ' (' + (e.cause.code || e.cause.message || '') + ')' : ''}` }
     return null
   }
 }
@@ -1038,21 +1041,36 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
 // DJ 고유닉(또는 DJ 닉네임)으로 지금 켜진 방을 찾아 청취자 명단(닉네임 + 고유닉)을 돌려준다.
 // 환경변수 EDINYANG_LINK_KEY 가 있어야 동작하고, 그 키를 아는 에디냥 서버만 쓸 수 있다.
 const edinyangLinkCache = new Map() // dj -> { at, data }
+// 방 찾기 결과는 잠깐 기억해요 (찾음 45초 · 못 찾음 20초) — 고유닉 연동·선물 연동이 같이 물어봐도 스푼 검색은 한 번만
+const edinyangLiveCache = new Map() // tag|nick -> { at, v, why }
 async function findLiveIdForEdinyang(djTag, djNick) {
+  const ck = String(djTag || '') + '\u0001' + String(djNick || '')
+  const hit = edinyangLiveCache.get(ck)
+  if (hit && Date.now() - hit.at < (hit.v ? 45000 : 20000)) { findLiveIdForEdinyang.why = hit.why; return hit.v }
+  const v = await findLiveIdForEdinyangRaw(djTag, djNick)
+  edinyangLiveCache.set(ck, { at: Date.now(), v, why: findLiveIdForEdinyang.why })
+  if (edinyangLiveCache.size > 500) edinyangLiveCache.delete(edinyangLiveCache.keys().next().value)
+  return v
+}
+async function findLiveIdForEdinyangRaw(djTag, djNick) {
+  findLiveIdForEdinyang.why = ''
+  lastStatusFail = null
   const st = djTag ? await fetchUserStatusByTag(djTag) : null
   if (st && st.is_live && st.current_live_id) return { liveId: st.current_live_id, djPhoto: st.photoUrl || '' }
+  let why = st ? `@${st.tag} 방송 중 아님` : (lastStatusFail ? lastStatusFail.msg : (djTag ? `@${djTag} 조회 실패` : ''))
   const nick = String(djNick || '').trim()
-  if (!nick) return null
+  if (!nick) { findLiveIdForEdinyang.why = why; return null }
   try {
     const res = await spoonFetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(nick)}&page_size=30`, {
       headers: { 'Accept': 'application/json', 'User-Agent': CHROME_UA, 'X-Client-App': 'sopia-web', 'X-Client-Version': '1.0.0' }
     })
+    if (!res.ok) { findLiveIdForEdinyang.why = `${why} · 닉네임 검색 응답 ${res.status}`; return null }
     const json = await res.json()
     const live = (json.results || []).filter(u => u.nickname === nick && u.is_live && u.current_live_id)
-    if (live.length !== 1) return null
+    if (live.length !== 1) { findLiveIdForEdinyang.why = `${why} · 닉네임 "${nick}" 방송 ${live.length}개`; return null }
     const u = live[0]
     return { liveId: u.current_live_id, djPhoto: u.profile_url || u.profileUrl || u.image_url || u.imageUrl || u.thumbnail_url || '' }
-  } catch (e) { return null }
+  } catch (e) { findLiveIdForEdinyang.why = `${why} · 닉네임 검색 실패: ${e.message}`; return null }
 }
 app.get('/internal/edinyang/live-members', async (req, res) => {
   const key = process.env.EDINYANG_LINK_KEY || ''
@@ -1066,7 +1084,7 @@ app.get('/internal/edinyang/live-members', async (req, res) => {
   try {
     const found = await findLiveIdForEdinyang(dj, djNick)
     const liveId = found && found.liveId
-    if (!liveId) { const data = { success: true, live: false, members: [] }; edinyangLinkCache.set(ck, { at: Date.now(), data }); return res.json(data) }
+    if (!liveId) { const data = { success: true, live: false, members: [], why: findLiveIdForEdinyang.why || '' }; edinyangLinkCache.set(ck, { at: Date.now(), data }); return res.json(data) }
     const token = tokenManager.getAccessToken(tokenDjIdFor(dj || SHARED_TOKEN_DJID)) || tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const members = await fetchLiveMembers(liveId, token, 5)
     // img: 프로필 사진 (에디냥 선물카드 갤러리·시청자 목록에 써요) / djPhoto: DJ 프로필 사진

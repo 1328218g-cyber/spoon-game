@@ -112,6 +112,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
       w.liveAt = Date.now()
       const liveId = found && found.liveId ? String(found.liveId) : ''
       if (found && found.djPhoto) w.djPhoto = found.djPhoto
+      w.why = liveId ? '' : (findLiveIdForEdinyang.why || '방송을 못 찾음')
       if (liveId !== w.liveId) { closeWs(w); w.liveId = liveId; w.tries = 0; w.retryAt = 0; if (w.tagCache) w.tagCache.clear() }
     }
     if (!w.liveId) return
@@ -154,7 +155,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
     ensure(w).catch(() => {})
     res.json({
       success: true, account: ACCOUNT, live: !!w.liveId, liveId: w.liveId,
-      connected: !!(w.liveId && (w.connected || w.shared)), via: w.shared ? 'room' : 'own', error: w.error || '',
+      connected: !!(w.liveId && (w.connected || w.shared)), via: w.shared ? 'room' : 'own', error: w.liveId ? (w.error || '') : (w.why || ''),
       djPhoto: w.djPhoto || '', seq: w.seq,
       // since 가 0 이면 처음 묻는 거라 예전 선물은 안 줘요 (지금 번호만 알려줘요)
       gifts: since ? readyGifts(w, since) : [],
