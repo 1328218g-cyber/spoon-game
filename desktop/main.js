@@ -166,8 +166,6 @@ function recordPlayRequests(win) {
       if (method === 'Network.webSocketClosed') { spoonWsIds.delete(p.requestId); return }
       if (method === 'Network.webSocketFrameReceived') {
         if (botAcctMode === 'dj' && spoonWsIds.has(p.requestId)) { const d = String((p.response && p.response.payloadData) || ''); if (d.includes('"MESSAGE"')) queueRoomFrame(d) }
-        // 🎮 라이브게임 소식(방에 오는 웹소켓)도 기록 — 모양을 알아야 수락/번호 고르기를 붙일 수 있어요
-        if (spoonWsIds.has(p.requestId)) { const d = String((p.response && p.response.payloadData) || ''); if (/game/i.test(d)) save({ at: new Date().toISOString(), ws: d.slice(0, 4000) }) }
         return
       }
       if (method === 'Network.requestWillBeSent') {

@@ -524,7 +524,7 @@
     timer = setTimeout(finish, 3000)
   }
 
-  // 📦 컨텐츠 — 오른쪽 "실시간 랭킹" 탭을 "컨텐츠"로 바꾸고, 누르면 그 아래 칸에 📊 투표함 · ✉️ 편지함 · 🎮 라이브게임
+  // 📦 컨텐츠 — 오른쪽 "실시간 랭킹" 탭을 "컨텐츠"로 바꾸고, 누르면 그 아래 칸에 📊 투표함 · ✉️ 편지함 · ⚡ 퀵 메시지
   //  (스푼 PC 웹에는 없는 모바일 기능 · 투표 번호/편지함 번호는 스푼 이벤트를 에디냥 봇이 받아서 알려줌)
   let playTimer = null, playKind = 'poll', contentsTab = null
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -570,7 +570,7 @@
     // 오른쪽 칸 안에 넣고 z-index도 낮게 — 스푼의 투표 결과 같은 팝업이 위에 보이도록 (예전엔 맨 위에 떠서 팝업을 가렸어요)
     box.style.cssText = `position:fixed;z-index:5;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
     const chip = 'padding:7px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;cursor:pointer;background:#fff;white-space:nowrap'
-    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['quick', '⚡ 퀵 메시지'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
+    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['quick', '⚡ 퀵 메시지']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
     ;(r.col && r.col !== document.documentElement ? r.col : document.body).appendChild(box); placeContents()
     box.querySelectorAll('[data-k]').forEach((c) => { c.onclick = () => playOpen(c.dataset.k) })
     box.querySelector('#__ctRef').onclick = () => playOpen(playKind)
@@ -582,7 +582,6 @@
     box.querySelectorAll('[data-k]').forEach((c) => { const on = c.dataset.k === kind; c.style.background = on ? '#111' : '#fff'; c.style.color = on ? '#fff' : '#374151'; c.style.borderColor = on ? '#111' : '#d1d5db' })
     clearInterval(playTimer); playTimer = null
     if (kind === 'quick') return quickDraw(false)
-    if (kind === 'livegame') { out.innerHTML = '<div style="font-weight:700">○ 라이브게임</div><div style="color:#64748b;font-size:12px">준비 중이에요</div>'; return }
     out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
     const ch = kind === 'poll' ? 'bcast:poll' : 'bcast:mailbox'
     const load = () => { if (ipc) ipc.send(ch, {}) }
