@@ -646,8 +646,8 @@
     out.querySelector('#__mEnd').onclick = () => sendPlay({ act: 'mailbox-end', id: r.mailbox.id })
     // 사연 공개 — 시청자 화면에 이 사연이 떠요 (모바일 DJ의 "공개"와 같은 기능)
     out.querySelectorAll('button[data-mid]').forEach((b) => { b.onclick = () => { const n = Number(b.dataset.mid); sendPlay({ act: 'mailbox-show', id: r.mailbox.id, msgId: Number.isFinite(n) ? n : b.dataset.mid }) } })
-    // 사연 하나 삭제 (한 번 더 물어봐요)
-    out.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => { if (!confirm('이 사연을 삭제할까요?')) return; const n = Number(b.dataset.del); sendPlay({ act: 'mailbox-remove', id: r.mailbox.id, msgId: Number.isFinite(n) ? n : b.dataset.del }) } })
+    // 사연 하나 삭제 — 한 번 누르면 "정말 삭제?"로 바뀌고, 3초 안에 한 번 더 누르면 삭제 (확인 창은 안 띄워요)
+    out.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => { if (!b.dataset.ok) { b.dataset.ok = '1'; b.textContent = '정말 삭제?'; b.style.background = '#fee2e2'; b.style.color = '#dc2626'; b.style.borderColor = '#fca5a5'; setTimeout(() => { if (b.isConnected) { delete b.dataset.ok; b.textContent = '삭제'; b.style.background = '#fff'; b.style.color = '#64748b'; b.style.borderColor = '#e5e7eb' } }, 3000); return } const n = Number(b.dataset.del); sendPlay({ act: 'mailbox-remove', id: r.mailbox.id, msgId: Number.isFinite(n) ? n : b.dataset.del }) } })
   }
   window.addEventListener('resize', placeContents)
 
