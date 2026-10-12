@@ -601,23 +601,41 @@ let lastStatusFail = null // 🔗 에디냥 연동 진단용 — 마지막으로
 async function fetchUserStatusByTag(tag) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
+  const want = cleanTag.toLowerCase()
   try {
-    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': CHROME_UA,
-        'X-Client-App': 'sopia-web',
-        'X-Client-Version': '1.0.0',
+    // 🔍 검색 결과 첫 페이지(20명)에 정확히 같은 고유닉이 없을 때가 있어서(비슷한 닉네임이 많으면 뒤로 밀림)
+    //    다음 페이지까지 최대 5페이지(100명) 찾아봐요. 고유닉은 대소문자 구분 없이 비교해요.
+    let url = `https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`
+    let match = null, seen = 0
+    for (let page = 0; url && page < 5 && !match; page++) {
+      const res = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': CHROME_UA,
+          'X-Client-App': 'sopia-web',
+          'X-Client-Version': '1.0.0',
+        }
+      })
+      // ⚠️ 예전엔 여기서 실패 원인을 전부 조용히 삼켜서(catch에서 그냥 null), 방송중인데 "방송 중이
+      // 아니에요"로 잘못 뜨는 게 진짜 오프라인인지 API 자체가 막힌 건지(IP 차단/레이트리밋 등)
+      // 로그로 구분이 안 됐다. res.ok가 아니면 무슨 응답인지 남긴다.
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => '')
+        console.log(`[방송상태조회:${cleanTag}] 응답 ${res.status} (실패) — 몸통:`, bodyText.slice(0, 300).replace(/\s+/g, ' '))
+        lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 응답 ${res.status}` }
+        return null
       }
-    })
-    if (!res.ok) {
-      lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 응답 ${res.status}` }
+      const json = await res.json()
+      const results = json.results || []
+      seen += results.length
+      match = results.find(u => String(u.tag || '').toLowerCase() === want) || null
+      url = typeof json.next === 'string' && json.next ? json.next : null
+    }
+    if (!match || !match.id) {
+      lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${seen}명)` }
+      console.log(`[방송상태조회:${cleanTag}] 검색 결과 ${seen}명 중에 같은 고유닉이 없어요`)
       return null
     }
-    const json = await res.json()
-    const results = json.results || []
-    const match = results.find(u => u.tag === cleanTag)
-    if (!match || !match.id) { lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${results.length}명)` }; return null }
     return {
       id: match.id,
       tag: match.tag,
@@ -627,7 +645,11 @@ async function fetchUserStatusByTag(tag) {
       photoUrl: match.profile_url || match.profileUrl || match.image_url || match.imageUrl || match.thumbnail_url || '',
     }
   } catch (e) {
-    lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 요청 실패: ${e.message}` }
+    // ⚠️ undici는 실제 원인(프록시 인증 실패/연결 거부/타임아웃 등)을 e.message가 아니라
+    // e.cause에 따로 담아둔다. e.message만 찍으면 전부 "fetch failed"로 뭉뚱그려져서 원인을
+    // 구분할 수 없었다 — 이제 cause까지 같이 남긴다.
+    console.log(`[방송상태조회:${cleanTag}] 요청 자체가 실패했어요:`, e.message, '| cause:', e.cause ? (e.cause.code || e.cause.message || e.cause) : '없음')
+    lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 요청 실패: ${e.message}${e.cause ? ' (' + (e.cause.code || e.cause.message || '') + ')' : ''}` }
     return null
   }
 }
