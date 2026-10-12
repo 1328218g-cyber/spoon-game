@@ -1040,7 +1040,7 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
 const edinyangLinkCache = new Map() // dj -> { at, data }
 async function findLiveIdForEdinyang(djTag, djNick) {
   const st = djTag ? await fetchUserStatusByTag(djTag) : null
-  if (st && st.is_live && st.current_live_id) return st.current_live_id
+  if (st && st.is_live && st.current_live_id) return { liveId: st.current_live_id, djPhoto: st.photoUrl || '' }
   const nick = String(djNick || '').trim()
   if (!nick) return null
   try {
@@ -1049,7 +1049,9 @@ async function findLiveIdForEdinyang(djTag, djNick) {
     })
     const json = await res.json()
     const live = (json.results || []).filter(u => u.nickname === nick && u.is_live && u.current_live_id)
-    return live.length === 1 ? live[0].current_live_id : null
+    if (live.length !== 1) return null
+    const u = live[0]
+    return { liveId: u.current_live_id, djPhoto: u.profile_url || u.profileUrl || u.image_url || u.imageUrl || u.thumbnail_url || '' }
   } catch (e) { return null }
 }
 app.get('/internal/edinyang/live-members', async (req, res) => {
@@ -1062,11 +1064,13 @@ app.get('/internal/edinyang/live-members', async (req, res) => {
   const hit = edinyangLinkCache.get(ck)
   if (hit && Date.now() - hit.at < 15000) return res.json(hit.data)
   try {
-    const liveId = await findLiveIdForEdinyang(dj, djNick)
+    const found = await findLiveIdForEdinyang(dj, djNick)
+    const liveId = found && found.liveId
     if (!liveId) { const data = { success: true, live: false, members: [] }; edinyangLinkCache.set(ck, { at: Date.now(), data }); return res.json(data) }
     const token = tokenManager.getAccessToken(tokenDjIdFor(dj || SHARED_TOKEN_DJID)) || tokenManager.getAccessToken(SHARED_TOKEN_DJID)
     const members = await fetchLiveMembers(liveId, token, 5)
-    const data = { success: true, live: true, liveId: String(liveId), members: members.filter(m => m.tag).map(m => ({ nickname: m.nickname || '', tag: m.tag })) }
+    // img: 프로필 사진 (에디냥 선물카드 갤러리·시청자 목록에 써요) / djPhoto: DJ 프로필 사진
+    const data = { success: true, live: true, liveId: String(liveId), djPhoto: found.djPhoto || '', members: members.filter(m => m.tag).map(m => ({ nickname: m.nickname || '', tag: m.tag, img: m.imgUrl || '' })) }
     edinyangLinkCache.set(ck, { at: Date.now(), data })
     if (edinyangLinkCache.size > 500) edinyangLinkCache.delete(edinyangLinkCache.keys().next().value)
     res.json(data)
