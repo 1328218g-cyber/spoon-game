@@ -498,17 +498,33 @@ ipcMain.on('bcast:play-act', async (e, m) => {
       url = `https://kr-api.spooncast.net/play/${m.act === 'poll-end' ? 'poll' : 'mailbox'}/${encodeURIComponent(m.id)}/`
       body = { live_id: liveId }
     } else return
-    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000)
-    const r = await session.fromPartition(SPOON_PARTITION).fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, body: JSON.stringify(body), signal: ac.signal })
-    clearTimeout(to)
-    const text = (await r.text()).slice(0, 3000)
-    // 기록 (다운로드 › 에디냥_스푼놀이_기록.json)
-    try {
-      const f = path.join(app.getPath('downloads'), '에디냥_스푼놀이_기록.json')
-      let log = []; try { log = JSON.parse(fs.readFileSync(f, 'utf-8')) } catch (_) {}
-      log.push({ at: new Date().toISOString(), from: 'edinyang', method, url, body: JSON.stringify(body), status: r.status, response: text })
-      fs.writeFileSync(f, JSON.stringify(log.slice(-200), null, 1), 'utf-8')
-    } catch (_) {}
+    const send = async (b) => {
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000)
+      const res = await session.fromPartition(SPOON_PARTITION).fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, body: JSON.stringify(b), signal: ac.signal })
+      clearTimeout(to)
+      const t = (await res.text()).slice(0, 3000)
+      // 기록 (다운로드 › 에디냥_스푼놀이_기록.json)
+      try {
+        const f = path.join(app.getPath('downloads'), '에디냥_스푼놀이_기록.json')
+        let log = []; try { log = JSON.parse(fs.readFileSync(f, 'utf-8')) } catch (_) {}
+        log.push({ at: new Date().toISOString(), from: 'edinyang', method, url, body: JSON.stringify(b), status: res.status, response: t })
+        fs.writeFileSync(f, JSON.stringify(log.slice(-200), null, 1), 'utf-8')
+      } catch (_) {}
+      return { r: res, text: t }
+    }
+    let { r, text } = await send(body)
+    // 📊 투표 만들기는 선택지 모양을 아직 몰라서 — 거절(400)되면 다른 모양으로 차례대로 다시 (받아주는 모양을 찾으면 그걸로)
+    if (m.act === 'poll-create' && r.status === 400) {
+      const names = body.items.map((x) => x.name)
+      const tries = [
+        { live_id: liveId, title: body.title, items: names },
+        { live_id: liveId, title: body.title, items: names.map((name) => ({ name })) },
+        { live_id: liveId, title: body.title, item_list: names },
+        { live_id: liveId, title: body.title, items: names.map((name, i) => ({ order: i + 1, name })) },
+        { live_id: liveId, title: body.title, options: names },
+      ]
+      for (const b of tries) { ({ r, text } = await send(b)); body = b; if (r.status !== 400) break }
+    }
     const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요' }[m.act]
     done(r.ok ? { ok: true, msg: label } : { error: `스푼이 거절했어요 (${r.status}) — 아래 내용을 캡처해서 보내주세요`, body: `${method} ${url.replace('https://kr-api.spooncast.net', '')}\n보낸 값: ${JSON.stringify(body)}\n받은 값: ${text}` })
   } catch (err) { done({ error: err.message || String(err) }) }

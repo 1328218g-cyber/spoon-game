@@ -584,6 +584,7 @@
       out.querySelector('#__pGo').onclick = () => {
         const title = out.querySelector('#__pT').value.trim(), items = [...out.querySelectorAll('.__pO')].map((x) => x.value.trim()).filter(Boolean)
         if (!title || items.length < 2) return window.__ediPlayCreated({ error: '제목과 선택지 2개 이상을 적어주세요' })
+        if (new Set(items).size !== items.length) return window.__ediPlayCreated({ error: '같은 선택지가 있어요 — 선택지는 서로 다르게 적어주세요' })
         sendPlay({ act: 'poll-create', title, items })
       }
       return
