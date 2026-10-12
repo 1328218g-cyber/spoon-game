@@ -691,14 +691,20 @@
   //  · 메뉴 맨 아래 "스푼 프로필 보기"를 누르면 원래 스푼 동작(프로필 창)으로 넘어가요
   let grantBypass = false
   function listenerRow(t) {
-    if (!t || !t.closest || t.closest('#__ediGrant,#__ediPlay,#__ediMenuBar')) return null
+    if (!t || !t.closest || t.closest('#__ediGrant,#__ediPlay,#__ediMenuBar,#__ediContents')) return null
+    // 버튼(✕ 닫기 등)·입력칸을 누른 건 청취자 클릭이 아니에요 (퀵 메시지 창 ✕ 누르면 지급 창이 뜨던 문제)
+    //  (청취자 줄 자체가 버튼일 수도 있어서 — 작은 버튼(아이콘)만 빼요)
+    if (t.closest('input,textarea,select,[role=dialog]')) return null
+    const sb = t.closest('button,[role=button]'); if (sb) { const b = sb.getBoundingClientRect(); if (b.width <= 48 && b.height <= 48) return null }
     // 위로 올라가면서 "아바타 이미지 + 짧은 글자"를 가진 줄을 찾고, 그 줄이 "누적 N명/애칭온도"가 있는 청취자 목록 안인지 확인
     let row = null
     for (let el = t, i = 0; el && el !== document.body && i < 8; el = el.parentElement, i++) {
       const r = el.getBoundingClientRect()
-      if (r.height >= 36 && r.height <= 120 && el.querySelector('img') && (el.textContent || '').trim().length <= 60) { row = el; break }
+      // 아바타 = 28px 이상 정사각형 그림 (✕ 같은 작은 아이콘은 빼요)
+      const av = [...el.querySelectorAll('img')].find((im) => { const b = im.getBoundingClientRect(); return b.width >= 28 && Math.abs(b.width - b.height) <= 4 })
+      if (r.height >= 36 && r.height <= 120 && av && (el.textContent || '').trim().length <= 60) { row = el; break }
     }
-    if (!row) return null
+    if (!row || /퀵\s*메시지/.test(row.textContent || '')) return null
     let inList = false
     for (let el = row.parentElement, i = 0; el && el !== document.body && i < 6; el = el.parentElement, i++) {
       if (/누적\s*\d+\s*명|애칭온도|현재\s*\d+\s*명/.test((el.textContent || '').slice(0, 300))) { inList = true; break }
