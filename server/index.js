@@ -782,28 +782,41 @@ let lastStatusFail = null // 🔗 에디냥 연동 진단용 — 마지막으로
 async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
+  const want = cleanTag.toLowerCase()
   try {
-    const res = await spoonFetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': CHROME_UA,
-        'X-Client-App': 'sopia-web',
-        'X-Client-Version': '1.0.0',
+    // 🔍 검색 결과 첫 페이지(20명)에 정확히 같은 고유닉이 없을 때가 있어서(비슷한 닉네임이 많으면 뒤로 밀림)
+    //    다음 페이지까지 최대 5페이지(100명) 찾아봐요. 고유닉은 대소문자 구분 없이 비교해요.
+    let url = `https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(cleanTag)}&page_size=20`
+    let match = null, seen = 0
+    for (let page = 0; url && page < 5 && !match; page++) {
+      const res = await spoonFetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': CHROME_UA,
+          'X-Client-App': 'sopia-web',
+          'X-Client-Version': '1.0.0',
+        }
+      }, djId)
+      // ⚠️ 예전엔 여기서 실패 원인을 전부 조용히 삼켜서(catch에서 그냥 null), 방송중인데 "방송 중이
+      // 아니에요"로 잘못 뜨는 게 진짜 오프라인인지 API 자체가 막힌 건지(IP 차단/레이트리밋 등)
+      // 로그로 구분이 안 됐다. res.ok가 아니면 무슨 응답인지 남긴다.
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => '')
+        console.log(`[방송상태조회:${cleanTag}] 응답 ${res.status} (실패) — 몸통:`, bodyText.slice(0, 300).replace(/\s+/g, ' '))
+        lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 응답 ${res.status}` }
+        return null
       }
-    }, djId)
-    // ⚠️ 예전엔 여기서 실패 원인을 전부 조용히 삼켜서(catch에서 그냥 null), 방송중인데 "방송 중이
-    // 아니에요"로 잘못 뜨는 게 진짜 오프라인인지 API 자체가 막힌 건지(IP 차단/레이트리밋 등)
-    // 로그로 구분이 안 됐다. res.ok가 아니면 무슨 응답인지 남긴다.
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '')
-      console.log(`[방송상태조회:${cleanTag}] 응답 ${res.status} (실패) — 몸통:`, bodyText.slice(0, 300).replace(/\s+/g, ' '))
-      lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색 응답 ${res.status}` }
+      const json = await res.json()
+      const results = json.results || []
+      seen += results.length
+      match = results.find(u => String(u.tag || '').toLowerCase() === want) || null
+      url = typeof json.next === 'string' && json.next ? json.next : null
+    }
+    if (!match || !match.id) {
+      lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${seen}명)` }
+      console.log(`[방송상태조회:${cleanTag}] 검색 결과 ${seen}명 중에 같은 고유닉이 없어요`)
       return null
     }
-    const json = await res.json()
-    const results = json.results || []
-    const match = results.find(u => u.tag === cleanTag)
-    if (!match || !match.id) { lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${results.length}명)` }; return null }
     return {
       id: match.id,
       tag: match.tag,
@@ -25169,9 +25182,12 @@ app.post('/autojoin', auth.requireAuth, async (req, res) => {
   broadcast({ type: 'autojoin', djId, status: 'joining', tag: cleanTag })
 
   try {
+    lastStatusFail = null
     const status = await fetchUserStatusByTag(cleanTag, djId)
     if (!status || !status.is_live || !status.current_live_id) {
       broadcast({ type: 'autojoin', djId, status: 'offline', tag: cleanTag })
+      // 검색에서 아예 못 찾은 거면 그렇게 알려줘요 (방금 만든 계정은 스푼 검색에 늦게 나올 수 있어요)
+      if (!status && lastStatusFail && lastStatusFail.tag === cleanTag) return res.json({ success: false, error: `@${cleanTag} 을(를) 스푼 검색에서 못 찾았어요 — 고유닉이 맞는지 확인해주세요 (방금 만든 계정은 검색에 늦게 나올 수 있어요) · ${lastStatusFail.msg}` })
       return res.json({ success: false, error: '현재 방송 중이 아니에요' })
     }
 
