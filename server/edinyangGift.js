@@ -3,13 +3,14 @@
 // 여기에 몇 초마다 물어봐요 (GET /internal/edinyang/gifts). 물어보는 동안에는 이 서버가 그 방에 같이 들어가서
 // 선물 이벤트를 그대로 모아두고, 에디냥 서버가 가져가요. 1분 30초 넘게 안 물어보면 방에서 나와요.
 //  · 들어가는 계정: 환경변수 EDINYANG_GIFT_ACCOUNT (기본 sum1004) — 이 서버에 가입하고 세션 연결해둔 계정
-//  · 한 계정이 동시에 들어갈 수 있는 방 수: EDINYANG_GIFT_CAPACITY (기본 18)
+//  · 이 계정은 들어가는 방 수 제한 없음 (꼭 막고 싶으면 EDINYANG_GIFT_CAPACITY 에 숫자)
+//    스푼이 계정당 동시 접속을 막으면(403/429) 그 방은 조금씩 간격을 늘려가며(최대 1분) 다시 시도하고, 그동안은 금액으로 맞춰요
 //  · 이 서버 봇(짜잔에디봇)이 이미 그 방에 들어가 있으면 따로 안 들어가고 그 방 선물을 그대로 써요
 'use strict'
 
 module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, getRooms, findLiveIdForEdinyang, fetchLiveInfo, getCachedUserTag, findStickerImage, findStickerAnim, getWsProxyForDj, CHROME_UA, SHARED_TOKEN_DJID }) {
   const ACCOUNT = process.env.EDINYANG_GIFT_ACCOUNT || 'sum1004'
-  const CAP = Number(process.env.EDINYANG_GIFT_CAPACITY || 18)
+  const CAP = Number(process.env.EDINYANG_GIFT_CAPACITY || 0) // 0 = 제한 없음
   const IDLE_MS = 90 * 1000 // 이만큼 안 물어보면 방에서 나와요
   const LIVE_CHECK_MS = 60 * 1000 // 방송이 바뀌었는지(껐다 켰는지) 확인 간격
   const watchers = new Map() // dj -> watcher
@@ -54,7 +55,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
     w.busy = true
     try {
       if (!tokenManager.hasCookies(ACCOUNT) || !tokenManager.getAccessToken(ACCOUNT)) throw new Error(`${ACCOUNT} 계정 세션이 없어요 (이 서버에 ${ACCOUNT} 로 가입하고 세션 연결해주세요)`)
-      if (ownCount() >= CAP) throw new Error(`${ACCOUNT} 계정이 들어갈 수 있는 방(${CAP}개)이 꽉 찼어요`)
+      if (CAP > 0 && ownCount() >= CAP) throw new Error(`${ACCOUNT} 계정이 들어갈 수 있는 방(${CAP}개)이 꽉 찼어요`)
       const roomToken = await tokenManager.fetchRoomToken(ACCOUNT, liveId)
       if (w.liveId !== liveId || !watchers.has(w.dj)) return
       const info = await fetchLiveInfo(liveId, tokenManager.getAccessToken(ACCOUNT))
@@ -82,7 +83,7 @@ module.exports = function createEdinyangGift({ app, tokenManager, WebSocket, get
           if (ev === 'LiveDonation' || ev === 'live_present' || ev === 'DonationMessage') addGift(w, body.eventPayload || {}).catch(() => {})
         } catch (e) {}
       })
-      ws.on('unexpected-response', (req, res) => { w.error = `스푼이 접속을 거절했어요 (status ${res.statusCode})`; stats.errors++; stats.lastError = w.error; try { ws.terminate() } catch (e) {} })
+      ws.on('unexpected-response', (req, res) => { w.error = (res.statusCode === 403 || res.statusCode === 429) ? `스푼이 ${ACCOUNT} 동시 접속을 막았어요 (status ${res.statusCode})` : `스푼이 접속을 거절했어요 (status ${res.statusCode})`; stats.errors++; stats.lastError = w.error; try { ws.terminate() } catch (e) {} })
       ws.on('error', () => {})
       ws.on('close', () => {
         if (w.ws !== ws) return
