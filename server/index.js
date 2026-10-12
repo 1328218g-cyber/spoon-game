@@ -17539,6 +17539,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.liveDjUserId = djUserId
   room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
+  if (isNewLiveSession) room.mailbox = null // 📮 새 방송이면 지난 방송 편지함은 잊기
 
   // 🌡️ 온도 랭킹은 "이번 방송"만 보여줘야 하는데, 예전엔 방(liveId)이 바뀌어도 안 지워져서
   // 다중감시로 다른 사람 방을 옮겨다니면 예전 방 시청자들 온도까지 계속 섞여서 나오는 문제가 있었다.
@@ -17836,6 +17837,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleStockChatHook(djId, settings, actTag, author)
         }
 
+      } else if (eventName === 'LivePlayMailbox') {
+        // 📮 스푼 편지함(사연함) — DJ가 앱에서 편지함을 열거나 사연이 들어올 때 오는 이벤트 (입장할 때도 한 번 옴)
+        //    PC 방송 창 편지함이 이 번호로 사연 목록을 불러온다
+        const p = eventPayload || {}
+        room.mailbox = { id: p.mailboxId || null, command: p.mailboxCommand || '', title: p.mailboxTitle || '', count: Number(p.mailboxCount) || 0, at: Date.now() }
+        broadcast({ type: 'mailbox', djId, ...room.mailbox })
       } else if (eventName === 'LiveMetaUpdate') {
         // 📢 공지사항 변경(PUT https://kr-api.spooncast.net/lives/{liveId}/) 등에 쓰기 위해,
         // 방송의 최신 전체 상태를 항상 최신으로 들고 있는다. PUT은 부분 수정이 아니라
@@ -25269,6 +25276,7 @@ app.get('/status', auth.requireAuth, (req, res) => {
     autoJoinTag: settings?.autoJoinTag || '',
     hasSession: tokenManager.hasCookies(tokenDjIdFor(req.djId)),
     hasToken: !!tokenManager.getAccessToken(tokenDjIdFor(req.djId)),
+    mailbox: room.isConnected && room.mailbox ? room.mailbox : null, // 📮 스푼 편지함 (번호·제목·상태·사연 수)
     liveId: room.isConnected ? String(room.autoJoinedFor || '') : '', // 🎙️ PC 방송 창(⚙️ 방송 설정)이 지금 방송 번호를 알 수 있게
     usingOwnAccount: ownAccountOn(req.djId), // 본인 계정 세션을 직접 연결했는지 여부 (아니면 관리자 공용 계정 사용중)
   })

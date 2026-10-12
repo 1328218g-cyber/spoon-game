@@ -412,48 +412,31 @@ ipcMain.on('bcast:grant', async (e, m) => {
   } catch (err) { toSpoon('__ediGrantDone', { error: err.message || String(err) }) }
 })
 
-// ⚙️ 방송 설정(투표함·편지함) — 방송 창의 DJ 로그인으로 스푼에 "조회"만 해서 결과를 보여주고 기록해둔다
-//    (요청 형식이 확인된 게 주소뿐이라 지금은 GET 만 · 결과를 보고 만들기/보내기를 붙일 예정)
-ipcMain.on('bcast:play', async (e, m) => {
+// 📮 스푼 편지함 — 방송 창 "받은 아이템" 메뉴에서 열면 사연 목록을 불러온다
+//    · 편지함 번호: 스푼이 방에 보내주는 LivePlayMailbox 이벤트를 에디냥 봇이 받아서 /status 에 같이 알려줌
+//    · 사연 목록: GET kr-api /play/mailbox/{번호}/messages/ (방송 창 DJ 로그인으로)
+ipcMain.on('bcast:mailbox', async (e) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
-  const kind = m && m.kind === 'poll' ? 'poll' : m && m.kind === 'mailbox' ? 'mailbox' : ''
-  if (!kind) return
-  const reply = (r) => { try { bcastWin.webContents.executeJavaScript(`window.__ediPlayResult && window.__ediPlayResult(${JSON.stringify(kind)}, ${JSON.stringify(r)})`, true).catch(() => {}) } catch (_) {} }
   try {
+    const st = await ediApi('/status')
+    if (!st || !st.isConnected) return toSpoon('__ediMailbox', { error: '에디냥 봇이 방에 들어와 있어야 편지함을 볼 수 있어요' })
+    const mb = st.mailbox
+    if (!mb || !mb.id) return toSpoon('__ediMailbox', { mailbox: null })
+    const tok = await spoonToken()
+    if (!tok) return toSpoon('__ediMailbox', { error: '방송 창에 스푼 로그인이 안 돼 있어요' })
     const ss = session.fromPartition(SPOON_PARTITION)
-    const at = (await ss.cookies.get({ name: 'spoon_at_kr' })).find((c) => c.value)
-    if (!at) return reply({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
-    // 방송 번호 — 방송 창 주소에 있으면 그걸, 없으면(DJ 방송 화면은 주소에 번호가 없음) 에디냥 봇이 들어가 있는 방 번호
-    const lm = String(bcastWin.webContents.getURL()).match(/\/live\/(\d+)/)
-    let liveId = lm ? lm[1] : ''
-    if (!liveId) { try { const st = await ediApi('/status'); if (st && st.liveId) liveId = String(st.liveId) } catch (_) {} }
-    if (!liveId) return reply({ error: '방송 번호를 못 찾았어요 — 방송을 켜고 에디냥 봇이 방에 들어온 뒤에 다시 눌러주세요' })
-    const q = liveId ? `?live_id=${liveId}` : ''
-    // 조회 주소 후보들 (/play/mailbox/ 자체는 GET 이 안 되는 '만들기(POST)' 주소로 확인됨 → 조회에서 뺌)
-    const paths = kind === 'poll'
-      ? [`/play/${liveId}/status/${q}`, '/play/poll/' + q, `/play/poll/${liveId}/`, `/play/poll/current/${q}`]
-      : [`/play/${liveId}/status/${q}`, '/play/mailbox/current/' + q, `/play/mailbox/${liveId}/`, '/play/mailbox/messages/' + q, '/play/mailbox/my/' + q]
-    const results = []
-    for (const p of paths.filter(Boolean)) {
-      let status = 0, body = ''
-      try {
-        const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 6000)
-        const r = await ss.fetch('https://kr-api.spooncast.net' + p, { headers: { Authorization: 'Bearer ' + at.value, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }, signal: ac.signal })
-        clearTimeout(to)
-        status = r.status; body = (await r.text()).slice(0, 4000)
-        try { body = JSON.stringify(JSON.parse(body), null, 1).slice(0, 4000) } catch (_) {}
-      } catch (err) { body = '요청 실패: ' + (err && err.message) }
-      results.push({ path: p, status, body })
+    const headers = { Authorization: 'Bearer ' + tok, Accept: 'application/json', Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/' }
+    let url = `https://kr-api.spooncast.net/play/mailbox/${encodeURIComponent(mb.id)}/messages/`, messages = []
+    for (let page = 0; url && page < 5; page++) {
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 6000)
+      const r = await ss.fetch(url, { headers, signal: ac.signal }); clearTimeout(to)
+      if (!r.ok) { if (!messages.length) return toSpoon('__ediMailbox', { mailbox: mb, error: `스푼 응답 ${r.status}` }); break }
+      const j = await r.json()
+      messages = messages.concat(Array.isArray(j.results) ? j.results : [])
+      url = j.next && /^https:\/\/kr-api\.spooncast\.net\//.test(j.next) ? j.next : null
     }
-    reply({ liveId, results })
-    // 📝 다운로드 폴더에 기록 (토큰은 안 남김) — 이걸 보고 실제 기능을 붙여요
-    try {
-      const f = path.join(app.getPath('downloads'), '에디냥_스푼놀이_조회.json')
-      let log = []; try { log = JSON.parse(fs.readFileSync(f, 'utf-8')) } catch (_) {}
-      log.push({ at: new Date().toISOString(), kind, liveId, results })
-      fs.writeFileSync(f, JSON.stringify(log.slice(-40), null, 1), 'utf-8')
-    } catch (_) {}
-  } catch (err) { reply({ error: err.message || String(err) }) }
+    toSpoon('__ediMailbox', { mailbox: mb, messages: messages.map((m) => ({ id: m.id, message: m.message, created: m.created, is_anonymous: !!m.is_anonymous, nickname: m.nickname, profile_url: m.profile_url, status: m.status })) })
+  } catch (err) { toSpoon('__ediMailbox', { error: err.message || String(err) }) }
 })
 
 ipcMain.on('bcast:capture', async (e, r) => {

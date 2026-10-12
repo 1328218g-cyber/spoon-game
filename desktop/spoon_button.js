@@ -501,53 +501,64 @@
     timer = setTimeout(finish, 3000)
   }
 
-  // ⚙️ 방송 설정 — 오른쪽 "받은 아이템" 탭을 ⚙️ 아이콘으로 바꾸고, 누르면 🗳️ 투표함 · 💌 편지함 · 🎮 라이브게임
-  //  (스푼 모바일에만 있는 기능 · 지금은 스푼에 "조회"만 해서 결과를 보여줘요 — 만들기/보내기는 요청 형식을 확인한 뒤에)
+  // 📮 스푼 기능 — 오른쪽 "받은 아이템" 탭을 누르면 편지함 · 투표 · 라이브게임 메뉴가 먼저 나와요
+  //  (맨 아래 "받은 아이템 보기"로 원래 스푼 화면) · 편지함은 스푼이 보내주는 편지함 번호로 사연 목록을 불러와요
+  let playBypass = false, playTimer = null, playKind = 'mailbox'
   function patchItemTab() {
     const cand = [...document.querySelectorAll('button,[role=tab],li,a,div,span')].filter((el) => !el.closest('#__ediPlay') && el.children.length <= 2 && (el.textContent || '').trim() === '받은 아이템')
     for (const el of cand) {
-      // 글자를 가진 가장 바깥 탭 요소 (클릭이 걸린 곳)
       let tab = el
       while (tab.parentElement && (tab.parentElement.textContent || '').trim() === '받은 아이템') tab = tab.parentElement
       if (tab.dataset.ediPlay) continue
       tab.dataset.ediPlay = '1'
-      tab.title = '방송 설정 (투표함 · 편지함 · 라이브게임)'
-      const leaf = [...tab.querySelectorAll('*')].reverse().find((n) => (n.textContent || '').trim() === '받은 아이템' && !n.children.length) || tab
-      leaf.textContent = '방송 설정'
-      tab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); togglePlay(tab) }, true)
+      tab.addEventListener('click', (e) => { if (playBypass) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); togglePlay(tab) }, true)
     }
-  }
-  function togglePlay(anchor) {
-    let box = document.getElementById('__ediPlay')
-    if (box) { box.remove(); return }
-    box = document.createElement('div')
-    box.id = '__ediPlay'
-    const r = anchor.getBoundingClientRect()
-    const w = Math.min(360, window.innerWidth - 16)
-    box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(r.bottom + 6)}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px;width:${w}px;max-height:${Math.round(window.innerHeight - r.bottom - 20)}px;overflow:auto;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
-    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">방송 설정<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
-      <div style="display:flex;gap:6px">${[['poll', '🗳️ 투표함'], ['mailbox', '💌 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<button data-k="${k}" style="flex:1;padding:9px 4px;border-radius:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer">${l}</button>`).join('')}</div>
-      <div id="__ediPlayOut" style="margin-top:10px;color:#475569;font-size:12px">메뉴를 골라주세요</div>`
-    document.body.appendChild(box)
-    box.querySelector('#__ediPlayX').onclick = () => box.remove()
-    box.querySelectorAll('button[data-k]').forEach((b) => { b.onclick = () => playOpen(b.dataset.k) })
-  }
-  function playOpen(kind) {
-    const out = document.getElementById('__ediPlayOut'); if (!out) return
-    if (kind === 'livegame') {
-      out.innerHTML = '🎮 <b>라이브게임</b>은 스푼 라이브콜(실시간 통신) 위에서 게임 초대·수락을 주고받는 방식이라, 통신 형식을 확인한 뒤에 붙일게요.'
-      return
-    }
-    out.textContent = '⏳ 스푼에서 불러오는 중…'
-    if (ipc) ipc.send('bcast:play', { kind })
-    else out.textContent = '❌ 에디냥 PC 방송 창에서만 돼요'
   }
   const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
-  window.__ediPlayResult = (kind, r) => {
-    const out = document.getElementById('__ediPlayOut'); if (!out) return
-    const name = kind === 'poll' ? '🗳️ 투표함' : '💌 편지함'
-    if (!r || r.error) { out.innerHTML = `${name} — ❌ ${esc((r && r.error) || '실패')}`; return }
-    out.innerHTML = `<b>${name}</b> <span style="color:#94a3b8">(방송 ${esc(r.liveId || '?')})</span>` + r.results.map((x) => `<div style="margin-top:8px;border-top:1px solid #f1f5f9;padding-top:6px"><div style="font-weight:700;color:${x.status >= 200 && x.status < 300 ? '#16a34a' : '#dc2626'}">${x.status} <span style="color:#64748b;font-weight:400">${esc(x.path)}</span></div><pre style="white-space:pre-wrap;word-break:break-all;margin:4px 0 0;font-size:11px;background:#f8fafc;border-radius:6px;padding:6px;max-height:160px;overflow:auto">${esc(x.body)}</pre></div>`).join('') + `<div style="margin-top:8px;color:#94a3b8;font-size:11px">지금은 조회만 해요 · 결과는 <b>다운로드 › 에디냥_스푼놀이_조회.json</b> 에도 저장돼요</div>`
+  function closePlay() { const b = document.getElementById('__ediPlay'); if (b) b.remove(); clearInterval(playTimer); playTimer = null }
+  function togglePlay(anchor) {
+    if (document.getElementById('__ediPlay')) return closePlay()
+    const box = document.createElement('div')
+    box.id = '__ediPlay'
+    const r = anchor.getBoundingClientRect()
+    const w = Math.min(380, window.innerWidth - 16)
+    box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(r.bottom + 6)}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px;width:${w}px;max-height:${Math.round(window.innerHeight - r.bottom - 20)}px;overflow:auto;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
+    const tabBtn = 'flex:1;padding:9px 4px;border-radius:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer'
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">스푼 기능<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
+      <div style="display:flex;gap:6px">${[['mailbox', '✉️ 편지함'], ['poll', '📊 투표'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<button data-k="${k}" style="${tabBtn}">${l}</button>`).join('')}</div>
+      <div id="__ediPlayOut" style="margin-top:10px"></div>
+      <div style="margin-top:10px;text-align:right"><span id="__ediPlayItems" style="cursor:pointer;color:#7c3aed;font-size:12px">받은 아이템 보기 ›</span></div>`
+    document.body.appendChild(box)
+    box.querySelector('#__ediPlayX').onclick = closePlay
+    box.querySelector('#__ediPlayItems').onclick = () => { closePlay(); playBypass = true; try { anchor.click() } finally { playBypass = false } }
+    box.querySelectorAll('button[data-k]').forEach((b) => { b.onclick = () => playOpen(b.dataset.k) })
+    playOpen(playKind)
+  }
+  function playOpen(kind) {
+    playKind = kind
+    const box = document.getElementById('__ediPlay'), out = document.getElementById('__ediPlayOut'); if (!box || !out) return
+    box.querySelectorAll('button[data-k]').forEach((b) => { const on = b.dataset.k === kind; b.style.background = on ? '#fdf2f8' : '#f8fafc'; b.style.borderColor = on ? '#f9a8d4' : '#e5e7eb' })
+    clearInterval(playTimer); playTimer = null
+    if (kind === 'poll') { out.innerHTML = '<div style="color:#64748b">○ 투표는 준비 중이에요 — 스푼 투표 요청 형식을 확인하면 붙일게요</div>'; return }
+    if (kind === 'livegame') { out.innerHTML = '<div style="color:#64748b">○ 라이브게임은 준비 중이에요</div>'; return }
+    out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
+    const load = () => { if (ipc) ipc.send('bcast:mailbox', {}) }
+    load(); playTimer = setInterval(load, 8000) // 열어둔 동안 8초마다 새 사연 확인
+  }
+  const ago = (t) => { const s = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000); return s < 60 ? '방금' : s < 3600 ? Math.floor(s / 60) + '분 전' : Math.floor(s / 3600) + '시간 전' }
+  window.__ediMailbox = (r) => {
+    const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'mailbox') return
+    const btn = 'padding:9px;border-radius:10px;border:1px solid #fbcfe8;background:#fdf2f8;font-weight:700;cursor:pointer;flex:1'
+    const refresh = `<div style="display:flex;gap:6px;margin-top:8px"><button id="__mbRef" style="${btn}">새로고침</button></div>`
+    if (!r || r.error) { out.innerHTML = `<div style="color:#dc2626">❌ ${esc((r && r.error) || '실패')}</div>` + refresh }
+    else if (!r.mailbox || !r.mailbox.id || /END|CLOSE|FINISH/i.test(r.mailbox.command || '')) {
+      out.innerHTML = `<div style="font-weight:700">○ 진행 중인 편지함 없음</div><div style="color:#64748b;font-size:12px;margin-top:2px">스푼 앱에서 편지함을 열면 여기에 사연이 보여요</div>` + refresh
+    } else {
+      const list = (r.messages || []).slice().sort((a, b) => new Date(b.created) - new Date(a.created))
+      out.innerHTML = `<div style="font-weight:700">● ${esc(r.mailbox.title || '편지함')} <span style="color:#db2777">${list.length || r.mailbox.count || 0}개</span></div>` + refresh +
+        `<div style="margin-top:8px">${list.length ? list.map((m) => `<div style="display:flex;gap:8px;padding:8px 0;border-top:1px solid #f1f5f9">${m.is_anonymous || !m.profile_url ? '<div style="width:32px;height:32px;border-radius:50%;background:#e5e7eb;flex-shrink:0;display:flex;align-items:center;justify-content:center">✉️</div>' : `<img src="${esc(m.profile_url)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">`}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">${m.is_anonymous ? '익명' : esc(m.nickname || '?')} <span style="color:#94a3b8;font-weight:400">${esc(ago(m.created))}${m.status ? '' : ' · <span style="color:#db2777">새 사연</span>'}</span></div><div style="white-space:pre-wrap;word-break:break-all">${esc(m.message)}</div></div></div>`).join('') : '<div style="color:#64748b">아직 받은 사연이 없어요</div>'}</div>`
+    }
+    const rf = document.getElementById('__mbRef'); if (rf) rf.onclick = () => { if (ipc) ipc.send('bcast:mailbox', {}) }
   }
 
   // 🎁 청취자 목록에서 시청자를 누르면 복권 · 룰렛권을 바로 지급 (에디냥 "실시간 지급"과 같은 기능)
@@ -643,7 +654,7 @@
   setInterval(() => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} }, 500)
   window.addEventListener('resize', () => { try { reportSlot() } catch (_) {} try { placeMenuBar(lastSlot && lastSlot !== 'null') } catch (_) {} })
   let hideTimer = null
-  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} }, 300) } // (방송 설정 메뉴(patchItemTab)는 투표함·편지함 형식을 알아낼 때까지 뺌 — '받은 아이템' 탭 그대로) // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
+  const scheduleHide = () => { if (hideTimer) return; hideTimer = setTimeout(() => { hideTimer = null; try { hideAudioPanel() } catch (_) {} try { mount() } catch (_) {} try { patchItemTab() } catch (_) {} }, 300) } // 화면이 다시 그려지면서 버튼이 지워졌으면 다시 띄운다
   const startObserver = () => {
     if (!document.body) return setTimeout(startObserver, 300)
     hideAudioPanel()
