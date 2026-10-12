@@ -513,7 +513,7 @@
       tab.dataset.ediPlay = '1'
       tab.title = '방송 설정 (투표함 · 편지함 · 라이브게임)'
       const leaf = [...tab.querySelectorAll('*')].reverse().find((n) => (n.textContent || '').trim() === '받은 아이템' && !n.children.length) || tab
-      leaf.textContent = '⚙️ 방송 설정'
+      leaf.textContent = '방송 설정'
       tab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); togglePlay(tab) }, true)
     }
   }
@@ -525,7 +525,7 @@
     const r = anchor.getBoundingClientRect()
     const w = Math.min(360, window.innerWidth - 16)
     box.style.cssText = `position:fixed;z-index:2147483646;top:${Math.round(r.bottom + 6)}px;left:${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px;width:${w}px;max-height:${Math.round(window.innerHeight - r.bottom - 20)}px;overflow:auto;background:#fff;color:#111;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif;padding:12px`
-    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">⚙️ 방송 설정<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px">방송 설정<span id="__ediPlayX" style="cursor:pointer;padding:0 4px">✕</span></div>
       <div style="display:flex;gap:6px">${[['poll', '🗳️ 투표함'], ['mailbox', '💌 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<button data-k="${k}" style="flex:1;padding:9px 4px;border-radius:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer">${l}</button>`).join('')}</div>
       <div id="__ediPlayOut" style="margin-top:10px;color:#475569;font-size:12px">메뉴를 골라주세요</div>`
     document.body.appendChild(box)
