@@ -24,8 +24,11 @@
   }
   hideBadge()
 
+  // 🗑️ 떠 있는 보라색 "🎙️ 방송하기" 버튼은 없앰 (방송하기는 왼쪽 고정 화면 · 위쪽 메뉴 바로가기 · 에디냥 창에서 열어요)
+  const SHOW_FLOAT_BTN = false
   function mount() {
     hideBadge()
+    if (!SHOW_FLOAT_BTN) return
     if (!document.body) return setTimeout(mount, 300)
     if (document.getElementById('__ediBcastBtn')) return
     const b = document.createElement('div')
