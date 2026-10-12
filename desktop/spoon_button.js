@@ -529,22 +529,26 @@
     // 탭 줄 아래 ~ 오른쪽 칸 끝까지 (탭 줄을 감싼 칸 기준)
     let col = row; for (let i = 0; i < 4 && col.parentElement; i++) { const r = col.parentElement.getBoundingClientRect(); if (r.height > rr.height * 4) { col = col.parentElement; break } col = col.parentElement }
     const cr = col.getBoundingClientRect()
-    return { x: rr.left, y: rr.bottom, w: rr.width, h: Math.max(200, Math.min(cr.bottom, window.innerHeight) - rr.bottom) }
+    return { col, x: rr.left, y: rr.bottom, w: rr.width, h: Math.max(200, Math.min(cr.bottom, window.innerHeight) - rr.bottom) }
   }
   function placeContents() {
     const box = document.getElementById('__ediContents'); if (!box) return
     const r = contentsRect(); if (!r) return closeContents()
     Object.assign(box.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' })
+    // 칸에 transform이 걸려 있으면 fixed 기준이 바뀌어요 — 실제 위치를 재서 맞춰요
+    const b = box.getBoundingClientRect(), dx = b.left - r.x, dy = b.top - r.y
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) Object.assign(box.style, { left: (r.x - dx) + 'px', top: (r.y - dy) + 'px' })
   }
   function closeContents() { const b = document.getElementById('__ediContents'); if (b) b.remove(); clearInterval(playTimer); playTimer = null }
   function openContents() {
     if (document.getElementById('__ediContents')) return
     const r = contentsRect(); if (!r) return
     const box = document.createElement('div'); box.id = '__ediContents'
-    box.style.cssText = `position:fixed;z-index:2147483645;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
+    // 오른쪽 칸 안에 넣고 z-index도 낮게 — 스푼의 투표 결과 같은 팝업이 위에 보이도록 (예전엔 맨 위에 떠서 팝업을 가렸어요)
+    box.style.cssText = `position:fixed;z-index:5;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
     const chip = 'padding:7px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;cursor:pointer;background:#fff;white-space:nowrap'
     box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
-    document.body.appendChild(box); placeContents()
+    ;(r.col && r.col !== document.documentElement ? r.col : document.body).appendChild(box); placeContents()
     box.querySelectorAll('[data-k]').forEach((c) => { c.onclick = () => playOpen(c.dataset.k) })
     box.querySelector('#__ctRef').onclick = () => playOpen(playKind)
     playOpen(playKind)
