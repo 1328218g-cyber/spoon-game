@@ -532,6 +532,11 @@ ipcMain.on('bcast:play-act', async (e, m) => {
       method = 'PUT'
       url = `https://kr-api.spooncast.net/play/mailbox/${encodeURIComponent(m.id)}/current/`
       body = { live_id: liveId, message_id: m.msgId }
+    } else if (m.act === 'mailbox-remove') {
+      // 🗑️ 사연 하나 삭제 — DELETE /play/mailbox/{번호}/messages/{사연번호}/ (안 되면 아래에서 다른 주소로)
+      method = 'DELETE'
+      url = `https://kr-api.spooncast.net/play/mailbox/${encodeURIComponent(m.id)}/messages/${encodeURIComponent(m.msgId)}/`
+      body = { live_id: liveId }
     } else return
     const send = async (b) => {
       const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000)
@@ -569,7 +574,16 @@ ipcMain.on('bcast:play-act', async (e, m) => {
       ]
       for (const b of tries) { ({ r, text } = await send(b)); body = b; if (r.ok) break }
     }
-    const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요', 'mailbox-show': '사연을 시청자에게 공개했어요' }[m.act]
+    if (m.act === 'mailbox-remove' && !r.ok && r.status >= 400 && r.status < 500) {
+      const mb = encodeURIComponent(m.id), mid = encodeURIComponent(m.msgId)
+      const tries = [
+        ['DELETE', `https://kr-api.spooncast.net/play/mailbox/messages/${mid}/`, { live_id: liveId }],
+        ['PUT', `https://kr-api.spooncast.net/play/mailbox/${mb}/messages/${mid}/`, { live_id: liveId, status: 'DELETED' }],
+        ['POST', `https://kr-api.spooncast.net/play/mailbox/${mb}/messages/${mid}/remove/`, { live_id: liveId }],
+      ]
+      for (const [mt, u, b] of tries) { method = mt; url = u; ({ r, text } = await send(b)); body = b; if (r.ok) break }
+    }
+    const label = { 'poll-create': '투표를 시작했어요', 'mailbox-create': '편지함을 열었어요', 'poll-end': '투표를 끝냈어요', 'mailbox-end': '편지함을 닫았어요', 'mailbox-show': '사연을 시청자에게 공개했어요', 'mailbox-remove': '사연을 삭제했어요' }[m.act]
     done(r.ok ? { ok: true, msg: label } : { error: `스푼이 거절했어요 (${r.status}) — 아래 내용을 캡처해서 보내주세요`, body: `${method} ${url.replace('https://kr-api.spooncast.net', '')}\n보낸 값: ${JSON.stringify(body)}\n받은 값: ${text}` })
   } catch (err) { done({ error: err.message || String(err) }) }
 })
