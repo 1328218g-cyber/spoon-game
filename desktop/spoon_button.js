@@ -570,7 +570,7 @@
     // 오른쪽 칸 안에 넣고 z-index도 낮게 — 스푼의 투표 결과 같은 팝업이 위에 보이도록 (예전엔 맨 위에 떠서 팝업을 가렸어요)
     box.style.cssText = `position:fixed;z-index:5;background:#fff;color:#111;overflow:auto;font:13px/1.5 "Segoe UI","Malgun Gothic",sans-serif`
     const chip = 'padding:7px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;cursor:pointer;background:#fff;white-space:nowrap'
-    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
+    box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">${[['poll', '📊 투표함'], ['mailbox', '✉️ 편지함'], ['quick', '⚡ 퀵 메시지'], ['livegame', '🎮 라이브게임']].map(([k, l]) => `<span data-k="${k}" style="${chip}">${l}</span>`).join('')}<span id="__ctRef" title="새로고침" style="margin-left:auto;font-size:18px;cursor:pointer">↻</span></div><div id="__ediPlayOut" style="padding:12px 16px 18px"></div>`
     ;(r.col && r.col !== document.documentElement ? r.col : document.body).appendChild(box); placeContents()
     box.querySelectorAll('[data-k]').forEach((c) => { c.onclick = () => playOpen(c.dataset.k) })
     box.querySelector('#__ctRef').onclick = () => playOpen(playKind)
@@ -581,6 +581,7 @@
     const box = document.getElementById('__ediContents'), out = document.getElementById('__ediPlayOut'); if (!box || !out) return
     box.querySelectorAll('[data-k]').forEach((c) => { const on = c.dataset.k === kind; c.style.background = on ? '#111' : '#fff'; c.style.color = on ? '#fff' : '#374151'; c.style.borderColor = on ? '#111' : '#d1d5db' })
     clearInterval(playTimer); playTimer = null
+    if (kind === 'quick') return quickDraw(false)
     if (kind === 'livegame') { out.innerHTML = '<div style="font-weight:700">○ 라이브게임</div><div style="color:#64748b;font-size:12px">준비 중이에요</div>'; return }
     out.innerHTML = '<div style="color:#64748b">⏳ 불러오는 중…</div>'
     const ch = kind === 'poll' ? 'bcast:poll' : 'bcast:mailbox'
@@ -648,6 +649,41 @@
     out.querySelectorAll('button[data-mid]').forEach((b) => { b.onclick = () => { const n = Number(b.dataset.mid); sendPlay({ act: 'mailbox-show', id: r.mailbox.id, msgId: Number.isFinite(n) ? n : b.dataset.mid }) } })
     // 사연 하나 삭제 — 한 번 누르면 "정말 삭제?"로 바뀌고, 3초 안에 한 번 더 누르면 삭제 (확인 창은 안 띄워요)
     out.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => { if (!b.dataset.ok) { b.dataset.ok = '1'; b.textContent = '정말 삭제?'; b.style.background = '#fee2e2'; b.style.color = '#dc2626'; b.style.borderColor = '#fca5a5'; setTimeout(() => { if (b.isConnected) { delete b.dataset.ok; b.textContent = '삭제'; b.style.background = '#fff'; b.style.color = '#64748b'; b.style.borderColor = '#e5e7eb' } }, 3000); return } const n = Number(b.dataset.del); sendPlay({ act: 'mailbox-remove', id: r.mailbox.id, msgId: Number.isFinite(n) ? n : b.dataset.del }) } })
+  }
+  // ⚡ 퀵 메시지 — 스푼 퀵 메시지(3개)와 따로, 개수 제한 없이 만들어 두고 누르면 DJ 계정으로 채팅
+  //    (이 PC에 저장 · 제목 10자 · 내용 200자 — 스푼 퀵 메시지와 같은 길이)
+  const QKEY = 'edinyang_quick_msgs'
+  const qLoad = () => { try { const a = JSON.parse(localStorage.getItem(QKEY) || '[]'); return Array.isArray(a) ? a : [] } catch (_) { return [] } }
+  const qSave = (a) => { try { localStorage.setItem(QKEY, JSON.stringify(a)) } catch (_) {} }
+  function quickDraw(edit) {
+    const out = document.getElementById('__ediPlayOut'); if (!out || playKind !== 'quick') return
+    const list = qLoad()
+    if (!edit) {
+      out.innerHTML = `<div style="display:flex;align-items:center"><div style="font-weight:700;flex:1">⚡ 퀵 메시지 <span style="color:#94a3b8;font-weight:400;font-size:12px">누르면 바로 채팅으로 나가요</span></div><span id="__qEdit" style="cursor:pointer;color:#7c3aed;font-size:12px;font-weight:700">✏️ 편집</span></div>` +
+        (list.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${list.map((q, i) => `<button data-q="${i}" title="${esc(q.text)}" style="padding:8px 14px;border-radius:999px;border:1px solid #d1d5db;background:#fff;color:#111;font:inherit;font-weight:700;cursor:pointer">${esc(q.title || q.text.slice(0, 10))}</button>`).join('')}</div>` : '<div style="color:#64748b;margin-top:10px">아직 없어요 — ✏️ 편집에서 만들어 주세요</div>') + resBox
+      out.querySelector('#__qEdit').onclick = () => quickDraw(true)
+      out.querySelectorAll('button[data-q]').forEach((b) => { b.onclick = () => { const q = list[Number(b.dataset.q)]; if (!q) return; const el = document.getElementById('__ctRes'); if (el) { el.style.color = '#64748b'; el.textContent = '⏳ 보내는 중…' } if (ipc) ipc.send('bcast:quick-send', { title: q.title, message: q.text }) } })
+      return
+    }
+    const row = (q, i) => `<div class="__qRow" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-top:8px;background:#fafafa"><div style="display:flex;align-items:center;font-size:12px;font-weight:700">${i + 1}. 제목<span class="__qDel" style="margin-left:auto;color:#dc2626;cursor:pointer">삭제</span></div><input class="__qT" maxlength="10" placeholder="제목 (10자)" value="${esc(q.title)}" style="${inp}"><div style="font-size:12px;font-weight:700;margin-top:8px">내용</div><textarea class="__qX" maxlength="200" rows="2" placeholder="퀵 메시지 (200자)" style="${inp};resize:vertical">${esc(q.text)}</textarea></div>`
+    out.innerHTML = `<div style="font-weight:700">✏️ 퀵 메시지 편집</div><div id="__qRows">${(list.length ? list : [{ title: '', text: '' }]).map(row).join('')}</div>` +
+      `<div id="__qAdd" style="margin-top:8px;color:#7c3aed;font-size:12px;cursor:pointer;font-weight:700">＋ 퀵 메시지 추가</div>` +
+      `<button id="__qSave" style="${bigBtn('#db2777')}">저장</button><button id="__qCancel" style="${bigBtn('#94a3b8')}">취소</button>`
+    const wrap = out.querySelector('#__qRows')
+    const renum = () => [...wrap.querySelectorAll('.__qRow')].forEach((r, i) => { r.firstChild.firstChild.nodeValue = `${i + 1}. 제목` })
+    const bindDel = () => wrap.querySelectorAll('.__qDel').forEach((d) => { d.onclick = () => { d.closest('.__qRow').remove(); renum() } })
+    bindDel()
+    out.querySelector('#__qAdd').onclick = () => { wrap.insertAdjacentHTML('beforeend', row({ title: '', text: '' }, wrap.querySelectorAll('.__qRow').length)); bindDel() }
+    out.querySelector('#__qCancel').onclick = () => quickDraw(false)
+    out.querySelector('#__qSave').onclick = () => {
+      const a = [...wrap.querySelectorAll('.__qRow')].map((r) => ({ title: r.querySelector('.__qT').value.trim().slice(0, 10), text: r.querySelector('.__qX').value.trim().slice(0, 200) })).filter((q) => q.text)
+      qSave(a); quickDraw(false)
+    }
+  }
+  window.__ediQuickSent = (r) => {
+    const el = document.getElementById('__ctRes'); if (!el) return
+    if (r && r.ok) { el.style.color = '#16a34a'; el.textContent = '✅ 보냈어요' + (r.title ? ` (${r.title})` : '') }
+    else { el.style.color = '#dc2626'; el.textContent = '❌ ' + ((r && r.error) || '실패') }
   }
   window.addEventListener('resize', placeContents)
 

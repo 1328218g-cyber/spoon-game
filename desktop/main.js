@@ -771,6 +771,23 @@ ipcMain.on('bcast:relay-chat', async (e, m) => {
     if (token) await net.fetch(SERVER + '/session/pc-relay/result', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ id: m.id, ok }) })
   } catch (_) {}
 })
+// ⚡ 퀵 메시지 — 방송 창 컨텐츠 › 퀵 메시지에서 누르면 DJ 계정으로 채팅 (스푼 퀵 메시지 3개 제한 없이)
+ipcMain.on('bcast:quick-send', async (e, m) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents || !m) return
+  const done = (r) => toSpoon('__ediQuickSent', r)
+  const message = String(m.message || '').slice(0, 200)
+  if (!message.trim()) return done({ error: '보낼 내용이 없어요' })
+  try {
+    const tok = await spoonToken(); if (!tok) return done({ error: '방송 창에 스푼 로그인이 안 돼 있어요' })
+    const stream = relayLive.stream
+    if (!stream || !relayLive.auth) return done({ error: '방송 중일 때만 보낼 수 있어요 (방송을 켠 뒤 잠깐 기다려 주세요)' })
+    const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok, Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/', 'x-live-authorization': relayLive.auth }
+    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 5000)
+    const r = await session.fromPartition(SPOON_PARTITION).fetch(`https://kr-gw.spooncast.net/lives/${encodeURIComponent(stream)}/chat/message`, { method: 'POST', headers, body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' }), signal: ac.signal })
+    clearTimeout(to)
+    done(r.ok ? { ok: true, title: m.title || '' } : { error: `스푼이 거절했어요 (${r.status})` })
+  } catch (err) { done({ error: err.message || String(err) }) }
+})
 
 ipcMain.on('bcast:rec', (e, m) => {
   try {

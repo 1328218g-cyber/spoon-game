@@ -6,7 +6,7 @@ const { ipcRenderer } = require('electron')
 
 const shim = {
   ipcRenderer: {
-    send: (channel, data) => { if (channel === 'bcast:rec' || channel === 'bcast:show-panel' || channel === 'bcast:slot' || channel === 'bcast:menus' || channel === 'bcast:open-menu' || channel === 'bcast:capture' || channel === 'bcast:capture-folder' || channel === 'bcast:grant-menu' || channel === 'bcast:grant' || channel === 'bcast:grant-prefetch' || channel === 'bcast:mailbox' || channel === 'bcast:poll' || channel === 'bcast:play-act') ipcRenderer.send(channel, data) },
+    send: (channel, data) => { if (channel === 'bcast:rec' || channel === 'bcast:show-panel' || channel === 'bcast:slot' || channel === 'bcast:menus' || channel === 'bcast:open-menu' || channel === 'bcast:capture' || channel === 'bcast:capture-folder' || channel === 'bcast:grant-menu' || channel === 'bcast:grant' || channel === 'bcast:grant-prefetch' || channel === 'bcast:mailbox' || channel === 'bcast:poll' || channel === 'bcast:play-act' || channel === 'bcast:quick-send') ipcRenderer.send(channel, data) },
   },
 }
 try {
