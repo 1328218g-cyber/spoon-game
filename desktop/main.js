@@ -354,19 +354,41 @@ async function ediApi(p, body) {
   return r.json()
 }
 const toSpoon = (fn, arg) => { try { if (alive(bcastWin)) bcastWin.webContents.executeJavaScript(`window.${fn} && window.${fn}(${JSON.stringify(arg)})`, true).catch(() => {}) } catch (_) {} }
+// 접속자 목록(닉네임 → 고유닉)은 60초 동안 기억해서 다시 누를 땐 바로 · 마우스를 올리면 미리 받아둠
+let grantMembers = { at: 0, list: [], p: null }
+async function grantMembersGet(maxAgeMs) {
+  if (Date.now() - grantMembers.at < maxAgeMs) return grantMembers.list
+  if (grantMembers.p) return grantMembers.p
+  grantMembers.p = (async () => {
+    try {
+      const d = await ediApi('/live/members')
+      if (!d || !d.success) throw new Error((d && d.error) || '접속자 목록을 못 불러왔어요')
+      grantMembers = { at: Date.now(), list: d.members || [], p: null }
+      return grantMembers.list
+    } finally { grantMembers.p = null }
+  })()
+  return grantMembers.p
+}
+const findMember = (list, nick) => { const low = nick.toLowerCase(); return list.find((x) => (x.nickname || '') === nick) || list.find((x) => String(x.nickname || '').trim().toLowerCase() === low) }
+ipcMain.on('bcast:grant-prefetch', (e) => {
+  if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
+  grantMembersGet(30000).catch(() => {})
+})
 ipcMain.on('bcast:grant-menu', async (e, m) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return
   const nick = String((m && m.nick) || '').trim()
+  // ① 메뉴는 바로 띄우고 (룰렛 목록은 에디냥 창에 이미 있음)
+  let roulettes = []
+  try { if (alive(appWin)) roulettes = await appWin.webContents.executeJavaScript("typeof rouletteData!=='undefined'&&rouletteData.list?rouletteData.list.map(r=>r.name||''):[]", true) } catch (_) {}
+  let u = Date.now() - grantMembers.at < 60000 ? findMember(grantMembers.list, nick) : null
+  toSpoon('__ediGrantMenu', { nick: (u && u.nickname) || nick, tag: (u && u.tag) || '', roulettes })
+  if (u && u.tag) return
+  // ② 고유닉은 접속자 목록에서 찾아서 이어서 알려줌 (방금 들어온 사람이면 새로 받아서 한 번 더)
   try {
-    const d = await ediApi('/live/members')
-    if (!d || !d.success) return toSpoon('__ediGrantMenu', { error: (d && d.error) || '접속자 목록을 못 불러왔어요' })
-    const low = nick.toLowerCase()
-    const u = (d.members || []).find((x) => (x.nickname || '') === nick) || (d.members || []).find((x) => String(x.nickname || '').trim().toLowerCase() === low)
-    if (!u || !u.tag) return toSpoon('__ediGrantMenu', { error: `'${nick}'님을 지금 접속자에서 못 찾았어요 (잠시 후 다시)` })
-    let roulettes = []
-    try { if (alive(appWin)) roulettes = await appWin.webContents.executeJavaScript("typeof rouletteData!=='undefined'&&rouletteData.list?rouletteData.list.map(r=>r.name||''):[]", true) } catch (_) {}
-    toSpoon('__ediGrantMenu', { nick: u.nickname || nick, tag: u.tag, roulettes })
-  } catch (err) { toSpoon('__ediGrantMenu', { error: err.message || String(err) }) }
+    u = findMember(await grantMembersGet(60000), nick)
+    if (!u) u = findMember(await grantMembersGet(0), nick)
+    toSpoon('__ediGrantTag', u && u.tag ? { tag: u.tag } : { error: `'${nick}'님을 지금 접속자에서 못 찾았어요 (잠시 후 다시)` })
+  } catch (err) { toSpoon('__ediGrantTag', { error: err.message || String(err) }) }
 })
 ipcMain.on('bcast:grant', async (e, m) => {
   if (!alive(bcastWin) || e.sender !== bcastWin.webContents) return

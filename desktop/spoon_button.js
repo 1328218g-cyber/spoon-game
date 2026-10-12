@@ -570,6 +570,13 @@
     const lines = (row.innerText || '').split('\n').map((x) => x.trim()).filter((x) => x && !/°C|^\d+$|^(DJ|매니저|팬)$/.test(x))
     return lines[0] ? { row, nick: lines[0] } : null
   }
+  // 마우스를 청취자 위에 올리면 접속자 목록을 미리 받아둬요 (누르는 순간 바로 뜨게)
+  let prefetchAt = 0
+  document.addEventListener('pointerover', (e) => {
+    if (!ipc || Date.now() - prefetchAt < 20000) return
+    if (!listenerRow(e.target)) return
+    prefetchAt = Date.now(); ipc.send('bcast:grant-prefetch')
+  }, true)
   document.addEventListener('click', (e) => {
     if (grantBypass || !ipc) return
     const hit = listenerRow(e.target)
@@ -595,20 +602,31 @@
     if (!m || m.error) { body.innerHTML = `<div style="color:#dc2626">❌ ${esc((m && m.error) || '실패')}</div>` + prof; bindProf(); return }
     const btn = 'padding:7px 10px;border-radius:9px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:700;cursor:pointer'
     const num = 'width:52px;padding:6px;border:1px solid #e5e7eb;border-radius:8px;text-align:center'
-    body.innerHTML = `<div style="color:#94a3b8;font-size:11px">@${esc(m.tag)}</div>
+    body.innerHTML = `<div id="__gTag" style="color:#94a3b8;font-size:11px">${m.tag ? '@' + esc(m.tag) : '⏳ 고유닉 확인 중…'}</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:8px"><b style="flex:1">🎫 복권</b><input id="__gL" type="number" min="1" value="1" style="${num}"><button data-g="lotto" style="${btn}">지급</button></div>
       ${(m.roulettes || []).length ? `<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><select id="__gRi" style="flex:1;min-width:0;padding:6px;border:1px solid #e5e7eb;border-radius:8px">${m.roulettes.map((n, i) => `<option value="${i + 1}">🎡 룰렛${i + 1}${n ? ' ' + esc(n) : ''}</option>`).join('')}</select><input id="__gR" type="number" min="1" value="1" style="${num}"><button data-g="roulette" style="${btn}">지급</button></div>` : '<div style="margin-top:8px;color:#94a3b8;font-size:12px">🎡 등록된 룰렛이 없어요</div>'}
       <div id="__gOut" style="margin-top:8px;font-size:12px;color:#16a34a"></div>` + prof
     bindProf()
+    box._tag = m.tag || ''
+    const setBtns = () => body.querySelectorAll('button[data-g]').forEach((b) => { b.disabled = !box._tag; b.style.opacity = box._tag ? '1' : '.5' })
+    box._setTag = (t) => { box._tag = t; const el = document.getElementById('__gTag'); if (el) el.textContent = '@' + t; setBtns() }
+    setBtns()
     body.querySelectorAll('button[data-g]').forEach((b) => {
       b.onclick = () => {
+        if (!box._tag) return
         const kind = b.dataset.g
         const amount = Math.max(1, Math.floor(Number(document.getElementById(kind === 'lotto' ? '__gL' : '__gR').value) || 1))
         const idx = kind === 'roulette' ? Number(document.getElementById('__gRi').value) : 0
         document.getElementById('__gOut').style.color = '#64748b'; document.getElementById('__gOut').textContent = '⏳ 지급 중…'
-        ipc.send('bcast:grant', { kind, tag: m.tag, nick: m.nick, idx, amount })
+        ipc.send('bcast:grant', { kind, tag: box._tag, nick: m.nick, idx, amount })
       }
     })
+  }
+  // 고유닉이 나중에 확인되면 버튼을 켜요 (못 찾으면 안내)
+  window.__ediGrantTag = (r) => {
+    const box = document.getElementById('__ediGrant'); if (!box || !box._setTag) return
+    if (r && r.tag) return box._setTag(r.tag)
+    const el = document.getElementById('__gTag'); if (el) { el.style.color = '#dc2626'; el.textContent = '❌ ' + ((r && r.error) || '고유닉을 못 찾았어요') }
   }
   window.__ediGrantDone = (r) => {
     const out = document.getElementById('__gOut'); if (!out) return
