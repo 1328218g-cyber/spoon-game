@@ -779,6 +779,29 @@ app.post('/admin/focus-log/clear', auth.requireAuth, (req, res) => {
 })
 
 let lastStatusFail = null // 🔗 에디냥 연동 진단용 — 마지막으로 방송 상태 조회가 실패한 이유
+// 🎙️ DJ 본인 스푼 계정(세션) 토큰으로 내 프로필 조회 → 고유닉이 같으면 { id, tag, is_live, current_live_id }
+//    토큰(JWT) 안의 내 스푼 번호로 /users/{번호}/ 를 불러요. 다른 사람 고유닉이면 null.
+async function fetchOwnStatusByTag(djId, cleanTag) {
+  try {
+    if (!tokenManager.hasCookies(djId)) return null
+    const token = tokenManager.getAccessToken(djId)
+    if (!token) return null
+    let uid = null
+    try {
+      const payload = JSON.parse(Buffer.from(String(token).split('.')[1] || '', 'base64url').toString('utf8'))
+      uid = payload.sub || payload.user_id || payload.userId || payload.uid || payload.id || null
+    } catch (e) {}
+    if (uid == null || !/^\d+$/.test(String(uid))) return null
+    const res = await spoonFetch(`${KR_API_BASE}/users/${uid}/`, { headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' } }, djId)
+    const json = await res.json()
+    const p = (json.results && json.results[0]) || json
+    const tag = String(p.tag || p.tag_name || '').replace('@', '').trim()
+    if (!tag || tag.toLowerCase() !== String(cleanTag).toLowerCase()) return null
+    const liveId = p.current_live_id || (p.current_live && (p.current_live.id || p.current_live.live_id)) || null
+    console.log(`[방송상태조회:${cleanTag}] 검색엔 없지만 DJ 본인 계정으로 확인 — 방송 ${liveId || '없음'}`)
+    return { id: p.id || uid, tag, nickname: p.nickname || '', is_live: !!(p.is_live || liveId), current_live_id: liveId, photoUrl: p.profile_url || p.profileUrl || '' }
+  } catch (e) { return null }
+}
 async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -813,6 +836,10 @@ async function fetchUserStatusByTag(tag, djId = null) {
       url = typeof json.next === 'string' && json.next ? json.next : null
     }
     if (!match || !match.id) {
+      // 🎙️ 검색에 안 나와도(새 계정 등) — 이 DJ 가 자기 스푼 계정 세션을 올려뒀고(내 DJ 계정 모드·세션 연결) 그 계정이
+      //    바로 이 고유닉이면, 그 계정 프로필에서 지금 방송 번호를 바로 가져와요
+      const own = djId ? await fetchOwnStatusByTag(djId, cleanTag) : null
+      if (own) return own
       lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${seen}명)` }
       console.log(`[방송상태조회:${cleanTag}] 검색 결과 ${seen}명 중에 같은 고유닉이 없어요`)
       return null
