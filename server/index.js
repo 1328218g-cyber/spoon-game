@@ -8067,7 +8067,24 @@ function getIdleSettings(djId, settings) {
   }
   const g = settings.idleRpg
   for (const k of ['users', 'webUsers', 'authKeys']) if (!g[k] || typeof g[k] !== 'object') g[k] = {}
+  if (typeof g.autoGemOn !== 'boolean') g.autoGemOn = true // 💎 스푼 후원 → 보석 자동 지급 (기본 켜짐 · 1스푼 = 보석 1개)
+  if (!(Number(g.autoGemPerSpoon) > 0)) g.autoGemPerSpoon = 1
   return g
+}
+// 💎 스푼 후원하면 보석 자동 지급 — 아직 게임을 안 시작한 시청자도 쌓아뒀다가 연결하면 들어가요
+function handleIdleDonationHook(djId, settings, author, tag, totalSpoon) {
+  try {
+    if (!tag || !(totalSpoon > 0) || !isModuleOn(settings, 'idlerpg', djId)) return
+    const g = getIdleSettings(djId, settings)
+    if (!g.autoGemOn) return
+    const n = Math.floor(totalSpoon * (Number(g.autoGemPerSpoon) || 1))
+    if (n <= 0) return
+    const u = idleUser(g, tag, author)
+    if (!u) return
+    u.gemQueue = (u.gemQueue || 0) + n
+    saveIdle(djId, g)
+    broadcast({ type: 'idlerpg-grant', djId, tag: u.tag })
+  } catch (e) { console.log('[방치RPG] 자동 보석 지급 실패', e.message) }
 }
 const saveIdle = (djId, g) => store.saveSettings(djId, { idleRpg: g })
 function idleUser(g, tag, nick) {
@@ -8208,6 +8225,18 @@ app.get('/idle/:djId/rank', (req, res) => {
   res.json({ success: true, list })
 })
 // DJ 화면 (설정 패널) — 플레이어 목록
+app.get('/idle-admin/settings', auth.requireAuth, (req, res) => {
+  const g = getIdleSettings(req.djId, store.getSettings(req.djId) || {})
+  res.json({ success: true, autoGemOn: g.autoGemOn, autoGemPerSpoon: g.autoGemPerSpoon })
+})
+app.post('/idle-admin/settings', auth.requireAuth, (req, res) => {
+  const g = getIdleSettings(req.djId, store.getSettings(req.djId) || {})
+  const b = req.body || {}
+  if ('autoGemOn' in b) g.autoGemOn = !!b.autoGemOn
+  if ('autoGemPerSpoon' in b) { const v = Number(b.autoGemPerSpoon); if (v > 0 && v <= 1000) g.autoGemPerSpoon = Math.round(v * 100) / 100 }
+  saveIdle(req.djId, g)
+  res.json({ success: true, autoGemOn: g.autoGemOn, autoGemPerSpoon: g.autoGemPerSpoon })
+})
 app.get('/idle-admin/players', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const g = getIdleSettings(req.djId, settings)
@@ -18213,6 +18242,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           handleMonsterDexResetCouponGiftHook(djId, settings, donationTag, amount * Math.max(1, comboCount))
+          handleIdleDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
