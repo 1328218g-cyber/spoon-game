@@ -8189,6 +8189,15 @@ app.post('/idle/:djId/save', (req, res) => {
   saveIdle(djId, g)
   res.json({ success: true, gemGrant: grant })
 })
+app.get('/idle/:djId/pending', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'idlerpg', djId)) return res.json({ success: false })
+  const g = settings.idleRpg
+  const tag = g && g.webUsers ? g.webUsers[String(req.query.webUserId || '').trim()] : ''
+  const u = tag && g.users ? g.users[String(tag).toLowerCase()] : null
+  res.json({ success: true, gemQueue: (u && u.gemQueue) || 0 })
+})
 app.get('/idle/:djId/rank', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}

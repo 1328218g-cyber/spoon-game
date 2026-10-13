@@ -755,6 +755,7 @@ renderTab();if(webUserId)checkMe();else loginView();
 setInterval(save,10000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save()});
 // DJ가 !보석 으로 지급하면 바로 받아오기
+setInterval(()=>{if(!ready||document.hidden)return;fetch(API+'/pending?webUserId='+encodeURIComponent(webUserId)).then(r=>r.json()).then(d=>{if(d&&d.gemQueue)save()}).catch(()=>{})},5000);
 try{const es=new EventSource(location.origin+'/events');es.onmessage=(e)=>{try{const m=JSON.parse(e.data);if(m.type==='idlerpg-grant'&&m.djId===DJ_ID&&String(m.tag).toLowerCase()===String(S.tag).toLowerCase())save()}catch(_){}}}catch(_){}
 requestAnimationFrame(step);
 </script>
