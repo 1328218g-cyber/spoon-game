@@ -5164,6 +5164,10 @@ if (window.bcast) setTimeout(() => {
           <div style="display:flex;gap:6px"><input id="idleUrl" readonly style="flex:1"><button class="btn" onclick="idleCopyUrl()">복사</button><button class="btn" onclick="window.open(document.getElementById('idleUrl').value,'_blank')">열기</button></div>
         </div>
         <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">💎 지급 가능 보석 <span style="font-weight:400" id="idleWallet">-</span></div>
+          <p class="hint" style="margin:0">채팅 !보석 으로 줄 수 있는 남은 보석이에요. 차감(음수)하면 뺀 만큼 돌아와요.</p>
+        </div>
+        <div class="card">
           <div style="font-weight:700;margin-bottom:6px">💎 스푼 후원 → 보석 자동 지급</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="idleAutoOn" onchange="idleSaveAuto()"> 자동 지급 켜기</label>
@@ -5177,7 +5181,7 @@ if (window.bcast) setTimeout(() => {
             <b>!게임</b> — 게임 링크 안내<br>
             <b>!게임인증 코드</b> (또는 코드만) — 웹 캐릭터와 연결<br>
             <b>!내캐릭</b> — 내 레벨·전투력·지역·보석 확인<br>
-            <b>!보석 [고유닉] [개수]</b> — 💎 보석 지급 (디제이·매니저 전용, 음수면 차감)
+            <b>!보석 [고유닉] [개수]</b> — 💎 보석 지급 (디제이·매니저 전용, 음수면 차감 · 방송마다 처음 5000개까지, 더 필요하면 관리자 충전)
           </div>
         </div>
         <div class="card">
@@ -17854,6 +17858,7 @@ async function loadIdleRpgPanel(){
   try{
     const d=await (await fetch(SERVER+'/idle-admin/players',{headers:authHeaders()})).json();
     if(!d.success) throw new Error(d.error||'실패');
+    const wl=document.getElementById('idleWallet'); if(wl) wl.innerHTML=d.wallet<0?'<b>무제한</b> (관리자)':`<b>${Number(d.wallet||0).toLocaleString()}개</b> <span class="hint">· 다 쓰면 관리자에게 충전을 요청해주세요</span>`;
     if(!d.list.length){ box.innerHTML='아직 연결된 시청자가 없어요.'; return; }
     const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     box.innerHTML='<table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="text-align:left;opacity:.7"><th>#</th><th>닉네임</th><th>고유닉</th><th>Lv</th><th>전투력</th><th>지역</th><th>💎</th></tr>'+

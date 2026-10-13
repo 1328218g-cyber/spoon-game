@@ -8149,8 +8149,10 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
     const amt = parseInt(parts[2], 10)
     if (!target || !Number.isFinite(amt) || amt === 0) return say(`사용법: ${g.cmdGem || '!보석'} [고유닉] [개수] (빼려면 음수)`)
     idleCall('idleGem', djId, { tag: target, n: amt }).then((d) => {
-      if (d.ok) return say(`💎 ${d.nick}님께 보석 ${Math.abs(d.n).toLocaleString()}개를 ${d.n > 0 ? '지급' : '차감'}했어요 (보유 ${Number(d.have || 0).toLocaleString()}개)`)
+      if (d.ok) return say(`💎 ${d.nick}님께 보석 ${Math.abs(d.n).toLocaleString()}개를 ${d.n > 0 ? '지급' : '차감'}했어요 (보유 ${Number(d.have || 0).toLocaleString()}개)${d.wallet >= 0 ? ` · 남은 지급 가능 ${Number(d.wallet).toLocaleString()}개` : ''}`)
       if (d.error === 'nouser') return say(`⚠️ @${target}님은 아직 방치 RPG 캐릭터가 없어요`)
+      if (d.error === 'wallet') return say(`⚠️ 지급 가능한 보석이 부족해요 (남은 ${Number(d.wallet || 0).toLocaleString()}개) · 더 필요하면 관리자에게 충전을 요청해주세요`)
+      if (d.error === 'empty') return say(`⚠️ @${target}님은 뺄 보석이 없어요`)
       say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
     })
   }
@@ -8200,7 +8202,7 @@ app.get('/idle-admin/players', auth.requireAuth, async (req, res) => {
   idleSyncRoom(req.djId).catch(() => {})
   const d = await idleCall('idlePlayers', req.djId, {}, 15000)
   if (!d.ok) return res.json({ success: false, error: d.error === 'nokey' ? '서버 환경변수 IDLE_SYNC_KEY 가 없어요' : '게임 서버에 연결하지 못했어요' })
-  res.json({ success: true, list: d.list || [] })
+  res.json({ success: true, list: d.list || [], wallet: d.wallet })
 })
 
 function getTowerSettings(djId, settings) {
