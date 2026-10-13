@@ -8086,6 +8086,36 @@ function handleIdleDonationHook(djId, settings, author, tag, totalSpoon) {
     broadcast({ type: 'idlerpg-grant', djId, tag: u.tag })
   } catch (e) { console.log('[방치RPG] 자동 보석 지급 실패', e.message) }
 }
+// 💬 방송에서 채팅하면 골드 (1분 최대 5번) · ❤️ 무료 좋아요 누르면 30분 골드 1.5배 — 게임 화면이 받아서 적용해요
+const IDLE_CHAT_PER_MIN = 5
+const IDLE_LIKE_BUFF_MS = 30 * 60 * 1000
+const idleChatWin = new Map()
+function handleIdleChatHook(djId, settings, tag) {
+  try {
+    if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
+    const g = getIdleSettings(djId, settings)
+    const k = String(tag).replace(/^@/, '').trim().toLowerCase()
+    const u = g.users[k]
+    if (!u) return
+    const wk = djId + '|' + k, now = Date.now()
+    let w = idleChatWin.get(wk)
+    if (!w || now - w.start >= 60000) { w = { start: now, n: 0 }; idleChatWin.set(wk, w) }
+    if (w.n >= IDLE_CHAT_PER_MIN) return
+    w.n++
+    u.chatQueue = (u.chatQueue || 0) + 1
+    saveIdle(djId, g)
+  } catch (e) {}
+}
+function handleIdleLikeHook(djId, settings, tag) {
+  try {
+    if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
+    const g = getIdleSettings(djId, settings)
+    const u = g.users[String(tag).replace(/^@/, '').trim().toLowerCase()]
+    if (!u) return
+    u.likeUntil = Date.now() + IDLE_LIKE_BUFF_MS
+    saveIdle(djId, g)
+  } catch (e) {}
+}
 const saveIdle = (djId, g) => store.saveSettings(djId, { idleRpg: g })
 function idleUser(g, tag, nick) {
   const k = String(tag || '').replace(/^@/, '').trim().toLowerCase()
@@ -8179,7 +8209,7 @@ app.get('/idle/:djId/me', (req, res) => {
     return res.json({ success: true, linked: false, expired: true })
   }
   const u = idleUser(g, tag)
-  res.json({ success: true, linked: true, tag: u.tag, nick: u.nick, state: u.state, gemGrant: u.gemQueue || 0 })
+  res.json({ success: true, linked: true, tag: u.tag, nick: u.nick, state: u.state, gemGrant: u.gemQueue || 0, likeUntil: u.likeUntil || 0 })
 })
 // 진행 저장 — 받은 보석(DJ 지급)은 답장으로 돌려주고 비워요 (화면이 더해서 다음 저장에 넣어요)
 app.post('/idle/:djId/save', (req, res) => {
@@ -8199,12 +8229,14 @@ app.post('/idle/:djId/save', (req, res) => {
   const grant = u.gemQueue || 0
   if (grant && st && typeof st === 'object') st.gem = Math.max(0, (Number(st.gem) || 0) + grant)
   u.gemQueue = 0
+  const chatGrant = u.chatQueue || 0
+  u.chatQueue = 0
   u.state = st
   const sm = b.summary || {}
   u.summary = { lv: Number(sm.lv) || 1, power: Number(sm.power) || 0, z: Number(sm.z) || 1, s: Number(sm.s) || 1, gem: Number(st && st.gem) || 0 }
   u.updatedAt = Date.now()
   saveIdle(djId, g)
-  res.json({ success: true, gemGrant: grant })
+  res.json({ success: true, gemGrant: grant, chatGrant, likeUntil: u.likeUntil || 0 })
 })
 app.get('/idle/:djId/pending', (req, res) => {
   const djId = req.params.djId
@@ -8213,7 +8245,7 @@ app.get('/idle/:djId/pending', (req, res) => {
   const g = settings.idleRpg
   const tag = g && g.webUsers ? g.webUsers[String(req.query.webUserId || '').trim()] : ''
   const u = tag && g.users ? g.users[String(tag).toLowerCase()] : null
-  res.json({ success: true, gemQueue: (u && u.gemQueue) || 0 })
+  res.json({ success: true, gemQueue: (u && u.gemQueue) || 0, chatQueue: (u && u.chatQueue) || 0, likeUntil: (u && u.likeUntil) || 0 })
 })
 app.get('/idle/:djId/rank', (req, res) => {
   const djId = req.params.djId
@@ -18064,6 +18096,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleIdleChatHook(djId, settings, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -18137,6 +18170,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handleSwordHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handleMonsterDexResetCouponLikeHook(djId, settings, likeTag)
+        if (!isLurker) handleIdleLikeHook(djId, settings, likeTag)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         if (!isLurker) sendLikeHeartMessage(djId, settings, 'free', author, likeTag)
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)

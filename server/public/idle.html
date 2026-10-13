@@ -111,10 +111,16 @@ const DEF={nick:'',tag:'',lv:1,exp:0,gold:0,gem:30,soul:0,z:1,s:1,kills:0,best:0
 let S=JSON.parse(JSON.stringify(DEF)),ready=false,saving=false;
 function save(){if(!ready)return;S.last=Date.now();if(saving)return;saving=true;
   fetch(API+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webUserId,state:S,summary:{lv:S.lv,power:Math.floor(power()),z:S.z,s:S.s}})})
-  .then(r=>r.json()).then(d=>{if(d&&d.success&&d.gemGrant){S.gem=Math.max(0,S.gem+d.gemGrant);toast(`💎 DJ가 보석 ${d.gemGrant>0?'+':''}${d.gemGrant}개를 ${d.gemGrant>0?'줬어요!':'뺐어요'}`);if(curTab==='gacha')renderTab()}}).catch(()=>{}).finally(()=>{saving=false})}
+  .then(r=>r.json()).then(d=>{if(!d||!d.success)return;
+    if(d.gemGrant){S.gem=Math.max(0,S.gem+d.gemGrant);toast(`💎 보석 ${d.gemGrant>0?'+':''}${d.gemGrant}개 ${d.gemGrant>0?'받았어요!':'차감됐어요'}`);if(curTab==='gacha')renderTab()}
+    if(d.chatGrant){const g=Math.floor(d.chatGrant*Math.max(30,monStat(false).gold*3));S.gold+=g;setTimeout(()=>toast(`💬 방송 채팅 보상 <i class="coin"></i> ${fmt(g)}`),d.gemGrant?1700:0)}
+    applyLike(d.likeUntil)}).catch(()=>{}).finally(()=>{saving=false})}
 
 // ───────── 능력치 ─────────
 const buffs={};
+// ❤️ 방송에서 무료 좋아요 → 30분 골드 1.5배 (서버가 알려준 끝나는 시각 그대로)
+let likeSeen=0;
+function applyLike(until){until=Number(until)||0;if(until>Date.now()){buffs.gold={v:1.5,until,e:'❤️',n:'좋아요 골드'};if(until!==likeSeen&&likeSeen)toast('❤️ 좋아요 버프! 30분 동안 골드 1.5배');likeSeen=until}}
 const bon=(k)=>buffs[k]&&buffs[k].until>Date.now()?buffs[k].v:1;
 // ───────── 아이템 (모두 🎁 뽑기 상자에서 · 같은 장비도 등급이 달라요) ─────────
 const RAR=[{n:'일반',w:55,m:1,c:'#b8bdd6'},{n:'고급',w:27,m:1.8,c:'#5ee38a'},{n:'레어',w:12,m:3.2,c:'#4aa8ff'},{n:'영웅',w:5,m:6,c:'#c48bff'},{n:'전설',w:1,m:12,c:'#ffb020'}];
@@ -633,7 +639,7 @@ function hud(){
   $('expbar').style.width=(S.exp/needExp()*100)+'%';
   const Z=ZONES[(S.z-1)%ZONES.length];$('stname').textContent=`${Z.name} ${S.z}-${S.s}`;$('stsub').textContent=S.s===10?'· 대장전':`· ${S.kills}/8`;
   $('prog').innerHTML=Array.from({length:10},(_,i)=>`<span class="${i===9?'boss ':''}${i<S.s?'on':''}"></span>`).join('');
-  $('buffs').innerHTML=Object.values(buffs).filter(b=>b.until>Date.now()).map(b=>`<span class="buff">${b.e} ${b.n} ${Math.ceil((b.until-Date.now())/1000)}s</span>`).join('')+(S.soul?`<span class="buff">🔮 환생 +${S.soul*15}%</span>`:'');
+  $('buffs').innerHTML=Object.values(buffs).filter(b=>b.until>Date.now()).map(b=>`<span class="buff">${b.e} ${b.n} ${(r=>r>90?Math.ceil(r/60)+'분':r+'s')(Math.ceil((b.until-Date.now())/1000))}</span>`).join('')+(S.soul?`<span class="buff">🔮 환생 +${S.soul*15}%</span>`:'');
   document.querySelectorAll('.sk').forEach((el,i)=>{const sk=SKILLS[i];el.classList.toggle('lock',S.lv<sk.lv);el.querySelector('.cd').style.height=(cds[sk.id]/sk.cd*100)+'%';el.querySelector('.t').textContent=S.lv<sk.lv?'LV'+sk.lv:(cds[sk.id]>0?Math.ceil(cds[sk.id]):'')});
   if(curTab==='up')refreshUp();
 }
@@ -689,7 +695,11 @@ function renderTab(){
     <button class="btn purple" id="rebBtn" style="margin-top:12px" ${souls<1?'disabled':''}>${souls<1?'불꽃 화산 1-5부터 할 수 있어요':'🔮 환생하기'}</button></div>`;
     $('rebBtn').onclick=()=>{if(souls<1)return;S.soul+=souls;S.reb++;S.z=1;S.s=1;S.kills=0;S.gold=0;S.upg={atk:0,hp:0,crit:0,spd:0,gold:0};mon=null;hero.hp=maxHp();save();toast(`🔮 환생! 영혼석 +${souls}`);renderTab()};
   }else if(curTab==='spoon'){
-    P.innerHTML=`<div class="h">🥄 방송 채팅 명령어</div>
+    const lk=buffs.gold&&buffs.gold.until>Date.now()?Math.ceil((buffs.gold.until-Date.now())/60000):0;
+    P.innerHTML=`<div class="h">🎁 방송하면 자동으로 받아요</div>
+    <div class="row"><div class="ic">💬</div><div class="info"><b>방송에서 채팅</b><div class="s">스푼 채팅창에 채팅 1번마다 골드 (1분 최대 5번)</div></div><span style="font-size:11.5px;color:var(--dim);white-space:nowrap">자동</span></div>
+    <div class="row"><div class="ic">❤️</div><div class="info"><b>좋아요 누르기</b><div class="s">무료 좋아요 누를 때마다 30분 동안 골드 1.5배</div></div><span style="font-size:11.5px;white-space:nowrap;${lk?'color:#ff6b8a;font-weight:800':'color:var(--dim)'}">${lk?lk+'분 남음':'자동'}</span></div>
+    <div class="h">🥄 방송 채팅 명령어</div>
     <div class="row"><div class="ic">⚔️</div><div class="info"><b>!내캐릭</b><div class="s">내 레벨·전투력·스테이지·보석을 채팅에 보여줘요</div></div></div>
     <div class="row"><div class="ic">🔗</div><div class="info"><b>!게임</b><div class="s">이 게임 주소를 채팅에 알려줘요</div></div></div>
     <div class="row"><div class="ic">💎</div><div class="info"><b>!보석 [고유닉] [개수]</b><div class="s">DJ·매니저 전용 · 그 시청자에게 보석 지급 (음수면 차감) · 바로 이 화면에 들어와요</div></div></div>
@@ -747,7 +757,7 @@ async function checkMe(){
     clearTimeout(pollT);closeModal();
     S=Object.assign(JSON.parse(JSON.stringify(DEF)),d.state||{});S.nick=d.nick||d.tag;S.tag=d.tag;
     for(const it of [...(S.inv||[]),...Object.values(S.eq||{})])if(it&&!it.key)it.key=ITEMS[it.s][0].k;
-    ready=true;hero.hp=maxHp();applyLook();renderTab();
+    likeSeen=Number(d.likeUntil)||0;applyLike(d.likeUntil);ready=true;hero.hp=maxHp();applyLook();renderTab();
     const away=(Date.now()-(S.last||Date.now()))/1000;if(d.state&&away>60)offline(away);else save();
   }catch(_){toast('서버에 연결하지 못했어요');setTimeout(checkMe,5000)}
 }
@@ -755,7 +765,7 @@ renderTab();if(webUserId)checkMe();else loginView();
 setInterval(save,10000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save()});
 // DJ가 !보석 으로 지급하면 바로 받아오기
-setInterval(()=>{if(!ready||document.hidden)return;fetch(API+'/pending?webUserId='+encodeURIComponent(webUserId)).then(r=>r.json()).then(d=>{if(d&&d.gemQueue)save()}).catch(()=>{})},5000);
+setInterval(()=>{if(!ready||document.hidden)return;fetch(API+'/pending?webUserId='+encodeURIComponent(webUserId)).then(r=>r.json()).then(d=>{if(!d)return;applyLike(d.likeUntil);if(d.gemQueue||d.chatQueue)save()}).catch(()=>{})},5000);
 try{const es=new EventSource(location.origin+'/events');es.onmessage=(e)=>{try{const m=JSON.parse(e.data);if(m.type==='idlerpg-grant'&&m.djId===DJ_ID&&String(m.tag).toLowerCase()===String(S.tag).toLowerCase())save()}catch(_){}}}catch(_){}
 requestAnimationFrame(step);
 </script>
