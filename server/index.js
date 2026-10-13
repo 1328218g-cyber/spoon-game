@@ -8163,6 +8163,20 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
       say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
     })
   }
+  // 🎁 !아이템 [고유닉] [아이템이름] [등급 1~6] [강화] — 관리자(sum 고유닉)만 · 1일반 2고급 3레어 4영웅 5전설 6레이드★6
+  if (cmd === (g.cmdItem || '!아이템')) {
+    if (String(tag || '').toLowerCase() !== 'sum') return
+    const c = g.cmdItem || '!아이템'
+    idleCall('idleItem', djId, { by: tag, args: parts.slice(1).join(' ') }).then((d) => {
+      if (d.ok) return say(`🎁 ${d.nick}님께 [${d.grade}] ${d.item} +${d.e} 을(를) 지급했어요 · 게임 화면 가방으로 들어가요`)
+      if (d.error === 'nouser') return say('⚠️ 그 고유닉은 아직 방치 RPG 캐릭터가 없어요')
+      if (d.error === 'noitem') return say('⚠️ 그런 이름의 장비가 없어요')
+      if (d.error === 'many') return say(`⚠️ 이름이 겹쳐요: ${(d.names || []).join(', ')}`)
+      if (d.error === 'noperm') return say('⚠️ 장비 지급은 관리자만 할 수 있어요')
+      if (d.error === 'usage') return say(`사용법: ${c} [고유닉] [아이템이름] [등급 1~6] [강화] (1일반 2고급 3레어 4영웅 5전설 6레이드★6)`)
+      say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
+    })
+  }
 }
 // 💬 방송에서 채팅하면 골드 (1분 최대 5번 — 여기서도 미리 걸러서 서버 호출을 줄여요)
 const idleChatWin = new Map()
