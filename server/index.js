@@ -8165,7 +8165,7 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
   }
   // 🎁 !아이템 [고유닉] [아이템이름] [등급 1~6] [강화] — 관리자(sum 고유닉)만 · 1일반 2고급 3레어 4영웅 5전설 6레이드★6
   if (cmd === (g.cmdItem || '!아이템')) {
-    if (String(tag || '').toLowerCase() !== 'sum') return
+    if (String(tag || '').toLowerCase() !== 'sum') return say(`⚠️ 장비 지급은 관리자(sum)만 할 수 있어요 · 지금 고유닉: ${tag || '(없음)'}`)
     const c = g.cmdItem || '!아이템'
     idleCall('idleItem', djId, { by: tag, args: parts.slice(1).join(' ') }).then((d) => {
       if (d.ok) return say(`🎁 ${d.nick}님께 [${d.grade}] ${d.item} +${d.e} 을(를) 지급했어요 · 게임 화면 가방으로 들어가요`)
