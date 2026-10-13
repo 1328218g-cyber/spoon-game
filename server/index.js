@@ -8159,21 +8159,28 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
 }
 // 💬 방송에서 채팅하면 골드 (1분 최대 5번 — 여기서도 미리 걸러서 서버 호출을 줄여요)
 const idleChatWin = new Map()
+// 골드는 1분 5번이지만 📅 일일 미션은 채팅을 전부 세요 → 넘치는 채팅은 모아서 10개마다 (또는 1분마다) 한꺼번에 보내요
+const idleChatPend = new Map()
 function handleIdleChatHook(djId, settings, tag) {
   if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
   const k = String(tag).replace(/^@/, '').trim().toLowerCase(), now = Date.now()
+  const pk = djId + '|' + k
+  const p = idleChatPend.get(pk) || { djId, k, n: 0 }; p.n++; idleChatPend.set(pk, p)
   let w = idleChatWin.get(k)
   if (!w || now - w.start >= 60000) { w = { start: now, n: 0 }; idleChatWin.set(k, w) }
-  if (w.n >= 5) return
-  w.n++
-  idleCall('idleChat', djId, { tag: k }).catch(() => {})
+  if (w.n < 5 || p.n >= 10) {
+    if (w.n < 5) w.n++
+    idleChatPend.delete(pk)
+    idleCall('idleChat', djId, { tag: k, cnt: p.n }).catch(() => {})
+  }
 }
+setInterval(() => { for (const [pk, p] of idleChatPend) { idleChatPend.delete(pk); if (p.n > 0) idleCall('idleChat', p.djId, { tag: p.k, cnt: p.n }).catch(() => {}) } }, 60000)
 // ❤️ 무료 좋아요 → 30분 골드 1.5배 (1분에 한 번만 알려도 30분이 다시 채워져요)
 const idleLikeAt = new Map()
 function handleIdleLikeHook(djId, settings, tag) {
   if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
   const k = String(tag).replace(/^@/, '').trim().toLowerCase(), now = Date.now()
-  if (now - (idleLikeAt.get(k) || 0) < 60000) return
+  if (now - (idleLikeAt.get(k) || 0) < 2000) return // 하트마다 보내요 (📅 일일 미션 하트 10번)
   idleLikeAt.set(k, now)
   idleCall('idleLike', djId, { tag: k }).catch(() => {})
 }
@@ -8181,9 +8188,9 @@ function handleIdleLikeHook(djId, settings, tag) {
 function handleIdleDonationHook(djId, settings, author, tag, totalSpoon) {
   if (!tag || !(totalSpoon > 0) || !isModuleOn(settings, 'idlerpg', djId)) return
   const g = getIdleSettings(djId, settings)
-  if (!g.autoGemOn) return
-  const n = Math.floor(totalSpoon * (Number(g.autoGemPerSpoon) || 1))
-  if (n > 0) idleCall('idleGem', djId, { tag: String(tag).replace(/^@/, ''), nick: author, n, auto: true }).catch(() => {})
+  const sp = Math.floor(totalSpoon)
+  const n = g.autoGemOn ? Math.floor(totalSpoon * (Number(g.autoGemPerSpoon) || 1)) : 0 // 자동 지급을 꺼도 📅 선물 미션은 세요
+  if (sp > 0) idleCall('idleGem', djId, { tag: String(tag).replace(/^@/, ''), nick: author, n, spoon: sp, auto: true }).catch(() => {})
 }
 // ── 대시보드 ──
 app.get('/idle-admin/settings', auth.requireAuth, (req, res) => {
