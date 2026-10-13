@@ -1407,7 +1407,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'idlerpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -8044,6 +8044,168 @@ const TOWER_DEFAULT_ITEMS = '낡은 검,weapon,5,common,50\n강철검,weapon,15,
 // 형식: 이름,부위(weapon/armor/accessory),전투력보너스,등급,드롭가중치
 const TOWER_RARITY_EMOJI = { common: '⚪', rare: '🔵', epic: '🟣', legendary: '🟡' }
 const TOWER_SLOT_LABEL = { weapon: '무기', armor: '방어구', accessory: '장신구' }
+
+// ══════════════════════════════════════════════════════
+// ⚔️ 방치 RPG — 시청자가 /idle/:djId 웹페이지에서 키우는 방치형 게임 (2.5D)
+//   · 로그인: 웹에서 코드를 받아 방송 채팅에 치면 고유닉과 연결 (내정보 웹페이지와 같은 방식)
+//   · 진행 저장: 게임 화면이 주기적으로 서버에 저장 · 방치 보상은 다시 들어올 때 화면이 계산
+//   · DJ·매니저 채팅 명령어: !보석 [고유닉] [개수] → 다음 저장 때 그 시청자 게임에 들어가요
+// ══════════════════════════════════════════════════════
+const IDLE_ZONES = ['초록 숲', '달빛 동굴', '불꽃 화산']
+let idlePublicOrigin = '' // 채팅으로 게임 주소를 알려줄 때 쓰는 이 서버 주소 (요청이 올 때 기억)
+app.use((req, res, next) => {
+  try {
+    const host = req.get('host') || ''
+    if (host && !/^(localhost|127\.|0\.0\.0\.0)/.test(host)) idlePublicOrigin = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0] + '://' + host
+  } catch (_) {}
+  next()
+})
+function getIdleSettings(djId, settings) {
+  if (!settings.idleRpg) {
+    settings.idleRpg = { users: {}, webUsers: {}, authKeys: {}, cmdGem: '!보석', cmdInfo: '!내캐릭', cmdAuth: '!게임인증', cmdLink: '!게임' }
+    store.saveSettings(djId, { idleRpg: settings.idleRpg })
+  }
+  const g = settings.idleRpg
+  for (const k of ['users', 'webUsers', 'authKeys']) if (!g[k] || typeof g[k] !== 'object') g[k] = {}
+  return g
+}
+const saveIdle = (djId, g) => store.saveSettings(djId, { idleRpg: g })
+function idleUser(g, tag, nick) {
+  const k = String(tag || '').replace(/^@/, '').trim().toLowerCase()
+  if (!k) return null
+  if (!g.users[k]) g.users[k] = { tag: String(tag).replace(/^@/, '').trim(), nick: nick || tag, state: null, summary: null, gemQueue: 0, updatedAt: 0 }
+  if (nick) g.users[k].nick = String(nick).slice(0, 30)
+  return g.users[k]
+}
+const idleLink = (djId) => (idlePublicOrigin || String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '')) + '/idle/' + encodeURIComponent(djId)
+function idleHandleAuth(djId, g, tag, author, code) {
+  if (!tag) return sendChatSplit(djId, '⚠️ 고유닉 정보를 확인할 수 없어요. 잠시 후 다시 시도해주세요.', 150, 300)
+  miCleanExpiredKeys(g)
+  const entry = g.authKeys[code]
+  if (!entry) return sendChatSplit(djId, '⚠️ 유효하지 않거나 만료된 인증코드예요. 게임 화면에서 다시 받아주세요.', 150, 300)
+  g.webUsers[entry.webUserId] = tag
+  idleUser(g, tag, author)
+  delete g.authKeys[code]
+  saveIdle(djId, g)
+  return sendChatSplit(djId, `⚔️ ${author}님 방치 RPG 연결 완료! 게임 화면으로 돌아가면 바로 시작돼요.`, 150, 300)
+}
+function handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'idlerpg', djId)) return
+  const g = getIdleSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  // 코드만 딱 쳐도 인증 (다른 웹 모듈 코드일 수 있어서 못 찾으면 조용히 넘김)
+  if (!msg.startsWith('!')) {
+    const raw = msg.replace(/\s+/g, '').toUpperCase()
+    if (/^[A-Z0-9]{6}$/.test(raw)) { miCleanExpiredKeys(g); if (g.authKeys[raw]) return idleHandleAuth(djId, g, tag, author, raw) }
+    return
+  }
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+  if (cmd === (g.cmdAuth || '!게임인증')) {
+    const code = String(parts[1] || '').trim().toUpperCase()
+    if (!code) return sendChatSplit(djId, `사용법: ${g.cmdAuth || '!게임인증'} 코드6자리`, 150, 300)
+    return idleHandleAuth(djId, g, tag, author, code)
+  }
+  if (cmd === (g.cmdLink || '!게임')) return setTimeout(() => sendChatToRoom(djId, `⚔️ 방치 RPG 하러 가기 → ${idleLink(djId)}`), 400)
+  if (cmd === (g.cmdInfo || '!내캐릭')) {
+    const u = tag ? g.users[tag.toLowerCase()] : null
+    if (!u || !u.summary) return setTimeout(() => sendChatToRoom(djId, `⚔️ ${author}님은 아직 캐릭터가 없어요 · ${idleLink(djId)} 에서 시작해요`), 400)
+    const s = u.summary
+    return setTimeout(() => sendChatToRoom(djId, `⚔️ ${u.nick} Lv.${s.lv} · 전투력 ${Math.floor(s.power || 0).toLocaleString()} · ${IDLE_ZONES[(s.z - 1) % 3] || ''} ${s.z}-${s.s} · 💎${(s.gem || 0) + (u.gemQueue || 0)}`), 400)
+  }
+  // 💎 !보석 [고유닉] [개수] — DJ·매니저만 (음수면 차감)
+  if (cmd === (g.cmdGem || '!보석')) {
+    const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
+    const act = getActivitySettings(djId, settings)
+    const isManager = !isDj && (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase())
+    if (!isDj && !isManager) return setTimeout(() => sendChatToRoom(djId, '⚠️ 보석 지급은 DJ·매니저만 할 수 있어요'), 400)
+    const target = String(parts[1] || '').replace(/^@/, '').trim()
+    const amt = parseInt(parts[2], 10)
+    if (!target || !Number.isFinite(amt) || amt === 0) return setTimeout(() => sendChatToRoom(djId, `사용법: ${g.cmdGem || '!보석'} [고유닉] [개수] (빼려면 음수)`), 400)
+    const u = g.users[target.toLowerCase()]
+    if (!u) return setTimeout(() => sendChatToRoom(djId, `⚠️ @${target}님은 아직 방치 RPG 캐릭터가 없어요`), 400)
+    const n = Math.max(-999999, Math.min(999999, amt))
+    u.gemQueue = (u.gemQueue || 0) + n
+    saveIdle(djId, g)
+    broadcast({ type: 'idlerpg-grant', djId, tag: u.tag })
+    const have = Math.max(0, ((u.summary && u.summary.gem) || 0) + u.gemQueue)
+    return setTimeout(() => sendChatToRoom(djId, `💎 ${u.nick}님께 보석 ${Math.abs(n).toLocaleString()}개를 ${n > 0 ? '지급' : '차감'}했어요 (보유 ${have.toLocaleString()}개)`), 400)
+  }
+}
+// ── 웹 API (시청자) ──
+app.post('/idle/:djId/register', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'idlerpg', djId)) return res.json({ success: false, error: '이 방송은 방치 RPG를 쓰지 않아요.' })
+  const g = getIdleSettings(djId, settings)
+  let webUserId = String((req.body || {}).webUserId || '').trim().slice(0, 40)
+  if (!webUserId) webUserId = 'iu' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  if (g.webUsers[webUserId]) return res.json({ success: true, webUserId, linked: true })
+  miCleanExpiredKeys(g)
+  for (const [c, e] of Object.entries(g.authKeys)) if (e.webUserId === webUserId) delete g.authKeys[c]
+  const code = miGenAuthKey(g)
+  g.authKeys[code] = { webUserId, createdAt: Date.now(), expiresAt: Date.now() + MI_AUTH_KEY_TTL_MS }
+  saveIdle(djId, g)
+  res.json({ success: true, webUserId, code, cmd: g.cmdAuth || '!게임인증', expiresInSec: MI_AUTH_KEY_TTL_MS / 1000 })
+})
+app.get('/idle/:djId/me', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'idlerpg', djId)) return res.json({ success: false, error: '이 방송은 방치 RPG를 쓰지 않아요.' })
+  const g = getIdleSettings(djId, settings)
+  const webUserId = String(req.query.webUserId || '').trim()
+  const tag = webUserId ? g.webUsers[webUserId] : ''
+  if (!tag) {
+    miCleanExpiredKeys(g)
+    for (const [code, e] of Object.entries(g.authKeys)) if (e.webUserId === webUserId) return res.json({ success: true, linked: false, code, expiresAt: e.expiresAt, cmd: g.cmdAuth || '!게임인증' })
+    return res.json({ success: true, linked: false, expired: true })
+  }
+  const u = idleUser(g, tag)
+  res.json({ success: true, linked: true, tag: u.tag, nick: u.nick, state: u.state, gemGrant: u.gemQueue || 0 })
+})
+// 진행 저장 — 받은 보석(DJ 지급)은 답장으로 돌려주고 비워요 (화면이 더해서 다음 저장에 넣어요)
+app.post('/idle/:djId/save', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'idlerpg', djId)) return res.json({ success: false, error: '이 방송은 방치 RPG를 쓰지 않아요.' })
+  const g = getIdleSettings(djId, settings)
+  const b = req.body || {}
+  const tag = g.webUsers[String(b.webUserId || '').trim()]
+  if (!tag) return res.json({ success: false, error: '먼저 채팅으로 인증을 완료해주세요.' })
+  const u = idleUser(g, tag)
+  let raw = ''
+  try { raw = JSON.stringify(b.state || null) } catch (_) {}
+  if (!raw || raw.length > 300000) return res.json({ success: false, error: '저장할 수 없는 데이터예요.' })
+  const st = b.state
+  // 받은 보석을 더한 상태로 저장 (화면 쪽 반영이 늦어도 서버 기록은 정확하게)
+  const grant = u.gemQueue || 0
+  if (grant && st && typeof st === 'object') st.gem = Math.max(0, (Number(st.gem) || 0) + grant)
+  u.gemQueue = 0
+  u.state = st
+  const sm = b.summary || {}
+  u.summary = { lv: Number(sm.lv) || 1, power: Number(sm.power) || 0, z: Number(sm.z) || 1, s: Number(sm.s) || 1, gem: Number(st && st.gem) || 0 }
+  u.updatedAt = Date.now()
+  saveIdle(djId, g)
+  res.json({ success: true, gemGrant: grant })
+})
+app.get('/idle/:djId/rank', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  if (!isModuleOn(settings, 'idlerpg', djId)) return res.json({ success: false })
+  const g = getIdleSettings(djId, settings)
+  const list = Object.values(g.users).filter(u => u.summary).sort((a, b) => (b.summary.power || 0) - (a.summary.power || 0)).slice(0, 30)
+    .map(u => ({ tag: u.tag, nick: u.nick, lv: u.summary.lv, power: u.summary.power, z: u.summary.z, s: u.summary.s }))
+  res.json({ success: true, list })
+})
+// DJ 화면 (설정 패널) — 플레이어 목록
+app.get('/idle-admin/players', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const g = getIdleSettings(req.djId, settings)
+  const list = Object.values(g.users).sort((a, b) => ((b.summary && b.summary.power) || 0) - ((a.summary && a.summary.power) || 0))
+    .map(u => ({ tag: u.tag, nick: u.nick, summary: u.summary, gemQueue: u.gemQueue || 0, updatedAt: u.updatedAt }))
+  res.json({ success: true, list })
+})
 
 function getTowerSettings(djId, settings) {
   if (!settings.tower) {
@@ -17863,6 +18025,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -24616,6 +24779,7 @@ app.get('/reversi/:djId', (req, res) => {
 })
 // 🎮 오목 게임 페이지 (로그인 불필요) — 리버시와 똑같이 몬스터 웹 도감의 인증을 재사용하고,
 // 실제 대국 API만 /monsterdex/:djId/omok/*로 따로 둔다.
+app.get('/idle/:djId', (req, res) => { res.sendFile(__dirname + '/public/idle.html') }) // ⚔️ 방치 RPG
 app.get('/omok/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/omok.html')
 })
@@ -24626,6 +24790,7 @@ app.get('/omok/:djId', (req, res) => {
 // 보여준다. 앞으로 이런 웹 기능을 새로 추가할 때는 이 목록에 한 줄만 추가하면 자동으로
 // 허브에도 반영된다 (module 키가 꺼져있으면 그 카드는 목록에서 자동으로 빠진다).
 const WEB_HUB_FEATURES = [
+  { key: 'idlerpg', path: 'idle', icon: '⚔️', title: '방치 RPG', desc: '내 닉네임 캐릭터가 혼자 싸우며 성장하는 방치형 게임이에요 · 장비 뽑기·강화·환생' },
   { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
   { key: 'monstercatch', path: 'monsterdex', icon: '🐾', title: '몬스터 웹 도감', desc: '내가 잡은 몬스터 도감 확인, 대결 몬스터 선택, 분해로 레벨업까지 할 수 있어요' },
