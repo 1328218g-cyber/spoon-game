@@ -8157,6 +8157,7 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
     idleCall('idleGem', djId, { tag: target, n: amt }).then((d) => {
       if (d.ok) return say(`💎 ${d.nick}님께 보석 ${Math.abs(d.n).toLocaleString()}개를 ${d.n > 0 ? '지급' : '차감'}했어요 (보유 ${Number(d.have || 0).toLocaleString()}개)${d.wallet >= 0 ? ` · 남은 지급 가능 ${Number(d.wallet).toLocaleString()}개` : ''}`)
       if (d.error === 'nouser') return say(`⚠️ @${target}님은 아직 방치 RPG 캐릭터가 없어요`)
+      if (d.error === 'noperm') return say('⚠️ 보석 지급은 관리자가 허용한 방송만 할 수 있어요 · 필요하면 관리자에게 등록을 요청해주세요')
       if (d.error === 'wallet') return say(`⚠️ 지급 가능한 보석이 부족해요 (남은 ${Number(d.wallet || 0).toLocaleString()}개) · 더 필요하면 관리자에게 충전을 요청해주세요`)
       if (d.error === 'empty') return say(`⚠️ @${target}님은 뺄 보석이 없어요`)
       say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
