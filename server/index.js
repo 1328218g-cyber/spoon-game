@@ -8173,7 +8173,7 @@ function handleIdleCommand(djId, room, settings, author, authorId, liveId, text,
       if (d.error === 'noitem') return say('⚠️ 그런 이름의 장비가 없어요')
       if (d.error === 'many') return say(`⚠️ 이름이 겹쳐요: ${(d.names || []).join(', ')}`)
       if (d.error === 'noperm') return say('⚠️ 장비 지급은 관리자만 할 수 있어요')
-      if (d.error === 'usage') return say(`사용법: ${c} [고유닉] [아이템이름] [등급 1~6] [강화] (1일반 2고급 3레어 4영웅 5전설 6레이드★6)`)
+      if (d.error === 'usage') return say(`사용법: ${c} [고유닉] [아이템이름] [등급] [강화] (1일반 2고급 3레어 4영웅 5전설 · 레이드는 ★1~★6)`)
       say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
     })
   }
