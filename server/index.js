@@ -8088,7 +8088,13 @@ async function idleSyncRoom(djId) {
   const g = settings.idleRpg || {}
   const r = await idleCall('idleSet', djId, { on, cmdAuth: g.cmdAuth || '!게임인증' }, 6000)
   if (r.ok) idleRoomSent.set(djId, on)
-  return on
+  return { on, ok: !!r.ok, error: r.ok ? '' : idleErrText(r.error) }
+}
+// 회원 서버와 연결이 안 될 때 이유를 사람이 알아볼 수 있게
+function idleErrText(e) {
+  if (e === 'nokey') return '에디냥 서버에 환경변수 IDLE_SYNC_KEY 가 없어요 (Railway 에디냥 서버 Variables 에 추가해주세요)'
+  if (e === 'bad key' || e === 'HTTP 403') return 'IDLE_SYNC_KEY 가 두 서버에서 서로 달라요 (에디냥 서버와 짜잔 에디봇 회원 서버에 같은 값을 넣어주세요)'
+  return '짜잔 에디봇 회원 서버에 연결하지 못했어요 (' + String(e || '알 수 없음').slice(0, 80) + ')'
 }
 async function idleSyncAll() {
   if (!IDLE_SYNC_KEY) return
@@ -8208,7 +8214,7 @@ app.post('/idle-admin/settings', auth.requireAuth, (req, res) => {
 app.get('/idle-admin/players', auth.requireAuth, async (req, res) => {
   idleSyncRoom(req.djId).catch(() => {})
   const d = await idleCall('idlePlayers', req.djId, {}, 15000)
-  if (!d.ok) return res.json({ success: false, error: d.error === 'nokey' ? '서버 환경변수 IDLE_SYNC_KEY 가 없어요' : '게임 서버에 연결하지 못했어요' })
+  if (!d.ok) return res.json({ success: false, error: idleErrText(d.error) })
   res.json({ success: true, list: d.list || [], wallet: d.wallet })
 })
 
@@ -24787,7 +24793,17 @@ app.get('/reversi/:djId', (req, res) => {
 })
 // 🎮 오목 게임 페이지 (로그인 불필요) — 리버시와 똑같이 몬스터 웹 도감의 인증을 재사용하고,
 // 실제 대국 API만 /monsterdex/:djId/omok/*로 따로 둔다.
-app.get('/idle/:djId', async (req, res) => { const djId = req.params.djId; try { await idleSyncRoom(djId) } catch (_) {} res.redirect(302, idleLink(djId)) }) // ⚔️ 방치 RPG — 게임은 회원 서버(데이터 하나로 운영)
+app.get('/idle/:djId', async (req, res) => {
+  const djId = req.params.djId
+  let st = null
+  try { st = await idleSyncRoom(djId) } catch (_) {}
+  // 켜는 데 실패했으면 회원 서버의 '찾을 수 없어요' 대신 진짜 이유를 보여줘요
+  if (st && (!st.on || !st.ok)) {
+    const why = !st.on ? '이 방송에서 방치 RPG 가 꺼져 있어요. DJ 대시보드 → 모듈에서 ⚔️ 방치 RPG 를 켜주세요.' : st.error
+    return res.status(200).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>방치 RPG</title><body style="margin:0;background:#0f1028;color:#eef;font-family:'Malgun Gothic',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;box-sizing:border-box"><div style="max-width:420px;background:#1a1b38;border-radius:16px;padding:22px;text-align:center"><div style="font-size:40px">⚔️</div><h3 style="margin:8px 0">방치 RPG 를 열 수 없어요</h3><div style="color:#b9bbe0;font-size:13.5px;line-height:1.6">${String(why).replace(/[<>&]/g, '')}</div></div></body>`)
+  }
+  res.redirect(302, idleLink(djId))
+}) // ⚔️ 방치 RPG — 게임은 회원 서버(데이터 하나로 운영) // ⚔️ 방치 RPG — 게임은 회원 서버(데이터 하나로 운영)
 app.get('/omok/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/omok.html')
 })
