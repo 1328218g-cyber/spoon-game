@@ -8057,7 +8057,7 @@ const TOWER_SLOT_LABEL = { weapon: '무기', armor: '방어구', accessory: '장
 //   · 여기서는 스푼 채팅·좋아요·후원을 보고 회원 서버에 알려주기만 해요
 //   · 환경변수: IDLE_SYNC_KEY (회원 서버와 같은 값) · IDLE_MASTER_URL (기본 짜잔 에디봇 회원 서버)
 // ══════════════════════════════════════════════════════
-const IDLE_ZONES = ['초록 숲', '가을 숲', '버섯 왕국', '모래 사막', '눈꽃 설원', '달빛 동굴', '불꽃 화산'] // 게임 화면 지역 순서와 같아요
+const IDLE_ZONES = ['초록 숲', '가을 숲', '버섯 왕국', '모래 사막', '눈꽃 설원', '달빛 동굴', '불꽃 화산', '푸른 바다', '사탕 나라', '밀림 정글', '사바나 초원', '얼음 빙하', '열대 해변', '평화 농장', '안개 늪지', '구름 하늘섬', '고대 성터', '외계 행성', '은하 우주', '마왕성'] // 게임 화면 지역 순서와 같아요
 const IDLE_MASTER = String(process.env.IDLE_MASTER_URL || 'https://edibot-pc-production.up.railway.app').replace(/\/$/, '')
 const IDLE_SYNC_KEY = String(process.env.IDLE_SYNC_KEY || '')
 const idleLink = (djId) => `${IDLE_MASTER}/idle/e~${encodeURIComponent(djId)}`
