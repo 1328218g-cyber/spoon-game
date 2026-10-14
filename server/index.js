@@ -8205,6 +8205,18 @@ function handleIdleLikeHook(djId, settings, tag) {
   idleLikeAt.set(k, now)
   idleCall('idleLike', djId, { tag: k }).catch(() => {})
 }
+// 📅 방치 RPG 일일 미션 (에디냥 방송): 💖 유료 하트 주기 · 🗣️ 채팅에 '에디냥' 치기 (5분에 한 번만 세요)
+const idleWordAt = new Map()
+function handleIdleMissionHook(djId, settings, tag, kind, text) {
+  if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
+  const k = String(tag).replace(/^@/, '').trim().toLowerCase()
+  if (kind === 'word') {
+    if (!String(text || '').includes('에디냥')) return
+    const now = Date.now(); if (now - (idleWordAt.get(k) || 0) < 5 * 60 * 1000) return
+    idleWordAt.set(k, now)
+  }
+  idleCall('idleMission', djId, { tag: k, kind }).catch(() => {})
+}
 // 💎 스푼 후원하면 보석 자동 지급 — 아직 게임을 안 시작한 시청자도 쌓아뒀다가 연결하면 들어가요
 function handleIdleDonationHook(djId, settings, author, tag, totalSpoon) {
   if (!tag || !(totalSpoon > 0) || !isModuleOn(settings, 'idlerpg', djId)) return
@@ -18053,6 +18065,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleChatHook(djId, settings, actTag)
+          handleIdleMissionHook(djId, settings, actTag, 'word', text)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -18173,6 +18186,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             rememberTagNickname(room, likeTag, author)
             if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
             if (!isLurker) sendLikeHeartMessage(djId, settings, likeType, author, likeTag)
+            if (!isLurker && likeType === 'paid') handleIdleMissionHook(djId, settings, likeTag, 'paid')
           }
         }
 
@@ -18188,6 +18202,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           rememberTagNickname(room, likeTag, author)
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
           if (!isLurker) handlePickboardPaidHeartHook(djId, settings, likeTag, author, total)
+          if (!isLurker) handleIdleMissionHook(djId, settings, likeTag, 'paid')
           if (!isLurker) sendLikeHeartMessage(djId, settings, 'paid', author, likeTag)
         }
 
