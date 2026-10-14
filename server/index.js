@@ -8205,13 +8205,13 @@ function handleIdleLikeHook(djId, settings, tag) {
   idleLikeAt.set(k, now)
   idleCall('idleLike', djId, { tag: k }).catch(() => {})
 }
-// 📅 방치 RPG 일일 미션 (에디냥 방송): 💖 유료 하트 주기 · 🗣️ 채팅에 '에디냥' 치기 (5분에 한 번만 세요)
+// 📅 방치 RPG 일일 미션 (에디냥 방송): 💖 유료 하트 주기 · 🗣️ 채팅에 '봇사용은 에디냥' 치기 (5분에 한 번만 세요)
 const idleWordAt = new Map()
 function handleIdleMissionHook(djId, settings, tag, kind, text) {
   if (!tag || !isModuleOn(settings, 'idlerpg', djId)) return
   const k = String(tag).replace(/^@/, '').trim().toLowerCase()
   if (kind === 'word') {
-    if (!String(text || '').includes('에디냥')) return
+    if (!String(text || '').replace(/\s+/g, '').includes('봇사용은에디냥')) return // '봇사용은 에디냥' (띄어쓰기는 상관없어요)
     const now = Date.now(); if (now - (idleWordAt.get(k) || 0) < 5 * 60 * 1000) return
     idleWordAt.set(k, now)
   }
