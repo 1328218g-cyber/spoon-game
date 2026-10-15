@@ -833,6 +833,19 @@ async function fetchOwnStatusByTag(djId, cleanTag) {
     return { id: p.id || uid, tag, nickname: p.nickname || '', is_live: !!(p.is_live || liveId), current_live_id: liveId, photoUrl: p.profile_url || p.profileUrl || '' }
   } catch (e) { return null }
 }
+// 🖼️ 프로필 사진만 필요할 때 — 고유닉 형식이 아니면(숫자 한 글자·한글 닉네임 등) 아예 안 찾고,
+//    한 번 못 찾은 고유닉은 30분 동안 다시 안 찾는다 (못 찾으면 검색을 5페이지씩 돌아서 부담이 큼)
+const photoMissCache = new Map() // 소문자 고유닉 -> 못 찾은 시각
+async function fetchProfilePhotoByTag(tag, djId = null) {
+  const t = String(tag || '').replace('@', '').trim()
+  if (!/^[a-zA-Z0-9._-]{2,30}$/.test(t)) return null
+  const k = t.toLowerCase(), miss = photoMissCache.get(k)
+  if (miss && Date.now() - miss < 30 * 60 * 1000) return null
+  const info = await fetchUserStatusByTag(t, djId)
+  if (!info) { photoMissCache.set(k, Date.now()); if (photoMissCache.size > 2000) photoMissCache.delete(photoMissCache.keys().next().value) }
+  return info
+}
+
 async function fetchUserStatusByTag(tag, djId = null) {
   const cleanTag = String(tag || '').replace('@', '').trim()
   if (!cleanTag) return null
@@ -872,7 +885,7 @@ async function fetchUserStatusByTag(tag, djId = null) {
       const own = djId ? await fetchOwnStatusByTag(djId, cleanTag) : null
       if (own) return own
       lastStatusFail = { tag: cleanTag, at: Date.now(), msg: `스푼 검색에 @${cleanTag} 없음 (결과 ${seen}명)` }
-      console.log(`[방송상태조회:${cleanTag}] 검색 결과 ${seen}명 중에 같은 고유닉이 없어요`)
+      console.log(`[방송상태조회:${cleanTag}${djId ? ' · ' + djId : ''}] 검색 결과 ${seen}명 중에 같은 고유닉이 없어요`)
       return null
     }
     return {
@@ -4036,7 +4049,7 @@ async function miBuildProfile(djId, settings, tag) {
   }
   if (!imgUrl) {
     try {
-      const info = await fetchUserStatusByTag(tag, djId)
+      const info = await fetchProfilePhotoByTag(tag, djId)
       if (info && info.photoUrl) imgUrl = info.photoUrl
     } catch (e) { /* 조회 실패해도 그냥 기본 아이콘으로 보여주면 되니 무시 */ }
   }
@@ -20758,7 +20771,7 @@ app.get('/roulette/users', auth.requireAuth, async (req, res) => {
     if (!imgUrl) {
       // 캐시에 없으면(최근에 채팅/좋아요 등으로 확인된 적 없으면) 스푼 검색 API로 실제 프로필 사진을 직접 조회한다.
       try {
-        const info = await fetchUserStatusByTag(tag, req.djId)
+        const info = await fetchProfilePhotoByTag(tag, req.djId)
         if (info && info.photoUrl) {
           imgUrl = info.photoUrl
           rememberProfileUrl(room, tag, nickname, imgUrl)
@@ -20830,7 +20843,7 @@ app.get('/activity/users', auth.requireAuth, async (req, res) => {
     let imgUrl = getCachedProfileUrl(room, d.tag, d.nickname)
     if (!imgUrl && d.tag) {
       try {
-        const info = await fetchUserStatusByTag(d.tag, req.djId)
+        const info = await fetchProfilePhotoByTag(d.tag, req.djId)
         if (info && info.photoUrl) imgUrl = info.photoUrl
       } catch (e) { /* 조회 실패 시 이니셜 아바타로 대체 */ }
     }
