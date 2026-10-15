@@ -880,67 +880,6 @@ async function fetchLiveMembers(liveId, accessToken, maxPages = 1) {
   }
 }
 
-// 🔗 [에디냥(공식 API) 연동] 공식 API 는 시청자 고유닉을 안 줘서, 에디냥 서버가 여기에 물어봐요.
-// DJ 고유닉(또는 DJ 닉네임)으로 지금 켜진 방을 찾아 청취자 명단(닉네임 + 고유닉)을 돌려준다.
-// 환경변수 EDINYANG_LINK_KEY 가 있어야 동작하고, 그 키를 아는 에디냥 서버만 쓸 수 있다.
-const edinyangLinkCache = new Map() // dj -> { at, data }
-// 방 찾기 결과는 잠깐 기억해요 (찾음 45초 · 못 찾음 20초) — 고유닉 연동·선물 연동이 같이 물어봐도 스푼 검색은 한 번만
-const edinyangLiveCache = new Map() // tag|nick -> { at, v, why }
-async function findLiveIdForEdinyang(djTag, djNick) {
-  const ck = String(djTag || '') + '\u0001' + String(djNick || '')
-  const hit = edinyangLiveCache.get(ck)
-  if (hit && Date.now() - hit.at < (hit.v ? 45000 : 20000)) { findLiveIdForEdinyang.why = hit.why; return hit.v }
-  const v = await findLiveIdForEdinyangRaw(djTag, djNick)
-  edinyangLiveCache.set(ck, { at: Date.now(), v, why: findLiveIdForEdinyang.why })
-  if (edinyangLiveCache.size > 500) edinyangLiveCache.delete(edinyangLiveCache.keys().next().value)
-  return v
-}
-async function findLiveIdForEdinyangRaw(djTag, djNick) {
-  findLiveIdForEdinyang.why = ''
-  lastStatusFail = null
-  const st = djTag ? await fetchUserStatusByTag(djTag) : null
-  if (st && st.is_live && st.current_live_id) return { liveId: st.current_live_id, djPhoto: st.photoUrl || '' }
-  let why = st ? `@${st.tag} 방송 중 아님` : (lastStatusFail ? lastStatusFail.msg : (djTag ? `@${djTag} 조회 실패` : ''))
-  const nick = String(djNick || '').trim()
-  if (!nick) { findLiveIdForEdinyang.why = why; return null }
-  try {
-    const res = await fetch(`https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(nick)}&page_size=30`, {
-      headers: { 'Accept': 'application/json', 'User-Agent': CHROME_UA, 'X-Client-App': 'sopia-web', 'X-Client-Version': '1.0.0' }
-    })
-    if (!res.ok) { findLiveIdForEdinyang.why = `${why} · 닉네임 검색 응답 ${res.status}`; return null }
-    const json = await res.json()
-    const live = (json.results || []).filter(u => u.nickname === nick && u.is_live && u.current_live_id)
-    if (live.length !== 1) { findLiveIdForEdinyang.why = `${why} · 닉네임 "${nick}" 방송 ${live.length}개`; return null }
-    const u = live[0]
-    return { liveId: u.current_live_id, djPhoto: u.profile_url || u.profileUrl || u.image_url || u.imageUrl || u.thumbnail_url || '' }
-  } catch (e) { findLiveIdForEdinyang.why = `${why} · 닉네임 검색 실패: ${e.message}`; return null }
-}
-app.get('/internal/edinyang/live-members', async (req, res) => {
-  const key = process.env.EDINYANG_LINK_KEY || ''
-  if (!key || req.get('x-link-key') !== key) return res.status(403).json({ success: false, error: 'forbidden' })
-  const dj = String(req.query.dj || '').replace('@', '').trim().slice(0, 40)
-  const djNick = String(req.query.nick || '').trim().slice(0, 60)
-  if (!dj && !djNick) return res.status(400).json({ success: false, error: 'dj 가 필요해요' })
-  const ck = dj + '\u0001' + djNick
-  const hit = edinyangLinkCache.get(ck)
-  if (hit && Date.now() - hit.at < 15000) return res.json(hit.data)
-  try {
-    const found = await findLiveIdForEdinyang(dj, djNick)
-    const liveId = found && found.liveId
-    if (!liveId) { const data = { success: true, live: false, members: [], why: findLiveIdForEdinyang.why || '' }; edinyangLinkCache.set(ck, { at: Date.now(), data }); return res.json(data) }
-    const token = tokenManager.getAccessToken(tokenDjIdFor(dj || SHARED_TOKEN_DJID)) || tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-    const members = await fetchLiveMembers(liveId, token, 5)
-    // img: 프로필 사진 (에디냥 선물카드 갤러리·시청자 목록에 써요) / djPhoto: DJ 프로필 사진
-    const data = { success: true, live: true, liveId: String(liveId), djPhoto: found.djPhoto || '', members: members.filter(m => m.tag).map(m => ({ nickname: m.nickname || '', tag: m.tag, img: m.imgUrl || '' })) }
-    edinyangLinkCache.set(ck, { at: Date.now(), data })
-    if (edinyangLinkCache.size > 500) edinyangLinkCache.delete(edinyangLinkCache.keys().next().value)
-    res.json(data)
-  } catch (e) {
-    res.status(502).json({ success: false, error: e.message })
-  }
-})
-// 🎁 [에디냥 연동] 선물카드 갤러리용 — 에디냥 서버가 물어보는 동안 그 방에 같이 들어가서 선물 정보(스티커·콤보·사진)를 넘겨줘요
-const edinyangGift = require('./edinyangGift')({ app, tokenManager, WebSocket, getRooms: () => rooms, findLiveIdForEdinyang, fetchLiveInfo, getCachedUserTag, findStickerImage, findStickerAnim, getWsProxyForDj: () => null, CHROME_UA, SHARED_TOKEN_DJID })
 
 // 지금 방송에 실제로 접속 중인 사람인지 태그 또는 닉네임으로 확인한다. (룰렛지급/복권지급/상점 등
 // DJ가 직접 대상을 지정하는 명령어에서, 고유닉을 잘못 입력해도 조용히 지급되던 문제를 막기 위해 사용)
@@ -17014,7 +16953,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const isLurker = settings.botEnabled === false
 
       if (eventName === 'ChatMessage') {
-        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17133,7 +17071,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         room.lastLiveMeta = eventPayload
 
       } else if (eventName === 'RoomJoin') {
-        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {} // 🔗 에디냥 고유닉 연동
         const gen = eventPayload.generator || {}
         const author = gen.nickname || eventPayload.nickname || '?'
         const authorId = gen.id != null ? Number(gen.id)
@@ -17261,8 +17198,6 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         const sticker = eventPayload.sticker || eventPayload.stickerName || eventPayload.sticker_name || eventPayload.name || ''
         const stickerImage = sticker ? await findStickerImage(sticker) : ''
         broadcast({ type: 'donation', djId, nick: author, amount, comboCount, sticker, stickerImage, profileUrl: donorProfileUrl })
-        try { edinyangGift.onRoomGift(liveId, eventPayload) } catch (e) {} // 🎁 에디냥 선물 연동 (이 방을 같이 보고 있으면)
-        try { edinyangGift.onRoomPerson(liveId, eventPayload) } catch (e) {}
         handleSoundEffectTrigger(djId, settings, amount, comboCount, sticker)
         if (!isLurker) {
           handleFlagAutoDonation(djId, settings, amount * Math.max(1, comboCount))
