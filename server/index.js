@@ -17806,6 +17806,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   // 🩺 이 계정이 지금 어느 프록시로 붙었는지 기록해둔다 — 특정 프록시만 유독 자주 끊기는지
   // 확인하려면 "연결 종료" 로그만으론 안 되고, 어느 IP를 통해 연결됐었는지도 같이 남아야 한다.
   ws.spoonProxyLabel = pcMode ? 'PC 방송 창' : spoonProxyEntry ? spoonProxyEntry.url.replace(/\/\/[^@]+@/, '//***:***@').replace(/^https?:\/\//, '') : '직접연결(프록시 없음)'
+  try { ws.spoonTokenDjId = tokenDjIdFor(djId) } catch (e) {} // 🩺 어느 봇 계정 토큰으로 붙었는지 (거절 기록에 표시)
   ws.createdAt = Date.now() // 💓 프록시 경유로 연결에 시간이 걸릴 때, "아직 연결 중"인 걸 "죽은 연결"로 오판하지 않기 위한 기준시각
   ws.isAlive = true // 💓 하트비트용 — pong 응답이 오면 true로 갱신되고, 응답이 없으면 죽은 연결로 간주해서 정리한다
   ws.missedPong = 0 // 💓 연속 미응답 횟수 — 한 번 놓쳤다고 바로 끊지 않고 HEARTBEAT_MAX_MISSED번 연속일 때만 끊기 위한 카운터
@@ -17852,8 +17853,12 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       scheduleReconnect(djId, room, '직접 연결 거절(403) → 프록시로 재접속')
       return
     }
+    // ⚠️ 403/429가 꼭 "정원 초과"는 아니다 — 실제로는 서버 IP 직접 연결 차단·토큰 문제인 경우가 더 많았다.
+    //    그래서 그때 쓰던 계정·지금 그 계정에 붙은 수·연결 경로를 같이 보여줘서 원인을 바로 알 수 있게 한다.
+    const usedTok = ws.spoonTokenDjId || ''
+    const usedCnt = usedTok ? countConnectedOnToken(usedTok) : null
     const reason = (res.statusCode === 429 || res.statusCode === 403)
-      ? '같은 계정으로 동시에 접속 가능한 방 개수를 초과했어요. (관리자 공용 계정을 쓰고 있다면 본인 계정 세션을 연결하면 이 제한을 피할 수 있어요)'
+      ? `스푼이 접속을 거절했어요 (${res.statusCode}) — 봇 계정 ${usedTok || '?'}${usedCnt != null ? ` (지금 ${usedCnt}/${SHARED_TOKEN_CAPACITY}명)` : ''} · 연결: ${ws.spoonProxyLabel || '?'}${usedCnt != null && usedCnt < SHARED_TOKEN_CAPACITY - 2 ? ' · 정원은 여유 있어서 토큰/IP 문제일 가능성이 커요' : ' · 계정 정원이 찼을 수 있어요'}`
       : `스푼 서버가 연결을 거절했어요 (status ${res.statusCode})`
     broadcast({ type: 'status', djId, isConnected: false })
     broadcast({ type: 'autojoin', djId, status: 'error', msg: reason })
