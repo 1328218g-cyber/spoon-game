@@ -17952,6 +17952,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
       noteIn(eventName || '?')
+      if (eventName === 'RoomClose') { ws.roomClosed = true; console.log(`[${djId}] 📴 방송 종료(RoomClose) 받음`) } // 곧 스푼이 연결을 끊어요 — 에러 아님
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
       // 🔍 임시 진단용 — "팔로우 시 인사말" 기능 개발을 위해, 이벤트 안에 "팬"/"팔로우"/"구독" 단어가
       // 하나라도 들어있으면 이벤트 이름/전체 내용을 눈에 띄게 따로 로그로 남긴다. 원인 찾으면 이 블록은 제거할 것.
@@ -18318,6 +18319,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
+    // 📴 방송이 끝나서(RoomClose) 끊긴 거면 정상 종료 — 에러 기록·프록시 전환·재접속 없이 정리만 (다음 방송은 자동입장이 다시 잡아요)
+    if (ws.roomClosed) {
+      console.log(`[${djId}] 📴 방송 종료로 연결 정리 (code ${code})`)
+      cancelReconnect(room)
+      room.autoJoinedFor = ''
+      broadcast({ type: 'autojoin', djId, status: 'offline', tag: room.watchingTag })
+      room.watchingTag = ''
+      code = 1000
+    }
     if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}${ws.lastIn && ws.lastIn.length ? ' | 끊기기 전 받은 것: ' + ws.lastIn.join(' → ') : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     if (code !== 1000 && code !== 4000 && !ws.pcRelay) { try { handleProxyFailover(djId, ws, code, heldForSec) } catch (e) { console.log('[프록시 전환] 오류', e.message) } }
     room.isConnected = false
