@@ -167,12 +167,15 @@ function getFetchProxyForDj(djId) { return getProxyFromPool(spoonFetchProxyPool,
 const PROXY_QUICK_FAIL_SEC = 180
 const PROXY_DIRECT_FALLBACK_MS = 30 * 60 * 1000
 const proxyFailover = {} // djId -> { offset, fails, directUntil }
+// 🚫 서버 IP로 직접 붙었다가 스푼이 403으로 거절하면(클라우드 IP 차단) 한동안 직접 연결 전환을 아예 안 쓴다
+let directBlockedUntil = 0
+const DIRECT_BLOCK_MS = 6 * 60 * 60 * 1000
 
 function getWsProxyForDj(djId) {
   if (!djId || !spoonWsProxyPool.length) return getProxyFromPool(spoonWsProxyPool, djId, wsRR)
   const mode = store.getProxyFailoverMode()
   const st = proxyFailover[djId]
-  if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now()) return null // 직접 연결 중
+  if (st && (mode === 'direct' || mode === 'both') && st.directUntil > Date.now() && directBlockedUntil <= Date.now()) return null // 직접 연결 중
   const off = st && (mode === 'switch' || mode === 'both') ? st.offset : 0
   return spoonWsProxyPool[(hashDjIdToIndex(djId, spoonWsProxyPool.length) + off) % spoonWsProxyPool.length]
 }
@@ -200,7 +203,7 @@ function handleProxyFailover(djId, ws, code, heldForSec) {
   // 직접 연결로 넘어가는 기준: 포트 갈아타기를 같이 쓰면 "모든 포트를 한 번씩 다 실패했을 때",
   // 직접 연결만 쓰면 "같은 포트로 2번 연속 금방 끊겼을 때"
   const directThreshold = useSwitch ? spoonWsProxyPool.length : 2
-  if (useDirect && st.fails >= directThreshold) {
+  if (useDirect && st.fails >= directThreshold && directBlockedUntil <= Date.now()) {
     st.directUntil = Date.now() + PROXY_DIRECT_FALLBACK_MS
     st.fails = 0
     console.log(`[${djId}] 🔀 프록시로 연속 ${directThreshold}번 금방 끊김 → 30분간 직접 연결`)
@@ -17840,6 +17843,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     clearTtsAccess(room)
     clearQuizTimers(room)
     if (room.quiz) { room.quiz.running = false; room.quiz.current = null }
+    const directRejected = res.statusCode === 403 && ws.spoonProxyLabel === '직접연결(프록시 없음)' && spoonWsProxyPool.length
+    if (directRejected) {
+      directBlockedUntil = Date.now() + DIRECT_BLOCK_MS
+      const st = proxyFailover[djId]; if (st) { st.directUntil = 0; st.fails = 0 }
+      logAdminError(djId, '프록시 전환', '스푼이 서버 IP 직접 연결을 막아요(403) → 6시간 동안 직접 연결 안 쓰고 프록시로만 붙어요')
+      broadcast({ type: 'status', djId, isConnected: false })
+      scheduleReconnect(djId, room, '직접 연결 거절(403) → 프록시로 재접속')
+      return
+    }
     const reason = (res.statusCode === 429 || res.statusCode === 403)
       ? '같은 계정으로 동시에 접속 가능한 방 개수를 초과했어요. (관리자 공용 계정을 쓰고 있다면 본인 계정 세션을 연결하면 이 제한을 피할 수 있어요)'
       : `스푼 서버가 연결을 거절했어요 (status ${res.statusCode})`
@@ -17911,9 +17923,17 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data)
-      if (msg.command !== 'MESSAGE') return
+      // 🩺 끊기기 직전에 스푼이 뭘 보냈는지 남겨둔다 (연결 종료 기록에 같이 보여줌)
+      const noteIn = (t) => { (ws.lastIn || (ws.lastIn = [])).push(t); if (ws.lastIn.length > 4) ws.lastIn.shift() }
+      if (msg.command !== 'MESSAGE') {
+        const t = `${msg.command || '?'}${msg.payload ? ' ' + JSON.stringify(msg.payload).slice(0, 160) : ''}`
+        noteIn(t)
+        if (!/^(PONG|PING|ACK)/i.test(msg.command || '')) console.log(`[${djId}] 스푼 명령 수신: ${t}`)
+        return
+      }
       const body = JSON.parse(msg.payload?.body || '{}')
       const { eventName, eventPayload = {} } = body
+      noteIn(eventName || '?')
       console.log(`[${djId}][diag] 이벤트 수신: ${eventName}`, JSON.stringify(eventPayload).slice(0, 200))
       // 🔍 임시 진단용 — "팔로우 시 인사말" 기능 개발을 위해, 이벤트 안에 "팬"/"팔로우"/"구독" 단어가
       // 하나라도 들어있으면 이벤트 이름/전체 내용을 눈에 띄게 따로 로그로 남긴다. 원인 찾으면 이 블록은 제거할 것.
@@ -18280,7 +18300,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
     console.log(`[${djId}] 스푼 연결 종료 code:`, code, `| 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     // code 4000은 우리가 일부러 순환시키려고 닫은 거라 에러가 아니다 — 로그만 남기고 관리자 에러
     // 목록에는 안 쌓는다. 그 외(1006 등 진짜 이상 종료)는 기존대로 에러로 남긴다.
-    if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
+    if (code !== 1000 && code !== 4000) logAdminError(djId, '연결 종료', `code ${code}${code === 1006 ? ' (비정상 종료 — 서버/네트워크 쪽에서 예고 없이 끊김)' : ''}${ws.lastIn && ws.lastIn.length ? ' | 끊기기 전 받은 것: ' + ws.lastIn.join(' → ') : ''} | 프록시: ${ws.spoonProxyLabel} | 유지시간: ${heldForSec}초`)
     if (code !== 1000 && code !== 4000 && !ws.pcRelay) { try { handleProxyFailover(djId, ws, code, heldForSec) } catch (e) { console.log('[프록시 전환] 오류', e.message) } }
     room.isConnected = false
     room.ws = null
