@@ -1346,7 +1346,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -6330,64 +6330,85 @@ const DASH_RANK_PATH_MAP = {
   live_time: '/ranks/v2/dj/live-time/?sub-type=monthly',
 }
 
-async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
+// 랭킹 한 종류를 끝까지(최대 maxCount명) 받아온다. 페이지마다 12초 넘게 걸리면 끊고,
+// 첫 페이지부터 실패하면 이유(HTTP 상태 등)를 fetchMonthlyRank.lastError 에 남긴다.
+async function fetchMonthlyRank(type, accessToken, maxCount = 600, proxyDjId = null) {
   let address = DASH_RANK_PATH_MAP[type]
-  if (!address || !accessToken) return []
+  fetchMonthlyRank.lastError = ''
+  if (!address || !accessToken) { fetchMonthlyRank.lastError = '토큰 없음'; return [] }
   let list = []
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
-      const res = await spoonFetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
-      })
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 12000)
+      let res
+      try {
+        res = await spoonFetch(url, { signal: ac.signal, headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net', 'Referer': 'https://www.spooncast.net/', 'Accept': 'application/json' } }, proxyDjId)
+      } finally { clearTimeout(to) }
+      if (!res.ok) { if (!list.length) fetchMonthlyRank.lastError = `스푼 응답 ${res.status}`; break }
       const json = await res.json().catch(() => null)
-      if (!json || !json.results) break
+      if (!json || !Array.isArray(json.results)) { if (!list.length) fetchMonthlyRank.lastError = '스푼 응답을 못 읽음'; break }
       list = list.concat(json.results)
       address = json.next || null
     }
-  } catch (e) { /* 지금까지 모은 것만이라도 반환 */ }
+  } catch (e) { if (!list.length) fetchMonthlyRank.lastError = e.name === 'AbortError' ? '스푼 응답 시간 초과' : e.message }
   return list
 }
 
-async function scanDashRank() {
-  const accessToken = tokenManager.getAccessToken(SHARED_TOKEN_DJID)
-  if (!accessToken) return { success: false, error: '토큰이 없습니다. 세션 연결을 먼저 확인해주세요.' }
-  try {
-    for (const type of ['next_choice', 'free_like', 'live_time']) {
-      // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
-      const prevMap = {}
-      dashRankCache[type].forEach((item, i) => { const t = item && item.author && item.author.tag; if (t) prevMap[t] = i + 1 })
-      if (Object.keys(prevMap).length) dashRankCache.prevRank[type] = prevMap
-      dashRankCache[type] = await fetchMonthlyRank(type, accessToken)
-      // 🩺 "컷" 점수 필드명이 실제로 뭔지 확실치 않아서, 스캔할 때마다 1위 항목의 원본 키/값
-      // 구조를 통째로 로그에 남긴다 — 화면에 컷 숫자가 안 맞거나 "-"로 나오면 이 로그를 보고
-      // 정확한 필드명을 알아내서 liveRankCutValue의 candidates 배열에 그대로 추가하면 된다.
-      if (dashRankCache[type][0]) {
-        console.log(`[월간DJ컷랭킹] ${type} 1위 항목 원본 구조:`, JSON.stringify(dashRankCache[type][0]).slice(0, 800))
-      } else {
-        console.log(`[월간DJ컷랭킹] ${type} 결과가 0건이에요 (API 응답 자체를 못 받았을 수 있어요)`)
-      }
-    }
-    dashRankCache.lastScanned = Date.now()
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: e.message }
-  }
+// 랭킹 조회에 쓸 토큰 후보 — 조회한 DJ가 쓰는 계정 → 공용(sum) → 토큰이 살아있는 아무 계정 순서
+function dashRankTokenCandidates(djId) {
+  const ids = []
+  const add = (id) => { if (id && !ids.includes(id) && tokenManager.getAccessToken(id)) ids.push(id) }
+  if (djId) { try { add(tokenDjIdFor(djId)) } catch (_) {} add(djId) }
+  add(SHARED_TOKEN_DJID)
+  try { for (const id of store.listDjIds()) { if (ids.length >= 4) break; add(id) } } catch (_) {}
+  return ids
 }
 
+let dashRankScanning = null // 동시에 여러 명이 눌러도 스캔은 한 번만
+async function scanDashRank(djId = null) {
+  if (dashRankScanning) return dashRankScanning
+  dashRankScanning = (async () => {
+    const cands = dashRankTokenCandidates(djId)
+    if (!cands.length) return { success: false, error: '랭킹을 불러올 스푼 토큰이 없어요. 세션 연결을 먼저 확인해주세요.' }
+    let lastErr = ''
+    for (const tid of cands) {
+      const accessToken = tokenManager.getAccessToken(tid)
+      const first = await fetchMonthlyRank('next_choice', accessToken, 600, tid)
+      if (!first.length) { lastErr = fetchMonthlyRank.lastError || '결과 0건'; console.log(`[월간DJ컷랭킹] ${tid} 토큰으로 스캔 실패: ${lastErr}`); continue }
+      const lists = { next_choice: first }
+      for (const type of ['free_like', 'live_time']) lists[type] = await fetchMonthlyRank(type, accessToken, 600, tid)
+      for (const type of ['next_choice', 'free_like', 'live_time']) {
+        // 🔺🔻 변동 표시를 위해, 새로 스캔하기 직전에 지금까지의 순위를 태그별로 스냅샷해둔다.
+        const prevMap = {}
+        dashRankCache[type].forEach((item, i) => { const t = item && item.author && item.author.tag; if (t) prevMap[t] = i + 1 })
+        if (Object.keys(prevMap).length) dashRankCache.prevRank[type] = prevMap
+        if (lists[type].length || type === 'next_choice') dashRankCache[type] = lists[type]
+        if (dashRankCache[type][0]) console.log(`[월간DJ컷랭킹] ${type} ${dashRankCache[type].length}명 · 1위 원본:`, JSON.stringify(dashRankCache[type][0]).slice(0, 300))
+      }
+      dashRankCache.lastScanned = Date.now()
+      return { success: true }
+    }
+    return { success: false, error: `스푼 랭킹을 못 불러왔어요 (${lastErr}). 잠시 후 다시 해주세요.` }
+  })()
+  try { return await dashRankScanning } catch (e) { return { success: false, error: e.message } } finally { dashRankScanning = null }
+}
+
+const normTag = (t) => String(t || '').replace(/^@/, '').trim().toLowerCase()
 function searchDashRank(tag) {
   if (dashRankCache.lastScanned === 0) return { success: false, error: '먼저 랭킹 데이터를 스캔해주세요.' }
   const results = { nickname: '', tag, ranks: {} }
   let found = false
+  const want = normTag(tag)
   for (const type of ['next_choice', 'free_like', 'live_time']) {
-    const idx = dashRankCache[type].findIndex(x => x.author && x.author.tag === tag)
+    const idx = dashRankCache[type].findIndex(x => x.author && normTag(x.author.tag) === want)
     if (idx !== -1) {
       found = true
       results.nickname = dashRankCache[type][idx].author.nickname
       results.ranks[type] = idx + 1
     }
   }
-  if (!found) return { success: false, error: '랭킹 데이터에서 해당 유저를 찾을 수 없습니다.' }
+  if (!found) return { success: false, error: `이번 달 랭킹(초이스 ${dashRankCache.next_choice.length}명 · 좋아요 ${dashRankCache.free_like.length}명 · 방송시간 ${dashRankCache.live_time.length}명)에 @${tag} 이(가) 없어요. 고유닉이 맞는지 확인해주세요.` }
   return { success: true, data: results }
 }
 
@@ -6437,11 +6458,17 @@ function applyDashboardRankVars(text, settings) {
 async function refreshDashboardRankFor(djId, settings) {
   const dash = getDashboardData(djId, settings)
   if (!dash.djTag) return { success: false, error: '등록된 고유닉이 없어요' }
-  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
-    const scanResult = await scanDashRank()
+  const stale = dashRankCache.lastScanned === 0 || !dashRankCache.next_choice.length || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000
+  if (stale) {
+    const scanResult = await scanDashRank(djId)
     if (!scanResult.success) return scanResult
   }
-  const r = searchDashRank(dash.djTag)
+  let r = searchDashRank(dash.djTag)
+  // 못 찾았는데 랭킹판이 5분 넘게 묵었으면 한 번 새로 받아서 다시 찾아본다
+  if (!r.success && !stale && Date.now() - dashRankCache.lastScanned > 5 * 60 * 1000) {
+    const again = await scanDashRank(djId)
+    if (again.success) r = searchDashRank(dash.djTag)
+  }
   if (!r.success) {
     dash.rankData = { nickname: '', tag: dash.djTag, ranks: {}, updatedAt: Date.now(), notFound: true }
     store.saveSettings(djId, { dashboard: dash })
@@ -6472,7 +6499,7 @@ setInterval(async () => {
     }
   }
   if (!targets.length && !liveRankTargets.length) return
-  const scanResult = await scanDashRank()
+  const scanResult = await scanDashRank(targets[0] || liveRankTargets[0])
   if (!scanResult.success) { console.log('[대시보드랭킹] 자동 갱신 스캔 실패:', scanResult.error); return }
   for (const djId of targets) {
     const settings = store.getSettings(djId) || {}
@@ -6544,7 +6571,7 @@ function liveRankPhotoUrl(item) {
 function buildLiveRankSnapshot(djTag) {
   const list = dashRankCache.next_choice || []
   if (!list.length) return { success: false, error: '랭킹 데이터가 아직 없어요. 잠시 후 다시 시도해주세요.' }
-  const idx = list.findIndex(x => x.author && x.author.tag === djTag)
+  const idx = list.findIndex(x => x.author && normTag(x.author.tag) === normTag(djTag))
   if (idx === -1) return { success: false, error: '이번 달 초이스 랭킹에서 등록한 고유닉을 찾지 못했어요.', total: list.length }
   const rank = idx + 1
   const item = list[idx]
@@ -21665,7 +21692,7 @@ app.post('/dashboard/likestats/reset', auth.requireAuth, (req, res) => {
 
 // 📊 스푼 자체 DJ 월간 랭킹 (초이스/좋아요/방송시간)
 app.post('/dashboard/rank/scan', auth.requireAuth, async (req, res) => {
-  const r = await scanDashRank()
+  const r = await scanDashRank(req.djId)
   res.json(r)
 })
 app.get('/dashboard/rank/search/:tag', auth.requireAuth, (req, res) => {
@@ -24819,7 +24846,7 @@ app.post('/liverank-admin/settings', auth.requireAuth, (req, res) => {
   res.json({ success: true, djTag: getLiveRankDjTag(settings) })
 })
 app.post('/liverank-admin/refresh-now', auth.requireAuth, async (req, res) => {
-  const scanResult = await scanDashRank()
+  const scanResult = await scanDashRank(req.djId)
   if (scanResult.success) {
     const settings = store.getSettings(req.djId) || {}
     const lr = getLiveRankSettings(req.djId, settings)
@@ -24839,8 +24866,8 @@ app.get('/liverank/:djId/data', async (req, res) => {
   const lr = getLiveRankSettings(djId, settings)
   const djTag = getLiveRankDjTag(settings)
   if (!djTag) return res.json({ success: false, error: '자동입장에 등록된 고유닉이 없어요. 사이드바 "자동입장" 메뉴에서 먼저 고유닉을 등록해주세요.' })
-  if (dashRankCache.lastScanned === 0 || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
-    const scanResult = await scanDashRank()
+  if (dashRankCache.lastScanned === 0 || !dashRankCache.next_choice.length || Date.now() - dashRankCache.lastScanned > 30 * 60 * 1000) {
+    const scanResult = await scanDashRank(djId)
     if (!scanResult.success) {
       console.log(`[월간DJ컷랭킹] ${djId} 스캔 실패:`, scanResult.error)
       return res.json({ success: false, error: scanResult.error })
