@@ -11965,7 +11965,9 @@ async function deleteQuizQuestion(){
   if(!quizEditingId)return showToast('삭제할 문제를 먼저 선택해주세요');
   if(!confirm('이 문제를 삭제할까요?'))return;
   try{
-    await fetch(SERVER+'/quiz/questions/'+encodeURIComponent(quizEditingId)+'/delete',{method:'POST',headers:authHeaders()});
+    const res=await fetch(SERVER+'/quiz/questions/'+encodeURIComponent(quizEditingId)+'/delete',{method:'POST',headers:authHeaders()});
+    const d=await res.json().catch(()=>({}));
+    if(!d.success)return showToast(d.error||'삭제 실패');
     showToast('삭제했어요');
     quizEditingId=null;
     showQuizAddForm();

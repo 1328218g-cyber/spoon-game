@@ -16408,6 +16408,14 @@ function getQuizSettings(djId, settings) {
     store.saveSettings(djId, { quiz: settings.quiz })
   }
   if (!settings.quiz.questions) settings.quiz.questions = []
+  // 🔑 번호(id)가 없거나 겹치는 문제가 있으면(예전 데이터·옮겨온 데이터) 새 번호를 붙여준다 — 없으면 화면에서 골라지지 않아 수정·삭제가 안 됨
+  const seen = new Set(); let fixed = false
+  settings.quiz.questions.forEach((q, i) => {
+    if (!q || typeof q !== 'object') return
+    if (!q.id || typeof q.id !== 'string' || seen.has(q.id)) { q.id = 'q' + Date.now() + '_' + i + Math.floor(Math.random() * 1000); fixed = true }
+    seen.add(q.id)
+  })
+  if (fixed) store.saveSettings(djId, { quiz: settings.quiz })
   return settings.quiz
 }
 
