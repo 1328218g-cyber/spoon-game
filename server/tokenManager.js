@@ -241,6 +241,7 @@ function sanitizeCookies(cookies) {
 // data: { cookies, localStorage, sessionStorage } 객체. 구버전 형식(쿠키 배열만)도 하위호환으로 허용.
 function setCookies(djId, data) {
   const a = getAccount(djId)
+  a.expiredStreak = 0
   if (Array.isArray(data)) {
     a.cookies = sanitizeCookies(data)
     a.localStorage = null
@@ -300,6 +301,7 @@ const APPLY_EVERY_UPLOAD = true
 
 function receiveUpload(djId, data) {
   const a = getAccount(djId)
+  a.expiredStreak = 0
   const now = Date.now()
   a.lastUploadAt = now
   if (APPLY_EVERY_UPLOAD) {
@@ -491,6 +493,7 @@ async function refreshAccessTokenInner(djId) {
       // 다음 갱신을 위해 쿠키 저장소도 최신 상태로 교체 (다른 쿠키들도 회전될 수 있음)
       a.cookies = sanitizeCookies(freshCookies)
       a.lastAppliedAt = Date.now()
+      a.expiredStreak = 0
       persistToDisk()
       console.log(`[tokenManager:${djId}] ✅ accessToken 갱신 성공`)
       if (onTokenUpdate) onTokenUpdate(djId, a.accessToken)
@@ -500,7 +503,12 @@ async function refreshAccessTokenInner(djId) {
 
     console.log(`[tokenManager:${djId}] ⚠️ spoon_at_kr 쿠키를 찾지 못했습니다. 세션이 만료됐을 수 있습니다. (재연결 필요)`)
     if (onSessionExpired) onSessionExpired(djId)
-    if (onRefreshEvent) onRefreshEvent(djId, 'expired', 'spoon_at_kr 쿠키를 찾지 못함 — 세션이 만료됐을 수 있음')
+    a.expiredStreak = (a.expiredStreak || 0) + 1
+    // 🧹 3번 연속 만료면 더는 갱신 시도 안 함 (세션을 다시 올리면 자동으로 재개) — 같은 에러가 계속 쌓이는 것 방지
+    if (a.expiredStreak >= 3) {
+      if (a.refreshTimer) { clearInterval(a.refreshTimer); a.refreshTimer = null }
+      if (onRefreshEvent) onRefreshEvent(djId, 'expired', '세션 만료 3번 연속 → 자동 갱신 멈춤 (세션을 다시 올리면 재개돼요)')
+    } else if (onRefreshEvent) onRefreshEvent(djId, 'expired', 'spoon_at_kr 쿠키를 찾지 못함 — 세션이 만료됐을 수 있음')
     return null
   } catch (e) {
     console.log(`[tokenManager:${djId}] 갱신 오류:`, e.message)

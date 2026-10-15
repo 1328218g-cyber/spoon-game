@@ -25778,15 +25778,20 @@ app.listen(PORT, () => {
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
   let loadedDjIds = tokenManager.initFromDisk()
   // 🧹 이미 삭제된 회원의 세션이 남아있으면 지운다 (없는 계정으로 계속 토큰 갱신하면서 "세션 만료" 에러가 쌓임)
-  try {
-    const members = new Set(store.listDjIds())
-    if (members.size) {
-      const gone = loadedDjIds.filter(id => id !== 'sum' && !members.has(id) && !SHARED_TOKEN_POOL.includes(id))
+  // 서버 시작 때 한 번 + 이후 1시간마다 (다른 경로로 회원이 지워진 경우까지)
+  const purgeGoneSessions = () => {
+    try {
+      const members = new Set(store.listDjIds())
+      if (!members.size) return []
+      const gone = tokenManager.listAccountIds().filter(id => id !== 'sum' && !members.has(id) && !SHARED_TOKEN_POOL.includes(id))
       gone.forEach(id => tokenManager.removeAccount(id))
       if (gone.length) console.log(`[세션] 삭제된 회원 세션 정리: ${gone.join(', ')}`)
-      loadedDjIds = loadedDjIds.filter(id => !gone.includes(id))
-    }
-  } catch (e) { console.log('[세션] 정리 실패', e.message) }
+      return gone
+    } catch (e) { console.log('[세션] 정리 실패', e.message); return [] }
+  }
+  const goneAtStart = purgeGoneSessions()
+  loadedDjIds = loadedDjIds.filter(id => !goneAtStart.includes(id))
+  setInterval(purgeGoneSessions, 60 * 60 * 1000)
   if (loadedDjIds.length) {
     console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
