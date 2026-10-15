@@ -542,6 +542,17 @@ function ensureAutoRefresh(djId, intervalMinutes = 10) {
   a.refreshTimer = setInterval(() => backupRefreshTick(djId), intervalMinutes * 60 * 1000)
 }
 
+// 회원이 삭제됐을 때 — 저장된 스푼 세션과 자동 갱신 타이머까지 같이 지운다 (안 지우면 없는 계정으로 계속 갱신 시도함)
+function removeAccount(djId) {
+  const a = accounts[djId]
+  if (!a) return false
+  if (a.refreshTimer) clearInterval(a.refreshTimer)
+  if (a.pendingTimer) clearTimeout(a.pendingTimer)
+  delete accounts[djId]
+  persistToDisk()
+  return true
+}
+
 // 서버 시작 시: initFromDisk()가 돌려준 djId 목록 전부에 대해 자동 갱신을 시작하는 헬퍼
 function startAutoRefreshForAll(djIds, intervalMinutes = 10) {
   djIds.forEach(djId => startAutoRefresh(djId, intervalMinutes))
@@ -558,6 +569,7 @@ module.exports = {
   refreshAccessToken,
   startAutoRefresh,
   stopAutoRefresh,
+  removeAccount,
   ensureAutoRefresh,
   startAutoRefreshForAll,
   setOnTokenUpdate,

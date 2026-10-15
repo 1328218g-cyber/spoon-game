@@ -20554,6 +20554,7 @@ app.post('/admin/users/:djId/delete', auth.requireAuth, (req, res) => {
   const room = getRoom(targetId)
   if (room.ws) { room.ws.terminate() }
   delete rooms[targetId]
+  try { tokenManager.removeAccount(targetId) } catch (e) {}
   const ok = store.deleteDj(targetId)
   if (!ok) return res.json({ success: false, error: '유저를 찾을 수 없어요' })
   res.json({ success: true })
@@ -20693,6 +20694,7 @@ app.post('/admin/users/bulk-delete', auth.requireAuth, (req, res) => {
     const room = getRoom(targetId)
     if (room.ws) { room.ws.terminate() }
     delete rooms[targetId]
+    try { tokenManager.removeAccount(targetId) } catch (e) {}
     const ok = store.deleteDj(targetId)
     if (!ok) { notFound.push(targetId); continue }
     okCount++
@@ -25774,7 +25776,17 @@ app.listen(PORT, () => {
   try { store.startMonsterDexSync() } catch (e) { console.log('[몬스터잡기 동기화] 시작 실패', e.message) }
 
   // 디스크에 저장된 세션(Volume)이 있으면 불러와서, 계정마다 자동 갱신을 바로 재개한다.
-  const loadedDjIds = tokenManager.initFromDisk()
+  let loadedDjIds = tokenManager.initFromDisk()
+  // 🧹 이미 삭제된 회원의 세션이 남아있으면 지운다 (없는 계정으로 계속 토큰 갱신하면서 "세션 만료" 에러가 쌓임)
+  try {
+    const members = new Set(store.listDjIds())
+    if (members.size) {
+      const gone = loadedDjIds.filter(id => id !== 'sum' && !members.has(id) && !SHARED_TOKEN_POOL.includes(id))
+      gone.forEach(id => tokenManager.removeAccount(id))
+      if (gone.length) console.log(`[세션] 삭제된 회원 세션 정리: ${gone.join(', ')}`)
+      loadedDjIds = loadedDjIds.filter(id => !gone.includes(id))
+    }
+  } catch (e) { console.log('[세션] 정리 실패', e.message) }
   if (loadedDjIds.length) {
     console.log(`[세션] 저장된 세션 발견 (${loadedDjIds.length}개 계정) → accessToken 자동 갱신 재개`)
     tokenManager.startAutoRefreshForAll(loadedDjIds, 30)
