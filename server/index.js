@@ -16606,6 +16606,15 @@ function startLeavePolling(djId, liveId) {
         currentMembers.set(key, u)
       }
 
+      // ⚔️ 방치 RPG — 1분마다 지금 방에 있는 시청자 고유닉을 회원 서버에 알려요 (💤 방치 보상이 방송 접속 시간만큼 쌓여요)
+      try {
+        if (Date.now() - (room._idleHereAt || 0) >= 60000 && isModuleOn(store.getSettings(djId) || {}, 'idlerpg', djId)) {
+          room._idleHereAt = Date.now()
+          const tags = [...new Set([...currentMembers.values()].map(u => String(u.tag || '').replace(/^@/, '').trim()).filter(Boolean))]
+          if (tags.length) idleCall('idleHere', djId, { tags }).catch(() => {})
+        }
+      } catch (e) {}
+
       // 🆔 태그↔닉네임 매핑은 시청자 명단을 받아올 때마다(5초 주기) 항상 갱신한다.
       // (자동 출석과 달리, 이 매핑은 !룰렛지급 등에서 태그로 대상을 찾을 때 쓰이므로 자주 갱신될수록 좋다)
       for (const u of currentMembers.values()) {
