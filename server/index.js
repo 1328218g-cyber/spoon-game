@@ -1500,9 +1500,10 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
   const idx1 = m[1] ? parseInt(m[1], 10) : null   // 1-based
   const delta = m[2] ? parseInt(m[2], 10) : null
 
-  // 인자 없음 → 전체 출력
+  // 인자 없음 → 켜진(on) 깃발만 출력 (번호는 등록 순서 그대로 — "!깃발 3" 과 맞춰요)
   if (idx1 === null) {
-    const lines = flags.items.map((f, i) => renderFlagTemplate(f.template, f, i + 1))
+    const lines = flags.items.map((f, i) => (f.on === false ? null : renderFlagTemplate(f.template, f, i + 1))).filter((x) => x != null)
+    if (!lines.length) return
     setTimeout(() => sendChatToRoom(djId, lines.join('\n')), 400)
     return
   }
@@ -18456,7 +18457,7 @@ setInterval(() => {
     const settings = store.getSettings(djId)
     const items = settings?.flags?.items || []
     items.forEach((f, i) => {
-      if (f.useCycle) sendChatToRoom(djId, renderFlagTemplate(f.template, f, i + 1))
+      if (f.useCycle && f.on !== false) sendChatToRoom(djId, renderFlagTemplate(f.template, f, i + 1)) // 꺼진 깃발은 주기 출력도 안 해요
     })
   }
 }, 5 * 60 * 1000)

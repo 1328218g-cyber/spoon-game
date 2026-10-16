@@ -310,6 +310,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .flag-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
 .flag-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .flag-card-top h4{font-size:15px}
+.flag-card.flag-off{opacity:.6}
+.flag-off-tag{font-size:11px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 8px;margin-left:6px;vertical-align:middle}
 .flag-card-actions button{padding:6px 12px;font-size:12px;margin-left:6px}
 .flag-card-sub{font-size:12.5px;color:var(--muted);margin-bottom:10px}
 .flag-progress-bar{background:var(--bg);border:1px solid var(--border);border-radius:20px;height:8px;overflow:hidden;margin-bottom:16px}
@@ -2882,7 +2884,7 @@ if (window.bcast) setTimeout(() => {
         <div class="card">
           <div class="card-title">사용 예시</div>
           <p class="hint">
-          · !깃발 → 등록된 전체 깃발 상태 출력<br>
+          · !깃발 → <b>켜진</b> 깃발 상태만 출력 (깃발마다 오른쪽 위 스위치로 켜고 꺼요)<br>
           · !깃발 1 → 1번 깃발만 출력<br>
           · !깃발 1 50 → 1번 깃발에 50 적립 (DJ 전용)<br>
           · 자동 적립 선택 시 스푼을 받으면 선물 수량만큼 자동 누적됩니다.
@@ -7868,10 +7870,11 @@ function renderFlags(){
     const percent=goal>0?Math.min(100,Math.round(current/goal*100)):0;
     const preview=flagTemplateRender(f.template,f,i+1);
     return `
-    <div class="flag-card">
+    <div class="flag-card${f.on===false?' flag-off':''}">
       <div class="flag-card-top">
-        <h4>${i+1}. ${escapeHtml(f.title)}</h4>
+        <h4>${i+1}. ${escapeHtml(f.title)}${f.on===false?' <span class="flag-off-tag">꺼짐</span>':''}</h4>
         <div class="flag-card-actions">
+          <label class="switch" title="켜면 ${escapeHtml(flagsData.cmd)} 에 나와요" style="vertical-align:middle"><input type="checkbox" ${f.on===false?'':'checked'} onchange="toggleFlagOn('${f.id}',this.checked)"><span class="slider"></span></label>
           <button class="btn-gray" onclick="showFlagForm('${f.id}')">수정</button>
           <button class="btn-shield-reset" onclick="deleteFlag('${f.id}')">삭제</button>
         </div>
@@ -7882,7 +7885,7 @@ function renderFlags(){
         <div><span class="k">적립 방식</span><span class="v">${f.mode==='auto'?'자동 적립':'수동 적립'}</span></div>
         <div><span class="k">주기 출력</span><span class="v">${f.useCycle?'5분마다 자동 출력':'수동 출력만 사용'}</span></div>
         <div><span class="k">방송 시작 시</span><span class="v">${f.resetOnLive?'🔄 자동 리셋':'유지'}</span></div>
-        <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)}</span></div>
+        <div><span class="k">명령어</span><span class="v">${escapeHtml(flagsData.cmd)} ${f.on===false?'(꺼짐 · 전체 출력에서 빠져요)':'(켜짐)'}</span></div>
       </div>
       <div class="flag-amount-row">
         <input type="text" inputmode="numeric" id="flagAmount-${f.id}" placeholder="숫자 입력">
@@ -7942,6 +7945,11 @@ function saveFlagForm(){
   hideFlagForm();
   renderFlags();
   saveFlagsGlobal();
+}
+
+function toggleFlagOn(id,on){
+  const f=flagsData.items.find(x=>x.id===id);if(!f)return;
+  f.on=!!on;renderFlags();saveFlagsGlobal();
 }
 
 function deleteFlag(id){
