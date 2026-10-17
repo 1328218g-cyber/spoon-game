@@ -776,6 +776,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
 
     <div class="nav-group-label">홈</div>
     <div class="nav-item" data-panel="dashboard"><span class="ic ic-img"><img src="/icons/dashboard.png" alt=""></span><span class="lbl">대시보드</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="etherrpg"><span class="ic ic-img"><img src="/icons/etherrpg.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">에테르 키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="idlerpg"><span class="ic ic-img"><img src="/icons/idlerpg.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">방치 RPG</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -5156,6 +5157,39 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <!-- 👤 내정보 웹페이지 -->
+      <div class="panel" data-panel="etherrpg">
+        <div class="card">
+          <div style="font-weight:700;font-size:14px">🌟 에테르 키우기</div>
+          <p class="hint" style="margin:4px 0 0">라그나로크 스타일 방치형 RPG 예요. 시청자가 링크로 들어가 첫 화면의 코드 6자리를 방송 채팅에 치면 <b>로그인 없이 바로</b> 자기 스푼 고유닉 캐릭터로 접속돼요. 게임은 서버에 자동 저장되고, 캐릭터는 고유닉 하나에 하나라서 에디냥·짜잔 에디봇 어느 방송에서 해도 같은 캐릭터가 이어져요.</p>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">🔗 시청자 링크</div>
+          <div style="display:flex;gap:6px"><input id="etherUrl" readonly style="flex:1"><button class="btn" onclick="etherCopyUrl()">복사</button><button class="btn" onclick="window.open(document.getElementById('etherUrl').value,'_blank')">열기</button></div>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">💎 지급 가능 보석 <span style="font-weight:400" id="etherWallet">-</span></div>
+          <p class="hint" style="margin:0">스푼 후원 자동 지급과 <b>!에테르보석</b> 은 관리자가 등록한 방송만 되고, 이 보석에서 빠져요. 다 쓰면 관리자에게 충전을 요청해주세요.</p>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">💎 스푼 후원 → 보석 자동 지급</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="etherAutoOn" onchange="etherSaveAuto()"> 자동 지급 켜기 (1스푼 = 💎1개)</label>
+          <p class="hint" style="margin:6px 0 0">아직 접속 안 한 시청자도 쌓아뒀다가 처음 접속할 때 한 번에 받아요. 꺼도 미션·후원보스 스푼 합계는 계속 세요.</p>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:6px">💬 채팅 명령어</div>
+          <div class="hint" style="line-height:1.9">
+            <b>!에테르</b> — 게임 링크 안내<br>
+            <b>코드 6자리</b> — 게임 첫 화면 코드로 로그인 없이 바로 접속 (내 고유닉 캐릭터)<br>
+            <b>!에테르보석 [고유닉] [개수]</b> — 💎 보석 지급 (디제이·매니저 · 관리자가 등록한 방송만)<br>
+            <b>!후원보스</b> — 후원보스까지 남은 스푼 · <b>!후원보스설정 [스푼]</b> — 목표 바꾸기 (디제이·매니저)<br>
+            🥄 후원 → 💎 자동 · ❤️ 좋아요 → 10분 골드 1.5배 · 💖 유료 하트 · 🗣️ '봇사용은 에디냥' 💎100 (5분마다)
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><b>👥 연결된 시청자</b><button class="btn" onclick="loadEtherPanel()">새로고침</button></div>
+          <div id="etherPlayers" class="hint">불러오는 중…</div>
+        </div>
+      </div>
       <div class="panel" data-panel="idlerpg">
         <div class="card">
           <div style="font-weight:700;font-size:14px">⚔️ 방치 RPG</div>
@@ -7060,6 +7094,7 @@ const PANEL_META={
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
+  etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
   idlerpg:['⚔️ 방치 RPG','시청자가 자기 닉네임 캐릭터로 키우는 방치형 웹게임 · 💎 스푼 후원하면 보석 자동 지급'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
@@ -7095,6 +7130,7 @@ function selectPanel(name){
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
   if(name==='idlerpg')loadIdleRpgPanel();
+  if(name==='etherrpg')loadEtherPanel();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
   if(name==='broadcast'&&typeof bcFloatClose==='function')bcFloatClose(); // 팝업으로 떠 있었으면 원래 화면으로
@@ -7223,7 +7259,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate','idlerpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7255,7 +7291,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -17855,6 +17891,25 @@ function mfCopyPublicUrl(){
   catch(e){ document.execCommand('copy'); showToast('링크를 복사했어요'); }
 }
 
+// 🌟 에테르 키우기 패널
+async function etherSaveAuto(){
+  try{ const d=await (await fetch(SERVER+'/ether-admin/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({autoGemOn:document.getElementById('etherAutoOn').checked})})).json(); if(d.success) showToast('저장했어요'); }catch(e){ showToast('저장 실패'); }
+}
+function etherCopyUrl(){ const el=document.getElementById('etherUrl'); el.select(); try{ navigator.clipboard.writeText(el.value); }catch(e){ document.execCommand('copy'); } showToast('링크를 복사했어요'); }
+async function loadEtherPanel(){
+  const u=document.getElementById('etherUrl'); if(u) u.value=location.origin+'/ether/'+djId;
+  const box=document.getElementById('etherPlayers'); if(!box) return;
+  try{ const a=await (await fetch(SERVER+'/ether-admin/settings',{headers:authHeaders()})).json(); if(a.success){ document.getElementById('etherAutoOn').checked=a.autoGemOn!==false; if(!a.keyOk){ box.innerHTML='⚠️ 서버 환경변수 <b>IDLE_SYNC_KEY</b> 가 아직 없어요. 관리자에게 문의해주세요.'; return; } } }catch(_){}
+  try{
+    const d=await (await fetch(SERVER+'/ether-admin/players',{headers:authHeaders()})).json();
+    if(!d.success) throw new Error(d.error||'실패');
+    const wl=document.getElementById('etherWallet'); if(wl) wl.innerHTML=!d.giver?'<span style="color:#ef4444">보석 지급 미등록 방송</span> <span class="hint">· 관리자에게 등록·충전을 요청해주세요</span>':d.wallet<0?'<b>무제한</b> (관리자)':`<b>${Number(d.wallet||0).toLocaleString()}개</b> <span class="hint">· 다 쓰면 관리자에게 충전을 요청해주세요</span>`;
+    if(!d.list.length){ box.innerHTML='아직 이 방송에서 연결된 시청자가 없어요.'; return; }
+    const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    box.innerHTML='<table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="text-align:left;opacity:.7"><th>#</th><th>닉네임</th><th>고유닉</th><th>마지막으로 본 시간</th><th>💎 대기</th></tr>'+
+      d.list.map((p,i)=>`<tr style="border-top:1px solid rgba(128,128,128,.2)"><td>${i+1}</td><td>${esc(p.nick||'-')}</td><td>${esc(p.tag||'-')}</td><td>${new Date(p.at).toLocaleString()}</td><td>${p.gemQueue?`<span style="color:#16a34a">+${Number(p.gemQueue).toLocaleString()}</span>`:'-'}</td></tr>`).join('')+'</table>';
+  }catch(e){ box.textContent='불러오지 못했어요: '+e.message; }
+}
 // ⚔️ 방치 RPG 패널
 async function idleSaveAuto(){
   const body={autoGemOn:document.getElementById('idleAutoOn').checked,autoGemPerSpoon:Number(document.getElementById('idleAutoPer').value)||1};

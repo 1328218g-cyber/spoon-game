@@ -1362,7 +1362,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -8226,6 +8226,136 @@ app.get('/idle-admin/players', auth.requireAuth, async (req, res) => {
   const d = await idleCall('idlePlayers', req.djId, {}, 15000)
   if (!d.ok) return res.json({ success: false, error: idleErrText(d.error) })
   res.json({ success: true, list: d.list || [], wallet: d.wallet })
+})
+
+// ══════════════════════════════════════════════════════
+// 🌟 에테르 키우기 — 라그나로크 스타일 방치형 RPG (짜잔 에디봇 회원 서버에서 운영 · 데이터 한 곳)
+//   · 게임 화면·저장: 회원 서버 /ether  (여기 /ether/:djId 는 그쪽으로 넘겨줘요) — 방치 RPG 와 같은 연결 방식
+//   · 시청자: 게임 첫 화면 코드 6자리를 방송 채팅에 치면 로그인 없이 바로 접속 (스푼 고유닉 캐릭터 · 서버 자동 저장)
+//   · 여기서는 스푼 채팅·좋아요·유료 하트·후원·방 명단을 회원 서버에 알려주기만 해요 (방송 키 e~디제이아이디)
+//   · 💎 보석 지급(후원 자동 · !에테르보석)은 회원 서버 관리자 페이지 '에테르' 탭에 등록된 방송만 · DJ 지갑에서 빠져요
+//   · 환경변수: IDLE_SYNC_KEY · IDLE_MASTER_URL (방치 RPG 와 같은 값)
+// ══════════════════════════════════════════════════════
+const etherLink = () => `${IDLE_MASTER}/ether`
+const etherCall = (fn, djId, body = {}, ms = 10000) => idleCall(fn, djId, body, ms)
+function getEtherSettings(djId, settings) {
+  if (!settings.etherRpg || typeof settings.etherRpg !== 'object') {
+    settings.etherRpg = { cmdLink: '!에테르', cmdGem: '!에테르보석', autoGemOn: true }
+    store.saveSettings(djId, { etherRpg: settings.etherRpg })
+  }
+  const g = settings.etherRpg
+  if (typeof g.autoGemOn !== 'boolean') g.autoGemOn = true
+  return g
+}
+const saveEther = (djId, g) => store.saveSettings(djId, { etherRpg: g })
+const etherRoomSent = new Map()
+async function etherSyncRoom(djId) {
+  const on = isModuleOn(store.getSettings(djId) || {}, 'etherrpg', djId)
+  const r = await etherCall('etherSet', djId, { on }, 6000)
+  if (r.ok) etherRoomSent.set(djId, on)
+  return { on, ok: !!r.ok, error: r.ok ? '' : idleErrText(r.error) }
+}
+setInterval(async () => {
+  if (!IDLE_SYNC_KEY) return
+  for (const djId of store.listDjIds()) {
+    const on = isModuleOn(store.getSettings(djId) || {}, 'etherrpg', djId)
+    if (!on && !etherRoomSent.has(djId)) continue
+    if (etherRoomSent.get(djId) === on) continue
+    await etherSyncRoom(djId).catch(() => {})
+  }
+}, 5 * 60 * 1000)
+const etherWordAt = new Map()
+const etherBossMsg = (b) => `🎁 후원보스 출현! 보스 ${b.n}마리 · ${b.min}분 안에 잡아요 — 에테르 키우기 접속 중인 시청자는 자동으로 보스 맵으로 이동해요`
+function handleEtherCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+  if (!isModuleOn(settings, 'etherrpg', djId)) return
+  const g = getEtherSettings(djId, settings)
+  const msg = String(text || '').trim()
+  const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
+  const say = (t) => setTimeout(() => sendChatToRoom(djId, t), 450)
+  if (!msg || !tag) return
+  // 🗣️ 봇사용은 에디냥 → 💎100 (5분에 한 번 · 지갑과 상관없음)
+  if (msg.replace(/\s+/g, '').includes('봇사용은에디냥')) {
+    const k = tag.toLowerCase(), now = Date.now()
+    if (now - (etherWordAt.get(k) || 0) >= 5 * 60 * 1000) {
+      etherWordAt.set(k, now)
+      etherCall('etherWord', djId, { tag }).then((r) => { if (r.ok) say(`💎 ${author}님 에테르 키우기 보석 ${r.gem}개 지급! (5분 뒤 다시 받을 수 있어요)`); else if (r.wait) etherWordAt.set(k, now - 5 * 60 * 1000 + r.wait * 1000) })
+    }
+    return
+  }
+  // 🔑 코드 6자리 — 게임 첫 화면 접속 코드 / 내정보 '스푼 연결' 코드 (다른 모듈 코드일 수도 있어서 못 찾으면 조용히)
+  if (!msg.startsWith('!')) {
+    const raw = msg.replace(/\s+/g, '').toUpperCase()
+    if (!/^[A-Z0-9]{6}$/.test(raw)) return
+    etherCall('etherLink', djId, { code: raw, tag, nick: author }).then((r) => { if (r.ok) say(r.login ? `🌟 ${author}님 에테르 키우기 접속 완료! 게임 화면으로 돌아가면 바로 시작돼요 (게임은 자동 저장)` : `🌟 ${author}님 에테르 키우기 연결 완료!`) })
+    return
+  }
+  const parts = msg.split(/\s+/)
+  const cmd = parts[0]
+  const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
+  const isMgr = () => { if (isDj) return true; const act = getActivitySettings(djId, settings); return (act.grantNicknames || []).map(n => String(n || '').trim().toLowerCase()).includes(String(author || '').trim().toLowerCase()) }
+  if (cmd === (g.cmdLink || '!에테르')) return say(`🌟 에테르 키우기 하러 가기 → ${etherLink()} · 첫 화면 코드 6자리를 채팅에 치면 바로 접속돼요`)
+  if (cmd === (g.cmdGem || '!에테르보석')) {
+    if (!isMgr()) return say('⚠️ 보석 지급은 DJ·매니저만 할 수 있어요')
+    const target = String(parts[1] || '').replace(/^@/, '').trim(), n = parseInt(parts[2], 10)
+    if (!target || !(n > 0)) return say(`사용법: ${g.cmdGem || '!에테르보석'} [고유닉] [개수]`)
+    etherCall('etherGem', djId, { tag: target, n }).then((d) => {
+      if (d.ok) return say(`💎 ${d.nick}님께 에테르 보석 ${Number(d.n).toLocaleString()}개를 지급했어요${d.wallet >= 0 ? ` · 남은 지급 가능 ${Number(d.wallet).toLocaleString()}개` : ''}`)
+      if (d.error === 'noperm') return say('⚠️ 보석 지급은 관리자가 등록한 방송만 할 수 있어요 · 필요하면 관리자에게 등록을 요청해주세요')
+      if (d.error === 'wallet') return say(`⚠️ 지급 가능한 보석이 부족해요 (남은 ${Number(d.wallet || 0).toLocaleString()}개) · 관리자에게 충전을 요청해주세요`)
+      if (d.error === 'nouser') return say(`⚠️ @${target}님은 아직 에테르 키우기에 접속(연결)한 적이 없어요`)
+      say('⚠️ 게임 서버에 연결하지 못했어요. 잠시 후 다시 해주세요.')
+    })
+    return
+  }
+  if (cmd === '!후원보스' || cmd === '!후원보스설정') {
+    const op = cmd === '!후원보스설정' ? 'set' : 'info'
+    if (op === 'set' && !isMgr()) return say('⚠️ DJ·매니저만 할 수 있어요')
+    const goal = parseInt(parts[1], 10)
+    if (op === 'set' && !(goal > 0)) return say('사용법: !후원보스설정 [스푼]')
+    etherCall('etherBoss', djId, { op, goal }).then((d) => {
+      if (!d.ok) return say('⚠️ 게임 서버에 연결하지 못했어요')
+      if (d.live) return say(`🎁 후원보스 진행 중 · 남은 보스 ${d.live.alive}마리 · ${Math.floor(d.live.left / 60)}분 ${d.live.left % 60}초 · 참가 ${d.live.np}명`)
+      say(`🎁 후원보스까지 🥄 ${Number(d.sum).toLocaleString()} / ${Number(d.goal).toLocaleString()}`)
+    })
+  }
+}
+const etherLikeAt = new Map()
+function handleEtherLikeHook(djId, settings, tag) {
+  if (!tag || !isModuleOn(settings, 'etherrpg', djId)) return
+  const k = String(tag).replace(/^@/, '').trim().toLowerCase(), now = Date.now()
+  if (now - (etherLikeAt.get(k) || 0) < 2000) return
+  etherLikeAt.set(k, now)
+  etherCall('etherLike', djId, { tag: k }).catch(() => {})
+}
+function handleEtherPaidHook(djId, settings, tag) {
+  if (!tag || !isModuleOn(settings, 'etherrpg', djId)) return
+  etherCall('etherPaid', djId, { tag: String(tag).replace(/^@/, '').trim() }).catch(() => {})
+}
+function handleEtherDonationHook(djId, settings, author, tag, totalSpoon) {
+  if (!tag || !(totalSpoon > 0) || !isModuleOn(settings, 'etherrpg', djId)) return
+  const g = getEtherSettings(djId, settings)
+  etherCall('etherGift', djId, { tag: String(tag).replace(/^@/, ''), spoon: Math.floor(totalSpoon), autoGem: g.autoGemOn !== false }).then((d) => {
+    if (d && d.boss) setTimeout(() => sendChatToRoom(djId, etherBossMsg(d.boss)), 600)
+  }).catch(() => {})
+}
+// ── 대시보드 ──
+app.get('/ether-admin/settings', auth.requireAuth, (req, res) => {
+  const g = getEtherSettings(req.djId, store.getSettings(req.djId) || {})
+  res.json({ success: true, autoGemOn: g.autoGemOn, cmdLink: g.cmdLink, cmdGem: g.cmdGem, url: etherLink(), keyOk: !!IDLE_SYNC_KEY })
+})
+app.post('/ether-admin/settings', auth.requireAuth, (req, res) => {
+  const g = getEtherSettings(req.djId, store.getSettings(req.djId) || {})
+  const b = req.body || {}
+  if ('autoGemOn' in b) g.autoGemOn = !!b.autoGemOn
+  for (const k of ['cmdLink', 'cmdGem']) if (typeof b[k] === 'string' && /^![^\s]{1,20}$/.test(b[k].trim())) g[k] = b[k].trim()
+  saveEther(req.djId, g)
+  res.json({ success: true, autoGemOn: g.autoGemOn, cmdLink: g.cmdLink, cmdGem: g.cmdGem })
+})
+app.get('/ether-admin/players', auth.requireAuth, async (req, res) => {
+  etherSyncRoom(req.djId).catch(() => {})
+  const d = await etherCall('etherPlayers', req.djId, {}, 15000)
+  if (!d.ok) return res.json({ success: false, error: idleErrText(d.error) })
+  res.json({ success: true, list: d.list || [], wallet: d.wallet, giver: !!d.giver })
 })
 
 function getTowerSettings(djId, settings) {
@@ -17570,6 +17700,12 @@ function startLeavePolling(djId, liveId) {
           const tags = [...new Set([...currentMembers.values()].map(u => String(u.tag || '').replace(/^@/, '').trim()).filter(Boolean))]
           if (tags.length) idleCall('idleHere', djId, { tags }).catch(() => {})
         }
+        // 🌟 에테르 키우기 — 방에 있는 시청자 (🎁 후원보스 참가 대상 · 자동 이동)
+        if (Date.now() - (room._etherHereAt || 0) >= 60000 && isModuleOn(store.getSettings(djId) || {}, 'etherrpg', djId)) {
+          room._etherHereAt = Date.now()
+          const tags = [...new Set([...currentMembers.values()].map(u => String(u.tag || '').replace(/^@/, '').trim()).filter(Boolean))]
+          if (tags.length) etherCall('etherHere', djId, { tags }).catch(() => {})
+        }
       } catch (e) {}
 
       // 🆔 태그↔닉네임 매핑은 시청자 명단을 받아올 때마다(5초 주기) 항상 갱신한다.
@@ -18088,6 +18224,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleChatHook(djId, settings, actTag)
           handleIdleMissionHook(djId, settings, actTag, 'word', text)
+          handleEtherCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -18161,6 +18298,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
         if (!isLurker) handlePickboardHeartHook(djId, settings, likeTag, author)
         if (!isLurker) handleMonsterDexResetCouponLikeHook(djId, settings, likeTag)
         if (!isLurker) handleIdleLikeHook(djId, settings, likeTag)
+        if (!isLurker) handleEtherLikeHook(djId, settings, likeTag)
         if (!isLurker) recordTodayMvp(room, 'like', likeTag || author, author, 1)
         if (!isLurker) sendLikeHeartMessage(djId, settings, 'free', author, likeTag)
         recordDashboardHeart(djId, settings, author, likeTag, 'free', 1)
@@ -18208,6 +18346,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
             if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, likeType, total)
             if (!isLurker) sendLikeHeartMessage(djId, settings, likeType, author, likeTag)
             if (!isLurker && likeType === 'paid') handleIdleMissionHook(djId, settings, likeTag, 'paid')
+            if (!isLurker && likeType === 'paid') handleEtherPaidHook(djId, settings, likeTag)
           }
         }
 
@@ -18224,6 +18363,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           if (!isLurker) recordDashboardHeart(djId, settings, author, likeTag, 'paid', total)
           if (!isLurker) handlePickboardPaidHeartHook(djId, settings, likeTag, author, total)
           if (!isLurker) handleIdleMissionHook(djId, settings, likeTag, 'paid')
+          if (!isLurker) handleEtherPaidHook(djId, settings, likeTag)
           if (!isLurker) sendLikeHeartMessage(djId, settings, 'paid', author, likeTag)
         }
 
@@ -18267,6 +18407,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleMonsterCatchShopTrigger(djId, settings, author, donationTag, amount, comboCount, sticker)
           handleMonsterDexResetCouponGiftHook(djId, settings, donationTag, amount * Math.max(1, comboCount))
           handleIdleDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
+          handleEtherDonationHook(djId, settings, author, donationTag, amount * Math.max(1, comboCount))
           recordTodayMvp(room, 'gift', donationTag || author, author, amount * Math.max(1, comboCount))
 
           if (isModuleOn(settings, 'entrysettings', djId)) {
@@ -24864,6 +25005,17 @@ app.get('/idle/:djId', async (req, res) => {
   }
   res.redirect(302, idleLink(djId))
 }) // ⚔️ 방치 RPG — 게임은 회원 서버(데이터 하나로 운영) // ⚔️ 방치 RPG — 게임은 회원 서버(데이터 하나로 운영)
+// 🌟 에테르 키우기 — 게임은 회원 서버 (데이터 하나로 운영 · 짜잔 에디봇과 같은 캐릭터)
+app.get('/ether/:djId', async (req, res) => {
+  const djId = req.params.djId
+  let st = null
+  try { st = await etherSyncRoom(djId) } catch (_) {}
+  if (st && (!st.on || !st.ok)) {
+    const why = !st.on ? '이 방송에서 에테르 키우기가 꺼져 있어요. DJ 대시보드 → 모듈 마켓에서 🌟 에테르 키우기를 켜주세요.' : st.error
+    return res.status(200).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>에테르 키우기</title><body style="margin:0;background:#0f1028;color:#eef;font-family:'Malgun Gothic',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;box-sizing:border-box"><div style="max-width:420px;background:#1a1b38;border-radius:16px;padding:22px;text-align:center"><div style="font-size:40px">🌟</div><h3 style="margin:8px 0">에테르 키우기를 열 수 없어요</h3><div style="color:#b9bbe0;font-size:13.5px;line-height:1.6">${String(why).replace(/[<>&]/g, '')}</div></div></body>`)
+  }
+  res.redirect(302, etherLink())
+})
 app.get('/omok/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/omok.html')
 })
@@ -24874,6 +25026,7 @@ app.get('/omok/:djId', (req, res) => {
 // 보여준다. 앞으로 이런 웹 기능을 새로 추가할 때는 이 목록에 한 줄만 추가하면 자동으로
 // 허브에도 반영된다 (module 키가 꺼져있으면 그 카드는 목록에서 자동으로 빠진다).
 const WEB_HUB_FEATURES = [
+  { key: 'etherrpg', path: 'ether', icon: '🌟', title: '에테르 키우기', desc: '라그나로크 스타일 방치형 RPG · 코드만 채팅에 치면 로그인 없이 바로 접속 · 파티·후원보스·길드전' },
   { key: 'idlerpg', path: 'idle', icon: '⚔️', title: '방치 RPG', desc: '내 닉네임 캐릭터가 혼자 싸우며 성장하는 방치형 게임이에요 · 장비 뽑기·강화·환생' },
   { key: 'webpickboard', path: 'webpickboard', icon: '🌐', title: '웹뽑기판', desc: '웹에서 바로 눌러서 뽑는 등수형 뽑기판이에요' },
   { key: 'mafia', path: 'mafia', icon: '🎭', title: '마피아 게임', desc: '역할을 배정받아 밤낮을 오가며 진행하는 마피아 게임이에요' },
