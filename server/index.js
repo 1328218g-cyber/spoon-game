@@ -21944,7 +21944,7 @@ app.post('/wheel/settings', auth.requireAuth, (req, res) => {
               label: String(it.label).slice(0, 80),
               weight: Math.max(0, Math.min(10000, Number(it.weight) || 1)),
               color: (typeof it.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(it.color)) ? it.color : '#888',
-            })).slice(0, 30)
+            })) // 항목 개수 제한 없음
           : p.items,
         soundEnabled: src.soundEnabled !== false,
         ttsEnabled: src.ttsEnabled !== false,

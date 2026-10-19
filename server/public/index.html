@@ -16435,7 +16435,6 @@ function renderWheelItemsTable(){
 }
 
 function addWheelItem(){
-  if(wheelCurrent().items.length>=30)return showToast('항목은 최대 30개까지 등록할 수 있어요');
   wheelCurrent().items.push({label:'',weight:10,color:'#f97316'});
   renderWheelItemsTable();
   renderWheelSvg();
@@ -16465,14 +16464,14 @@ function renderWheelSvg(){
     const pathD=`M 0 0 L ${x1.toFixed(3)} ${y1.toFixed(3)} A 98 98 0 ${largeArc} 1 ${x2.toFixed(3)} ${y2.toFixed(3)} Z`;
     const seg=document.createElementNS('http://www.w3.org/2000/svg','path');
     seg.setAttribute('d',pathD);seg.setAttribute('fill',items[i].color||'#888');
-    seg.setAttribute('stroke','#fff');seg.setAttribute('stroke-width','1');
+    seg.setAttribute('stroke','#fff');seg.setAttribute('stroke-width',n>60?'0.4':'1');
     svg.appendChild(seg);
     const midAngle=(startAngle+endAngle)/2, midRad=midAngle*Math.PI/180;
     const lx=60*Math.cos(midRad), ly=60*Math.sin(midRad);
     const text=document.createElementNS('http://www.w3.org/2000/svg','text');
     text.setAttribute('x',lx.toFixed(3));text.setAttribute('y',ly.toFixed(3));
     text.setAttribute('text-anchor','middle');text.setAttribute('dominant-baseline','middle');
-    text.setAttribute('font-size',n<=4?'12':(n<=8?'9':'7'));
+    text.setAttribute('font-size',n<=4?'12':(n<=8?'9':(n<=30?'7':String(Math.max(2,+(210/n).toFixed(2)))))); // 항목이 30개보다 많으면 칸에 맞게 글씨를 줄여요
     text.setAttribute('font-weight','700');text.setAttribute('fill','#fff');
     text.setAttribute('transform',`rotate(${midAngle+90}, ${lx.toFixed(3)}, ${ly.toFixed(3)})`);
     text.style.pointerEvents='none';
