@@ -10304,7 +10304,7 @@ async function toggleBlockUser(djIdTarget,blocked){
 }
 
 async function adminChangeUserPassword(djIdTarget){
-  const newPassword=prompt('@'+djIdTarget+' 계정의 새 비밀번호를 입력해주세요 (4자 이상)\n※ 본인 확인 없이 바로 변경돼요.');
+  const newPassword=await uiPrompt('@'+djIdTarget+' 계정의 새 비밀번호를 입력해주세요 (4자 이상)\n※ 본인 확인 없이 바로 변경돼요.');
   if(newPassword===null)return; // 취소
   if(!newPassword||newPassword.length<4)return showToast('비밀번호는 4자 이상이어야 해요');
   try{
@@ -10942,7 +10942,7 @@ async function saveActUserEdit(key){
 
 async function renameActUser(key){
   const cur=actUsersCache.find(u=>u.key===key);
-  const next=prompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n룰렛 기록도 같이 바뀌고, 새 고유닉 기록이 이미 있으면 합쳐져요',(cur&&cur.tag)||key);
+  const next=await uiPrompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n룰렛 기록도 같이 바뀌고, 새 고유닉 기록이 이미 있으면 합쳐져요',(cur&&cur.tag)||key);
   if(!next||!next.trim())return;
   try{
     const res=await fetch(SERVER+'/activity/users/'+encodeURIComponent(key)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newKey:next.trim()})});
@@ -10977,7 +10977,7 @@ async function deleteActivityUser(key){
 }
 
 async function showActAddUser(){
-  const nick=prompt('추가할 시청자 닉네임을 입력하세요');
+  const nick=await uiPrompt('추가할 시청자 닉네임을 입력하세요');
   if(!nick||!nick.trim())return;
   try{
     const res=await fetch(SERVER+'/activity/users',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({nickname:nick.trim()})});
@@ -12444,9 +12444,9 @@ function planLevelOptionsHtml(selectedLevel){
   html+=`<option value="__custom__" ${!known&&selectedLevel?'selected':''}>직접 입력...</option>`;
   return html;
 }
-function onPlanSubLevelSelectChange(i,val){
+async function onPlanSubLevelSelectChange(i,val){
   if(val==='__custom__'){
-    const raw=prompt('등급값을 직접 입력해주세요 (스푼에서 오는 그대로, 예: 15)');
+    const raw=await uiPrompt('등급값을 직접 입력해주세요 (스푼에서 오는 그대로, 예: 15)');
     if(raw==null||raw.trim()==='')return renderPlanSubLevelRows();
     planSubLevels[i].level=raw.trim();
     if(!planSubLevels[i].label) planSubLevels[i].label='구독자플랜(직접입력)';
@@ -13339,7 +13339,7 @@ async function deleteGgItem(id){
 async function editGgNickname(id){
   const item=ggData.items.find(it=>it.id===id);
   if(!item)return;
-  const next=prompt('카드에 표시할 닉네임을 입력하세요',item.author);
+  const next=await uiPrompt('카드에 표시할 닉네임을 입력하세요',item.author);
   if(next===null)return; // 취소
   const nickname=next.trim();
   if(!nickname)return showToast('닉네임을 입력해주세요');
@@ -14750,7 +14750,7 @@ async function saveMcUserEdit(tag){
   }catch(e){ showToast('오류: '+e.message); }
 }
 async function renameMcUser(tag){
-  const next=prompt('새 고유닉을 입력하세요',tag);
+  const next=await uiPrompt('새 고유닉을 입력하세요',tag);
   if(!next||!next.trim())return;
   try{
     const res=await fetch(SERVER+'/admin/monsterdex/users/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
@@ -17730,11 +17730,11 @@ async function wpbLoadPreset(){
     loadWpbSettings();
   }catch(e){showToast('오류: '+e.message);}
 }
-function wpbRenamePresetOpen(){
+async function wpbRenamePresetOpen(){
   const id=document.getElementById('wpbPresetSelect').value;
   if(!id)return showToast('이름을 바꿀 프리셋을 선택해주세요');
   const preset=(wpbConfig.presets||[]).find(p=>p.id===id);
-  const name=prompt('새 이름 (최대 15자)', preset?preset.name:'');
+  const name=await uiPrompt('새 이름 (최대 15자)', preset?preset.name:'');
   if(name==null)return;
   wpbRenamePreset(id,name.trim().slice(0,15));
 }
@@ -19797,7 +19797,7 @@ async function deleteRouletteUser(tag){
 async function renameRouletteUser(tag){
   const cur=(rlUserTags||[]).find(u=>u.tag===tag);
   const shown=(cur&&cur.displayTag)||tag;
-  const next=prompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n(룰렛 기록과 애청지수가 같이 옮겨지고, 새 고유닉 기록이 이미 있으면 합쳐져요)',shown);
+  const next=await uiPrompt('변경된 고유닉을 입력하세요 (대소문자 그대로 저장돼요)\n(룰렛 기록과 애청지수가 같이 옮겨지고, 새 고유닉 기록이 이미 있으면 합쳐져요)',shown);
   if(!next||!next.trim()||next.trim().replace('@','')===shown)return;
   try{
     const res=await fetch(SERVER+'/roulette/history/'+encodeURIComponent(tag)+'/rename',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({newTag:next.trim()})});
@@ -19878,8 +19878,8 @@ function renderRlListCard(title,listType,tag,items){
   </div>`;
 }
 
-function rlListEditPrompt(tag,listType,name,currentCount){
-  const input=prompt(`"${name}" 개수를 입력하세요 (0을 입력하면 삭제됩니다)`,currentCount);
+async function rlListEditPrompt(tag,listType,name,currentCount){
+  const input=await uiPrompt(`"${name}" 개수를 입력하세요 (0을 입력하면 삭제됩니다)`,currentCount);
   if(input===null)return;
   const n=parseInt(input,10);
   if(isNaN(n)||n<0)return showToast('올바른 숫자를 입력해주세요');
@@ -19893,8 +19893,8 @@ async function rlListSetAmount(tag,listType,text,amount){
   }catch(e){showToast('오류: '+e.message);}
 }
 
-function rlListAddPrompt(tag,listType){
-  const text=prompt('추가할 내용을 입력하세요');
+async function rlListAddPrompt(tag,listType){
+  const text=await uiPrompt('추가할 내용을 입력하세요');
   if(text&&text.trim()) rlListAction(tag,listType,'add',text.trim());
 }
 
@@ -20569,6 +20569,24 @@ function addDonationLog(d){
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 
+// ✏️ 글자 입력 창 — PC판(에디냥 PC · Electron)은 브라우저 기본 prompt() 를 지원하지 않아서 눌러도 아무 창이 안 떴어요.
+//    PC판에서는 화면 안에 직접 입력 창을 띄우고, 일반 브라우저는 원래 prompt 를 그대로 써요. (취소하면 null)
+function uiPrompt(message,def){
+  if(!/Electron/i.test(navigator.userAgent||'')) return Promise.resolve(window.prompt(message,def==null?'':String(def)));
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,15,19,.55);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px';
+    ov.innerHTML='<div style="width:100%;max-width:420px;background:var(--surface,#fff);color:var(--text,#111);border:1px solid var(--border,#ddd);border-radius:14px;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.3)"><div class="uip-msg" style="font-size:13.5px;line-height:1.6;white-space:pre-line;margin-bottom:12px"></div><input class="uip-in" type="text" style="width:100%;box-sizing:border-box"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn-gray uip-no" style="padding:8px 16px">취소</button><button class="btn-connect uip-ok" style="padding:8px 16px">확인</button></div></div>';
+    ov.querySelector('.uip-msg').textContent=String(message||'');
+    const inp=ov.querySelector('.uip-in');inp.value=def==null?'':String(def);
+    const done=(v)=>{ov.remove();resolve(v)};
+    ov.querySelector('.uip-ok').onclick=()=>done(inp.value);
+    ov.querySelector('.uip-no').onclick=()=>done(null);
+    ov.addEventListener('mousedown',e=>{if(e.target===ov)done(null)});
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();done(inp.value)}else if(e.key==='Escape'){e.preventDefault();done(null)}});
+    document.body.appendChild(ov);setTimeout(()=>{inp.focus();inp.select()},30);
+  });
+}
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
