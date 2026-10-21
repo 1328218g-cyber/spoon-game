@@ -8025,7 +8025,13 @@ function applyFlagCmd(){
 
 async function saveFlagsGlobal(){
   try{
-    await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({flags:flagsData})});
+    const r=await fetch(SERVER+'/settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({flags:flagsData})});
+    const d=await r.json().catch(()=>({}));
+    if(d.flagsConflict&&d.flags){ // 다른 창(폰·PC)에서 먼저 바뀐 깃발이 있으면 덮어쓰지 않고 최신으로 다시 불러와요
+      Object.assign(flagsData,d.flags);renderFlags();
+      return showToast('⚠️ 다른 창에서 깃발이 바뀌어서 최신 내용으로 다시 불러왔어요 · 한 번 더 해주세요');
+    }
+    if(d.flagsRev!=null)flagsData.rev=d.flagsRev;
     showToast('깃발 저장 완료 ✓');
   }catch(e){showToast('저장 실패');}
 }
@@ -8549,6 +8555,7 @@ async function loadDjSettings(){
       if(s.shield){ Object.assign(shieldData, s.shield); }
       if(s.flags){
         Object.assign(flagsData, s.flags);
+        flagsData.rev=Number(s.flags.rev)||0; // 🔢 열었을 때의 깃발 버전 — 저장할 때 서버와 비교해서 옛 창이 덮어쓰지 않게
         const nums=flagsData.items.map(f=>parseInt(String(f.id).replace('f',''),10)).filter(n=>!Number.isNaN(n));
         if(nums.length) flagIdSeq=Math.max(...nums)+1;
       }
@@ -20612,7 +20619,7 @@ function startSSE(){
     else if(d.type==='autojoin')updateAutoJoinStatus(d);
     else if(d.type==='session')updateSessionPill(d);
     else if(d.type==='shield'){ shieldData.count=d.count; if(document.getElementById('shieldNumber')) renderShield(); }
-    else if(d.type==='flags'){ flagsData.items=d.items; if(document.getElementById('flagListWrap')) renderFlags(); }
+    else if(d.type==='flags'){ flagsData.items=d.items; if(d.rev!=null)flagsData.rev=d.rev; if(d.cmd)flagsData.cmd=d.cmd; if(document.getElementById('flagListWrap')) renderFlags(); }
     else if(d.type==='funding'){ fundingData.items=d.items; if(document.getElementById('fundingListWrap')) renderFunding(); }
     else if(d.type==='songrequest'){ srData.items=d.items; if(document.getElementById('srListWrap')) renderSrList(); }
     else if(d.type==='roulette'){

@@ -1525,8 +1525,9 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
   }
 
   const { justCompleted } = applyFlagDelta(flag, delta)
+  flags.rev = (Number(flags.rev) || 0) + 1
   store.saveSettings(djId, { flags })
-  broadcast({ type: 'flags', djId, items: flags.items })
+  broadcast({ type: 'flags', djId, items: flags.items, rev: flags.rev })
   setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.template, flag, idx1)), 400)
   if (justCompleted) {
     setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
@@ -1548,8 +1549,9 @@ function handleFlagAutoDonation(djId, settings, amount) {
     }
   })
   if (changed) {
+    flags.rev = (Number(flags.rev) || 0) + 1
     store.saveSettings(djId, { flags })
-    broadcast({ type: 'flags', djId, items: flags.items })
+    broadcast({ type: 'flags', djId, items: flags.items, rev: flags.rev })
     completed.forEach(({ flag, idx1 }) => {
       setTimeout(() => sendChatToRoom(djId, renderFlagTemplate(flag.msgFull || DEFAULT_FLAG_FULL_MSG, flag, idx1)), 900)
     })
@@ -17956,9 +17958,10 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
       })
     }
     flagsForReset.lastLiveId = liveId
+    if (resetCount) flagsForReset.rev = (Number(flagsForReset.rev) || 0) + 1
     store.saveSettings(djId, { flags: flagsForReset })
     if (resetCount) {
-      broadcast({ type: 'flags', djId, items: flagsForReset.items })
+      broadcast({ type: 'flags', djId, items: flagsForReset.items, rev: flagsForReset.rev })
       console.log(`[깃발] ${djId} 새 방송(${liveId}) 시작 — 자동 리셋 깃발 ${resetCount}개 0으로 초기화`)
     }
   }
@@ -25362,11 +25365,21 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (likeHeartTypes) patch.likeHeartTypes = likeHeartTypes
   if (funding) patch.funding = funding
   if (shield) patch.shield = shield
+  let flagsOut = null
   if (flags) {
     // lastLiveId(자동 리셋 기준 방송)는 서버만 관리한다 — 예전에 열어둔 화면이 저장하면서 옛 값으로 덮어쓰면
     // 같은 방송 도중 재접속 때 또 리셋될 수 있어서, 화면에서 보낸 값은 무시하고 서버 값을 유지한다.
+    // 🔢 rev: 깃발이 바뀔 때마다 1씩 올라가요. 아침에 열어둔 창(폰·PC)이 옛 목표·금액을 들고 있다가 저장하면
+    //    새로 바꾼 목표가 옛 값으로 되돌아가던 문제 → 화면이 가진 rev 가 서버와 다르면 저장하지 않고 최신 깃발을 돌려줘요
+    //    (rev 를 안 보내는 예전 화면은 그대로 저장)
     const curFlags = (store.getSettings(req.djId) || {}).flags || {}
-    patch.flags = { ...flags, lastLiveId: curFlags.lastLiveId }
+    const curRev = Number(curFlags.rev) || 0
+    if (typeof flags.rev === 'number' && flags.rev !== curRev) {
+      flagsOut = { flagsConflict: true, flags: curFlags }
+    } else {
+      patch.flags = { ...flags, lastLiveId: curFlags.lastLiveId, rev: curRev + 1 }
+      flagsOut = { flagsRev: curRev + 1 }
+    }
   }
   if (commands) patch.commands = commands
   if (greetings) patch.greetings = greetings
@@ -25435,6 +25448,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
   if (moduleVisible) patch.moduleVisible = moduleVisible
   if (typeof useDefaultEntryMessages === 'boolean') patch.useDefaultEntryMessages = useDefaultEntryMessages
   store.saveSettings(req.djId, patch)
+  if (patch.flags) broadcast({ type: 'flags', djId: req.djId, items: patch.flags.items || [], rev: patch.flags.rev, cmd: patch.flags.cmd }) // 다른 창도 바로 최신 깃발로
   // 🐾 사이드바에서 "몬스터 잡기" 모듈을 껐다/켰다 하면, 몬스터잡기 설정 페이지에 따로 안
   // 들어가도 바로 스폰 타이머가 다시 계산되도록 여기서도 재시작해준다. (끄면 알아서 멈추고,
   // 켜면 그 즉시 설정값 그대로 다시 돈다 — 방송 이미 켜진 상태에서 모듈만 켜도 동작해야 함)
@@ -25443,7 +25457,7 @@ app.post('/settings', auth.requireAuth, (req, res) => {
     startMonsterCatchTimer(req.djId)
     startBossTimer(req.djId)
   }
-  res.json({ success: true })
+  res.json({ success: true, ...(flagsOut || {}) })
 })
 
 // 🎵 신청곡 수동 추가 — DJ가 웹 화면에서 직접 곡을 추가할 때 사용. 로컬봇과 동일하게 검색은
