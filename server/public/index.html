@@ -8297,7 +8297,7 @@ function renderEntryList(){
       <div class="msg-entry" data-id="${m.id}">
         <div class="msg-entry-top">
           <label class="switch">
-            <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked)">
+            <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked);saveSettings()">
             <span class="slider"></span>
           </label>
           <button class="icon-btn danger" onclick="removeEntryMessage(${m.id})">🗑</button>
@@ -8326,7 +8326,7 @@ function renderEntryList(){
     <div class="msg-entry" data-id="${m.id}">
       <div class="msg-entry-top">
         <label class="switch">
-          <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked)">
+          <input type="checkbox" ${m.enabled?'checked':''} onchange="updateEntryMsg(${m.id},'enabled',this.checked);saveSettings()">
           <span class="slider"></span>
         </label>
         <button class="icon-btn danger" onclick="removeEntryMessage(${m.id})">🗑</button>

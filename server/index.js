@@ -18665,7 +18665,7 @@ setInterval(() => {
     const mode = settings.entryData?.repeatMode === 'sequence' ? 'sequence' : 'interval'
 
     if (mode === 'sequence') {
-      const activeList = list.filter(m => m && m.enabled !== false && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0)
+      const activeList = list.filter(m => m && m.enabled === true && String(m.text || '').trim() && repeatMsgIntervalMs(m) > 0) // 화면 스위치와 똑같이: 켜짐(true)일 때만
       if (!activeList.length) { delete repeatSeqState[djId]; continue }
 
       if (!repeatSeqState[djId]) repeatSeqState[djId] = { index: 0, nextAt: null }
@@ -18690,7 +18690,7 @@ setInterval(() => {
     const lastMap = repeatLastSent[djId]
 
     list.forEach(m => {
-      if (!m || m.enabled === false) return
+      if (!m || m.enabled !== true) return // 화면에서 꺼짐으로 보이는(값이 없는) 문구도 안 보내요
       const text = String(m.text || '').trim()
       if (!text) return
       const intervalMs = repeatMsgIntervalMs(m)
