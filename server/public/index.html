@@ -7974,7 +7974,11 @@ function saveFlagForm(){
 
   if(flagEditingId){
     const f=flagsData.items.find(x=>x.id===flagEditingId);
-    Object.assign(f,{title,goal,mode,useCycle,template,msgFull,resetOnLive});
+    // 🎯 출력 문구에 목표 숫자를 직접 적어뒀으면(예: {current}/10000) 목표를 바꿔도 문구에 옛 숫자가 계속 나와요
+    //    → 목표가 바뀌면 문구 속 옛 목표 숫자를 {goal} 로 바꿔서 새 목표가 나오게 해요
+    const og=Number(f.goal)||0;let tpl=template,mf=msgFull;
+    if(og&&og!==goal){const re=new RegExp('(^|[^0-9,])('+String(og)+'|'+og.toLocaleString('en-US')+')(?![0-9])','g');tpl=tpl.replace(re,'$1{goal}');mf=mf.replace(re,'$1{goal}');}
+    Object.assign(f,{title,goal,mode,useCycle,template:tpl,msgFull:mf,resetOnLive});
   } else {
     flagsData.items.push({id:'f'+(flagIdSeq++),title,goal,current:0,mode,useCycle,template,msgFull,resetOnLive});
   }

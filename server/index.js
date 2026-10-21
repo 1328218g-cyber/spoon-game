@@ -1489,7 +1489,7 @@ function applyFlagDelta(flag, delta) {
 // 깃발 명령어 처리: "!깃발", "!깃발 1", "!깃발 1 50" (음수면 차감)
 function handleFlagCommand(djId, room, settings, author, authorId, text) {
   if (!isModuleOn(settings, 'flag', djId)) return
-  const flags = settings.flags
+  const flags = (store.getSettings(djId) || settings).flags // 방금 화면에서 바꾼 목표가 예전 값으로 덮이지 않게 항상 최신 설정으로
   if (!flags || !flags.cmd || !flags.items || !flags.items.length) return
 
   const cmd = flags.cmd.trim()
@@ -1536,7 +1536,7 @@ function handleFlagCommand(djId, room, settings, author, authorId, text) {
 // 선물(도네이션) 수신 시 "자동 적립" 깃발에 수량만큼 자동 반영
 function handleFlagAutoDonation(djId, settings, amount) {
   if (!isModuleOn(settings, 'flag', djId)) return
-  const flags = settings.flags
+  const flags = (store.getSettings(djId) || settings).flags // 선물 처리 도중(스티커 조회 등) 화면에서 목표를 바꿔도 예전 목표로 되돌리지 않게
   if (!flags || !flags.items || !flags.items.length || !amount) return
   let changed = false
   const completed = []
