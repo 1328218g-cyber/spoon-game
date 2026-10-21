@@ -2006,7 +2006,21 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
 function sendChatSplit(djId, fullText, maxChars, intervalMs) {
   const limit = Math.max(30, Math.min(500, Number(maxChars) || 100))
   const interval = Math.max(200, Number(intervalMs) || 600)
-  const lines = String(fullText || '').split('\n')
+  // 줄바꿈 없이 한 줄이 limit 보다 길면(스푼 채팅은 한 번에 200자까지) 그 줄을 먼저 잘게 나눠요
+  // — 되도록 띄어쓰기 자리에서 자르고, 띄어쓰기가 없으면 글자 수대로 잘라요
+  const lines = []
+  for (const raw of String(fullText || '').split('\n')) {
+    let line = raw
+    while (Array.from(line).length > limit) {
+      const chars = Array.from(line)
+      let cut = limit
+      const sp = chars.slice(0, limit + 1).lastIndexOf(' ')
+      if (sp > limit * 0.5) cut = sp
+      lines.push(chars.slice(0, cut).join('').trimEnd())
+      line = chars.slice(cut).join('').trimStart()
+    }
+    lines.push(line)
+  }
   const chunks = []
   let current = ''
   for (const line of lines) {
