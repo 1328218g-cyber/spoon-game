@@ -6187,7 +6187,7 @@ function handleDiceCommand(djId, settings, author, text) {
 // (오디오 원본을 매번 전송하면 무거우므로, 프론트엔드가 페이지 로드 시 한 번만 받아서 로컬 캐시해둔다).
 
 const SOUNDFX_MAX_ITEMS = 10
-const SOUNDFX_MAX_BYTES = 1.5 * 1024 * 1024 // base64 문자열 기준 약 1.5MB (원본 오디오 1MB 안팎)
+const SOUNDFX_MAX_BYTES = 7 * 1024 * 1024 // base64 문자열 기준 약 7MB (원본 오디오 5MB 안팎)
 
 function getSoundEffectSettings(djId, settings) {
   if (!settings.soundEffects) {
@@ -21678,7 +21678,7 @@ app.post('/soundfx/items', auth.requireAuth, (req, res) => {
   if (!['sticker', 'amount', 'any'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
   if (triggerType !== 'any' && !String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
   if (!audioData || typeof audioData !== 'string' || !audioData.startsWith('data:audio')) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
-  if (audioData.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 1MB 이하 파일로 올려주세요.' })
+  if (audioData.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 5MB 이하 파일로 올려주세요.' })
   const item = {
     id: 'sfx' + Date.now() + Math.floor(Math.random() * 1000),
     name: String(name).trim(),

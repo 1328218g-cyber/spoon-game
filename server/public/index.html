@@ -4024,7 +4024,7 @@ if (window.bcast) setTimeout(() => {
           </div>
           <label>볼륨 (<span id="sfxVolumeLabel">100</span>%)</label>
           <input type="range" id="sfxVolume" min="0" max="100" value="100" oninput="document.getElementById('sfxVolumeLabel').textContent=this.value">
-          <label>오디오 파일 (1MB 이하)</label>
+          <label>오디오 파일 (5MB 이하)</label>
           <input type="file" id="sfxFileInput" accept="audio/*">
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="addSoundFxItem()">➕ 추가</button>
         </div>
@@ -15221,7 +15221,7 @@ function addSoundFxItem(){
   if(triggerType!=='any'&&!triggerValue)return showToast('조건 값을 입력해주세요');
   if(!file)return showToast('오디오 파일을 선택해주세요');
   if(!file.type||!file.type.startsWith('audio/'))return showToast('오디오 파일만 등록할 수 있어요');
-  if(file.size>1024*1024)return showToast('1MB 이하 파일로 올려주세요');
+  if(file.size>5*1024*1024)return showToast('5MB 이하 파일로 올려주세요');
 
   const reader=new FileReader();
   reader.onload=async()=>{
