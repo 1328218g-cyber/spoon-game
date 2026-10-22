@@ -4024,7 +4024,7 @@ if (window.bcast) setTimeout(() => {
           </div>
           <label>볼륨 (<span id="sfxVolumeLabel">100</span>%)</label>
           <input type="range" id="sfxVolume" min="0" max="100" value="100" oninput="document.getElementById('sfxVolumeLabel').textContent=this.value">
-          <label>오디오 파일 (5MB 이하)</label>
+          <label>오디오 파일 (20MB 이하)</label>
           <input type="file" id="sfxFileInput" accept="audio/*">
           <button class="btn-connect" style="width:100%;margin-top:12px" onclick="addSoundFxItem()">➕ 추가</button>
         </div>
@@ -15221,7 +15221,7 @@ function addSoundFxItem(){
   if(triggerType!=='any'&&!triggerValue)return showToast('조건 값을 입력해주세요');
   if(!file)return showToast('오디오 파일을 선택해주세요');
   if(!file.type||!file.type.startsWith('audio/'))return showToast('오디오 파일만 등록할 수 있어요');
-  if(file.size>5*1024*1024)return showToast('5MB 이하 파일로 올려주세요');
+  if(file.size>20*1024*1024)return showToast('20MB 이하 파일로 올려주세요');
 
   const reader=new FileReader();
   reader.onload=async()=>{
@@ -15298,9 +15298,9 @@ try {
 
 function playSoundFxById(id){
   const item=(soundFxData.items||[]).find(it=>it.id===id);
-  if(!item||!item.audioData)return;
+  if(!item||!(item.audioData||item.audioUrl))return;
   try{
-    const audio=new Audio(item.audioData);
+    const audio=new Audio(item.audioData||(item.audioUrl.startsWith('http')?item.audioUrl:SERVER+item.audioUrl)); // 새로 올린 건 파일 주소(audioUrl)로 재생
     audio.volume=item.volume!=null?item.volume:1;
     audio.play().catch(()=>{ showToast('🔊 효과음 재생이 막혔어요 — 화면을 한 번 클릭한 뒤 다시 시도해보세요'); });
     if('mediaSession' in navigator){

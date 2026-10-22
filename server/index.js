@@ -6187,7 +6187,7 @@ function handleDiceCommand(djId, settings, author, text) {
 // (오디오 원본을 매번 전송하면 무거우므로, 프론트엔드가 페이지 로드 시 한 번만 받아서 로컬 캐시해둔다).
 
 const SOUNDFX_MAX_ITEMS = 10
-const SOUNDFX_MAX_BYTES = 7 * 1024 * 1024 // base64 문자열 기준 약 7MB (원본 오디오 5MB 안팎)
+const SOUNDFX_MAX_BYTES = 20 * 1024 * 1024 // 원본 오디오 20MB 까지 · 새로 올린 건 djs.json 이 아니라 sounds 폴더에 파일로 저장해요 (설정이 무거워지지 않게)
 
 function getSoundEffectSettings(djId, settings) {
   if (!settings.soundEffects) {
@@ -21678,16 +21678,23 @@ app.post('/soundfx/items', auth.requireAuth, (req, res) => {
   if (!['sticker', 'amount', 'any'].includes(triggerType)) return res.json({ success: false, error: '조건 종류가 올바르지 않아요' })
   if (triggerType !== 'any' && !String(triggerValue || '').trim()) return res.json({ success: false, error: '조건 값을 입력해주세요' })
   if (!audioData || typeof audioData !== 'string' || !audioData.startsWith('data:audio')) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
-  if (audioData.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 5MB 이하 파일로 올려주세요.' })
+  const am = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/)
+  if (!am) return res.json({ success: false, error: '올바른 오디오 파일이 아니에요' })
+  const buffer = Buffer.from(am[2], 'base64')
+  if (buffer.length > SOUNDFX_MAX_BYTES) return res.json({ success: false, error: '오디오 파일이 너무 커요. 20MB 이하 파일로 올려주세요.' })
+  const sfxId = 'sfx' + Date.now() + Math.floor(Math.random() * 1000)
+  const ext = ({ 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/aac': 'aac', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/flac': 'flac' })[am[1].toLowerCase()] || 'mp3'
+  const fileName = `${req.djId}_${sfxId}.${ext}`
+  try { fs.writeFileSync(path.join(SOUNDS_DIR, fileName), buffer) } catch (e) { return res.json({ success: false, error: '파일 저장에 실패했어요: ' + e.message }) }
   const item = {
-    id: 'sfx' + Date.now() + Math.floor(Math.random() * 1000),
+    id: sfxId,
     name: String(name).trim(),
     triggerType,
     triggerValue: triggerType === 'any' ? '' : String(triggerValue).trim(),
     matchType: triggerType === 'amount' ? (matchType === 'exact' ? 'exact' : 'atLeast') : undefined,
     enabled: enabled !== false,
     volume: Math.max(0, Math.min(1, Number(volume) || 1)),
-    audioData,
+    audioUrl: `/sounds/${fileName}`, // 예전에 올린 효과음은 audioData(base64) 그대로 남아 있어요
   }
   cfg.items.push(item)
   store.saveSettings(req.djId, { soundEffects: cfg })
@@ -21715,6 +21722,8 @@ app.post('/soundfx/items/:id/volume', auth.requireAuth, (req, res) => {
 app.post('/soundfx/items/:id/delete', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}
   const cfg = getSoundEffectSettings(req.djId, settings)
+  const gone = cfg.items.find(it => it.id === req.params.id)
+  if (gone && gone.audioUrl) { const nm = path.basename(gone.audioUrl); if (nm.startsWith(`${req.djId}_`)) { try { fs.unlinkSync(path.join(SOUNDS_DIR, nm)) } catch (e) { /* 이미 없으면 무시 */ } } }
   cfg.items = cfg.items.filter(it => it.id !== req.params.id)
   store.saveSettings(req.djId, { soundEffects: cfg })
   res.json({ success: true })
