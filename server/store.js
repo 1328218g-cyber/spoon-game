@@ -971,6 +971,13 @@ function isBlocked(djId) {
   return !!(djs[djId] && djs[djId].blocked);
 }
 
+// 🔑 계정 이전용 (관리자 묶음 내보내기 → 공식 에디냥 가져오기) — 비밀번호는 원문이 아니라 bcrypt 해시 그대로
+function getAccountExport(djId) {
+  const d = loadDjs()[djId];
+  if (!d) return null;
+  return { passwordHash: d.passwordHash, email: d.email || '', createdAt: d.createdAt || null, blocked: !!d.blocked, djTag: d.djTag || '', referrerId: d.referrerId || null };
+}
+
 function getSettings(djId) {
   const djs = loadDjs();
   return djs[djId] ? djs[djId].settings : null;
@@ -1449,6 +1456,7 @@ function exists(djId) {
 }
 
 module.exports = {
+  getAccountExport,
   signup,
   confirmReferralPayment,
   getReferralSummary,

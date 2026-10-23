@@ -20438,6 +20438,7 @@ app.post('/admin/users/settings-export-bulk', auth.requireAuth, (req, res) => {
   const djIds = Array.isArray((req.body || {}).djIds) ? req.body.djIds : []
   if (!djIds.length) return res.json({ success: false, error: '내보낼 디제이를 선택해주세요' })
   const djs = {}
+  const accounts = {} // 🔑 공식 에디냥으로 계정째 옮길 때 쓰는 로그인 정보 (비밀번호 해시)
   const notFound = []
   for (const raw of djIds) {
     const targetDjId = String(raw || '').trim()
@@ -20445,8 +20446,10 @@ app.post('/admin/users/settings-export-bulk', auth.requireAuth, (req, res) => {
     const settings = store.getSettings(targetDjId)
     if (!settings) { notFound.push(targetDjId); continue }
     djs[targetDjId] = settings
+    const acc = store.getAccountExport(targetDjId)
+    if (acc) accounts[targetDjId] = acc
   }
-  res.json({ success: true, exportedAt: new Date().toISOString(), djs, notFound })
+  res.json({ success: true, exportedAt: new Date().toISOString(), djs, accounts, notFound })
 })
 
 // 🗂️ 관리자 전용 — 위 내보내기 파일에서 "디제이 한 명"만 골라 그 설정을 복구한다.
