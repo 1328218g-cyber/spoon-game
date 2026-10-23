@@ -17392,7 +17392,8 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
 
   const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
   const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
-  setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), resultDelay)
+  // 당첨 목록이 길면(선물이 커서 여러 번 돌면) 스푼이 한 번에 못 받아서(400 User Restriction) 결과가 통째로 안 나왔어요 → 나눠서 보내요
+  setTimeout(() => sendChatSplit(djId, `${header}\n${resultLine}`, 100, 700), Math.max(0, resultDelay - 400))
 }
 
 // 선물(도네이션) 수신 시 조건에 맞는 룰렛의 룰렛권 자동 지급
@@ -17450,7 +17451,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
     }
     const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
-    setTimeout(() => sendChatToRoom(djId, `${header}\n${resultLine}`), 400)
+    sendChatSplit(djId, `${header}\n${resultLine}`, 100, 700) // 길면 나눠서 (300스푼처럼 많이 돌면 한 번에 안 나가던 것)
   }
   console.log(`[룰렛디버그:${djId}] changed=${changed} keepList=`, hist ? JSON.stringify(hist.keepList) : '(기록 없음 - 고유닉 미확인)')
 
