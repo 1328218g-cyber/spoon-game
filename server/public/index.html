@@ -3328,11 +3328,11 @@ if (window.bcast) setTimeout(() => {
               <button class="btn-connect" style="padding:9px 12px;font-size:12px" onclick="trackRouletteUser()">+ 추가</button>
             </div>
             <button class="btn-shield-reset" style="width:100%;margin-bottom:10px" onclick="deleteAllRouletteHistory()">🗑️ 전체 기록 삭제</button>
-            <div id="rlBulkDeleteBar" style="display:none;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px">
-              <span class="hint" style="margin:0"><span id="rlBulkDeleteCount">0</span>명 선택됨</span>
+            <div id="rlBulkDeleteBar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px">
+              <span class="hint" style="margin:0">☑️ 체크한 <span id="rlBulkDeleteCount">0</span>명</span>
               <div style="display:flex;gap:6px">
                 <button class="icon-btn" style="font-size:11.5px;padding:5px 8px" onclick="rlClearBulkSelection()">선택 해제</button>
-                <button class="btn-shield-reset" style="padding:5px 10px;font-size:11.5px" onclick="deleteSelectedRouletteUsers()">🗑️ 선택 삭제</button>
+                <button class="btn-shield-reset" id="rlBulkDeleteBtn" style="padding:5px 10px;font-size:11.5px" onclick="deleteSelectedRouletteUsers()" disabled>🗑️ 선택 삭제</button>
               </div>
             </div>
             <div id="rlUserListWrap"></div>
@@ -19712,7 +19712,8 @@ function rlUpdateBulkBar(){
   const bar=document.getElementById('rlBulkDeleteBar');
   const countEl=document.getElementById('rlBulkDeleteCount');
   if(countEl) countEl.textContent=rlSelectedDeleteTags.size;
-  if(bar) bar.style.display=rlSelectedDeleteTags.size?'flex':'none';
+  if(bar) bar.style.display='flex'; // ✅ 체크박스로 고른 시청자만 지우는 버튼 — 늘 보이게 (고른 게 없으면 흐리게)
+  const btn=document.getElementById('rlBulkDeleteBtn');if(btn){btn.disabled=!rlSelectedDeleteTags.size;btn.style.opacity=rlSelectedDeleteTags.size?'1':'.5';}
 }
 
 function rlClearBulkSelection(){
