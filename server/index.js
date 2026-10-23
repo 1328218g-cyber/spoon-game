@@ -4382,7 +4382,6 @@ function handleMonsterCatchChatBallHook(djId, settings, author, tag) {
   if (!key) return // 고유닉을 아직 못 받아온 경우, 닉네임으로 대신 섞이지 않게 조용히 스킵
   if (mc.bags[key] == null) return // 모험 시작 안 한 사람은 대상 아님
   const chance = Math.max(0, Math.min(100, Number(mc.chatBallChance) || 0))
-  console.log(`[몬스터잡기][${djId}] 채팅확률 체크 — author=${author} chatBallChance(저장값)=${mc.chatBallChance} 계산된chance=${chance}`)
   if (chance <= 0 || Math.random() * 100 >= chance) return
   mc.bags[key] += 1
   mcSaveUserData()
