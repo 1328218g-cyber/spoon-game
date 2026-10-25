@@ -17534,7 +17534,17 @@ function isLikeHeartTypeOn(settings, type) {
 function sendLikeHeartMessage(djId, settings, heartType, author, tag) {
   if (!isModuleOn(settings, 'entrysettings', djId)) return
   if (!isLikeHeartTypeOn(settings, heartType)) return
-  const msgs = (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
+  // 🎯 좋아요 탭에 지정 고유닉/닉네임을 넣은 문구가 있으면 그 사람에겐 그 문구 · 다른 사람에겐 지정 없는 문구 (예전엔 첫 번째 문구만 나갔어요)
+  const likeList = ((settings.entryData && settings.entryData.like) || []).filter(m => m && m.enabled && String(m.text || '').trim())
+  let likeText = null
+  if (likeList.length) {
+    const norm = s => String(s || '').trim().replace(/^@/, '').toLowerCase()
+    const a = norm(author), t = norm(tag)
+    const hit = likeList.find(m => { const tg = norm(m.target); return !!tg && (tg === a || (!!t && tg === t)) })
+    const plain = likeList.find(m => !norm(m.target))
+    likeText = (hit || plain) ? String((hit || plain).text).trim() : null
+  }
+  const msgs = likeList.length ? (likeText ? [{ text: likeText, enabled: true }] : []) : (settings.likeMessages && settings.likeMessages.length ? settings.likeMessages : (settings.useDefaultEntryMessages ? DEFAULT_LIKE_MESSAGES : [])).filter(m => m.enabled)
   if (msgs.length > 0) {
     let text = msgs[0].text.replace(/{nickname}/g, author).replace(/{tag}/g, tag ? `@${tag}` : `@${author}`)
     text = applyDashboardRankVars(text, settings)
