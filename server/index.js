@@ -20414,7 +20414,6 @@ app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
 
 // 본인 계정 전용 — 지금 저장된 모든 봇 설정을 JSON으로 그대로 내보낸다. (백업 / 다른 계정으로 옮길 때 사용)
 app.get('/account/settings-export', auth.requireAuth, (req, res) => {
-  if (req.djId !== SHARED_TOKEN_DJID) return res.status(403).json({ success: false, error: '설정 내보내기는 관리자만 쓸 수 있어요' }) // 💾 관리자만
   const settings = store.getSettings(req.djId) || {}
   res.json({ success: true, djId: req.djId, exportedAt: new Date().toISOString(), settings })
 })
