@@ -21080,6 +21080,16 @@ app.post('/activity/users', auth.requireAuth, (req, res) => {
   res.json({ success: true })
 })
 
+// 🎫 복권만 전체 리셋 (실시간 지급 화면) — 모든 시청자의 보유 복권만 0으로 · 레벨·EXP·포인트 등 다른 기록은 그대로
+app.post('/activity/reset-lotto', auth.requireAuth, (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  const act = getActivitySettings(req.djId, settings)
+  let n = 0
+  for (const d of Object.values(act.users || {})) if (d && d.lotto) { d.lotto = 0; n++ }
+  store.saveSettings(req.djId, { activity: act })
+  res.json({ success: true, count: n })
+})
+
 // ⭐ 전체 유저 삭제
 app.post('/activity/users/delete-all', auth.requireAuth, (req, res) => {
   const settings = store.getSettings(req.djId) || {}

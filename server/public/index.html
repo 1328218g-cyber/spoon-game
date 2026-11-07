@@ -3352,6 +3352,7 @@ if (window.bcast) setTimeout(() => {
               <button class="icon-btn" style="font-size:14px" onclick="loadLiveMembers()">🔄</button>
             </div>
             <input type="text" id="agSearch" placeholder="접속자 검색" oninput="renderLiveMemberList()" style="margin-bottom:8px">
+            <button class="btn-shield-reset" style="width:100%;padding:9px;font-size:12px;margin-bottom:8px" onclick="resetAllLotto()">🎫 복권만 전체 리셋</button>
             <div id="agMemberList"><p class="hint">🔄 버튼을 눌러 불러와주세요.</p></div>
           </div>
           <div class="split-main" id="agDetailWrap">
@@ -11786,6 +11787,17 @@ let rlUserTags=[];
 let rlSelectedTag='';
 
 /* ── 🎁 실시간 지급 ── */
+// 🎫 모든 시청자의 보유 복권만 0으로 (레벨·EXP·포인트 등은 그대로)
+async function resetAllLotto(){
+  if(!confirm('모든 시청자의 보유 복권을 0장으로 리셋할까요?\n레벨·EXP·포인트 등 다른 기록은 그대로예요. 되돌릴 수 없어요.'))return;
+  try{
+    const r=await fetch(SERVER+'/activity/reset-lotto',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()}});
+    const d=await r.json();
+    if(!d.success)return showToast(d.error||'리셋 실패');
+    showToast(`🎫 ${d.count}명의 복권을 0장으로 리셋했어요`);
+    if(typeof loadLiveMembers==='function')loadLiveMembers();
+  }catch(e){showToast('오류: '+e.message);}
+}
 let liveMembersCache=[];
 let agSelectedMember=null;
 
