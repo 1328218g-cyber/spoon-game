@@ -7333,7 +7333,7 @@ function fishCmdAutoOff(djId, room, settings, author, tag) {
 
 // 🍞 식빵주식 연동 — 식빵주식(증권거래소)이 켜져 있는 방이면 잡은 물고기 판매금이 식빵 증권 계좌(현금)로 들어가요
 function _fishStockLinked(djId, settings) {
-  try { return isModuleOn(settings, 'stock', djId) && getStockSettings(djId, settings).config.enabled !== false } catch (e) { return false }
+  return false // 💰 낚시 금액은 다시 낚시 지갑(잔액)으로 바로 — 식빵 증권 계좌로 안 보내요 (예전에 어망에 남은 물고기도 !물고기판매 하면 지갑으로)
 }
 // 🧺 !어망 — 아직 안 판 물고기 보기
 function fishCmdBag(djId, settings, author, tag) {
@@ -7800,7 +7800,7 @@ async function fishCmdGiveMoney(djId, room, settings, author, authorId, parts) {
 }
 
 function fishCmdHelp(djId) {
-  let msg = '🎣 낚시 게임 명령어\n!낚시 / !낚시온 / !낚시오프 (쿨타임마다 자동) / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!어망 / !물고기판매 [이름] (판매금 → 식빵 증권 계좌)\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
+  let msg = '🎣 낚시 게임 명령어\n!낚시 / !낚시온 / !낚시오프 (쿨타임마다 자동) / !돈줘 / !잔액 / !상태 / !지갑 / !레벨\n!도감 / !도감공유 / !컬렉션\n!어망 / !물고기판매 [이름] (어망에 남은 물고기 → 지갑)\n!상점 / !구매 [번호] / !아이템상점 / !아이템구매 [번호]\n!슬롯 [금액] / !주사위 [금액] / !홀 [금액] / !짝 [금액]\n!송금 [고유닉] [금액] / !도둑 [고유닉] [금액]\n!대출 [금액] / !상환 [금액] / !신용정보'
   fishReply(djId, msg)
 }
 
