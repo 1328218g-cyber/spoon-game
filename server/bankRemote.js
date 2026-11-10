@@ -60,15 +60,18 @@ module.exports = function createBankRemote(A) {
     try { const r = await fetch(`${SP_HOST}/users/${encodeURIComponent(m.id)}/`, { headers: H, signal: AbortSignal.timeout(10000) }); if (r.ok) { const j = await r.json(); profile = (j && Array.isArray(j.results) ? j.results[0] : j) || null; } } catch (_) {}
     return { uid: m.id, search: m, profile };
   }
+  // 🏷 스푼 등급 (tier_name) — 노랑 초이스는 "Orange_Choice" → 1만원 · 그보다 높은 초이스(스타·탑)는 2만원 · 초이스 아니면 일반 1만원
+  const tierOf = (L) => String((L && ((L.search && L.search.tier_name) || (L.profile && L.profile.tier_name))) || '');
+  const bigChoice = (t) => /choice/i.test(t) && !/orange|yellow/i.test(t);
   async function detectChoice(id, force, raw) {
     const u = A.get(id); if (!u) return null;
     if (!force && u.spoonChoice && Date.now() - u.spoonChoice.at < 12 * 3600e3) return u.spoonChoice.v;
     const tag = A.tagOf(id);
     if (!tag) { if (raw) raw.error = 'DJ 고유닉을 몰라요'; return u.spoonChoice ? u.spoonChoice.v : null; }
     try {
-      const L = await spoonLookup(tag); const v = choiceIn(L) === true;
-      const u2 = A.get(id); if (u2) { u2.spoonChoice = { v, at: Date.now() }; u2.spoonUid = String(L.uid); A.save(id); }
-      if (raw) Object.assign(raw, { tag, ...L, choice: v });
+      const L = await spoonLookup(tag); const tier = tierOf(L); const v = bigChoice(tier);
+      const u2 = A.get(id); if (u2) { u2.spoonChoice = { v, tier, at: Date.now() }; u2.spoonUid = String(L.uid); A.save(id); }
+      if (raw) Object.assign(raw, { tag, ...L, tier, choice: v });
       return v;
     } catch (e) { if (raw) raw.error = e.message; const u2 = A.get(id); return u2 && u2.spoonChoice ? u2.spoonChoice.v : null; }
   }
@@ -131,7 +134,7 @@ module.exports = function createBankRemote(A) {
   }
   function adminList() {
     return { key: key(), wallets: A.ids().map((id) => ({ id, u: A.get(id) })).filter((x) => x.u && (x.u.wallet || x.u.payCode))
-      .map(({ id, u }) => ({ id, tag: A.tagOf(id), code: codeOf(id), wallet: u.wallet || 0, plan: planOf(u), force: u.planForce || '', spoon: u.spoonChoice ? u.spoonChoice.v : null, exp: A.expiryOf(id) || null }))
+      .map(({ id, u }) => ({ id, tag: A.tagOf(id), code: codeOf(id), wallet: u.wallet || 0, plan: planOf(u), force: u.planForce || '', spoon: u.spoonChoice ? u.spoonChoice.v : null, tier: u.spoonChoice ? u.spoonChoice.tier || '' : '', exp: A.expiryOf(id) || null }))
       .sort((a, b) => b.wallet - a.wallet) };
   }
   function adminPlan(id, plan) { const u = A.get(id); if (!u) return null; if (PLANS[plan]) u.planForce = plan; else delete u.planForce; A.save(id); return planOf(u); }
