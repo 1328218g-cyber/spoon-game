@@ -1150,7 +1150,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'liverank', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -5906,7 +5906,7 @@ const DASH_RANK_PATH_MAP = {
 async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
   let address = DASH_RANK_PATH_MAP[type]
   if (!address || !accessToken) return []
-  let list = []
+  let list = []; const seen = new Set()
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
@@ -5918,8 +5918,12 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
       // (중간 쪽에서 잠깐 막히면 600명을 다 못 받고 끊겼어요 → 2초 쉬고 한 번 더)
       if ((!json || !json.results) && list.length) { await new Promise((r) => setTimeout(r, 2000)); json = await get() }
       if (!json || !json.results) { if (list.length) console.log(`[월간DJ랭킹] ${type} ${list.length}명까지만 받았어요`); break }
-      list = list.concat(json.results)
-      address = json.next || null
+      // (같은 쪽을 또 주면 600명처럼 보여도 앞쪽만 반복이라 420등을 못 찾았을 수 있어요 → 이미 받은 사람은 빼고, 새 사람이 없으면 멈춰요)
+      let fresh = 0
+      for (const x of json.results) { const k = x && x.author ? String(x.author.id || x.author.tag || '') : ''; if (k && seen.has(k)) continue; if (k) seen.add(k); list.push(x); fresh++ }
+      const next = json.next || null
+      if (!fresh || next === address) { if (next) console.log(`[월간DJ랭킹] ${type} 스푼이 같은 쪽을 또 줘서 ${list.length}명에서 멈췄어요`); break }
+      address = next
     }
   } catch (e) { /* 지금까지 모은 것만이라도 반환 */ }
   return list
@@ -5956,11 +5960,13 @@ function searchDashRank(tag) {
   const results = { nickname: '', tag, ranks: {} }
   let found = false
   for (const type of ['next_choice', 'free_like', 'live_time']) {
-    const idx = dashRankCache[type].findIndex(x => x.author && x.author.tag === tag)
+    const want = String(tag || '').replace(/^@/, '').trim().toLowerCase()
+    const idx = dashRankCache[type].findIndex(x => x.author && String(x.author.tag || '').toLowerCase() === want)
     if (idx !== -1) {
       found = true
       results.nickname = dashRankCache[type][idx].author.nickname
-      results.ranks[type] = idx + 1
+      const n = Number(dashRankCache[type][idx].rank)
+      results.ranks[type] = n > 0 && n < 100000 ? n : idx + 1 // (스푼이 순위를 같이 주면 그 순위로)
     }
   }
   if (!found) return { success: false, error: '랭킹 데이터에서 해당 유저를 찾을 수 없습니다.' }
@@ -17131,6 +17137,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleDrawQuizChat(djId, room, author, authorId, text, actTag)
           handlePickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleWebPickboardCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleMafiaCommand(djId, room, settings, author, authorId, liveId, text, actTag)
@@ -23544,6 +23551,21 @@ app.get('/tower/:djId', (req, res) => {
 
 // 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
 // /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
+// 🎨 그림 퀴즈 — DJ 가 대시보드에서 그리면 시청자는 /drawquiz/:djId 에서 실시간으로 보고, 방송 채팅에 정답을 쳐요 (에디냥과 같은 모듈)
+const drawQuiz = require('./drawquiz')({
+  app, requireAuth: auth.requireAuth, publicUrl: '',
+  say: (djId, msg) => { sendChatToRoom(djId, msg).catch(() => {}) },
+  store: {
+    mods: (djId) => ({ drawquiz: isModuleOn(store.getSettings(djId) || {}, 'drawquiz', djId) }),
+    settings: (djId) => store.getSettings(djId) || {},
+    save: (djId) => { const s = store.getSettings(djId); if (s && s.drawquiz) store.saveSettings(djId, { drawquiz: s.drawquiz }) },
+    exists: (djId) => !!store.getSettings(djId),
+  },
+})
+function handleDrawQuizChat(djId, room, author, authorId, text, actTag) {
+  const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
+  try { drawQuiz.onChat(djId, { isDj }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[그림퀴즈]', e.message) }
+}
 app.get('/reversi/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/reversi.html')
 })

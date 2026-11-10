@@ -807,6 +807,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -4487,6 +4488,45 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
         </div>
       </div>
 
+      <!-- 🎨 그림 퀴즈 -->
+      <div class="panel" data-panel="drawquiz">
+        <div class="card">
+          <div class="card-title"><span>🎨 그리기</span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dqCopyLink()">📋 링크 복사</button><a class="btn-gray" id="dqView" target="_blank" rel="noopener" style="padding:6px 12px;font-size:12px;text-decoration:none">👀 시청자 화면 열기</a></span></div>
+          <p class="hint" style="margin-bottom:8px">아래에 그림을 그리면 시청자 화면에 바로 그려져요. 시청자는 방송 채팅에 정답을 쳐요. 문제를 시작하면 시청자 화면 주소가 채팅에 같이 나가요.</p>
+          <div id="dqWord" style="font-size:15px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+            <button class="btn-connect" style="padding:6px 14px;font-size:13px" onclick="dqStart()">▶ 문제 시작</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="dqReveal()">👁 정답 공개</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="dqStop()">⏹ 끝내기</button>
+            <input type="text" id="dqCustom" maxlength="30" placeholder="직접 문제 (비우면 목록에서 랜덤)" style="flex:1;min-width:160px;margin:0">
+          </div>
+          <div id="dqTools" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center"></div>
+          <div style="position:relative;width:100%;max-width:100%;aspect-ratio:4/3;background:#fff;border:1px solid var(--border, #ddd);border-radius:12px;overflow:hidden">
+            <canvas id="dqCv" width="1000" height="750" style="position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair"></canvas>
+          </div>
+          <div id="dqMsg" class="hint" style="margin-top:6px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⚙️ 그림 퀴즈 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="dqSave()">💾 저장</button></div>
+          <label>문제 (한 줄에 하나 · 최대 500개)</label>
+          <textarea id="dqWords" rows="6" placeholder="사과&#10;고양이&#10;눈사람"></textarea>
+          <label>문제당 시간 (초)</label>
+          <input type="number" id="dqTime" min="10" max="900" style="max-width:120px">
+          <label class="check-opt"><input type="checkbox" id="dqHint"> 시청자 화면에 글자 수 보여주기</label>
+          <label>시작 메시지</label>
+          <textarea id="dqMsgStart" rows="2" maxlength="300"></textarea>
+          <label>정답 메시지</label>
+          <input type="text" id="dqMsgCorrect" maxlength="300">
+          <label>시간 끝·정답 공개 메시지</label>
+          <input type="text" id="dqMsgTimeout" maxlength="300">
+          <div class="hint" style="margin-top:10px">변수: {len} 글자 수, {time} 시간(초), {url} 시청자 화면 주소, {nickname} 맞힌 사람, {answer} 정답, {count} 맞힌 횟수</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🏆 맞힌 횟수 순위</span><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dqResetRank(this)">초기화</button></div>
+          <div id="dqRank" style="font-size:14px;line-height:1.8"></div>
+        </div>
+      </div>
+
       <!-- 스티커 선택 모달 (선물캡처판 테스트 전용) -->
       <div id="gcTestStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGcTestStickerPicker()">
         <div class="sticker-modal-box">
@@ -5941,6 +5981,7 @@ const PANEL_META={
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
+  drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
@@ -5972,6 +6013,7 @@ function selectPanel(name){
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
   if(name==='debuglog'&&document.getElementById('focusLogListWrap'))loadFocusLog();
+  if(name==='drawquiz'&&document.getElementById('dqCv'))loadDrawQuiz();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); }
@@ -6066,7 +6108,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','myinfo','blinddate']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -6081,7 +6123,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -6098,7 +6140,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -18727,6 +18769,100 @@ function addDonationLog(d){
   log.appendChild(line);log.scrollTop=log.scrollHeight;
 }
 
+// ───── 🎨 그림 퀴즈 ─────
+//  좌표는 1000×750 기준 · 선을 그리는 동안 조각을 모아서 0.1초마다 서버에 보내요
+const DQ={color:'#222222',size:8,erase:false,queue:[],cur:null,strokes:[],timer:null,busy:false,poll:null,url:''};
+const DQ_COLORS=['#222222','#e0445a','#ff8a00','#f5c400','#22a85a','#2f8be6','#7a4ee0','#8b5a2b','#ff7eb6','#9aa4ad'];
+const dqEsc=(t)=>String(t==null?'':t).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function dqApi(method,path,body){
+  const r=await fetch(SERVER+path,{method,headers:{'Content-Type':'application/json',...authHeaders()},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||('오류 '+r.status));
+  return d;
+}
+function dqCtx(){return document.getElementById('dqCv').getContext('2d');}
+function dqStroke(ctx,s){
+  const p=s.p; if(!p||p.length<2) return;
+  ctx.strokeStyle=s.c; ctx.fillStyle=s.c; ctx.lineWidth=s.w; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(p.length===2){ctx.beginPath();ctx.arc(p[0],p[1],s.w/2,0,Math.PI*2);ctx.fill();return;}
+  ctx.beginPath();ctx.moveTo(p[0],p[1]);for(let i=2;i<p.length;i+=2)ctx.lineTo(p[i],p[i+1]);ctx.stroke();
+}
+function dqRedraw(){const c=dqCtx();c.fillStyle='#fff';c.fillRect(0,0,1000,750);for(const s of DQ.strokes)dqStroke(c,s);}
+function dqSend(op){ if(op) DQ.queue.push(op); if(!DQ.timer&&!DQ.busy) DQ.timer=setTimeout(dqFlush,100); }
+async function dqFlush(){
+  DQ.timer=null; const ops=DQ.queue.splice(0,200); if(!ops.length) return;
+  DQ.busy=true; // (한 번에 하나씩 보내야 순서가 안 꼬여요)
+  try{ const r=await dqApi('POST','/api/drawquiz/draw',{ops}); document.getElementById('dqMsg').textContent=r.full?'⚠️ 그림이 너무 많아요 — 🗑 전부 지우기 후 다시 그려주세요':''; }catch(e){ document.getElementById('dqMsg').textContent='그림 전송 실패: '+e.message; }
+  DQ.busy=false; if(DQ.queue.length) dqSend();
+}
+function dqTools(){
+  const el=document.getElementById('dqTools');
+  el.innerHTML=DQ_COLORS.map((c)=>`<button type="button" class="dqc" data-c="${c}" aria-label="색 ${c}" style="width:28px;height:28px;border-radius:50%;border:${!DQ.erase&&DQ.color===c?'3px solid #2f8be6':'2px solid #d6e6f5'};background:${c};cursor:pointer;padding:0"></button>`).join('')
+    +`<select id="dqSize" style="max-width:110px;margin:0">${[3,8,16,30,60].map((n)=>`<option value="${n}" ${DQ.size===n?'selected':''}>굵기 ${n}</option>`).join('')}</select>`
+    +`<button type="button" class="btn-gray" id="dqErase" style="padding:6px 12px;font-size:13px;${DQ.erase?'outline:2px solid #2f8be6':''}">🧽 지우개</button><button type="button" class="btn-gray" id="dqUndo" style="padding:6px 12px;font-size:13px">↩ 되돌리기</button><button type="button" class="btn-gray" id="dqClear" style="padding:6px 12px;font-size:13px">🗑 전부 지우기</button>`;
+  el.querySelectorAll('.dqc').forEach((b)=>b.onclick=()=>{DQ.color=b.dataset.c;DQ.erase=false;dqTools();});
+  document.getElementById('dqSize').onchange=(e)=>{DQ.size=Number(e.target.value)||8;};
+  document.getElementById('dqErase').onclick=()=>{DQ.erase=!DQ.erase;dqTools();};
+  document.getElementById('dqUndo').onclick=()=>{if(!DQ.strokes.length)return;DQ.strokes.pop();dqRedraw();dqSend({t:'u'});};
+  document.getElementById('dqClear').onclick=()=>{DQ.strokes=[];dqRedraw();dqSend({t:'c'});};
+}
+(function dqBind(){
+  const cv=document.getElementById('dqCv'); if(!cv) return;
+  const pos=(e)=>{const r=cv.getBoundingClientRect();return [Math.round((e.clientX-r.left)/r.width*1000),Math.round((e.clientY-r.top)/r.height*750)];};
+  cv.addEventListener('pointerdown',(e)=>{
+    e.preventDefault(); try{cv.setPointerCapture(e.pointerId);}catch(_){}
+    const p=pos(e); const s={c:DQ.erase?'#ffffff':DQ.color,w:DQ.erase?Math.max(20,DQ.size*2):DQ.size,p:p.slice()};
+    DQ.cur=s; DQ.strokes.push(s); dqStroke(dqCtx(),s); dqSend({t:'s',c:s.c,w:s.w,p});
+  });
+  cv.addEventListener('pointermove',(e)=>{
+    if(!DQ.cur) return; e.preventDefault();
+    const p=pos(e); const s=DQ.cur; const L=s.p.length;
+    if(Math.abs(p[0]-s.p[L-2])+Math.abs(p[1]-s.p[L-1])<3) return;
+    const c=dqCtx(); c.strokeStyle=s.c; c.lineWidth=s.w; c.lineCap='round'; c.lineJoin='round';
+    c.beginPath(); c.moveTo(s.p[L-2],s.p[L-1]); c.lineTo(p[0],p[1]); c.stroke(); s.p.push(p[0],p[1]);
+    const last=DQ.queue[DQ.queue.length-1];
+    if(last&&(last.t==='a'||last.t==='s')&&last.p.length<1800){last.p.push(p[0],p[1]);dqSend();} else dqSend({t:'a',p});
+  });
+  const end=()=>{DQ.cur=null;};
+  cv.addEventListener('pointerup',end); cv.addEventListener('pointercancel',end); cv.addEventListener('pointerleave',end);
+})();
+function dqShow(d){
+  const s=d.status||{};
+  const map={idle:'문제 없음',playing:'진행 중',solved:'정답 나옴',timeout:'시간 끝',revealed:'정답 공개'};
+  const left=s.state==='playing'&&s.endsAt?Math.max(0,Math.ceil((s.endsAt-s.now)/1000)):0;
+  document.getElementById('dqWord').innerHTML=s.word?`지금 문제: <b>${dqEsc(s.word)}</b> · ${map[s.state]||''}${left?` · 남은 ${left}초`:''}${s.winner&&s.state==='solved'?` · 🎉 ${dqEsc(s.winner.nick)}님 정답`:''}`:'<span class="hint">▶ 문제 시작을 누르면 목록에서 하나를 골라 채팅에 알려줘요</span>';
+  const r=s.rank||[];
+  document.getElementById('dqRank').innerHTML=r.length?r.map((x,i)=>`${i+1}. ${dqEsc(x.nick)} — <b>${x.n}번</b>`).join('<br>'):'<span class="hint">아직 맞힌 사람이 없어요</span>';
+}
+async function dqRefresh(){ try{ dqShow(await dqApi('GET','/api/drawquiz')); }catch(_){} }
+async function loadDrawQuiz(){
+  let d; try{ d=await dqApi('GET','/api/drawquiz'); }catch(e){ return showToast(e.message); }
+  const c=d.settings;
+  document.getElementById('dqWords').value=(c.words||[]).join('\n'); document.getElementById('dqTime').value=c.time; document.getElementById('dqHint').checked=!!c.hint;
+  document.getElementById('dqMsgStart').value=c.msgStart; document.getElementById('dqMsgCorrect').value=c.msgCorrect; document.getElementById('dqMsgTimeout').value=c.msgTimeout;
+  DQ.url=d.url||(location.origin+'/drawquiz/'+encodeURIComponent(djId)); document.getElementById('dqView').href=DQ.url;
+  document.getElementById('dqMsg').textContent=d.moduleOn?'':'⚠️ 사이드바에서 🎨 그림 퀴즈를 ON 으로 켜야 시청자 화면이 보여요';
+  dqTools(); dqShow(d);
+  if(!DQ.strokes.length) dqRedraw();
+  clearInterval(DQ.poll); DQ.poll=setInterval(()=>{ const pn=document.querySelector('.panel[data-panel="drawquiz"]'); if(pn&&pn.offsetParent!==null) dqRefresh(); },2000);
+}
+async function dqAct(path,body){ try{ return await dqApi('POST',path,body||{}); }catch(e){ showToast(e.message); return null; } }
+async function dqStart(){ const r=await dqAct('/api/drawquiz/start',{word:document.getElementById('dqCustom').value}); if(r){ document.getElementById('dqCustom').value=''; DQ.strokes=[]; DQ.queue=[]; dqRedraw(); showToast('문제: '+r.word); dqRefresh(); } }
+async function dqReveal(){ if(await dqAct('/api/drawquiz/reveal')) dqRefresh(); }
+async function dqStop(){ if(await dqAct('/api/drawquiz/stop')){ DQ.strokes=[]; DQ.queue=[]; dqRedraw(); dqRefresh(); } }
+async function dqResetRank(btn){
+  if(btn.dataset.sure!=='1'){ btn.dataset.sure='1'; btn.textContent='한 번 더 누르면 초기화'; setTimeout(()=>{btn.dataset.sure='';btn.textContent='초기화';},3000); return; }
+  btn.dataset.sure=''; btn.textContent='초기화';
+  if(await dqAct('/api/drawquiz/reset-rank')) dqRefresh();
+}
+async function dqSave(){
+  try{ await dqApi('PUT','/api/drawquiz',{words:document.getElementById('dqWords').value.split('\n'),time:document.getElementById('dqTime').value,hint:document.getElementById('dqHint').checked,msgStart:document.getElementById('dqMsgStart').value,msgCorrect:document.getElementById('dqMsgCorrect').value,msgTimeout:document.getElementById('dqMsgTimeout').value}); showToast('설정 저장 완료 ✓'); loadDrawQuiz(); }catch(e){ showToast(e.message); }
+}
+async function dqCopyLink(){
+  const u=DQ.url||(location.origin+'/drawquiz/'+encodeURIComponent(djId));
+  try{ await navigator.clipboard.writeText(u); showToast('링크 복사했어요 ✓'); }
+  catch(_){ const t=document.createElement('textarea'); t.value=u; document.body.appendChild(t); t.select(); try{ document.execCommand('copy'); showToast('링크 복사했어요 ✓'); }catch(e){ showToast(u); } t.remove(); }
+}
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
