@@ -13,7 +13,7 @@ const SOON = 3 * 86400e3;
 const SP_HOST = 'https://kr-api.spooncast.net';
 const SP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-// A (adapter): { prefix, ids(), get(id), save(id), expiryOf(id), extend(id, days), unlimited(id), uidOf(id), discord(msg), getKey(), setKey(k), name }
+// A (adapter): { prefix, ids(), get(id), save(id), expiryOf(id), extend(id, days), unlimited(id), tagOf(id), discord(msg), getKey(), setKey(k), name }
 module.exports = function createBankRemote(A) {
   const won = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
   const when = (t) => (t ? new Date(t).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '무제한');
@@ -41,19 +41,36 @@ module.exports = function createBankRemote(A) {
     }
     return found;
   }
-  async function spoonProfile(uid) {
-    const r = await fetch(`${SP_HOST}/users/${encodeURIComponent(uid)}/`, { headers: { 'User-Agent': SP_UA, Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/', Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error('스푼 응답 ' + r.status);
-    const j = await r.json();
-    return (j && Array.isArray(j.results) ? j.results[0] : j) || null;
+  // 🔍 스푼 프로필 — 고유닉으로 스푼 검색(kr-gw)해서 그 사람을 찾고, 찾은 스푼 번호로 프로필(kr-api)도 같이 받아요
+  //   (공식 API 의 유저 번호는 스푼 웹 번호와 달라서 /users/번호 로 바로 물어보면 404 가 나와요)
+  async function spoonLookup(tag) {
+    const want = String(tag || '').replace(/^@/, '').trim().toLowerCase();
+    if (!want) throw new Error('DJ 고유닉을 몰라요');
+    const H = { 'User-Agent': SP_UA, Origin: 'https://www.spooncast.net', Referer: 'https://www.spooncast.net/', Accept: 'application/json', 'X-Client-App': 'sopia-web', 'X-Client-Version': '1.0.0' };
+    let url = `https://kr-gw.spooncast.net/search/user?keyword=${encodeURIComponent(want)}&page_size=20`; let m = null;
+    for (let page = 0; url && page < 5 && !m; page++) {
+      const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error('스푼 검색 응답 ' + r.status);
+      const j = await r.json();
+      m = (j.results || []).find((u) => String(u.tag || '').toLowerCase() === want) || null;
+      url = typeof j.next === 'string' && j.next ? j.next : null;
+    }
+    if (!m) throw new Error(`스푼 검색에 @${want} 이 없어요`);
+    let profile = null;
+    try { const r = await fetch(`${SP_HOST}/users/${encodeURIComponent(m.id)}/`, { headers: H, signal: AbortSignal.timeout(10000) }); if (r.ok) { const j = await r.json(); profile = (j && Array.isArray(j.results) ? j.results[0] : j) || null; } } catch (_) {}
+    return { uid: m.id, search: m, profile };
   }
-  async function detectChoice(id, force) {
+  async function detectChoice(id, force, raw) {
     const u = A.get(id); if (!u) return null;
     if (!force && u.spoonChoice && Date.now() - u.spoonChoice.at < 12 * 3600e3) return u.spoonChoice.v;
-    const uid = A.uidOf(id);
-    if (!uid) return u.spoonChoice ? u.spoonChoice.v : null;
-    try { const v = choiceIn(await spoonProfile(uid)) === true; const u2 = A.get(id); if (u2) { u2.spoonChoice = { v, at: Date.now() }; A.save(id); } return v; }
-    catch (_) { const u2 = A.get(id); return u2 && u2.spoonChoice ? u2.spoonChoice.v : null; }
+    const tag = A.tagOf(id);
+    if (!tag) { if (raw) raw.error = 'DJ 고유닉을 몰라요'; return u.spoonChoice ? u.spoonChoice.v : null; }
+    try {
+      const L = await spoonLookup(tag); const v = choiceIn(L) === true;
+      const u2 = A.get(id); if (u2) { u2.spoonChoice = { v, at: Date.now() }; u2.spoonUid = String(L.uid); A.save(id); }
+      if (raw) Object.assign(raw, { tag, ...L, choice: v });
+      return v;
+    } catch (e) { if (raw) raw.error = e.message; const u2 = A.get(id); return u2 && u2.spoonChoice ? u2.spoonChoice.v : null; }
   }
 
   function renew(id, why) {
@@ -114,7 +131,7 @@ module.exports = function createBankRemote(A) {
   }
   function adminList() {
     return { key: key(), wallets: A.ids().map((id) => ({ id, u: A.get(id) })).filter((x) => x.u && (x.u.wallet || x.u.payCode))
-      .map(({ id, u }) => ({ id, code: codeOf(id), wallet: u.wallet || 0, plan: planOf(u), force: u.planForce || '', spoon: u.spoonChoice ? u.spoonChoice.v : null, exp: A.expiryOf(id) || null }))
+      .map(({ id, u }) => ({ id, tag: A.tagOf(id), code: codeOf(id), wallet: u.wallet || 0, plan: planOf(u), force: u.planForce || '', spoon: u.spoonChoice ? u.spoonChoice.v : null, exp: A.expiryOf(id) || null }))
       .sort((a, b) => b.wallet - a.wallet) };
   }
   function adminPlan(id, plan) { const u = A.get(id); if (!u) return null; if (PLANS[plan]) u.planForce = plan; else delete u.planForce; A.save(id); return planOf(u); }

@@ -23561,7 +23561,7 @@ const bankRemote = require('./bankRemote')({
   expiryOf: (id) => { const s = store.getSettings(id); const t = s && s.expiresAt ? new Date(s.expiresAt).getTime() : 0; return t || 0 },
   extend: (id, days) => { const s = store.getSettings(id) || {}; const base = Math.max(Date.now(), new Date(s.expiresAt || 0).getTime() || 0); store.saveSettings(id, { expiresAt: new Date(base + days * 86400e3).toISOString() }) },
   unlimited: (id) => id === 'sum',
-  uidOf: (id) => { const s = store.getSettings(id) || {}; return s.spoonUid || (rooms[id] && rooms[id].liveDjUserId) || '' },
+  tagOf: (id) => { const s = store.getSettings(id) || {}; return String(s.autoJoinTag || (s.autoJoinTags || [])[0] || '').replace(/^@/, '') },
   discord: (msg) => {
     const url = process.env.PAY_WEBHOOK || ((store.getSettings('sum') || {}).bankWebhook || '')
     if (!/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(url)) return
@@ -23582,7 +23582,7 @@ app.post('/admin/bank/wallet', auth.requireAuth, bankAdmin, express.json(), (req
   const w = bankRemote.adminWallet(id, d); res.json(w == null ? { success: false, error: '없는 DJ' } : { success: true, wallet: w })
 })
 app.post('/admin/bank/webhook', auth.requireAuth, bankAdmin, express.json(), (req, res) => { store.saveSettings('sum', { bankWebhook: String(req.body.url || '').trim() }); res.json({ success: true }) })
-app.get('/admin/bank/spoon/:id', auth.requireAuth, bankAdmin, async (req, res) => { const v = await bankRemote.detectChoice(req.params.id, true); const s = store.getSettings(req.params.id) || {}; res.json({ success: true, choice: v, uid: s.spoonUid || '' }) })
+app.get('/admin/bank/spoon/:id', auth.requireAuth, bankAdmin, async (req, res) => { const raw = {}; await bankRemote.detectChoice(req.params.id, true, raw); res.json({ success: !raw.error, error: raw.error, ...raw }) })
 
 // 🎨 그림 퀴즈 — DJ 가 대시보드에서 그리면 시청자는 /drawquiz/:djId 에서 실시간으로 보고, 방송 채팅에 정답을 쳐요 (에디냥과 같은 모듈)
 const drawQuiz = require('./drawquiz')({

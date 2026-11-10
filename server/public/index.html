@@ -1308,6 +1308,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><span class="hint" style="margin:0;min-width:64px">주소</span><code id="bankUrl" style="word-break:break-all"></code><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="chgCopy(document.getElementById('bankUrl').textContent,'주소 복사했어요 ✓')">복사</button></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span class="hint" style="margin:0;min-width:64px">연결 키</span><code id="bankKey" style="word-break:break-all"></code><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="chgCopy(document.getElementById('bankKey').textContent,'연결 키 복사했어요 ✓')">복사</button><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="bankRekey()">🔁 새 키</button></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><input type="text" id="bankWebhook" placeholder="디스코드 웹후크 (충전·연장 알림 · 선택)" style="max-width:420px"><button class="btn-gray" style="padding:9px 14px" onclick="bankSaveWebhook()">저장</button></div>
+          <div id="bankSpoonRes" style="margin-bottom:10px"></div>
           <div id="bankWallets"><p class="hint">불러오는 중...</p></div>
         </div>
         <div class="card">
@@ -8639,7 +8640,7 @@ async function bankRekey(){ try{ const d=await bankApi('POST','/admin/bank/rekey
 async function bankSaveWebhook(){ try{ await bankApi('POST','/admin/bank/webhook',{url:document.getElementById('bankWebhook').value}); showToast('저장했어요 ✓'); }catch(e){ showToast(e.message); } }
 async function bankPlan(id,plan){ try{ await bankApi('POST','/admin/bank/plan',{id,plan}); showToast('요금제 바꿨어요 ✓'); loadBankAdmin(); }catch(e){ showToast(e.message); } }
 async function bankAdj(id){ const el=document.getElementById('bankAdj_'+id); const delta=Number(el&&el.value); if(!delta) return showToast('금액을 적어주세요'); try{ const d=await bankApi('POST','/admin/bank/wallet',{id,delta}); showToast(`충전금 ${d.wallet.toLocaleString()}원${d.renewed?' · 30일 연장됨':''}`); loadBankAdmin(); }catch(e){ showToast(e.message); } }
-async function bankSpoon(id){ try{ const d=await bankApi('GET','/admin/bank/spoon/'+encodeURIComponent(id)); showToast(d.uid?`${id}: ${d.choice===true?'Choice DJ':d.choice===false?'일반 DJ':'확인 실패'}`:`${id}: 스푼 번호를 아직 몰라요 (방송 연결하면 생겨요)`); loadBankAdmin(); }catch(e){ showToast(e.message); } }
+async function bankSpoon(id){ const box=document.getElementById('bankSpoonRes'); try{ const d=await bankApi('GET','/admin/bank/spoon/'+encodeURIComponent(id)); box.innerHTML=`<b>${escapeHtml(id)}</b> (@${escapeHtml(d.tag||'')}) → 초이스 판단: <b>${d.choice?'초이스':'일반'}</b><pre style="white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;font-size:11px;margin:6px 0 0">${escapeHtml(JSON.stringify({search:d.search,profile:d.profile},null,1).slice(0,6000))}</pre>`; loadBankAdmin(); }catch(e){ box.innerHTML='<span class="hint">'+escapeHtml(e.message)+'</span>'; } }
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
