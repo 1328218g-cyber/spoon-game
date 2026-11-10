@@ -60,9 +60,9 @@ module.exports = function createBankRemote(A) {
     try { const r = await fetch(`${SP_HOST}/users/${encodeURIComponent(m.id)}/`, { headers: H, signal: AbortSignal.timeout(10000) }); if (r.ok) { const j = await r.json(); profile = (j && Array.isArray(j.results) ? j.results[0] : j) || null; } } catch (_) {}
     return { uid: m.id, search: m, profile };
   }
-  // 🏷 스푼 등급 (tier_name) — 노랑 초이스는 "Orange_Choice" → 1만원 · 그보다 높은 초이스(스타·탑)는 2만원 · 초이스 아니면 일반 1만원
+  // 🏷 스푼 등급 (tier_name) — 빨간 Choice 배지는 "Orange_Choice" → 2만원 · 노랑 Choice(Yellow…) 와 초이스 아님은 1만원
   const tierOf = (L) => String((L && ((L.search && L.search.tier_name) || (L.profile && L.profile.tier_name))) || '');
-  const bigChoice = (t) => /choice/i.test(t) && !/orange|yellow/i.test(t);
+  const bigChoice = (t) => /choice/i.test(t) && !/yellow/i.test(t);
   async function detectChoice(id, force, raw) {
     const u = A.get(id); if (!u) return null;
     if (!force && u.spoonChoice && Date.now() - u.spoonChoice.at < 12 * 3600e3) return u.spoonChoice.v;
