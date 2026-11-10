@@ -2765,7 +2765,7 @@ async function handleActivityCommand(djId, room, settings, author, authorId, tex
 
     const count = args.length > 0 && !isNaN(parseInt(args[0], 10)) ? parseInt(args[0], 10) : (d.lotto || 0)
     if (count <= 0 || (d.lotto || 0) <= 0) { setTimeout(() => sendChatToRoom(djId, actFormat(act.msgLottoNone, { nickname: author })), 400); return }
-    const useCount = Math.min(count, 100, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 100장까지만 처리한다
+    const useCount = Math.min(count, 500, d.lotto || 0) // ⚠️ !복권 10000처럼 큰 숫자를 넣어도 한 번에 최대 500장까지만 처리한다
     d.lotto -= useCount
     let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
     for (let i = 0; i < useCount; i++) {
@@ -23365,7 +23365,7 @@ app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
 // 한 번으로 처리한다. 항상 1장만 사용하고, 결과는 이 응답으로 웹 화면에도 보여주고 방송
 // 채팅창에도 그대로 올린다.
 // 🎰 복권 사용 — 채팅 명령어 "!복권"을 인자 없이 쳤을 때와 완전히 동일하게 동작한다: 보유한 복권을
-// 전부(최대 100장) 한 번에 써서 등수별 결과를 집계하고, 그만큼의 EXP를 한꺼번에 지급한다.
+// 전부(최대 500장) 한 번에 써서 등수별 결과를 집계하고, 그만큼의 EXP를 한꺼번에 지급한다.
 app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
@@ -23386,7 +23386,7 @@ app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
   const exp2nd = Number(act.lotto2nd) || 500
   const exp3rd = Number(act.lotto3rd) || 100
   const expFail = Number(act.lottoFail) || 1
-  const useCount = Math.min(d.lotto || 0, 100) // ⚠️ !복권 명령어와 동일하게, 아무리 많이 갖고 있어도 한 번에 최대 100장까지만
+  const useCount = Math.min(d.lotto || 0, 500) // ⚠️ !복권 명령어와 동일하게, 아무리 많이 갖고 있어도 한 번에 최대 500장까지만
   d.lotto -= useCount
   let cnt1 = 0, cnt2 = 0, cnt3 = 0, cntFail = 0
   for (let i = 0; i < useCount; i++) {
