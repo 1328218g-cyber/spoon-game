@@ -1304,9 +1304,9 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
       <div class="panel" data-panel="userlistonly">
         <div class="card" id="bankCard">
           <div class="card-title"><span>🏦 충전금 (입금 자동 충전)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadBankAdmin()">🔄 새로고침</button></div>
-          <p class="hint" style="margin-top:0">입금 알림은 공식 에디냥이 받아요. 입금 코드가 <b>6</b>으로 시작하면 여기로 넘겨줘요.<br>공식 에디냥 관리자 → 🏦 입금 확인 → 🔀 다른 서버 연결 → <b>비공식 에디냥</b> 칸에 아래 주소와 연결 키를 넣어주세요.</p>
+          <p class="hint" style="margin-top:0">입금 알림은 공식 에디냥이 받아요. 입금 코드가 <b>6</b>으로 시작하면 여기로 넘겨줘요.<br>공식 에디냥 관리자 → 🏦 입금 확인 → 🔀 다른 서버 연결에서 <b>연결 키</b>를 복사해 아래에 붙여넣고, 그쪽 <b>비공식 에디냥</b> 칸엔 아래 주소를 넣어주세요.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><span class="hint" style="margin:0;min-width:64px">주소</span><code id="bankUrl" style="word-break:break-all"></code><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="chgCopy(document.getElementById('bankUrl').textContent,'주소 복사했어요 ✓')">복사</button></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span class="hint" style="margin:0;min-width:64px">연결 키</span><code id="bankKey" style="word-break:break-all"></code><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="chgCopy(document.getElementById('bankKey').textContent,'연결 키 복사했어요 ✓')">복사</button><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="bankRekey()">🔁 새 키</button></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span class="hint" style="margin:0;min-width:64px">연결 키</span><input type="text" id="bankKey" placeholder="공식 에디냥 연결 키 붙여넣기" style="max-width:320px"><button class="btn-gray" style="padding:9px 14px" onclick="bankSaveKey()">저장</button><span class="hint" id="bankKeyState" style="margin:0"></span></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><input type="text" id="bankWebhook" placeholder="디스코드 웹후크 (충전·연장 알림 · 선택)" style="max-width:420px"><button class="btn-gray" style="padding:9px 14px" onclick="bankSaveWebhook()">저장</button></div>
           <div id="bankSpoonRes" style="margin-bottom:10px"></div>
           <div id="bankWallets"><p class="hint">불러오는 중...</p></div>
@@ -8623,7 +8623,8 @@ async function loadBankAdmin(){
   try{
     const d=await bankApi('GET','/admin/bank');
     document.getElementById('bankUrl').textContent=SERVER;
-    document.getElementById('bankKey').textContent=d.key;
+    if(document.activeElement!==document.getElementById('bankKey')) document.getElementById('bankKey').value=d.key||'';
+    document.getElementById('bankKeyState').textContent=d.key?'✅ 연결됨':'⚠️ 아직 안 넣었어요';
     document.getElementById('bankWebhook').value=d.webhook||'';
     if(!d.wallets.length){ wrap.innerHTML='<p class="hint">아직 입금 코드를 받은 DJ 가 없어요 (DJ 가 💰 충전 버튼을 누르면 코드가 생겨요)</p>'; return; }
     const PN={normal:'일반 1만',choice:'Choice 2만'};
@@ -8636,7 +8637,7 @@ async function loadBankAdmin(){
     </tr>`).join('')}</tbody></table></div>`;
   }catch(e){ wrap.innerHTML='<p class="hint">오류: '+escapeHtml(e.message)+'</p>'; }
 }
-async function bankRekey(){ try{ const d=await bankApi('POST','/admin/bank/rekey'); document.getElementById('bankKey').textContent=d.key; showToast('새 연결 키 — 공식 에디냥에도 다시 넣어주세요'); }catch(e){ showToast(e.message); } }
+async function bankSaveKey(){ try{ await bankApi('POST','/admin/bank/key',{key:document.getElementById('bankKey').value}); showToast('연결 키 저장했어요 ✓'); loadBankAdmin(); }catch(e){ showToast(e.message); } }
 async function bankSaveWebhook(){ try{ await bankApi('POST','/admin/bank/webhook',{url:document.getElementById('bankWebhook').value}); showToast('저장했어요 ✓'); }catch(e){ showToast(e.message); } }
 async function bankPlan(id,plan){ try{ await bankApi('POST','/admin/bank/plan',{id,plan}); showToast('요금제 바꿨어요 ✓'); loadBankAdmin(); }catch(e){ showToast(e.message); } }
 async function bankAdj(id){ const el=document.getElementById('bankAdj_'+id); const delta=Number(el&&el.value); if(!delta) return showToast('금액을 적어주세요'); try{ const d=await bankApi('POST','/admin/bank/wallet',{id,delta}); showToast(`충전금 ${d.wallet.toLocaleString()}원${d.renewed?' · 30일 연장됨':''}`); loadBankAdmin(); }catch(e){ showToast(e.message); } }

@@ -17,7 +17,8 @@ const SP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 module.exports = function createBankRemote(A) {
   const won = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
   const when = (t) => (t ? new Date(t).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '무제한');
-  function key() { let k = A.getKey(); if (!k) { k = crypto.randomBytes(18).toString('base64url'); A.setKey(k); } return k; }
+  // 🔑 연결 키 — 공식 에디냥 관리자(🏦 입금 확인 → 🔀 다른 서버 연결)에 있는 키 하나를 여기 관리자 화면에 붙여넣어요
+  const key = () => String(A.getKey() || '');
 
   function codeOf(id) {
     const u = A.get(id); if (!u) return '';
@@ -124,6 +125,7 @@ module.exports = function createBankRemote(A) {
   function creditRoute(req, res) {
     const b = req.body || {};
     const k = String(b.key || ''); const want = key();
+    if (!want) return res.status(403).json({ ok: false, error: `${A.name} 에 연결 키가 아직 안 들어갔어요` });
     if (!k || k.length !== want.length || !crypto.timingSafeEqual(Buffer.from(k), Buffer.from(want))) return res.status(403).json({ ok: false, error: '연결 키가 달라요' });
     const amount = Math.round(Number(b.amount) || 0);
     if (!(amount > 0)) return res.status(400).json({ ok: false, error: '금액이 없어요' });
@@ -139,7 +141,7 @@ module.exports = function createBankRemote(A) {
   }
   function adminPlan(id, plan) { const u = A.get(id); if (!u) return null; if (PLANS[plan]) u.planForce = plan; else delete u.planForce; A.save(id); return planOf(u); }
   function adminWallet(id, delta) { const u = A.get(id); if (!u) return null; u.wallet = Math.max(0, (u.wallet || 0) + Math.round(Number(delta) || 0)); A.save(id); return u.wallet; }
-  function rekey() { A.setKey(''); return key(); }
+  function setKey(k) { A.setKey(String(k || '').trim().slice(0, 100)); return key(); }
 
-  return { key, codeOf, credit, renew, sweep, mine, creditRoute, adminList, adminPlan, adminWallet, rekey, detectChoice, PLANS };
+  return { key, codeOf, credit, renew, sweep, mine, creditRoute, adminList, adminPlan, adminWallet, setKey, detectChoice, PLANS };
 };

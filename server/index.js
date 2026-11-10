@@ -23574,7 +23574,7 @@ app.post('/api/bank/credit', express.json(), bankRemote.creditRoute)
 app.get('/bank/wallet', auth.requireAuth, (req, res) => res.json({ success: true, ...bankRemote.mine(req.djId) }))
 const bankAdmin = (req, res, next) => (req.djId === 'sum' ? next() : res.status(403).json({ success: false, error: '권한이 없어요' }))
 app.get('/admin/bank', auth.requireAuth, bankAdmin, (req, res) => res.json({ success: true, ...bankRemote.adminList(), webhook: (store.getSettings('sum') || {}).bankWebhook || '' }))
-app.post('/admin/bank/rekey', auth.requireAuth, bankAdmin, (req, res) => res.json({ success: true, key: bankRemote.rekey() }))
+app.post('/admin/bank/key', auth.requireAuth, bankAdmin, express.json(), (req, res) => res.json({ success: true, key: bankRemote.setKey(req.body && req.body.key) }))
 app.post('/admin/bank/plan', auth.requireAuth, bankAdmin, express.json(), (req, res) => { const p = bankRemote.adminPlan(String(req.body.id || ''), String(req.body.plan || '')); res.json(p ? { success: true, plan: p } : { success: false, error: '없는 DJ' }) })
 app.post('/admin/bank/wallet', auth.requireAuth, bankAdmin, express.json(), (req, res) => {
   const id = String(req.body.id || ''); const d = Math.round(Number(req.body.delta) || 0)
