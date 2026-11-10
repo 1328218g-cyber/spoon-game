@@ -5910,11 +5910,14 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600) {
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
-      const res = await fetch(url, {
+      const get = () => fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net' },
-      })
-      const json = await res.json().catch(() => null)
-      if (!json || !json.results) break
+        signal: AbortSignal.timeout(12000),
+      }).then((r) => r.json()).catch(() => null)
+      let json = await get()
+      // (중간 쪽에서 잠깐 막히면 600명을 다 못 받고 끊겼어요 → 2초 쉬고 한 번 더)
+      if ((!json || !json.results) && list.length) { await new Promise((r) => setTimeout(r, 2000)); json = await get() }
+      if (!json || !json.results) { if (list.length) console.log(`[월간DJ랭킹] ${type} ${list.length}명까지만 받았어요`); break }
       list = list.concat(json.results)
       address = json.next || null
     }
@@ -5965,10 +5968,12 @@ function searchDashRank(tag) {
 }
 
 // "✨초이스: 222위 | ❤️좋아요: 50위 | ⏱시간: 12위" 형태의 한 줄 요약 문구를 만든다.
+function rankOutText(type) { return dashRankCache[type] && dashRankCache[type].length ? `${dashRankCache[type].length}위 밖` : '순위없음' }
 function formatRankSummary(ranks) {
   if (!ranks) return ''
-  const fmt = v => (v ? v + '위' : '순위없음')
-  return `✨초이스: ${fmt(ranks.next_choice)} | ❤️좋아요: ${fmt(ranks.free_like)} | ⏱시간: ${fmt(ranks.live_time)}`
+  // 없으면 "600위 밖" (받은 목록 길이로) — 순위없음만 나오면 목록을 덜 받은 건지 정말 밖인지 몰랐어요
+  const fmt = (type) => (ranks[type] ? ranks[type] + '위' : rankOutText(type))
+  return `✨초이스: ${fmt('next_choice')} | ❤️좋아요: ${fmt('free_like')} | ⏱시간: ${fmt('live_time')}`
 }
 
 // 반복문구/단축키 명령어에서 쓰는 {nickname}{tag}{rank}{choice_rank}{like_rank}{time_rank}
@@ -5986,9 +5991,9 @@ function buildDashboardRankVars(settings) {
     nickname: rd.nickname || '',
     tag: rd.tag || dash.djTag || '',
     rank: formatRankSummary(r),
-    choice_rank: r.next_choice ? `${r.next_choice}위` : '',
-    like_rank: r.free_like ? `${r.free_like}위` : '',
-    time_rank: r.live_time ? `${r.live_time}위` : '',
+    choice_rank: r.next_choice ? `${r.next_choice}위` : rankOutText('next_choice'),
+    like_rank: r.free_like ? `${r.free_like}위` : rankOutText('free_like'),
+    time_rank: r.live_time ? `${r.live_time}위` : rankOutText('live_time'),
   }
 }
 
