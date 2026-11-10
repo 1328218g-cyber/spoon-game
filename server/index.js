@@ -16880,6 +16880,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
+  try { const _s = store.getSettings(djId); if (djUserId && _s && String(_s.spoonUid || '') !== String(djUserId)) store.saveSettings(djId, { spoonUid: String(djUserId) }) } catch (_) {} // 🏦 충전금 — 초이스 DJ 확인용 스푼 번호
   room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
 
@@ -23551,6 +23552,38 @@ app.get('/tower/:djId', (req, res) => {
 
 // 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
 // /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
+// 🏦 충전금 — 공식 에디냥이 카카오뱅크 입금 알림을 받아서, 입금 코드가 6xxxxx 면 여기 /api/bank/credit 로 넘겨줘요
+const bankRemote = require('./bankRemote')({
+  name: '비공식 에디냥', prefix: '6',
+  ids: () => store.listDjIds(),
+  get: (id) => store.getSettings(id),
+  save: (id) => { store.saveSettings(id, {}) },
+  expiryOf: (id) => { const s = store.getSettings(id); const t = s && s.expiresAt ? new Date(s.expiresAt).getTime() : 0; return t || 0 },
+  extend: (id, days) => { const s = store.getSettings(id) || {}; const base = Math.max(Date.now(), new Date(s.expiresAt || 0).getTime() || 0); store.saveSettings(id, { expiresAt: new Date(base + days * 86400e3).toISOString() }) },
+  unlimited: (id) => id === 'sum',
+  uidOf: (id) => { const s = store.getSettings(id) || {}; return s.spoonUid || (rooms[id] && rooms[id].liveDjUserId) || '' },
+  discord: (msg) => {
+    const url = process.env.PAY_WEBHOOK || ((store.getSettings('sum') || {}).bankWebhook || '')
+    if (!/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(url)) return
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: msg }) }).catch(() => {})
+  },
+  getKey: () => (store.getSettings('sum') || {}).bankKey || '',
+  setKey: (k) => { store.saveSettings('sum', { bankKey: k }) },
+})
+app.post('/api/bank/credit', express.json(), bankRemote.creditRoute)
+app.get('/bank/wallet', auth.requireAuth, (req, res) => res.json({ success: true, ...bankRemote.mine(req.djId) }))
+const bankAdmin = (req, res, next) => (req.djId === 'sum' ? next() : res.status(403).json({ success: false, error: '권한이 없어요' }))
+app.get('/admin/bank', auth.requireAuth, bankAdmin, (req, res) => res.json({ success: true, ...bankRemote.adminList(), webhook: (store.getSettings('sum') || {}).bankWebhook || '' }))
+app.post('/admin/bank/rekey', auth.requireAuth, bankAdmin, (req, res) => res.json({ success: true, key: bankRemote.rekey() }))
+app.post('/admin/bank/plan', auth.requireAuth, bankAdmin, express.json(), (req, res) => { const p = bankRemote.adminPlan(String(req.body.id || ''), String(req.body.plan || '')); res.json(p ? { success: true, plan: p } : { success: false, error: '없는 DJ' }) })
+app.post('/admin/bank/wallet', auth.requireAuth, bankAdmin, express.json(), (req, res) => {
+  const id = String(req.body.id || ''); const d = Math.round(Number(req.body.delta) || 0)
+  if (d > 0) { const c = bankRemote.credit(id, d, '관리자 지급'); return res.json(c ? { success: true, wallet: c.wallet, renewed: c.renewed } : { success: false, error: '없는 DJ' }) }
+  const w = bankRemote.adminWallet(id, d); res.json(w == null ? { success: false, error: '없는 DJ' } : { success: true, wallet: w })
+})
+app.post('/admin/bank/webhook', auth.requireAuth, bankAdmin, express.json(), (req, res) => { store.saveSettings('sum', { bankWebhook: String(req.body.url || '').trim() }); res.json({ success: true }) })
+app.get('/admin/bank/spoon/:id', auth.requireAuth, bankAdmin, async (req, res) => { const v = await bankRemote.detectChoice(req.params.id, true); const s = store.getSettings(req.params.id) || {}; res.json({ success: true, choice: v, uid: s.spoonUid || '' }) })
+
 // 🎨 그림 퀴즈 — DJ 가 대시보드에서 그리면 시청자는 /drawquiz/:djId 에서 실시간으로 보고, 방송 채팅에 정답을 쳐요 (에디냥과 같은 모듈)
 const drawQuiz = require('./drawquiz')({
   app, requireAuth: auth.requireAuth, publicUrl: '',
