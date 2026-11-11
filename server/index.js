@@ -327,7 +327,8 @@ function extractBackupSubset(djRecord) {
 
 // ⏭️ 자동 백업 변경감지용 — djId별로 "마지막에 실제로 Base44에 보낸 내용"을 기억해둔다.
 // (서버 재시작하면 초기화되는데, 그러면 다음 자동백업 1번은 그냥 다시 보내지는 정도라 문제 없음)
-const lastBackupSubsetStr = new Map()
+const lastBackupSubsetStr = new Map() // djId -> sha1(백업 내용) — 내용 전체 대신 짧은 지문만 기억해서 메모리 절약
+const backupSig = (str) => crypto.createHash('sha1').update(str).digest('hex')
 
 async function backupOneDjToBase44(djId, djRecord) {
   const subset = extractBackupSubset(djRecord)
@@ -356,9 +357,9 @@ async function backupToBase44() {
       // ⏭️ 자동 백업 전용 변경감지 — 지난번에 보낸 것과 지금 데이터가 똑같으면 그냥 건너뛴다.
       // (수동으로 "지금 바로 백업" 누르는 버튼은 이 로직을 안 거치고 항상 그대로 실행됨)
       const subsetStr = JSON.stringify(extractBackupSubset(snapshot[id]))
-      if (lastBackupSubsetStr.get(id) === subsetStr) { skipCount++; continue }
+      if (lastBackupSubsetStr.get(id) === backupSig(subsetStr)) { skipCount++; continue }
       const res = await backupOneDjToBase44(id, snapshot[id])
-      if (res.ok) { okCount++; lastBackupSubsetStr.set(id, subsetStr) }
+      if (res.ok) { okCount++; lastBackupSubsetStr.set(id, backupSig(subsetStr)) }
       else { failCount++; console.log(`[Base44 백업] ${id} 실패 응답:`, res.status) }
     } catch (e) {
       failCount++
@@ -19632,6 +19633,25 @@ function migrateSoundDataToFiles() {
       })
     }
     if (Array.isArray(settings.greetings)) settings.greetings.forEach(migrateItem)
+    // 🔊 효과음 — 예전에 올린 효과음(audioData base64, 하나에 최대 1.5MB)도 파일로 옮겨요
+    let sfxChanged = false
+    const sfxItems = settings.soundEffects && Array.isArray(settings.soundEffects.items) ? settings.soundEffects.items : []
+    for (const it of sfxItems) {
+      if (!it || !it.audioData || it.audioUrl) continue
+      const m = String(it.audioData).match(/^data:(audio\/[^;]+);base64,(.+)$/)
+      if (!m) continue
+      try {
+        const buffer = Buffer.from(m[2], 'base64')
+        const ext = ({ 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/aac': 'aac', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a' })[m[1].toLowerCase()] || 'mp3'
+        const name = `${djId}_${it.id || ('sfx' + Date.now())}_m${crypto.randomBytes(3).toString('hex')}.${ext}`
+        fs.writeFileSync(path.join(SOUNDS_DIR, name), buffer)
+        bytesFreed += buffer.length
+        it.audioUrl = `/sounds/${name}`
+        delete it.audioData
+        migratedCount++; sfxChanged = true
+      } catch (e) { console.log(`[효과음 마이그레이션] ${djId} 파일 저장 실패:`, e.message) }
+    }
+    if (sfxChanged) store.saveSettings(djId, { soundEffects: settings.soundEffects })
 
     if (changed) store.saveSettings(djId, { entryData: settings.entryData, greetings: settings.greetings })
   }
@@ -19734,7 +19754,7 @@ app.post('/admin/backup-to-base44', auth.requireAuth, async (req, res) => {
     for (const id of djIds) {
       try {
         const r = await backupOneDjToBase44(id, snapshot[id])
-        if (r.ok) { okCount++; lastBackupSubsetStr.set(id, JSON.stringify(extractBackupSubset(snapshot[id]))) }
+        if (r.ok) { okCount++; lastBackupSubsetStr.set(id, backupSig(JSON.stringify(extractBackupSubset(snapshot[id])))) }
         else { failCount++; if (!firstErrorText) firstErrorText = `${id}: status ${r.status} (${r.sizeBytes}바이트) - ${r.errText || ''}` }
       } catch (e) {
         failCount++
@@ -19853,7 +19873,7 @@ app.post('/mydata/backup', auth.requireAuth, async (req, res) => {
     if (!record) return res.json({ success: false, error: '계정 정보를 찾을 수 없어요' })
     const r = await backupOneDjToBase44(req.djId, record)
     if (!r.ok) return res.json({ success: false, error: `백업 서버 응답 ${r.status} (요청크기 ${r.sizeBytes}바이트)`, detail: r.errText })
-    lastBackupSubsetStr.set(req.djId, JSON.stringify(extractBackupSubset(record)))
+    lastBackupSubsetStr.set(req.djId, backupSig(JSON.stringify(extractBackupSubset(record))))
     res.json({ success: true })
   } catch (e) {
     res.json({ success: false, error: e.message })
@@ -26144,6 +26164,16 @@ app.listen(PORT, () => {
   // 🌐 Base44로 30분마다 외부 백업 (서버 시작 1분 뒤 첫 백업 + 이후 30분마다 반복)
   setTimeout(backupToBase44, 60 * 1000)
   setInterval(backupToBase44, 30 * 60 * 1000)
+  // 🧠 메모리 진단 — Render 에서 메모리 초과로 재시작될 때 원인을 찾을 수 있게 10분마다 사용량을 로그에 남겨요
+  //    (시작할 때는 데이터가 가장 큰 계정 5곳도 한 번 남겨요)
+  try {
+    const top = store.listDjIds().map(id => { let b = 0; try { b = Buffer.byteLength(JSON.stringify(store.getDjRecord(id) || {}), 'utf-8') } catch (e) {} return [id, b] }).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    console.log('[메모리 진단] 데이터 큰 계정 TOP5:', top.map(([id, b]) => `${id} ${(b / 1048576).toFixed(1)}MB`).join(' · '))
+  } catch (e) {}
+  setInterval(() => {
+    const m = process.memoryUsage(), mb = (x) => (x / 1048576).toFixed(0) + 'MB'
+    console.log(`[메모리 진단] rss=${mb(m.rss)} heap=${mb(m.heapUsed)}/${mb(m.heapTotal)} external=${mb(m.external)} rooms=${Object.keys(rooms).length} sse=${sseClients.length}`)
+  }, 10 * 60 * 1000)
 
   // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
   // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,

@@ -97,7 +97,7 @@ function loadDjs() {
 function saveDjs(djs) {
   ensureDir();
   _cache = djs; // 캐시 갱신
-  const json = JSON.stringify(djs, null, 2);
+  const json = JSON.stringify(djs); // 💾 들여쓰기 없이 — 몇 초마다 전체를 문자열로 만들 때 메모리를 덜 써요 (예전 2칸 들여쓰기는 크기가 훨씬 커져서 메모리 초과 원인)
   const tmpFile = DJ_FILE + '.tmp';
   fs.writeFileSync(tmpFile, json, 'utf-8');
   fs.renameSync(tmpFile, DJ_FILE);
@@ -112,7 +112,7 @@ function createBackupSnapshot() {
     ensureBackupDir();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupFile = path.join(BACKUP_DIR, `djs-${stamp}.json`)
-    fs.writeFileSync(backupFile, JSON.stringify(_cache, null, 2), 'utf-8')
+    fs.writeFileSync(backupFile, JSON.stringify(_cache), 'utf-8')
     const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('djs-')).sort()
     while (files.length > BACKUP_KEEP_COUNT) {
       const oldest = files.shift()
@@ -120,7 +120,7 @@ function createBackupSnapshot() {
     }
     if (_globalMcCache) {
       const mcBackupFile = path.join(BACKUP_DIR, `globalMonsterDex-${stamp}.json`)
-      fs.writeFileSync(mcBackupFile, JSON.stringify(_globalMcCache, null, 2), 'utf-8')
+      fs.writeFileSync(mcBackupFile, JSON.stringify(_globalMcCache), 'utf-8')
       const mcFiles = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('globalMonsterDex-')).sort()
       while (mcFiles.length > BACKUP_KEEP_COUNT) {
         const oldest = mcFiles.shift()
@@ -1102,7 +1102,7 @@ function upsertMonsterCatalog(monsters) {
 function saveGlobalMonsterDex() {
   if (!_globalMcCache) return;
   ensureDir();
-  const json = JSON.stringify(_globalMcCache, null, 2);
+  const json = JSON.stringify(_globalMcCache);
   const tmpFile = GLOBAL_MC_FILE + '.tmp';
   fs.writeFileSync(tmpFile, json, 'utf-8');
   fs.renameSync(tmpFile, GLOBAL_MC_FILE);
