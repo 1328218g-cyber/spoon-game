@@ -6365,7 +6365,7 @@ if (window.bcast) setTimeout(() => {
   <div class="paid-modal-box">
     <button class="paid-modal-close" onclick="closeChargeModal()">✕</button>
     <div class="paid-modal-title">💰 충전하기</div>
-    <div class="paid-modal-sub">충전금은 이용 기간이 끝나는 날 자동으로 빠지고 30일이 늘어나요</div>
+    <div class="paid-modal-sub">충전금은 이용 기간이 7일 남았을 때 자동으로 빠지고 30일이 늘어나요</div>
     <div class="paid-info-box">
       <div class="paid-info-title">① 충전 금액 고르기</div>
       <div class="chg-amts" id="chgAmts"></div>
@@ -6383,7 +6383,7 @@ if (window.bcast) setTimeout(() => {
     <div class="paid-info-box">
       <div class="paid-info-title">③ 입금자명에 내 입금 코드</div>
       <div class="chg-code"><b id="chgCode">------</b><button type="button" class="chg-copy" onclick="chgCopy(document.getElementById('chgCode').textContent,'입금 코드 복사했어요 ✓')">복사</button></div>
-      <div class="paid-ref-note" style="margin-top:6px;line-height:1.6">입금자명에 이름 대신 이 숫자만 적어주세요. 입금되면 1~2분 안에 자동으로 충전돼요.<br>이용 기간이 끝났거나 3일 안 남았으면 충전되자마자 바로 30일이 늘어나요.</div>
+      <div class="paid-ref-note" style="margin-top:6px;line-height:1.6">입금자명에 이름 대신 이 숫자만 적어주세요. 입금되면 1~2분 안에 자동으로 충전돼요.<br>남은 기간이 7일 안으로 들어오면 자동으로 빠지고 30일이 늘어나요 (끝나는 날부터 30일이라 손해 없어요).</div>
     </div>
   </div>
 </div>

@@ -1,7 +1,7 @@
 // bankRemote.js — 🏦 충전금 (공식 에디냥이 입금 알림을 받아서 넘겨주는 쪽)
 //  · DJ 마다 6자리 입금 코드 (비공식 에디냥 6xxxxx · 짜잔에디봇 7xxxxx) — 입금자명에 이 코드를 적고 입금
 //  · 공식 에디냥 서버가 입금 알림에서 이 코드를 보면 /api/bank/credit 로 넘겨줘요 (연결 키로 확인)
-//  · 이용 기간이 끝날 때(또는 끝났거나 3일 안 남았을 때 충전하면 바로) 요금제 금액을 빼고 30일 연장
+//  · 이용 기간이 7일 남았을 때(또는 7일 안 남았을 때 충전하면 바로) 요금제 금액을 빼고 30일 연장 (끝나는 날부터 30일)
 //      일반 DJ 10,000원 · Choice 20,000원 — 스푼 프로필로 초이스 DJ 인지 확인(스푼 번호를 알 때) · 관리자가 고정 가능
 //  (공식 에디냥 bankpay.js 와 같은 규칙 · 서버마다 adapter 만 달라요)
 'use strict';
@@ -9,7 +9,7 @@ const crypto = require('crypto');
 
 const PLANS = { normal: { name: '일반 DJ', fee: 10000 }, choice: { name: 'Choice', fee: 20000 } };
 const DAYS = 30;
-const SOON = 3 * 86400e3;
+const SOON = 7 * 86400e3; // 이만큼 안 남으면 자동 연장 · 충전금 부족 알림
 const SP_HOST = 'https://kr-api.spooncast.net';
 const SP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
@@ -107,7 +107,7 @@ module.exports = function createBankRemote(A) {
         let u = A.get(id); const exp = A.expiryOf(id);
         if (!u || !exp || !u.wallet || A.unlimited(id)) continue;
         if (exp - now < SOON) { await detectChoice(id); u = A.get(id); if (!u) continue; }
-        if (exp - now < 3600e3) { renew(id, '이용 기간 끝나서 자동'); continue; }
+        if (exp - now < SOON && renew(id, '끝나기 7일 전 자동')) continue;
         const fee = PLANS[planOf(u)].fee;
         if (exp - now < SOON && u.wallet < fee && !(u.lowWarnAt > now - SOON)) {
           u.lowWarnAt = now; A.save(id);
