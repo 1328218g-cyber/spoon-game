@@ -1,4 +1,4 @@
-// wordguess.js — 🧩 꼬맨틀 (단어 맞추기)
+// wordguess.js — 🧩 단어 맞추기
 //  · DJ 가 설정에 적어 둔 단어 중 하나가 정답 (또는 시작할 때 직접 적기)
 //  · 시청자가 방송 채팅에 ":오징어" 처럼 치면 정답과 뜻이 얼마나 가까운지(%) · 몇 위인지 알려주고
 //    지금까지 나온 단어 중 가까운 순서 TOP 5 를 채팅에 보여줘요 (여러 명이 연달아 치면 모아서 한 번에)
@@ -10,9 +10,9 @@ const createWordVec = require('./wordvec');
 const DEFAULT_WORDGUESS = {
   words: [],            // 정답 후보 (DJ 가 정해요)
   top: 5,               // 채팅에 보여줄 순위 개수 (1~5)
-  msgStart: '🧩 꼬맨틀 시작! 정답과 뜻이 가까운 단어를 채팅에 :단어 로 쳐주세요 (예 :오징어)\n힌트 · 1위 {top1}% · 10위 {top10}% · 1000위 {top1000}%',
+  msgStart: '🧩 단어 맞추기 시작! 정답과 뜻이 가까운 단어를 채팅에 :단어 로 쳐주세요 (예 :오징어)\n힌트 · 1위 {top1}% · 10위 {top10}% · 1000위 {top1000}%',
   msgCorrect: '🎉 {nickname}님 정답! [{answer}] · 추측 {guesses}번 · 참여 {people}명 (누적 {count}번)',
-  msgReveal: '🧩 꼬맨틀 끝! 정답은 [{answer}] 였어요',
+  msgReveal: '🧩 단어 맞추기 끝! 정답은 [{answer}] 였어요',
   scores: {},           // 고유닉 → { nick, n }
 };
 const FLUSH_MS = 1500;   // 여러 명이 연달아 치면 이만큼 모아서 한 번에 보내요
@@ -29,6 +29,7 @@ module.exports = function createWordGuess({ app, store, requireAuth, say, dataDi
     const D = s.wordguess;
     for (const k of Object.keys(DEFAULT_WORDGUESS)) if (D[k] === undefined) D[k] = clone(DEFAULT_WORDGUESS[k]);
     if (!D.scores || typeof D.scores !== 'object') D.scores = {};
+    for (const k of ['msgStart', 'msgCorrect', 'msgReveal']) if (typeof D[k] === 'string' && D[k].includes('꼬맨틀')) D[k] = D[k].split('꼬맨틀').join('단어 맞추기'); // (예전 이름으로 저장된 멘트)
     return D;
   }
   const fmt = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => (v[k] !== undefined ? String(v[k]) : m));
@@ -154,7 +155,7 @@ module.exports = function createWordGuess({ app, store, requireAuth, say, dataDi
     res.json({ ok: true, missing });
   });
   app.post('/api/wordguess/start', requireAuth, async (req, res) => {
-    if (!modOn(req.djId)) return res.status(400).json({ error: '🧩 꼬맨틀 모듈이 꺼져 있어요' });
+    if (!modOn(req.djId)) return res.status(400).json({ error: '🧩 단어 맞추기 모듈이 꺼져 있어요' });
     const o = await start(req.djId, (req.body || {}).word);
     if (o.error) return res.status(400).json(o);
     res.json({ ...o, status: pub(req.djId) });

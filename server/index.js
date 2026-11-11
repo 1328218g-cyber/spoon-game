@@ -25118,7 +25118,7 @@ const drawQuiz = require('./drawquiz')({
     exists: (djId) => !!store.getSettings(djId),
   },
 })
-// 🧩 꼬맨틀 — DJ 가 정한 단어를 시청자가 :단어 로 추측 · 뜻이 가까운 정도(%)와 TOP 5 를 채팅에 (에디냥과 같은 모듈)
+// 🧩 단어 맞추기 — DJ 가 정한 단어를 시청자가 :단어 로 추측 · 뜻이 가까운 정도(%)와 TOP 5 를 채팅에 (에디냥과 같은 모듈)
 const wordGuess = require('./wordguess')({
   app, requireAuth: auth.requireAuth,
   say: (djId, msg) => { sendChatToRoom(djId, msg).catch(() => {}) },
@@ -25132,7 +25132,7 @@ const wordGuess = require('./wordguess')({
 })
 function handleWordGuessChat(djId, room, author, authorId, text, actTag) {
   const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
-  try { wordGuess.onChat(djId, { isDj, user: { id: authorId } }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[꼬맨틀]', e.message) }
+  try { wordGuess.onChat(djId, { isDj, user: { id: authorId } }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[단어 맞추기]', e.message) }
 }
 function handleDrawQuizChat(djId, room, author, authorId, text, actTag) {
   const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId

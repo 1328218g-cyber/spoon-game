@@ -856,7 +856,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
-    <div class="nav-item" data-panel="wordguess"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">꼬맨틀</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="wordguess"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">단어 맞추기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -5644,7 +5644,7 @@ if (window.bcast) setTimeout(() => {
       <!-- 🎨 그림 퀴즈 -->
       <div class="panel" data-panel="wordguess">
         <div class="card">
-          <div class="card-title"><span>🧩 꼬맨틀 진행</span></div>
+          <div class="card-title"><span>🧩 단어 맞추기 진행</span></div>
           <p class="hint" style="margin-bottom:8px">게임을 시작하면 시청자가 방송 채팅에 <b>:단어</b> (예 <b>:오징어</b>) 로 쳐요. 정답과 뜻이 얼마나 가까운지(%) 알려주고, 가까운 순서 TOP 5 를 채팅에 보여줘요. 정답을 치면 끝나요.</p>
           <div id="wgState" style="font-size:15px;margin-bottom:8px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
@@ -5657,7 +5657,7 @@ if (window.bcast) setTimeout(() => {
           <div id="wgDict" class="hint" style="margin-top:6px"></div>
         </div>
         <div class="card">
-          <div class="card-title"><span>⚙️ 꼬맨틀 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wgSave()">💾 저장</button></div>
+          <div class="card-title"><span>⚙️ 단어 맞추기 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wgSave()">💾 저장</button></div>
           <label>정답 단어 (한 줄에 하나 · 최대 500개 · 띄어쓰기 없는 한 단어)</label>
           <textarea id="wgWords" rows="6" placeholder="오징어&#10;바다&#10;사랑"></textarea>
           <div id="wgMissing" style="color:#e0445a;font-size:13px;margin-top:4px"></div>
@@ -7235,7 +7235,7 @@ const PANEL_META={
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
-  wordguess:['🧩 꼬맨틀','DJ 가 정한 단어를 맞히는 게임 — 시청자가 :단어 로 치면 뜻이 얼마나 가까운지(%)와 TOP 5 를 채팅에 보여줘요'],
+  wordguess:['🧩 단어 맞추기','DJ 가 정한 단어를 맞히는 게임 — 시청자가 :단어 로 치면 뜻이 얼마나 가까운지(%)와 TOP 5 를 채팅에 보여줘요'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
@@ -20774,7 +20774,7 @@ function uiPrompt(message,def){
     document.body.appendChild(ov);setTimeout(()=>{inp.focus();inp.select()},30);
   });
 }
-// ───── 🧩 꼬맨틀 ─────
+// ───── 🧩 단어 맞추기 ─────
 const WG={poll:null};
 async function wgApi(method,path,body){
   const r=await fetch(SERVER+path,{method,headers:{'Content-Type':'application/json',...authHeaders()},body:body?JSON.stringify(body):undefined});
@@ -20798,7 +20798,7 @@ async function loadWordGuess(){
   const c=d.settings;
   document.getElementById('wgWords').value=(c.words||[]).join('\n'); document.getElementById('wgTopN').value=String(c.top||5);
   document.getElementById('wgMsgStart').value=c.msgStart; document.getElementById('wgMsgCorrect').value=c.msgCorrect; document.getElementById('wgMsgReveal').value=c.msgReveal; document.getElementById('wgMissing').textContent='';
-  if(!d.moduleOn) showToast('⚠️ 사이드바에서 🧩 꼬맨틀을 ON 으로 켜주세요');
+  if(!d.moduleOn) showToast('⚠️ 사이드바에서 🧩 단어 맞추기을 ON 으로 켜주세요');
   wgShow(d);
   clearInterval(WG.poll); WG.poll=setInterval(()=>{ const pn=document.querySelector('.panel[data-panel="wordguess"]'); if(pn&&pn.offsetParent!==null) wgRefresh(); },2000);
 }

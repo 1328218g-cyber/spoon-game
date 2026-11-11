@@ -1,8 +1,8 @@
-// wordvec.js — 🧩 꼬맨틀(단어 맞추기)용 한국어 단어 벡터
+// wordvec.js — 🧩 단어 맞추기용 한국어 단어 벡터
 //  · 처음 한 번 페이스북 fastText 한국어 단어 벡터(cc.ko.300)에서 자주 쓰는 한글 단어만 골라 받아서
 //    작게 줄여(단어당 300바이트) 서버 데이터 폴더에 저장해요 → 다음부터는 그 파일만 읽어요
 //  · 다른 서버(비공식 에디냥 · 짜잔에디봇)는 공식 에디냥이 만들어 둔 파일(/api/wordguess/vec.bin)을 먼저 받아봐요
-//  · 두 단어가 뜻이 얼마나 가까운지 = 코사인 유사도 (꼬맨틀처럼 ×100 해서 % 로 보여줘요)
+//  · 두 단어가 뜻이 얼마나 가까운지 = 코사인 유사도 (단어 맞추기처럼 ×100 해서 % 로 보여줘요)
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -96,15 +96,15 @@ module.exports = function createWordVec({ dataDir, binUrls = [] }) {
       try {
         try { const [w, sc, v] = decode(fs.readFileSync(file)); setData(w, sc, v); return true; } catch (_) {}
         let got = null;
-        for (const u of binUrls.filter(Boolean)) { try { note = '단어 사전 받는 중'; got = await fromBin(u); break; } catch (e) { console.log('[꼬맨틀] 사전 파일 못 받음', u, e.message); } }
+        for (const u of binUrls.filter(Boolean)) { try { note = '단어 사전 받는 중'; got = await fromBin(u); break; } catch (e) { console.log('[단어 맞추기] 사전 파일 못 받음', u, e.message); } }
         if (!got) got = await fromFastText();
         setData(...got);
-        try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file + '.tmp', encode(...got)); fs.renameSync(file + '.tmp', file); } catch (e) { console.log('[꼬맨틀] 사전 저장 실패', e.message); }
-        console.log('[꼬맨틀] 단어 사전 준비 완료', note);
+        try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file + '.tmp', encode(...got)); fs.renameSync(file + '.tmp', file); } catch (e) { console.log('[단어 맞추기] 사전 저장 실패', e.message); }
+        console.log('[단어 맞추기] 단어 사전 준비 완료', note);
         return true;
       } catch (e) {
         state = 'error'; note = '단어 사전을 못 받았어요: ' + e.message;
-        console.log('[꼬맨틀]', note);
+        console.log('[단어 맞추기]', note);
         return false;
       } finally { loading = null; }
     })();
