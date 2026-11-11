@@ -82,18 +82,24 @@ async function getGzipJsonObject(key) {
 }
 
 // 📦 djs.json 전체(축소 없이 모든 계정·모든 설정) + globalMonsterDex.json 전체 스냅샷을
-// gzip 압축해서 R2에 올린다. 30분마다 호출된다.
+// gzip 압축해서 R2에 올린다. 2시간마다 호출된다 (바뀐 게 없으면 건너뜀).
+// 📉 지난번에 올린 것과 내용이 똑같으면 건너뛰어요 (바뀐 게 없는데 매번 통째로 올리느라 대역폭 요금이 많이 나왔어요)
+let lastSnapshotSig = ''
 async function backupFullSnapshotToR2(store) {
   if (!R2_ENABLED) return { ok: false, reason: 'disabled' }
   try {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const djsSnapshot = store.getRawSnapshot()
-    const mcSnapshot = store.loadGlobalMonsterDex()
+    const djsJson = JSON.stringify(store.getRawSnapshot())
+    const mcJson = JSON.stringify(store.loadGlobalMonsterDex())
+    const sig = require('crypto').createHash('sha1').update(djsJson).update('\n').update(mcJson).digest('hex')
+    if (sig === lastSnapshotSig) { console.log('[R2 백업] 지난 백업 뒤로 바뀐 게 없어서 건너뛰어요'); return { ok: true, skipped: true } }
+    const accounts = Object.keys(JSON.parse(djsJson)).length
 
-    await putObject(`${SNAPSHOT_PREFIX}djs-${stamp}.json.gz`, gzipJson(djsSnapshot), 'application/gzip')
-    await putObject(`${SNAPSHOT_PREFIX}globalMonsterDex-${stamp}.json.gz`, gzipJson(mcSnapshot), 'application/gzip')
+    await putObject(`${SNAPSHOT_PREFIX}djs-${stamp}.json.gz`, zlib.gzipSync(Buffer.from(djsJson, 'utf-8')), 'application/gzip')
+    await putObject(`${SNAPSHOT_PREFIX}globalMonsterDex-${stamp}.json.gz`, zlib.gzipSync(Buffer.from(mcJson, 'utf-8')), 'application/gzip')
+    lastSnapshotSig = sig
 
-    console.log(`[R2 백업] 전체 스냅샷 업로드 완료 (djs-${stamp}.json.gz, 계정 ${Object.keys(djsSnapshot).length}개)`)
+    console.log(`[R2 백업] 전체 스냅샷 업로드 완료 (djs-${stamp}.json.gz, 계정 ${accounts}개)`)
     return { ok: true, stamp }
   } catch (e) {
     console.log('[R2 백업] 스냅샷 업로드 실패:', e.message)
@@ -144,7 +150,7 @@ async function syncSoundsToR2(soundsDir) {
   }
 }
 
-// 🌐 30분마다 호출되는 진입점 — 전체 스냅샷 백업 + 사운드 동기화를 순서대로 실행한다.
+// 🌐 2시간마다 호출되는 진입점 — 전체 스냅샷 백업 + 사운드 동기화를 순서대로 실행한다.
 async function backupAllToR2(store, soundsDir) {
   if (!R2_ENABLED) return
   await backupFullSnapshotToR2(store)

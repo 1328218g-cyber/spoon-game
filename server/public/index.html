@@ -2592,7 +2592,7 @@ if (window.bcast) setTimeout(() => {
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="myRestoreApplyBtnR2" disabled onclick="myRestoreApplyR2()">♻️ 선택한 시점으로 복구</button>
           <div id="myRestoreResultR2" class="hint" style="margin-top:8px"></div>
           <div style="border-top:1px solid var(--border);margin:16px 0"></div>
-          <p class="hint" style="margin-bottom:10px">여기서 직접 백업 버튼을 안 눌렀어도, <b>서버가 30분마다 자동으로</b> 전체 계정을 백업해두고 있어요. 그 자동 백업 시점들 중에서 골라서 <b>내 계정 데이터만</b> 복구할 수도 있어요 (다른 디제이 계정은 전혀 영향 없어요).</p>
+          <p class="hint" style="margin-bottom:10px">여기서 직접 백업 버튼을 안 눌렀어도, <b>서버가 2시간마다 자동으로</b> 전체 계정을 백업해두고 있어요. 그 자동 백업 시점들 중에서 골라서 <b>내 계정 데이터만</b> 복구할 수도 있어요 (다른 디제이 계정은 전혀 영향 없어요).</p>
           <button class="btn-connect" style="width:100%" onclick="loadMySystemBackupListR2()">📋 자동 백업 시점 목록 불러오기</button>
           <div id="mySystemRestoreListWrapR2" style="margin-top:10px"></div>
           <button class="btn-shield-reset" style="width:100%;margin-top:10px" id="mySystemRestoreApplyBtnR2" disabled onclick="mySystemRestoreApplyR2()">♻️ 선택한 자동백업 시점으로 내 계정만 복구</button>
@@ -20246,7 +20246,7 @@ async function myRestoreApplyR2(){
   }catch(e){box.textContent='오류: '+e.message;}
 }
 
-/* ── ☁️ 자동 백업(30분마다, 전체 시스템)에서 내 계정만 골라서 복구 ── */
+/* ── ☁️ 자동 백업(2시간마다, 전체 시스템)에서 내 계정만 골라서 복구 ── */
 let mySelectedSystemStampR2=null;
 async function loadMySystemBackupListR2(){
   const listWrap=document.getElementById('mySystemRestoreListWrapR2');

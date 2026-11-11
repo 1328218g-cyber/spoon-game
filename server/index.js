@@ -19985,7 +19985,7 @@ app.post('/mydata/r2-restore-apply', auth.requireAuth, async (req, res) => {
 // 목록 자체(시각 정보)는 다른 계정 데이터를 포함하지 않으니 누구나 조회 가능.
 app.post('/mydata/r2-system-backups', auth.requireAuth, async (req, res) => {
   try {
-    const r = await r2Backup.listSnapshots(100) // 30분 간격 100개 = 대략 2일치, 보관기간(14일) 안에서 넉넉히
+    const r = await r2Backup.listSnapshots(100) // 2시간 간격 100개 = 대략 8일치, 보관기간(14일) 안에서 넉넉히
     if (!r.ok) return res.json({ success: false, error: r.error || r.reason || '조회 실패' })
     res.json({ success: true, list: r.list })
   } catch (e) {
@@ -26186,12 +26186,12 @@ app.listen(PORT, () => {
     console.log(`[메모리 진단] rss=${mb(m.rss)} heap=${mb(m.heapUsed)}/${mb(m.heapTotal)} external=${mb(m.external)} rooms=${Object.keys(rooms).length} sse=${sseClients.length}`)
   }, 10 * 60 * 1000)
 
-  // 🌐 Cloudflare R2로 30분마다 "전체" 데이터 백업 — djs.json 전체(축소 없음) +
+  // 🌐 Cloudflare R2로 2시간마다 "전체" 데이터 백업 (예전 30분 → 대역폭 요금 때문에 2시간 · 바뀐 게 없으면 건너뜀) — djs.json 전체(축소 없음) +
   // globalMonsterDex.json + sounds 볼륨 동기화. Base44 백업(5개 필드만)과는 별개로,
   // 서버 데이터를 통째로 복구할 수 있는 완전한 백업을 목적으로 한다.
   // R2 환경변수(R2_ACCOUNT_ID 등)가 없으면 r2Backup 모듈 안에서 자동으로 비활성화된다.
   setTimeout(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 90 * 1000)
-  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 30 * 60 * 1000)
+  setInterval(() => { r2Backup.backupAllToR2(store, SOUNDS_DIR) }, 2 * 60 * 60 * 1000)
 
   // 🧹 3일마다 R2에 쌓인 오래된 스냅샷 정리 (기본 14일 지난 것부터 삭제, R2_BACKUP_RETENTION_DAYS로 조절 가능)
   setTimeout(() => { r2Backup.cleanupOldSnapshots() }, 5 * 60 * 1000)
