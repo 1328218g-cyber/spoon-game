@@ -592,10 +592,20 @@ tokenManager.setOnRefreshEvent((djId, status, detail) => {
   logAdminError(djId, typeLabel, detail)
 })
 
+// 🧠 메모리 초과 원인 — 예전엔 모든 로그 한 줄(console.log)까지 접속한 모든 화면(대시보드·OBS 오버레이)에 보냈어요.
+//    폰이 잠들거나 느린 화면은 못 받은 게 서버 메모리에 계속 쌓여서(쓰기 버퍼) 결국 메모리 초과로 재시작됐어요.
+//  · 로그(debuglog)는 관리자(sum) 화면에만 보내요
+//  · 못 받은 게 1MB 넘게 밀린 화면은 끊어요 (브라우저가 알아서 다시 연결해요)
+const SSE_MAX_BACKLOG = 1024 * 1024
 function broadcast(data) {
   const msg = 'data: ' + JSON.stringify(data) + '\n\n'
+  const onlyDebug = data && data.type === 'debuglog'
   sseClients = sseClients.filter(c => !c.destroyed)
-  sseClients.forEach(c => c.write(msg))
+  for (const c of sseClients) {
+    if (onlyDebug && !c._debug) continue
+    if (c.writableLength > SSE_MAX_BACKLOG) { try { c.destroy() } catch (e) {} continue }
+    try { c.write(msg) } catch (e) {}
+  }
 }
 
 // 🎁 관리자 전용 — "모든 디제이"가 받은 선물을 한 화면에서 실시간으로 보기 위한 전역 로그.
@@ -26041,6 +26051,7 @@ app.get('/events', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
+  res._debug = !!(req.query && req.query.t && auth.verifyToken(String(req.query.t)) === 'sum') // 🔍 서버 로그 실시간 보기는 관리자 화면만
   sseClients.push(res)
   req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
 })

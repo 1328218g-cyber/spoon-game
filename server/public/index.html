@@ -20839,7 +20839,7 @@ function showToast(msg){
 let sseConnection=null;
 function startSSE(){
   if(sseConnection){ sseConnection.close(); sseConnection=null; } // ⚠️ 로그인/재접속마다 이전 연결을 안 끊으면 이벤트가 중복으로 찍힘
-  const es=new EventSource(SERVER+'/events');
+  const es=new EventSource(SERVER+'/events'+(djId===ADMIN_DJ_ID&&djToken?'?t='+encodeURIComponent(djToken):'')); // 관리자만 서버 로그(debuglog)를 받아요
   sseConnection=es;
   es.onmessage=(e)=>{
     const d=JSON.parse(e.data);
