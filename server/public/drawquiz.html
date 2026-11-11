@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>그림 퀴즈</title>
+<style>
+  :root { --bg: #eef6fd; --card: #fff; --line: #d6e6f5; --text: #1d2b3a; --sub: #6b7f93; --main: #2f8be6; --ok: #22a85a; --warn: #e08a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111a24; --card: #1a2633; --line: #2a3a4c; --text: #e7eef6; --sub: #93a6b9; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', sans-serif; display: flex; justify-content: center; padding: 14px 16px 24px; }
+  .box { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
+  h1 { font-size: 18px; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .state { font-size: 16px; font-weight: 700; line-height: 1.5; }
+  .state small { display: block; font-size: 13px; font-weight: 400; color: var(--sub); }
+  .time { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--main); min-width: 64px; text-align: right; }
+  .time.low { color: #e0445a; }
+  .slots { display: flex; gap: 6px; margin-top: 6px; }
+  .slots i { width: 26px; height: 30px; border-bottom: 3px solid var(--main); display: inline-block; }
+  .stage { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; font-size: 18px; font-weight: 700; color: #1d2b3a; background: rgba(255,255,255,.82); }
+  .veil.hide { display: none; }
+  .veil b { display: block; font-size: 34px; margin-top: 6px; color: var(--ok); }
+  .rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .rank li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .rank li:last-child { border-bottom: 0; }
+  .rank b { color: var(--main); }
+  .sub { color: var(--sub); font-size: 13px; line-height: 1.6; margin: 0; }
+  .off { text-align: center; padding: 40px 12px; color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>🎨 그림 퀴즈</h1>
+  <div class="card">
+    <div class="bar">
+      <div class="state" id="state">불러오는 중…</div>
+      <div class="time" id="time"></div>
+    </div>
+    <div class="slots" id="slots"></div>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="cv" width="1000" height="750" aria-label="DJ 가 그리는 그림"></canvas>
+    <div class="veil" id="veil">DJ 가 문제를 내면 여기에 그림이 그려져요</div>
+  </div>
+  <p class="sub">정답은 <b>방송 채팅</b>에 쳐주세요. 제일 먼저 맞힌 사람이 정답이에요. (띄어쓰기는 상관없어요)</p>
+  <div class="card">
+    <p class="sub" style="margin-bottom:6px">🏆 맞힌 횟수 순위</p>
+    <ul class="rank" id="rank"><li class="sub">아직 맞힌 사람이 없어요</li></ul>
+  </div>
+</div>
+<script>
+  const DJ = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] || '');
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  let epoch = 0, seq = 0, strokes = [], st = null, skew = 0;
+
+  // 그림 다시 그리기 (선 목록 전체)
+  function drawStroke(s) {
+    const p = s.p; if (!p || p.length < 2) return;
+    ctx.strokeStyle = s.c; ctx.fillStyle = s.c; ctx.lineWidth = s.w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (p.length === 2) { ctx.beginPath(); ctx.arc(p[0], p[1], s.w / 2, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+    for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+    ctx.stroke();
+  }
+  function redraw() { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1000, 750); for (const s of strokes) drawStroke(s); }
+  function apply(ops) {
+    let full = false;
+    for (const o of ops) {
+      if (o.t === 's') { strokes.push({ c: o.c, w: o.w, p: o.p.slice() }); }
+      else if (o.t === 'a') { const s = strokes[strokes.length - 1]; if (s) s.p.push(...o.p); }
+      else if (o.t === 'u') { strokes.pop(); full = true; }
+      else if (o.t === 'c') { strokes = []; full = true; }
+    }
+    redraw(); // (조각이 작아서 전체를 다시 그려도 가벼워요)
+  }
+
+  function render() {
+    if (!st) return;
+    if (!st.on) { $('state').innerHTML = '지금은 그림 퀴즈를 하고 있지 않아요'; $('time').textContent = ''; $('slots').innerHTML = ''; $('veil').className = 'veil'; $('veil').textContent = 'DJ 가 그림 퀴즈를 켜면 여기서 볼 수 있어요'; return; }
+    const v = $('veil');
+    if (st.state === 'playing') {
+      $('state').innerHTML = `그림을 보고 정답을 채팅에 쳐주세요${st.len ? `<small>${st.len}글자</small>` : ''}`;
+      $('slots').innerHTML = st.len ? '<i></i>'.repeat(Math.min(st.len, 15)) : '';
+      v.className = 'veil hide';
+    } else if (st.state === 'solved') {
+      $('state').innerHTML = `🎉 ${esc(st.winner && st.winner.nick)}님 정답!`;
+      $('slots').innerHTML = '';
+      v.className = 'veil'; v.innerHTML = `🎉 ${esc(st.winner && st.winner.nick)}님 정답!<b>${esc(st.answer)}</b>`;
+    } else if (st.state === 'timeout' || st.state === 'revealed') {
+      $('state').innerHTML = st.state === 'timeout' ? '⏰ 시간 끝!' : '정답 공개';
+      $('slots').innerHTML = '';
+      v.className = 'veil'; v.innerHTML = `정답은<b>${esc(st.answer)}</b>`;
+    } else {
+      $('state').innerHTML = '다음 문제를 기다리는 중…'; $('slots').innerHTML = '';
+      v.className = 'veil'; v.textContent = 'DJ 가 문제를 내면 여기에 그림이 그려져요';
+    }
+    const r = st.rank || [];
+    $('rank').innerHTML = r.length ? r.map((x, i) => `<li><span>${i + 1}. ${esc(x.nick)}</span><b>${x.n}번</b></li>`).join('') : '<li class="sub">아직 맞힌 사람이 없어요</li>';
+  }
+  function tick() {
+    if (!st || st.state !== 'playing' || !st.endsAt) { $('time').textContent = ''; return; }
+    const left = Math.max(0, Math.ceil((st.endsAt - (Date.now() + skew)) / 1000));
+    $('time').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    $('time').classList.toggle('low', left <= 10);
+  }
+  setInterval(tick, 250);
+
+  // 새 그림이 올 때까지 서버가 기다렸다 답해줘요 (끊기면 잠깐 쉬고 다시)
+  let first = true;
+  async function loop() {
+    for (;;) {
+      try {
+        const r = await fetch(`/drawquiz/${encodeURIComponent(DJ)}/state?epoch=${epoch}&seq=${seq}&wait=${first ? 0 : 1}`, { cache: 'no-store' });
+        const d = await r.json(); first = false;
+        if (d.now) skew = d.now - Date.now();
+        if (d.reset) { strokes = []; epoch = d.epoch; seq = 0; }
+        if (d.ops && d.ops.length) apply(d.ops); else if (d.reset) redraw();
+        if (typeof d.seq === 'number') seq = d.seq;
+        st = d; render(); tick();
+        if (!d.on) await new Promise((res) => setTimeout(res, 5000));
+      } catch (_) { await new Promise((res) => setTimeout(res, 2000)); }
+    }
+  }
+  redraw(); loop();
+</script>
+</body>
+</html>

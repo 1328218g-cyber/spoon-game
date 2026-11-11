@@ -1362,7 +1362,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -6368,7 +6368,7 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600, proxyDjId = n
   let address = DASH_RANK_PATH_MAP[type]
   fetchMonthlyRank.lastError = ''
   if (!address || !accessToken) { fetchMonthlyRank.lastError = '토큰 없음'; return [] }
-  let list = []
+  let list = []; const seen = new Set()
   try {
     while (list.length < maxCount && address) {
       const url = address.startsWith('http') ? address : `https://kr-api.spooncast.net${address}`
@@ -6380,8 +6380,12 @@ async function fetchMonthlyRank(type, accessToken, maxCount = 600, proxyDjId = n
       if (!res.ok) { if (!list.length) fetchMonthlyRank.lastError = `스푼 응답 ${res.status}`; break }
       const json = await res.json().catch(() => null)
       if (!json || !Array.isArray(json.results)) { if (!list.length) fetchMonthlyRank.lastError = '스푼 응답을 못 읽음'; break }
-      list = list.concat(json.results)
-      address = json.next || null
+      // (같은 쪽을 또 주면 600명처럼 보여도 앞쪽만 반복이라 뒤쪽 등수를 못 찾아요 → 이미 받은 사람은 빼고, 새 사람이 없으면 멈춰요)
+      let fresh = 0
+      for (const x of json.results) { const k = x && x.author ? String(x.author.id || x.author.tag || '') : ''; if (k && seen.has(k)) continue; if (k) seen.add(k); list.push(x); fresh++ }
+      const next = json.next || null
+      if (!fresh || next === address) { if (next) console.log(`[월간DJ랭킹] ${type} 스푼이 같은 쪽을 또 줘서 ${list.length}명에서 멈췄어요`); break }
+      address = next
     }
   } catch (e) { if (!list.length) fetchMonthlyRank.lastError = e.name === 'AbortError' ? '스푼 응답 시간 초과' : e.message }
   return list
@@ -6437,7 +6441,8 @@ function searchDashRank(tag) {
     if (idx !== -1) {
       found = true
       results.nickname = dashRankCache[type][idx].author.nickname
-      results.ranks[type] = idx + 1
+      const n = Number(dashRankCache[type][idx].rank)
+      results.ranks[type] = n > 0 && n < 100000 ? n : idx + 1 // (스푼이 순위를 같이 주면 그 순위로)
     }
   }
   if (!found) return { success: false, error: `이번 달 랭킹(초이스 ${dashRankCache.next_choice.length}명 · 좋아요 ${dashRankCache.free_like.length}명 · 방송시간 ${dashRankCache.live_time.length}명)에 @${tag} 이(가) 없어요. 고유닉이 맞는지 확인해주세요.` }
@@ -17929,6 +17934,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   room.streamName = streamName
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
+  try { const _s = store.getSettings(djId); if (djUserId && _s && String(_s.spoonUid || '') !== String(djUserId)) store.saveSettings(djId, { spoonUid: String(djUserId) }) } catch (_) {} // 🏦 충전금 — 초이스 DJ 확인용 스푼 번호
   room.djProfileUrl = djProfileUrl || '' // 🎁 선물카드 갤러리에서 "디제이 프로필"로 쓸 이 방송 DJ 본인 프로필사진
   room.liveId = liveId // liveId가 필요한 다른 작업들에서 사용
   if (isNewLiveSession) { room.mailbox = null; room.poll = null } // 📮📊 새 방송이면 지난 방송 편지함·투표는 잊기
@@ -18248,6 +18254,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleSwordCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
+          handleDrawQuizChat(djId, room, author, authorId, text, actTag)
           handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleChatHook(djId, settings, actTag)
           handleIdleMissionHook(djId, settings, actTag, 'word', text)
@@ -25037,6 +25044,53 @@ app.get('/tower/:djId', (req, res) => {
 
 // 🎮 리버시 게임 페이지 (로그인 불필요) — 인증은 몬스터 웹 도감의 /monsterdex/:djId/register,
 // /monsterdex/:djId/data를 그대로 재사용하고, 실제 대국 API만 /monsterdex/:djId/reversi/*로 따로 둔다.
+// 🏦 충전금 — 공식 에디냥이 카카오뱅크 입금 알림을 받아서, 입금 코드가 6xxxxx 면 여기 /api/bank/credit 로 넘겨줘요
+const bankRemote = require('./bankRemote')({
+  name: '비공식 에디냥', prefix: '6',
+  ids: () => store.listDjIds(),
+  get: (id) => store.getSettings(id),
+  save: (id) => { store.saveSettings(id, {}) },
+  expiryOf: (id) => { const s = store.getSettings(id); const t = s && s.expiresAt ? new Date(s.expiresAt).getTime() : 0; return t || 0 },
+  extend: (id, days) => { const s = store.getSettings(id) || {}; const base = Math.max(Date.now(), new Date(s.expiresAt || 0).getTime() || 0); store.saveSettings(id, { expiresAt: new Date(base + days * 86400e3).toISOString() }) },
+  unlimited: (id) => id === 'sum',
+  tagOf: (id) => { const s = store.getSettings(id) || {}; return String(s.autoJoinTag || (s.autoJoinTags || [])[0] || '').replace(/^@/, '') },
+  discord: (msg) => {
+    const url = process.env.PAY_WEBHOOK || ((store.getSettings('sum') || {}).bankWebhook || '')
+    if (!/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(url)) return
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: msg }) }).catch(() => {})
+  },
+  getKey: () => (store.getSettings('sum') || {}).bankKey || '',
+  setKey: (k) => { store.saveSettings('sum', { bankKey: k }) },
+})
+app.post('/api/bank/credit', express.json(), bankRemote.creditRoute)
+app.get('/bank/wallet', auth.requireAuth, (req, res) => res.json({ success: true, ...bankRemote.mine(req.djId) }))
+const bankAdmin = (req, res, next) => (req.djId === 'sum' ? next() : res.status(403).json({ success: false, error: '권한이 없어요' }))
+app.get('/admin/bank', auth.requireAuth, bankAdmin, (req, res) => res.json({ success: true, ...bankRemote.adminList(), webhook: (store.getSettings('sum') || {}).bankWebhook || '' }))
+app.post('/admin/bank/key', auth.requireAuth, bankAdmin, express.json(), (req, res) => res.json({ success: true, key: bankRemote.setKey(req.body && req.body.key) }))
+app.post('/admin/bank/plan', auth.requireAuth, bankAdmin, express.json(), (req, res) => { const p = bankRemote.adminPlan(String(req.body.id || ''), String(req.body.plan || '')); res.json(p ? { success: true, plan: p } : { success: false, error: '없는 DJ' }) })
+app.post('/admin/bank/wallet', auth.requireAuth, bankAdmin, express.json(), (req, res) => {
+  const id = String(req.body.id || ''); const d = Math.round(Number(req.body.delta) || 0)
+  if (d > 0) { const c = bankRemote.credit(id, d, '관리자 지급'); return res.json(c ? { success: true, wallet: c.wallet, renewed: c.renewed } : { success: false, error: '없는 DJ' }) }
+  const w = bankRemote.adminWallet(id, d); res.json(w == null ? { success: false, error: '없는 DJ' } : { success: true, wallet: w })
+})
+app.post('/admin/bank/webhook', auth.requireAuth, bankAdmin, express.json(), (req, res) => { store.saveSettings('sum', { bankWebhook: String(req.body.url || '').trim() }); res.json({ success: true }) })
+app.get('/admin/bank/spoon/:id', auth.requireAuth, bankAdmin, async (req, res) => { const raw = {}; await bankRemote.detectChoice(req.params.id, true, raw); res.json({ success: !raw.error, error: raw.error, ...raw }) })
+
+// 🎨 그림 퀴즈 — DJ 가 대시보드에서 그리면 시청자는 /drawquiz/:djId 에서 실시간으로 보고, 방송 채팅에 정답을 쳐요 (에디냥과 같은 모듈)
+const drawQuiz = require('./drawquiz')({
+  app, requireAuth: auth.requireAuth, publicUrl: '',
+  say: (djId, msg) => { sendChatToRoom(djId, msg).catch(() => {}) },
+  store: {
+    mods: (djId) => ({ drawquiz: isModuleOn(store.getSettings(djId) || {}, 'drawquiz', djId) }),
+    settings: (djId) => store.getSettings(djId) || {},
+    save: (djId) => { const s = store.getSettings(djId); if (s && s.drawquiz) store.saveSettings(djId, { drawquiz: s.drawquiz }) },
+    exists: (djId) => !!store.getSettings(djId),
+  },
+})
+function handleDrawQuizChat(djId, room, author, authorId, text, actTag) {
+  const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
+  try { drawQuiz.onChat(djId, { isDj }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[그림퀴즈]', e.message) }
+}
 app.get('/reversi/:djId', (req, res) => {
   res.sendFile(__dirname + '/public/reversi.html')
 })

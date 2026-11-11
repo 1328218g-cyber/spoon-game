@@ -204,6 +204,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .expiry-banner .eb-right .eb-date{font-size:13px;font-weight:700;margin-top:2px;white-space:nowrap}
 .expiry-banner .eb-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.28)}
 .expiry-banner .eb-progress-fill{height:100%;background:#fff;transition:width .3s}
+.btn-charge{background:linear-gradient(135deg,#16a34a,#0d9488)!important;color:#fff!important;border-color:rgba(255,255,255,.25)!important}
+.chg-amts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:4px}
+.chg-amts button{padding:10px 0;border-radius:10px;background:rgba(255,255,255,.08);color:#e7e5ff;font-weight:700;font-size:13px;border:1px solid rgba(255,255,255,.12)}
+.chg-amts button.on{background:#f59e0b;color:#1e1b4b;border-color:#f59e0b}
+.chg-code{display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 0 2px}
+.chg-code b{font-size:34px;letter-spacing:6px;color:#fcd34d;font-variant-numeric:tabular-nums}
+.paid-modal-box .chg-copy{margin-left:6px;padding:3px 9px;border-radius:7px;background:rgba(255,255,255,.14);color:#fff;font-size:12px;font-weight:600;border:0;cursor:pointer}
+@media (max-width:380px){.chg-amts{grid-template-columns:repeat(3,1fr)}}
 .btn-paid-upgrade{flex-shrink:0;display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#4c1d95,#1e1b4b);color:#fbbf24;border:1px solid rgba(251,191,36,.45);padding:0 20px;border-radius:14px;font-size:13.5px;font-weight:700;white-space:nowrap;box-shadow:0 6px 16px rgba(76,29,149,.35)}
 @media (max-width:860px){ .expiry-row{margin:12px 16px 0;flex-direction:column} .expiry-banner{padding:12px 16px 14px} .btn-paid-upgrade{padding:12px} }
 
@@ -847,6 +855,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -865,7 +874,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
       <button id="chatBcastShortcut" class="btn-connect" style="display:none;width:auto;padding:6px 14px;font-size:12.5px;white-space:nowrap;border-radius:20px;flex-shrink:0" onclick="bcFloatOpen()" title="방송하기를 팝업으로 열기 (에디냥 PC)">🎙️ 방송하기</button>
       <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="다크모드 전환">🌙</button>
       <button class="theme-toggle-btn" onclick="openCommandsModal()" title="전체 명령어 보기">📋</button>
-      <div class="dj-tag">👤 <span id="djIdLabel"></span><button class="btn-paid-upgrade" onclick="openPaidInfoModal()">💎 유료신청</button><button onclick="openAnnouncementHistory()">🔔 업데이트</button><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
+      <div class="dj-tag">👤 <span id="djIdLabel"></span><button class="btn-paid-upgrade" onclick="openPaidInfoModal()">💎 유료신청</button><button class="btn-paid-upgrade btn-charge" onclick="openChargeModal()">💰 충전</button><button onclick="openAnnouncementHistory()">🔔 업데이트</button><button onclick="openTutorial()">❓ 튜토리얼</button><button onclick="openMyInfoModal()">내정보</button><button onclick="logout()">로그아웃</button></div>
     </div>
 
     <div id="statusServiceBanner" style="display:none;align-items:center;gap:10px;padding:9px 16px;font-size:13px;font-weight:600">
@@ -2286,6 +2295,15 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <div class="panel" data-panel="userlistonly">
+        <div class="card" id="bankCard">
+          <div class="card-title"><span>🏦 충전금 (입금 자동 충전)</span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadBankAdmin()">🔄 새로고침</button></div>
+          <p class="hint" style="margin-top:0">입금 알림은 공식 에디냥이 받아요. 입금 코드가 <b>6</b>으로 시작하면 여기로 넘겨줘요.<br>공식 에디냥 관리자 → 🏦 입금 확인 → 🔀 다른 서버 연결에서 <b>연결 키</b>를 복사해 아래에 붙여넣고, 그쪽 <b>비공식 에디냥</b> 칸엔 아래 주소를 넣어주세요.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><span class="hint" style="margin:0;min-width:64px">주소</span><code id="bankUrl" style="word-break:break-all"></code><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="chgCopy(document.getElementById('bankUrl').textContent,'주소 복사했어요 ✓')">복사</button></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span class="hint" style="margin:0;min-width:64px">연결 키</span><input type="text" id="bankKey" placeholder="공식 에디냥 연결 키 붙여넣기" style="max-width:320px"><button class="btn-gray" style="padding:9px 14px" onclick="bankSaveKey()">저장</button><span class="hint" id="bankKeyState" style="margin:0"></span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><input type="text" id="bankWebhook" placeholder="디스코드 웹후크 (충전·연장 알림 · 선택)" style="max-width:420px"><button class="btn-gray" style="padding:9px 14px" onclick="bankSaveWebhook()">저장</button></div>
+          <div id="bankSpoonRes" style="margin-bottom:10px"></div>
+          <div id="bankWallets"><p class="hint">불러오는 중...</p></div>
+        </div>
         <div class="card">
           <div class="card-title"><span>👥 가입 유저 목록 <span class="hint" id="userListConnectedCount" style="margin:0 0 0 6px"></span></span><button class="btn-gray" style="padding:6px 14px;font-size:12px" onclick="loadUserList()">🔄 새로고침</button></div>
           <p class="hint" style="margin-top:0">위 "다중감시 자동정리 기준일수" 설정(유저 관리 패널)에 따라 오래 미접속한 계정의 등록 태그가 자동으로 초기화돼요.</p>
@@ -5622,6 +5640,45 @@ if (window.bcast) setTimeout(() => {
         </div>
       </div>
 
+      <!-- 🎨 그림 퀴즈 -->
+      <div class="panel" data-panel="drawquiz">
+        <div class="card">
+          <div class="card-title"><span>🎨 그리기</span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dqCopyLink()">📋 링크 복사</button><a class="btn-gray" id="dqView" target="_blank" rel="noopener" style="padding:6px 12px;font-size:12px;text-decoration:none">👀 시청자 화면 열기</a></span></div>
+          <p class="hint" style="margin-bottom:8px">아래에 그림을 그리면 시청자 화면에 바로 그려져요. 시청자는 방송 채팅에 정답을 쳐요. 문제를 시작하면 시청자 화면 주소가 채팅에 같이 나가요.</p>
+          <div id="dqWord" style="font-size:15px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+            <button class="btn-connect" style="padding:6px 14px;font-size:13px" onclick="dqStart()">▶ 문제 시작</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="dqReveal()">👁 정답 공개</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="dqStop()">⏹ 끝내기</button>
+            <input type="text" id="dqCustom" maxlength="30" placeholder="직접 문제 (비우면 목록에서 랜덤)" style="flex:1;min-width:160px;margin:0">
+          </div>
+          <div id="dqTools" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center"></div>
+          <div style="position:relative;width:100%;max-width:100%;aspect-ratio:4/3;background:#fff;border:1px solid var(--border, #ddd);border-radius:12px;overflow:hidden">
+            <canvas id="dqCv" width="1000" height="750" style="position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair"></canvas>
+          </div>
+          <div id="dqMsg" class="hint" style="margin-top:6px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⚙️ 그림 퀴즈 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="dqSave()">💾 저장</button></div>
+          <label>문제 (한 줄에 하나 · 최대 500개)</label>
+          <textarea id="dqWords" rows="6" placeholder="사과&#10;고양이&#10;눈사람"></textarea>
+          <label>문제당 시간 (초)</label>
+          <input type="number" id="dqTime" min="10" max="900" style="max-width:120px">
+          <label class="check-opt"><input type="checkbox" id="dqHint"> 시청자 화면에 글자 수 보여주기</label>
+          <label>시작 메시지</label>
+          <textarea id="dqMsgStart" rows="2" maxlength="300"></textarea>
+          <label>정답 메시지</label>
+          <input type="text" id="dqMsgCorrect" maxlength="300">
+          <label>시간 끝·정답 공개 메시지</label>
+          <input type="text" id="dqMsgTimeout" maxlength="300">
+          <div class="hint" style="margin-top:10px">변수: {len} 글자 수, {time} 시간(초), {url} 시청자 화면 주소, {nickname} 맞힌 사람, {answer} 정답, {count} 맞힌 횟수</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🏆 맞힌 횟수 순위</span><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dqResetRank(this)">초기화</button></div>
+          <div id="dqRank" style="font-size:14px;line-height:1.8"></div>
+        </div>
+      </div>
+
       <!-- 스티커 선택 모달 (선물캡처판 테스트 전용) -->
       <div id="gcTestStickerModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGcTestStickerPicker()">
         <div class="sticker-modal-box">
@@ -6269,6 +6326,32 @@ if (window.bcast) setTimeout(() => {
 </div>
 
 <!-- 💎 유료 전환 안내 -->
+<div id="chargeModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeChargeModal()">
+  <div class="paid-modal-box">
+    <button class="paid-modal-close" onclick="closeChargeModal()">✕</button>
+    <div class="paid-modal-title">💰 충전하기</div>
+    <div class="paid-modal-sub">충전금은 이용 기간이 끝나는 날 자동으로 빠지고 30일이 늘어나요</div>
+    <div class="paid-info-box">
+      <div class="paid-info-title">① 충전 금액 고르기</div>
+      <div class="chg-amts" id="chgAmts"></div>
+      <div class="paid-info-row" style="margin-top:6px"><span>지금 충전금</span><b id="chgWallet">0원</b></div>
+      <div class="paid-info-row"><span>충전 후</span><b class="accent" id="chgAfter">-</b></div>
+      <div class="paid-info-row"><span>내 요금제</span><b id="chgPlan">-</b></div>
+    </div>
+    <div class="paid-info-box">
+      <div class="paid-info-title">② 이 계좌로 입금</div>
+      <div class="paid-info-row"><span>은행</span><b>카카오뱅크</b></div>
+      <div class="paid-info-row"><span>계좌번호</span><b class="accent">3333-04-3748031 <button type="button" class="chg-copy" onclick="chgCopy('3333043748031','계좌번호 복사했어요 ✓')">복사</button></b></div>
+      <div class="paid-info-row"><span>예금주</span><b>황용철</b></div>
+      <div class="paid-info-row"><span>입금할 금액</span><b class="accent" id="chgAmtText">10,000원</b></div>
+    </div>
+    <div class="paid-info-box">
+      <div class="paid-info-title">③ 입금자명에 내 입금 코드</div>
+      <div class="chg-code"><b id="chgCode">------</b><button type="button" class="chg-copy" onclick="chgCopy(document.getElementById('chgCode').textContent,'입금 코드 복사했어요 ✓')">복사</button></div>
+      <div class="paid-ref-note" style="margin-top:6px;line-height:1.6">입금자명에 이름 대신 이 숫자만 적어주세요. 입금되면 1~2분 안에 자동으로 충전돼요.<br>이용 기간이 끝났거나 3일 안 남았으면 충전되자마자 바로 30일이 늘어나요.</div>
+    </div>
+  </div>
+</div>
 <div id="paidInfoModalOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closePaidInfoModal()">
   <div class="paid-modal-box">
     <button class="paid-modal-close" onclick="closePaidInfoModal()">✕</button>
@@ -6299,7 +6382,8 @@ if (window.bcast) setTimeout(() => {
       <div class="paid-info-row"><span>은행</span><b>카카오뱅크</b></div>
       <div class="paid-info-row"><span>계좌번호</span><b class="accent">3333-04-3748031</b></div>
       <div class="paid-info-row"><span>예금주</span><b>황용철</b></div>
-      <div class="paid-info-warn">⚠️ 입금시 입금자명에 방송 DJ 고유닉을 입력해주세요<br>예) 입금자명: sum</div>
+      <div class="paid-info-row"><span>입금 코드</span><b class="accent"><span id="paidDepositCode">------</span> <button type="button" class="chg-copy" onclick="chgCopy(document.getElementById('paidDepositCode').textContent,'입금 코드 복사했어요 ✓')">복사</button></b></div>
+      <div class="paid-info-warn">⚠️ 입금자명에 이름 대신 위 입금 코드(숫자)만 적어주세요<br>입금되면 자동으로 충전되고 이용 기간이 늘어나요 (💰 충전 버튼)</div>
     </div>
 
     <a class="paid-kakao-btn" href="https://pf.kakao.com/_CxhZxjX" target="_blank" rel="noopener noreferrer">💬 카카오톡 채널로 문의하기</a>
@@ -6847,7 +6931,30 @@ function persistAuth(){
 
 function openPaidInfoModal(){
   document.getElementById('paidInfoModalOverlay').style.display='flex';
+  loadWallet().then(w=>{ if(w) document.getElementById('paidDepositCode').textContent=w.code||'------'; });
 }
+/* ── 💰 충전 — 금액(1만~5만) · 입금 계좌 · 내 입금 코드 ── */
+const CHG={amt:10000,wallet:0};
+async function loadWallet(){
+  try{ const r=await fetch(SERVER+'/bank/wallet',{headers:authHeaders()}); const d=await r.json(); if(!d.success) throw new Error(d.error||'불러오기 실패'); return d; }
+  catch(e){ showToast(e.message); return null; }
+}
+function chgRender(){
+  const box=document.getElementById('chgAmts');
+  box.innerHTML=[10000,20000,30000,40000,50000].map(n=>`<button type="button" data-n="${n}" class="${CHG.amt===n?'on':''}">${n/10000}만원</button>`).join('');
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{CHG.amt=Number(b.dataset.n);chgRender();});
+  document.getElementById('chgAmtText').textContent=CHG.amt.toLocaleString()+'원';
+  document.getElementById('chgWallet').textContent=CHG.wallet.toLocaleString()+'원';
+  document.getElementById('chgAfter').textContent=(CHG.wallet+CHG.amt).toLocaleString()+'원';
+}
+async function openChargeModal(){
+  document.getElementById('chargeModalOverlay').style.display='flex'; chgRender();
+  const w=await loadWallet(); if(!w) return;
+  CHG.wallet=w.wallet||0; document.getElementById('chgCode').textContent=w.code||'------';
+  document.getElementById('chgPlan').textContent=`${w.planName} ${Number(w.fee).toLocaleString()}원 / ${w.days}일`; chgRender();
+}
+function closeChargeModal(){ document.getElementById('chargeModalOverlay').style.display='none'; }
+async function chgCopy(t,msg){ try{ await navigator.clipboard.writeText(t); showToast(msg); }catch(_){ showToast(t); } }
 function closePaidInfoModal(){
   document.getElementById('paidInfoModalOverlay').style.display='none';
 }
@@ -7092,6 +7199,7 @@ const PANEL_META={
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
+  drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
@@ -7139,10 +7247,11 @@ function selectPanel(name){
   if(name==='referral'&&document.getElementById('referralLinkInput'))loadReferralPanel();
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
   if(name==='debuglog'&&document.getElementById('focusLogListWrap'))loadFocusLog();
+  if(name==='drawquiz'&&document.getElementById('dqCv'))loadDrawQuiz();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadAutoLikeConfig(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); loadAdminRecentGifts(); }
-  if(name==='userlistonly') loadUserList();
+  if(name==='userlistonly'){ loadUserList(); loadBankAdmin(); }
   if(name==='entrysettings'&&document.getElementById('tempMsList'))loadTempMilestone();
   if((name==='entrysettings'||name==='dashboard')&&document.querySelector('.away-mode-btn'))loadAwayModeSettings(name==='entrysettings');
   if(name==='entrysettings'&&document.getElementById('preferredTokenDjIdSelect'))loadPreferredTokenDjId();
@@ -7259,7 +7368,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7274,7 +7383,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -7291,7 +7400,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -9831,6 +9940,35 @@ async function saveAutoJoinCleanupDays(){
 let adminUserListData=[];
 let selectedExpiryDjIds=new Set();
 let expirySoonPopupShown=false;
+/* ── 🏦 충전금 관리 (sum) ── */
+async function bankApi(method,path,body){
+  const r=await fetch(SERVER+path,{method,headers:{'Content-Type':'application/json',...authHeaders()},body:body?JSON.stringify(body):undefined});
+  const d=await r.json(); if(!d.success) throw new Error(d.error||'실패'); return d;
+}
+async function loadBankAdmin(){
+  const wrap=document.getElementById('bankWallets'); if(!wrap) return;
+  try{
+    const d=await bankApi('GET','/admin/bank');
+    document.getElementById('bankUrl').textContent=SERVER;
+    if(document.activeElement!==document.getElementById('bankKey')) document.getElementById('bankKey').value=d.key||'';
+    document.getElementById('bankKeyState').textContent=d.key?'✅ 연결됨':'⚠️ 아직 안 넣었어요';
+    document.getElementById('bankWebhook').value=d.webhook||'';
+    if(!d.wallets.length){ wrap.innerHTML='<p class="hint">아직 입금 코드를 받은 DJ 가 없어요 (DJ 가 💰 충전 버튼을 누르면 코드가 생겨요)</p>'; return; }
+    const PN={normal:'일반 1만',choice:'Choice 2만'};
+    wrap.innerHTML=`<div style="overflow-x:auto"><table class="user-table" style="width:100%"><thead><tr><th>DJ</th><th>입금 코드</th><th>충전금</th><th>요금제</th><th>만료일</th><th>조정</th></tr></thead><tbody>${d.wallets.map(w=>`<tr>
+      <td>${escapeHtml(w.id)}</td><td><b>${w.code}</b></td><td>${w.wallet.toLocaleString()}원</td>
+      <td><select onchange="bankPlan('${escapeHtml(w.id)}',this.value)"><option value="" ${!w.force?'selected':''}>자동 (${w.spoon===null?'확인 전':escapeHtml(w.tier||'일반')+' → '+(w.spoon?'2만':'1만')})</option><option value="normal" ${w.force==='normal'?'selected':''}>${PN.normal} 고정</option><option value="choice" ${w.force==='choice'?'selected':''}>${PN.choice} 고정</option></select>
+        <button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="bankSpoon('${escapeHtml(w.id)}')">🔍 스푼 확인</button></td>
+      <td>${w.exp?new Date(w.exp).toLocaleString('ko-KR'):'무제한'}</td>
+      <td><input type="number" id="bankAdj_${escapeHtml(w.id)}" placeholder="+10000 / -10000" style="width:120px"><button class="btn-gray" style="padding:4px 8px;font-size:11px" onclick="bankAdj('${escapeHtml(w.id)}')">적용</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  }catch(e){ wrap.innerHTML='<p class="hint">오류: '+escapeHtml(e.message)+'</p>'; }
+}
+async function bankSaveKey(){ try{ await bankApi('POST','/admin/bank/key',{key:document.getElementById('bankKey').value}); showToast('연결 키 저장했어요 ✓'); loadBankAdmin(); }catch(e){ showToast(e.message); } }
+async function bankSaveWebhook(){ try{ await bankApi('POST','/admin/bank/webhook',{url:document.getElementById('bankWebhook').value}); showToast('저장했어요 ✓'); }catch(e){ showToast(e.message); } }
+async function bankPlan(id,plan){ try{ await bankApi('POST','/admin/bank/plan',{id,plan}); showToast('요금제 바꿨어요 ✓'); loadBankAdmin(); }catch(e){ showToast(e.message); } }
+async function bankAdj(id){ const el=document.getElementById('bankAdj_'+id); const delta=Number(el&&el.value); if(!delta) return showToast('금액을 적어주세요'); try{ const d=await bankApi('POST','/admin/bank/wallet',{id,delta}); showToast(`충전금 ${d.wallet.toLocaleString()}원${d.renewed?' · 30일 연장됨':''}`); loadBankAdmin(); }catch(e){ showToast(e.message); } }
+async function bankSpoon(id){ const box=document.getElementById('bankSpoonRes'); try{ const d=await bankApi('GET','/admin/bank/spoon/'+encodeURIComponent(id)); box.innerHTML=`<b>${escapeHtml(id)}</b> (@${escapeHtml(d.tag||'')}) → 스푼 등급 <b>${escapeHtml(d.tier||'일반')}</b> → <b>${d.choice?'2만원':'1만원'}</b><pre style="white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;font-size:11px;margin:6px 0 0">${escapeHtml(JSON.stringify({search:d.search,profile:d.profile},null,1).slice(0,6000))}</pre>`; loadBankAdmin(); }catch(e){ box.innerHTML='<span class="hint">'+escapeHtml(e.message)+'</span>'; } }
 async function loadUserList(){
   loadDefaultTrialDays();
   loadAutoJoinCleanupDays();
@@ -20598,6 +20736,100 @@ function uiPrompt(message,def){
     inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();done(inp.value)}else if(e.key==='Escape'){e.preventDefault();done(null)}});
     document.body.appendChild(ov);setTimeout(()=>{inp.focus();inp.select()},30);
   });
+}
+// ───── 🎨 그림 퀴즈 ─────
+//  좌표는 1000×750 기준 · 선을 그리는 동안 조각을 모아서 0.1초마다 서버에 보내요
+const DQ={color:'#222222',size:8,erase:false,queue:[],cur:null,strokes:[],timer:null,busy:false,poll:null,url:''};
+const DQ_COLORS=['#222222','#e0445a','#ff8a00','#f5c400','#22a85a','#2f8be6','#7a4ee0','#8b5a2b','#ff7eb6','#9aa4ad'];
+const dqEsc=(t)=>String(t==null?'':t).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function dqApi(method,path,body){
+  const r=await fetch(SERVER+path,{method,headers:{'Content-Type':'application/json',...authHeaders()},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||('오류 '+r.status));
+  return d;
+}
+function dqCtx(){return document.getElementById('dqCv').getContext('2d');}
+function dqStroke(ctx,s){
+  const p=s.p; if(!p||p.length<2) return;
+  ctx.strokeStyle=s.c; ctx.fillStyle=s.c; ctx.lineWidth=s.w; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(p.length===2){ctx.beginPath();ctx.arc(p[0],p[1],s.w/2,0,Math.PI*2);ctx.fill();return;}
+  ctx.beginPath();ctx.moveTo(p[0],p[1]);for(let i=2;i<p.length;i+=2)ctx.lineTo(p[i],p[i+1]);ctx.stroke();
+}
+function dqRedraw(){const c=dqCtx();c.fillStyle='#fff';c.fillRect(0,0,1000,750);for(const s of DQ.strokes)dqStroke(c,s);}
+function dqSend(op){ if(op) DQ.queue.push(op); if(!DQ.timer&&!DQ.busy) DQ.timer=setTimeout(dqFlush,100); }
+async function dqFlush(){
+  DQ.timer=null; const ops=DQ.queue.splice(0,200); if(!ops.length) return;
+  DQ.busy=true; // (한 번에 하나씩 보내야 순서가 안 꼬여요)
+  try{ const r=await dqApi('POST','/api/drawquiz/draw',{ops}); document.getElementById('dqMsg').textContent=r.full?'⚠️ 그림이 너무 많아요 — 🗑 전부 지우기 후 다시 그려주세요':''; }catch(e){ document.getElementById('dqMsg').textContent='그림 전송 실패: '+e.message; }
+  DQ.busy=false; if(DQ.queue.length) dqSend();
+}
+function dqTools(){
+  const el=document.getElementById('dqTools');
+  el.innerHTML=DQ_COLORS.map((c)=>`<button type="button" class="dqc" data-c="${c}" aria-label="색 ${c}" style="width:28px;height:28px;border-radius:50%;border:${!DQ.erase&&DQ.color===c?'3px solid #2f8be6':'2px solid #d6e6f5'};background:${c};cursor:pointer;padding:0"></button>`).join('')
+    +`<select id="dqSize" style="max-width:110px;margin:0">${[3,8,16,30,60].map((n)=>`<option value="${n}" ${DQ.size===n?'selected':''}>굵기 ${n}</option>`).join('')}</select>`
+    +`<button type="button" class="btn-gray" id="dqErase" style="padding:6px 12px;font-size:13px;${DQ.erase?'outline:2px solid #2f8be6':''}">🧽 지우개</button><button type="button" class="btn-gray" id="dqUndo" style="padding:6px 12px;font-size:13px">↩ 되돌리기</button><button type="button" class="btn-gray" id="dqClear" style="padding:6px 12px;font-size:13px">🗑 전부 지우기</button>`;
+  el.querySelectorAll('.dqc').forEach((b)=>b.onclick=()=>{DQ.color=b.dataset.c;DQ.erase=false;dqTools();});
+  document.getElementById('dqSize').onchange=(e)=>{DQ.size=Number(e.target.value)||8;};
+  document.getElementById('dqErase').onclick=()=>{DQ.erase=!DQ.erase;dqTools();};
+  document.getElementById('dqUndo').onclick=()=>{if(!DQ.strokes.length)return;DQ.strokes.pop();dqRedraw();dqSend({t:'u'});};
+  document.getElementById('dqClear').onclick=()=>{DQ.strokes=[];dqRedraw();dqSend({t:'c'});};
+}
+(function dqBind(){
+  const cv=document.getElementById('dqCv'); if(!cv) return;
+  const pos=(e)=>{const r=cv.getBoundingClientRect();return [Math.round((e.clientX-r.left)/r.width*1000),Math.round((e.clientY-r.top)/r.height*750)];};
+  cv.addEventListener('pointerdown',(e)=>{
+    e.preventDefault(); try{cv.setPointerCapture(e.pointerId);}catch(_){}
+    const p=pos(e); const s={c:DQ.erase?'#ffffff':DQ.color,w:DQ.erase?Math.max(20,DQ.size*2):DQ.size,p:p.slice()};
+    DQ.cur=s; DQ.strokes.push(s); dqStroke(dqCtx(),s); dqSend({t:'s',c:s.c,w:s.w,p});
+  });
+  cv.addEventListener('pointermove',(e)=>{
+    if(!DQ.cur) return; e.preventDefault();
+    const p=pos(e); const s=DQ.cur; const L=s.p.length;
+    if(Math.abs(p[0]-s.p[L-2])+Math.abs(p[1]-s.p[L-1])<3) return;
+    const c=dqCtx(); c.strokeStyle=s.c; c.lineWidth=s.w; c.lineCap='round'; c.lineJoin='round';
+    c.beginPath(); c.moveTo(s.p[L-2],s.p[L-1]); c.lineTo(p[0],p[1]); c.stroke(); s.p.push(p[0],p[1]);
+    const last=DQ.queue[DQ.queue.length-1];
+    if(last&&(last.t==='a'||last.t==='s')&&last.p.length<1800){last.p.push(p[0],p[1]);dqSend();} else dqSend({t:'a',p});
+  });
+  const end=()=>{DQ.cur=null;};
+  cv.addEventListener('pointerup',end); cv.addEventListener('pointercancel',end); cv.addEventListener('pointerleave',end);
+})();
+function dqShow(d){
+  const s=d.status||{};
+  const map={idle:'문제 없음',playing:'진행 중',solved:'정답 나옴',timeout:'시간 끝',revealed:'정답 공개'};
+  const left=s.state==='playing'&&s.endsAt?Math.max(0,Math.ceil((s.endsAt-s.now)/1000)):0;
+  document.getElementById('dqWord').innerHTML=s.word?`지금 문제: <b>${dqEsc(s.word)}</b> · ${map[s.state]||''}${left?` · 남은 ${left}초`:''}${s.winner&&s.state==='solved'?` · 🎉 ${dqEsc(s.winner.nick)}님 정답`:''}`:'<span class="hint">▶ 문제 시작을 누르면 목록에서 하나를 골라 채팅에 알려줘요</span>';
+  const r=s.rank||[];
+  document.getElementById('dqRank').innerHTML=r.length?r.map((x,i)=>`${i+1}. ${dqEsc(x.nick)} — <b>${x.n}번</b>`).join('<br>'):'<span class="hint">아직 맞힌 사람이 없어요</span>';
+}
+async function dqRefresh(){ try{ dqShow(await dqApi('GET','/api/drawquiz')); }catch(_){} }
+async function loadDrawQuiz(){
+  let d; try{ d=await dqApi('GET','/api/drawquiz'); }catch(e){ return showToast(e.message); }
+  const c=d.settings;
+  document.getElementById('dqWords').value=(c.words||[]).join('\n'); document.getElementById('dqTime').value=c.time; document.getElementById('dqHint').checked=!!c.hint;
+  document.getElementById('dqMsgStart').value=c.msgStart; document.getElementById('dqMsgCorrect').value=c.msgCorrect; document.getElementById('dqMsgTimeout').value=c.msgTimeout;
+  DQ.url=d.url||(location.origin+'/drawquiz/'+encodeURIComponent(djId)); document.getElementById('dqView').href=DQ.url;
+  document.getElementById('dqMsg').textContent=d.moduleOn?'':'⚠️ 사이드바에서 🎨 그림 퀴즈를 ON 으로 켜야 시청자 화면이 보여요';
+  dqTools(); dqShow(d);
+  if(!DQ.strokes.length) dqRedraw();
+  clearInterval(DQ.poll); DQ.poll=setInterval(()=>{ const pn=document.querySelector('.panel[data-panel="drawquiz"]'); if(pn&&pn.offsetParent!==null) dqRefresh(); },2000);
+}
+async function dqAct(path,body){ try{ return await dqApi('POST',path,body||{}); }catch(e){ showToast(e.message); return null; } }
+async function dqStart(){ const r=await dqAct('/api/drawquiz/start',{word:document.getElementById('dqCustom').value}); if(r){ document.getElementById('dqCustom').value=''; DQ.strokes=[]; DQ.queue=[]; dqRedraw(); showToast('문제: '+r.word); dqRefresh(); } }
+async function dqReveal(){ if(await dqAct('/api/drawquiz/reveal')) dqRefresh(); }
+async function dqStop(){ if(await dqAct('/api/drawquiz/stop')){ DQ.strokes=[]; DQ.queue=[]; dqRedraw(); dqRefresh(); } }
+async function dqResetRank(btn){
+  if(btn.dataset.sure!=='1'){ btn.dataset.sure='1'; btn.textContent='한 번 더 누르면 초기화'; setTimeout(()=>{btn.dataset.sure='';btn.textContent='초기화';},3000); return; }
+  btn.dataset.sure=''; btn.textContent='초기화';
+  if(await dqAct('/api/drawquiz/reset-rank')) dqRefresh();
+}
+async function dqSave(){
+  try{ await dqApi('PUT','/api/drawquiz',{words:document.getElementById('dqWords').value.split('\n'),time:document.getElementById('dqTime').value,hint:document.getElementById('dqHint').checked,msgStart:document.getElementById('dqMsgStart').value,msgCorrect:document.getElementById('dqMsgCorrect').value,msgTimeout:document.getElementById('dqMsgTimeout').value}); showToast('설정 저장 완료 ✓'); loadDrawQuiz(); }catch(e){ showToast(e.message); }
+}
+async function dqCopyLink(){
+  const u=DQ.url||(location.origin+'/drawquiz/'+encodeURIComponent(djId));
+  try{ await navigator.clipboard.writeText(u); showToast('링크 복사했어요 ✓'); }
+  catch(_){ const t=document.createElement('textarea'); t.value=u; document.body.appendChild(t); t.select(); try{ document.execCommand('copy'); showToast('링크 복사했어요 ✓'); }catch(e){ showToast(u); } t.remove(); }
 }
 function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
