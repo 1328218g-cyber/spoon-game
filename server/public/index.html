@@ -856,6 +856,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="wordguess"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">꼬맨틀</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -5641,6 +5642,40 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <!-- 🎨 그림 퀴즈 -->
+      <div class="panel" data-panel="wordguess">
+        <div class="card">
+          <div class="card-title"><span>🧩 꼬맨틀 진행</span></div>
+          <p class="hint" style="margin-bottom:8px">게임을 시작하면 시청자가 방송 채팅에 <b>:단어</b> (예 <b>:오징어</b>) 로 쳐요. 정답과 뜻이 얼마나 가까운지(%) 알려주고, 가까운 순서 TOP 5 를 채팅에 보여줘요. 정답을 치면 끝나요.</p>
+          <div id="wgState" style="font-size:15px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+            <button class="btn-connect" style="padding:6px 14px;font-size:13px" id="wgStartBtn" onclick="wgStart()">▶ 게임 시작</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="wgReveal()">👁 정답 공개</button>
+            <button class="btn-gray" style="padding:6px 12px;font-size:13px" onclick="wgStop()">⏹ 끝내기</button>
+            <input type="text" id="wgCustom" maxlength="12" placeholder="직접 정답 (비우면 목록에서 랜덤)" style="flex:1;min-width:160px;margin:0">
+          </div>
+          <div id="wgTop" style="font-size:14px;line-height:1.8"></div>
+          <div id="wgDict" class="hint" style="margin-top:6px"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⚙️ 꼬맨틀 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="wgSave()">💾 저장</button></div>
+          <label>정답 단어 (한 줄에 하나 · 최대 500개 · 띄어쓰기 없는 한 단어)</label>
+          <textarea id="wgWords" rows="6" placeholder="오징어&#10;바다&#10;사랑"></textarea>
+          <div id="wgMissing" style="color:#e0445a;font-size:13px;margin-top:4px"></div>
+          <label>채팅에 보여줄 순위 개수</label>
+          <select id="wgTopN" style="max-width:120px"><option value="3">TOP 3</option><option value="5">TOP 5</option></select>
+          <label>시작 메시지</label>
+          <textarea id="wgMsgStart" rows="2" maxlength="300"></textarea>
+          <label>정답 메시지</label>
+          <input type="text" id="wgMsgCorrect" maxlength="300">
+          <label>정답 공개 메시지</label>
+          <input type="text" id="wgMsgReveal" maxlength="300">
+          <div class="hint" style="margin-top:10px">변수: {top1} {top10} {top1000} 1위·10위·1000위 단어의 유사도, {nickname} 맞힌 사람, {answer} 정답, {guesses} 추측 수, {people} 참여 인원, {count} 맞힌 횟수</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🏆 맞힌 횟수 순위</span><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="wgResetRank(this)">초기화</button></div>
+          <div id="wgRank" style="font-size:14px;line-height:1.8"></div>
+        </div>
+      </div>
       <div class="panel" data-panel="drawquiz">
         <div class="card">
           <div class="card-title"><span>🎨 그리기</span><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-gray" style="padding:6px 12px;font-size:12px" onclick="dqCopyLink()">📋 링크 복사</button><a class="btn-gray" id="dqView" target="_blank" rel="noopener" style="padding:6px 12px;font-size:12px;text-decoration:none">👀 시청자 화면 열기</a></span></div>
@@ -7200,6 +7235,7 @@ const PANEL_META={
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
+  wordguess:['🧩 꼬맨틀','DJ 가 정한 단어를 맞히는 게임 — 시청자가 :단어 로 치면 뜻이 얼마나 가까운지(%)와 TOP 5 를 채팅에 보여줘요'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
@@ -7248,6 +7284,7 @@ function selectPanel(name){
   if(name==='autogrant'&&document.getElementById('agMemberList'))loadLiveMembers();
   if(name==='debuglog'&&document.getElementById('focusLogListWrap'))loadFocusLog();
   if(name==='drawquiz'&&document.getElementById('dqCv'))loadDrawQuiz();
+  if(name==='wordguess'&&document.getElementById('wgWords'))loadWordGuess();
   if(name==='reversi'&&document.getElementById('reversiLinkBox'))document.getElementById('reversiLinkBox').value=window.location.origin+'/reversi/'+encodeURIComponent(djId);
   if(name==='chat'&&document.getElementById('chatMvpGiftName'))loadChatTodayMvp();
   if(name==='adminstats'){ loadAdminStats(); loadTokenPoolStatus(); loadUserList(); loadGlobalAnnounce(); loadAutoLikeConfig(); loadWorldBoss(); loadGlobalMonsterCatalog(); loadGmaxConfig(); loadGlobalDungeonBoss(); loadAdminRecentGifts(); }
@@ -7368,7 +7405,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','wordguess','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7383,7 +7420,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',wordguess:'quiz-settings.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -7400,7 +7437,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -20736,6 +20773,46 @@ function uiPrompt(message,def){
     inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();done(inp.value)}else if(e.key==='Escape'){e.preventDefault();done(null)}});
     document.body.appendChild(ov);setTimeout(()=>{inp.focus();inp.select()},30);
   });
+}
+// ───── 🧩 꼬맨틀 ─────
+const WG={poll:null};
+async function wgApi(method,path,body){
+  const r=await fetch(SERVER+path,{method,headers:{'Content-Type':'application/json',...authHeaders()},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error||('오류 '+r.status));
+  return d;
+}
+function wgShow(d){
+  const s=d.status||{}; const E=dqEsc;
+  const map={idle:'게임 없음',playing:'진행 중',solved:'정답 나옴',revealed:'정답 공개'};
+  document.getElementById('wgState').innerHTML=s.word?`정답: <b>${E(s.word)}</b> · ${map[s.state]||''} · 추측 ${s.count} · 참여 ${s.people}${s.winner&&s.state==='solved'?` · 🎉 ${E(s.winner.nick)}님 정답`:''}${s.hint?`<div class="hint">힌트 · 1위 ${s.hint.top1}% · 10위 ${s.hint.top10}% · 1000위 ${s.hint.top1000}%</div>`:''}`:'<span class="hint">게임을 시작해주세요</span>';
+  document.getElementById('wgTop').innerHTML=(s.top||[]).map((x,i)=>`${i+1}. <b>${E(x.word)}</b> ${x.pct}% <span class="hint">(${x.rank?x.rank+'위':'1000위 밖'} · ${E(x.nick)})</span>`).join('<br>');
+  const dict=s.dict||{};
+  document.getElementById('wgDict').textContent=dict.state==='ready'?`단어 사전 준비됨 (${dict.note})`:dict.state==='loading'?`⏳ ${dict.note}`:dict.state==='error'?`⚠️ ${dict.note}`:'단어 사전은 처음 게임을 시작할 때 받아요 (처음 한 번 몇 분 걸려요)';
+  const r=s.rank||[];
+  document.getElementById('wgRank').innerHTML=r.length?r.map((x,i)=>`${i+1}. ${E(x.nick)} — <b>${x.n}번</b>`).join('<br>'):'<span class="hint">아직 맞힌 사람이 없어요</span>';
+}
+async function wgRefresh(){ try{ wgShow(await wgApi('GET','/api/wordguess')); }catch(_){} }
+async function loadWordGuess(){
+  let d; try{ d=await wgApi('GET','/api/wordguess'); }catch(e){ return showToast(e.message); }
+  const c=d.settings;
+  document.getElementById('wgWords').value=(c.words||[]).join('\n'); document.getElementById('wgTopN').value=String(c.top||5);
+  document.getElementById('wgMsgStart').value=c.msgStart; document.getElementById('wgMsgCorrect').value=c.msgCorrect; document.getElementById('wgMsgReveal').value=c.msgReveal; document.getElementById('wgMissing').textContent='';
+  if(!d.moduleOn) showToast('⚠️ 사이드바에서 🧩 꼬맨틀을 ON 으로 켜주세요');
+  wgShow(d);
+  clearInterval(WG.poll); WG.poll=setInterval(()=>{ const pn=document.querySelector('.panel[data-panel="wordguess"]'); if(pn&&pn.offsetParent!==null) wgRefresh(); },2000);
+}
+async function wgAct(path,body){ try{ return await wgApi('POST',path,body||{}); }catch(e){ showToast(e.message); return null; } }
+async function wgStart(){ const b=document.getElementById('wgStartBtn'); b.disabled=true; showToast('게임 준비 중… (단어 사전을 처음 받을 땐 몇 분 걸려요)'); const r=await wgAct('/api/wordguess/start',{word:document.getElementById('wgCustom').value}); b.disabled=false; if(r){ document.getElementById('wgCustom').value=''; showToast('정답: '+r.word); wgRefresh(); } }
+async function wgReveal(){ if(await wgAct('/api/wordguess/reveal')) wgRefresh(); }
+async function wgStop(){ if(await wgAct('/api/wordguess/stop')) wgRefresh(); }
+async function wgResetRank(btn){
+  if(btn.dataset.sure!=='1'){ btn.dataset.sure='1'; btn.textContent='한 번 더 누르면 초기화'; setTimeout(()=>{btn.dataset.sure='';btn.textContent='초기화';},3000); return; }
+  btn.dataset.sure=''; btn.textContent='초기화';
+  if(await wgAct('/api/wordguess/reset-rank')) wgRefresh();
+}
+async function wgSave(){
+  try{ const r=await wgApi('PUT','/api/wordguess',{words:document.getElementById('wgWords').value.split('\n'),top:document.getElementById('wgTopN').value,msgStart:document.getElementById('wgMsgStart').value,msgCorrect:document.getElementById('wgMsgCorrect').value,msgReveal:document.getElementById('wgMsgReveal').value}); showToast('설정 저장 완료 ✓'); document.getElementById('wgMissing').textContent=(r.missing||[]).length?`⚠️ 단어 사전에 없는 단어 (정답으로 안 나와요): ${r.missing.join(', ')}`:''; }catch(e){ showToast(e.message); }
 }
 // ───── 🎨 그림 퀴즈 ─────
 //  좌표는 1000×750 기준 · 선을 그리는 동안 조각을 모아서 0.1초마다 서버에 보내요

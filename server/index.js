@@ -1373,7 +1373,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['wordguess', 'drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -18266,6 +18266,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handleFarmCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleTowerCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleDrawQuizChat(djId, room, author, authorId, text, actTag)
+          handleWordGuessChat(djId, room, author, authorId, text, actTag)
           handleIdleCommand(djId, room, settings, author, authorId, liveId, text, actTag)
           handleIdleChatHook(djId, settings, actTag)
           handleIdleMissionHook(djId, settings, actTag, 'word', text)
@@ -25117,6 +25118,22 @@ const drawQuiz = require('./drawquiz')({
     exists: (djId) => !!store.getSettings(djId),
   },
 })
+// 🧩 꼬맨틀 — DJ 가 정한 단어를 시청자가 :단어 로 추측 · 뜻이 가까운 정도(%)와 TOP 5 를 채팅에 (에디냥과 같은 모듈)
+const wordGuess = require('./wordguess')({
+  app, requireAuth: auth.requireAuth,
+  say: (djId, msg) => { sendChatToRoom(djId, msg).catch(() => {}) },
+  store: {
+    mods: (djId) => ({ wordguess: isModuleOn(store.getSettings(djId) || {}, 'wordguess', djId) }),
+    settings: (djId) => store.getSettings(djId) || {},
+    save: (djId) => { const s = store.getSettings(djId); if (s && s.wordguess) store.saveSettings(djId, { wordguess: s.wordguess }) },
+  },
+  dataDir: process.env.DATA_DIR || require('path').join(__dirname, 'data'),
+  binUrls: [process.env.WORDVEC_BIN_URL || 'https://www.edie.be/api/wordguess/vec.bin'], // (공식 에디냥이 만들어 둔 사전을 먼저 받아봐요)
+})
+function handleWordGuessChat(djId, room, author, authorId, text, actTag) {
+  const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
+  try { wordGuess.onChat(djId, { isDj, user: { id: authorId } }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[꼬맨틀]', e.message) }
+}
 function handleDrawQuizChat(djId, room, author, authorId, text, actTag) {
   const isDj = authorId != null && room && room.liveDjUserId != null && authorId === room.liveDjUserId
   try { drawQuiz.onChat(djId, { isDj }, String(text || '').trim(), author, actTag ? String(actTag).replace(/^@/, '') : '') } catch (e) { console.log('[그림퀴즈]', e.message) }
