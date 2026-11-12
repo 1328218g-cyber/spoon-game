@@ -1984,7 +1984,7 @@ const commandCooldowns = new Map() // `${djId}:${trigger}` -> timestamp(ms)
 
 // 단축키 명령어 처리: 등록해둔 트리거와 채팅이 정확히 일치하면 응답 전송
 // actTag: 이 채팅 이벤트에서 이미 한 번 조회해둔 고유닉(있으면 재사용, API 중복 호출/실패 방지)
-async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag) {
+async function handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, actTag, fromBot) {
   if (!isModuleOn(settings, 'shortcuts', djId)) return
   const commands = settings.commands
   if (!commands || !commands.length) return
@@ -2058,6 +2058,10 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
       .replace(/{time_rank}/g, rv.time_rank)
   }
 
+  if (fromBot) { // 봇 말로 불린 단축키 답장은 기억해뒀다가, 이 답장이 되돌아와도 또 단축키로 처리하지 않게 (무한 반복 방지)
+    room._botScResp = (room._botScResp || []).filter((r) => Date.now() - r.ts < 60e3)
+    room._botScResp.push({ text: String(response), ts: Date.now() })
+  }
   sendChatSplit(djId, response, 100, 600)
 }
 
@@ -18244,7 +18248,15 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 반복하는 문제가 있었다 — Set으로 누적해서 한 번 학습된 계정은 계속 기억하게 한다.
           if (matched) { if (!room._selfGeneratorIds) room._selfGeneratorIds = new Set(); room._selfGeneratorIds.add(authorId) }
           // 📻 PC 방송 창 모드 — 봇이 DJ 이름으로 보낸 말이 DJ 채팅으로 되돌아온 것: 화면엔 보여주고 명령어로는 처리 안 함
-          if (matched && (ws.pcRelay || djSendOn(djId, room))) { broadcast({ type: 'chat', djId, nick: author, text, profileUrl: (eventPayload.generator || {}).profileUrl || '', isDj: true }); return }
+          if (matched && (ws.pcRelay || djSendOn(djId, room))) {
+            broadcast({ type: 'chat', djId, nick: author, text, profileUrl: (eventPayload.generator || {}).profileUrl || '', isDj: true })
+            // 🔗 봇이 보낸 '!' 로 시작하는 말은 단축키 명령어로만 한 번 더 봐요 (예: 신청곡 답장 "!> [System] …" → 단축키 "[배치완료]")
+            //    단축키 답장이 되돌아온 건 다시 안 봐요 (무한 반복 방지)
+            const tt = String(text || '').trim()
+            const isScEcho = (room._botScResp || []).some((r) => Date.now() - r.ts < 60e3 && r.text.includes(tt))
+            if (!isLurker && tt.startsWith('!') && !isScEcho) handleShortcutCommand(djId, room, settings, author, authorId, liveId, text, null, true).catch(() => {})
+            return
+          }
         }
 
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
