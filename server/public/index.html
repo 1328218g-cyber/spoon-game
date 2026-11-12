@@ -5266,6 +5266,16 @@ if (window.bcast) setTimeout(() => {
             <input type="text" id="miHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miHubUrl')">복사</button>
           </div>
+          <p class="hint" style="margin-top:12px">📱 <b>시청자 페이지</b> — 시청자가 명령어를 버튼으로 써요 (신청곡은 가수·제목 적고 확인 → 채팅에 바로 나가고 접수). 인증은 내정보 페이지와 같이 써요.</p>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <input type="text" id="miViewerUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miViewerUrl')">복사</button>
+          </div>
+          <p class="hint" style="margin-top:12px">🎛️ <b>디제이 페이지</b> — DJ 전용. 자주 쓰는 모듈을 바로가기로 추가해두고 눌러서 바로 설정해요 (로그인한 브라우저에서 열기, 시청자에게 공유 X).</p>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <input type="text" id="miDjPageUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open('/dj-page','_blank')">열기</button>
+          </div>
         </div>
 
         <div class="card">
@@ -18130,6 +18140,8 @@ async function loadIdleRpgPanel(){
 // 👤 내정보 웹페이지 설정 — 공개 URL과 현재 저장된 테마 색상을 채워준다
 function loadMyInfoSettings(){
   document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
+  document.getElementById('miViewerUrl').value=location.origin+'/viewer/'+encodeURIComponent(djId);
+  document.getElementById('miDjPageUrl').value=location.origin+'/dj-page';
   const color=myinfoThemeData.color||MI_THEME_DEFAULT;
   document.getElementById('miThemeColorPicker').value=color;
   document.getElementById('miThemeColorHex').value=color;

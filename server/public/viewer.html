@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#ff8fab">
+<title>시청자 페이지 | 에디봇</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&family=Noto+Emoji&family=Jua&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fff3f5; --panel:#fffdfb; --surface2:#fff0f4; --border:#ffd9e3;
+  --accent:#ff8fab; --accent2:#ffc971; --text:#5c4438; --muted:#b58e8e;
+  --success:#8ec9a4; --danger:#f27979; --radius:20px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#fff3f5,#fff8ee 320px,#fff3f5);color:var(--text);font-family:'Noto Sans KR','Noto Emoji',sans-serif;-webkit-tap-highlight-color:transparent}
+h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+@media (min-width:700px){ .wrap{max-width:760px} }
+.top{display:flex;align-items:center;gap:10px;padding:6px 2px 14px}
+.top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.top .title{font-weight:400;font-size:19px}
+.top .sub{font-size:12px;color:var(--muted);margin-top:1px}
+.card{background:var(--panel);border:2px dashed var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 3px 12px rgba(255,143,171,.1)}
+.card-title{font-weight:400;font-size:15.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:18px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;width:100%;font-family:inherit}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-top:8px}
+.btn:disabled{opacity:.55;cursor:default}
+.authCode{font-size:34px;font-weight:800;letter-spacing:6px;text-align:center;padding:14px;background:var(--surface2);border-radius:16px;margin:12px 0 6px;color:var(--accent)}
+.authCmd{text-align:center;font-size:13px;margin-bottom:6px}
+.authCmd code{background:var(--surface2);padding:3px 8px;border-radius:8px;font-weight:700}
+.hidden{display:none !important}
+.status{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:10px 14px;border-radius:14px;background:var(--surface2);margin-bottom:14px;line-height:1.5}
+.status.warn{background:#fff4e5;color:#9a6a2a}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0}
+.status.warn .dot{background:#f0a33a}
+.search{width:100%;border:1.5px solid var(--border);border-radius:16px;padding:11px 14px;font-size:13.5px;font-family:inherit;background:var(--panel);color:var(--text);margin-bottom:14px;outline:none}
+.search:focus{border-color:var(--accent)}
+.groupTabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px;scrollbar-width:none}
+.groupTabs::-webkit-scrollbar{display:none}
+.gTab{flex-shrink:0;border:1.5px solid var(--border);background:var(--panel);color:var(--muted);border-radius:20px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.gTab.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
+.gTitle{font-size:15px;margin:4px 2px 10px;display:flex;align-items:center;gap:6px}
+.cmdGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:18px}
+@media (min-width:700px){ .cmdGrid{grid-template-columns:repeat(4,1fr)} }
+.cmdBtn{background:var(--panel);border:1.5px solid var(--border);border-radius:16px;padding:12px 10px;text-align:left;cursor:pointer;font-family:inherit;color:var(--text);transition:transform .1s,border-color .15s;min-height:62px;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.cmdBtn:hover{border-color:var(--accent)}
+.cmdBtn:active{transform:scale(.97)}
+.cmdBtn .cLabel{font-size:13.5px;font-weight:800;line-height:1.3}
+.cmdBtn .cBase{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmdBtn .cMore{font-size:10.5px;color:var(--accent);font-weight:700}
+.empty{text-align:center;color:var(--muted);font-size:13px;padding:30px 0}
+/* 입력 팝업 */
+.sheetBg{position:fixed;inset:0;background:rgba(60,40,40,.35);display:flex;align-items:flex-end;justify-content:center;z-index:50}
+@media (min-width:700px){ .sheetBg{align-items:center} }
+.sheet{background:var(--panel);width:100%;max-width:480px;border-radius:24px 24px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px rgba(0,0,0,.12);max-height:85vh;overflow:auto}
+@media (min-width:700px){ .sheet{border-radius:24px} }
+.sheetTitle{font-size:18px;margin-bottom:4px}
+.sheetBase{font-size:12px;color:var(--muted);margin-bottom:14px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12.5px;font-weight:700;margin-bottom:5px}
+.field label .req{color:var(--danger);margin-left:2px}
+.field input,.field select{width:100%;border:1.5px solid var(--border);border-radius:14px;padding:11px 13px;font-size:14px;font-family:inherit;background:#fff;color:var(--text);outline:none}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.preview{font-size:12.5px;background:var(--surface2);border-radius:12px;padding:10px 12px;margin:4px 0 12px;word-break:break-all}
+.preview b{color:var(--text)}
+.sheetBtns{display:flex;gap:8px}
+.sheetBtns .btn-ghost{margin-top:0}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:60;max-width:calc(100% - 32px);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+.toast.ok{background:linear-gradient(135deg,var(--accent),var(--accent2))}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">📱</div>
+    <div style="flex:1;min-width:0">
+      <div class="title">시청자 페이지</div>
+      <div class="sub" id="subLine">버튼 한 번으로 명령어 쓰기</div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="loadingCard"><p class="hint" style="text-align:center">불러오는 중…</p></div>
+
+  <!-- 인증 (내정보 웹페이지와 같은 인증) -->
+  <div class="card hidden" id="authCard">
+    <div class="card-title">🔐 본인 인증</div>
+    <p class="hint">방송 채팅에 아래 코드를 쳐주세요. 인증하면 바로 버튼으로 명령어를 쓸 수 있어요.<br>내정보 웹페이지에서 이미 인증했으면 같은 기기에서는 그대로 써져요.</p>
+    <div class="authCode" id="authCode">------</div>
+    <div class="authCmd">채팅에 <code id="authCmdText">코드</code> 입력</div>
+    <p class="hint" style="text-align:center" id="authTimer"></p>
+    <button class="btn btn-ghost" onclick="registerCode()">🔄 새 코드 받기</button>
+  </div>
+
+  <div class="card hidden" id="errorCard"><p class="hint" style="text-align:center;color:var(--danger)" id="errorText"></p></div>
+
+  <div id="mainWrap" class="hidden">
+    <div class="status" id="statusBox"><span class="dot"></span><span id="statusText"></span></div>
+    <input class="search" id="searchInput" placeholder="🔍 명령어 찾기" oninput="renderCmds()">
+    <div class="groupTabs" id="groupTabs"></div>
+    <div id="cmdList"></div>
+    <button class="btn btn-ghost" onclick="resetAuth()">🔁 다른 계정으로 인증하기</button>
+  </div>
+</div>
+
+<div class="sheetBg hidden" id="sheetBg" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet">
+    <div class="sheetTitle" id="sheetTitle"></div>
+    <div class="sheetBase" id="sheetBase"></div>
+    <div id="sheetFields"></div>
+    <div class="preview">채팅에 이렇게 나가요: <b id="sheetPreview"></b></div>
+    <div class="sheetBtns">
+      <button class="btn btn-ghost" onclick="closeSheet()">취소</button>
+      <button class="btn btn-primary" id="sheetOk" onclick="submitSheet()">확인</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PATH_PARTS = location.pathname.split('/').filter(Boolean); // ['viewer','djId']
+const DJ_ID = decodeURIComponent(PATH_PARTS[1] || '');
+const API = location.origin + '/viewer/' + encodeURIComponent(DJ_ID);
+const MI_API = location.origin + '/myinfo/' + encodeURIComponent(DJ_ID); // 인증은 내정보 웹페이지 것을 그대로 씀
+const LS_KEY = 'myinfo_webUserId_' + DJ_ID; // 내정보 웹페이지와 같은 키 — 거기서 인증했으면 여기서도 바로 됨
+
+let webUserId = localStorage.getItem(LS_KEY) || '';
+let groups = [], activeGroup = 'all', sheetCmd = null, pollTimer = null, countdownTimer = null, codeExpiresAt = 0, sending = false;
+
+const $ = id => document.getElementById(id);
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
+function escapeHtml(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
+function toast(msg, ok){
+  const t = document.createElement('div'); t.className = 'toast' + (ok ? ' ok' : ''); t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+
+/* 🎨 테마 — 내정보 웹페이지에서 DJ가 고른 색을 그대로 */
+function miHexToRgb(hex){ hex = hex.replace('#', ''); if(hex.length === 3) hex = hex.split('').map(c => c + c).join(''); const num = parseInt(hex, 16); return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 }; }
+function miRgbToHex(r, g, b){ return '#' + [r, g, b].map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join(''); }
+function miMix(hex, withHex, ratio){ const a = miHexToRgb(hex), b = miHexToRgb(withHex); return miRgbToHex(a.r + (b.r - a.r) * ratio, a.g + (b.g - a.g) * ratio, a.b + (b.b - a.b) * ratio); }
+function applyTheme(color, bgRatioInput){
+  if(!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+  const root = document.documentElement.style;
+  let bgRatio = parseFloat(bgRatioInput);
+  if(isNaN(bgRatio) || bgRatio < 0 || bgRatio > 1) bgRatio = 0.30;
+  const bg = miMix(color, '#ffffff', bgRatio), bgSoft = miMix(color, '#ffffff', Math.min(1, bgRatio + 0.10));
+  root.setProperty('--bg', bg);
+  root.setProperty('--panel', miMix(color, '#ffffff', Math.min(1, bgRatio + 0.25)));
+  root.setProperty('--surface2', miMix(color, '#ffffff', Math.max(0, bgRatio - 0.10)));
+  root.setProperty('--border', miMix(color, '#ffffff', Math.max(0, bgRatio - 0.20)));
+  root.setProperty('--accent', color);
+  root.setProperty('--accent2', miMix(color, '#ffffff', Math.max(0, bgRatio - 0.05)));
+  document.body.style.background = 'linear-gradient(180deg,' + bg + ',' + bgSoft + ' 320px,' + bg + ')';
+  const meta = document.querySelector('meta[name="theme-color"]'); if(meta) meta.setAttribute('content', color);
+}
+async function loadTheme(){ try{ const d = await (await fetch(MI_API + '/theme')).json(); if(d.success && d.color) applyTheme(d.color, d.bgRatio); }catch(e){} }
+
+/* 🔐 인증 — 내정보 웹페이지 register/me 그대로 */
+async function registerCode(){
+  hide('authCard'); hide('mainWrap'); hide('errorCard'); show('loadingCard');
+  try{
+    const d = await (await fetch(MI_API + '/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId }) })).json();
+    hide('loadingCard');
+    if(!d.success) return showError(d.error || '오류가 발생했어요');
+    webUserId = d.webUserId; localStorage.setItem(LS_KEY, webUserId);
+    codeExpiresAt = Date.now() + (d.expiresInSec || 600) * 1000;
+    $('authCode').textContent = d.code;
+    $('authCmdText').textContent = (d.cmd || '!내정보인증') + ' ' + d.code;
+    show('authCard'); startCountdown(); startAuthPolling();
+  }catch(e){ hide('loadingCard'); showError('연결에 실패했어요. 새로고침 해주세요.'); }
+}
+function startCountdown(){
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const remain = Math.max(0, Math.floor((codeExpiresAt - Date.now()) / 1000));
+    $('authTimer').textContent = remain > 0 ? `코드 유효시간 ${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}` : '코드가 만료됐어요. 새 코드를 받아주세요.';
+    if(remain <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+function startAuthPolling(){
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try{
+      const d = await (await fetch(MI_API + '/me?webUserId=' + encodeURIComponent(webUserId))).json();
+      if(d.success && d.linked){ clearInterval(pollTimer); clearInterval(countdownTimer); hide('authCard'); loadCommands(); }
+    }catch(e){}
+  }, 3000);
+}
+function resetAuth(){ clearInterval(pollTimer); localStorage.removeItem(LS_KEY); webUserId = ''; registerCode(); }
+function showError(msg){ hide('loadingCard'); hide('authCard'); hide('mainWrap'); $('errorText').textContent = msg; show('errorCard'); }
+
+/* 📋 명령어 목록 */
+async function loadCommands(silent){
+  if(!silent){ show('loadingCard'); hide('mainWrap'); }
+  try{
+    const d = await (await fetch(API + '/commands?webUserId=' + encodeURIComponent(webUserId))).json();
+    hide('loadingCard');
+    if(!d.success){ if(d.needAuth) return registerCode(); return showError(d.error || '오류가 발생했어요'); }
+    groups = d.groups || [];
+    if(activeGroup !== 'all' && !groups.some(g => g.key === activeGroup)) activeGroup = 'all';
+    $('subLine').textContent = (d.nickname || '@' + d.tag) + '님 · 버튼 한 번으로 명령어 쓰기';
+    const box = $('statusBox');
+    if(!d.live){ box.className = 'status warn'; $('statusText').textContent = '지금은 방송에 봇이 없어요. 방송 중일 때 쓸 수 있어요.'; }
+    else if(!d.inRoom){ box.className = 'status warn'; $('statusText').textContent = '방송에 들어와서 채팅을 한 번 쳐주세요. 그 다음부터 버튼으로 쓸 수 있어요.'; }
+    else { box.className = 'status'; $('statusText').textContent = '방송 연결됨 · 버튼을 누르면 채팅창에 바로 나가요'; }
+    renderTabs(); renderCmds(); show('mainWrap');
+  }catch(e){ if(!silent) showError('연결에 실패했어요. 새로고침 해주세요.'); }
+}
+function renderTabs(){
+  const tabs = [{ key:'all', title:'전체', icon:'📋' }].concat(groups);
+  $('groupTabs').innerHTML = tabs.map(g => `<button class="gTab ${g.key === activeGroup ? 'active' : ''}" onclick="pickGroup('${escapeHtml(g.key)}')">${g.icon} ${escapeHtml(g.title)}</button>`).join('');
+}
+function pickGroup(k){ activeGroup = k; renderTabs(); renderCmds(); }
+function renderCmds(){
+  const q = $('searchInput').value.trim().toLowerCase();
+  const list = groups.filter(g => activeGroup === 'all' || g.key === activeGroup).map(g => ({ ...g, cmds: g.cmds.filter(c => !q || c.label.toLowerCase().includes(q) || (c.base || '').toLowerCase().includes(q) || g.title.toLowerCase().includes(q)) })).filter(g => g.cmds.length);
+  if(!list.length){ $('cmdList').innerHTML = `<div class="empty">${groups.length ? '찾는 명령어가 없어요' : '쓸 수 있는 명령어가 없어요'}</div>`; return; }
+  $('cmdList').innerHTML = list.map(g => `
+    <div class="gTitle">${g.icon} ${escapeHtml(g.title)}</div>
+    <div class="cmdGrid">${g.cmds.map(c => `
+      <button class="cmdBtn" onclick="openCmd('${escapeHtml(c.id)}')">
+        <span class="cLabel">${escapeHtml(c.label)}</span>
+        ${c.base ? `<span class="cBase">${escapeHtml(c.base)}</span>` : ''}
+        ${(c.args || []).length ? `<span class="cMore">✏️ 입력하고 보내기</span>` : ''}
+      </button>`).join('')}</div>`).join('');
+}
+function findCmd(id){ for(const g of groups) for(const c of g.cmds) if(c.id === id) return c; return null; }
+
+/* ✏️ 입력 팝업 — 입력이 필요 없는 명령어도 한 번 더 확인하고 보낸다 (실수로 누른 것 방지) */
+function openCmd(id){
+  const c = findCmd(id); if(!c) return;
+  sheetCmd = c;
+  $('sheetTitle').textContent = c.label;
+  $('sheetBase').textContent = c.base ? '명령어: ' + c.base : '';
+  $('sheetFields').innerHTML = (c.args || []).map(a => `
+    <div class="field">
+      <label>${escapeHtml(a.label)}${a.req ? '<span class="req">*</span>' : ''}</label>
+      ${a.type === 'select'
+        ? `<select data-k="${escapeHtml(a.k)}" onchange="updatePreview()">${(a.opts || []).map(o => `<option value="${escapeHtml(o.v)}">${escapeHtml(o.t)}</option>`).join('')}</select>`
+        : `<input data-k="${escapeHtml(a.k)}" ${a.type === 'number' ? 'inputmode="numeric"' : ''} placeholder="${escapeHtml(a.ph || '')}" maxlength="100" oninput="updatePreview()" onkeydown="if(event.key==='Enter')submitSheet()">`}
+    </div>`).join('');
+  updatePreview();
+  show('sheetBg');
+  const first = $('sheetFields').querySelector('input'); if(first) setTimeout(() => first.focus(), 50);
+}
+function sheetValues(){ const v = {}; $('sheetFields').querySelectorAll('[data-k]').forEach(el => { v[el.dataset.k] = el.value; }); return v; }
+function updatePreview(){
+  const c = sheetCmd; if(!c) return;
+  const v = sheetValues();
+  if(!c.base && (c.args || []).length === 1 && c.args[0].k === 'answer'){ $('sheetPreview').textContent = v.answer || '…'; return; }
+  let t = c.base || '';
+  for(const a of c.args || []){ let x = String(v[a.k] || '').trim(); if(!x) continue; if(c.noSpace === a.k) x = x.replace(/\s+/g, ''); t += a.glue ? x : (t ? ' ' : '') + x; }
+  $('sheetPreview').textContent = t || '…';
+}
+function closeSheet(){ hide('sheetBg'); sheetCmd = null; }
+async function submitSheet(){
+  if(!sheetCmd || sending) return;
+  sending = true; $('sheetOk').disabled = true;
+  try{
+    const d = await (await fetch(API + '/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, id: sheetCmd.id, values: sheetValues() }) })).json();
+    if(d.success){ toast('✅ 채팅창에 보냈어요: ' + d.text, true); closeSheet(); }
+    else { toast('⚠️ ' + (d.error || '보내지 못했어요')); if(d.needAuth){ closeSheet(); registerCode(); } }
+  }catch(e){ toast('⚠️ 연결에 실패했어요'); }
+  sending = false; $('sheetOk').disabled = false;
+}
+
+loadTheme();
+if(webUserId) loadCommands(); else registerCode();
+setInterval(() => { if(!$('mainWrap').classList.contains('hidden') && $('sheetBg').classList.contains('hidden')) loadCommands(true); }, 20000); // 방송 상태·명령어 목록 갱신
+</script>
+</body>
+</html>

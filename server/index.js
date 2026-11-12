@@ -23589,6 +23589,285 @@ app.get('/myinfo/:djId/calendar', (req, res) => {
   })
 })
 
+// ══════════════════════════════════════════════════════
+// 🎛️ 디제이 전용 페이지 / 📱 시청자 전용 페이지 — 내정보 웹페이지처럼 따로 여는 새 화면
+//  · 디제이 페이지(/dj-page): 자주 쓰는 모듈을 "바로가기"로 추가해두고, 누르면 그 모듈 설정 화면(?menu=)을 팝업으로 바로 연다
+//  · 시청자 페이지(/viewer/:djId): 내정보 인증 그대로 — 인증한 시청자가 명령어를 버튼으로 쓴다.
+//    확인 누르면 봇이 "📱 닉네임: 명령어"를 채팅에 올리고, 그 시청자가 직접 채팅 친 것과 똑같이 처리한다
+//    (명령어 처리 코드는 그대로 — 가짜 채팅 이벤트를 방 연결에 흘려보냄)
+// ══════════════════════════════════════════════════════
+
+// 대시보드 사이드바(index.html)의 메뉴 목록을 그대로 읽어서 바로가기 후보로 쓴다 (모듈이 추가돼도 자동으로 따라감)
+let dpModuleListCache = null
+function dpModuleList() {
+  if (dpModuleListCache) return dpModuleListCache
+  const list = []
+  try {
+    const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+    const re = /<div class="nav-item[^"]*"([^>]*)>([\s\S]*?)<span class="lbl"[^>]*>([^<]+)<\/span>/g
+    let m
+    while ((m = re.exec(html))) {
+      const attrs = m[1]
+      const panel = (attrs.match(/data-panel="([^"]+)"/) || [])[1]
+      if (!panel || list.some(x => x.key === panel)) continue
+      const icoImg = (m[2].match(/<img src="([^"]+)"/) || [])[1] || ''
+      const icoTxt = icoImg ? '' : String((m[2].match(/<span class="ic">([^<]*)<\/span>/) || [])[1] || '').trim()
+      list.push({ key: panel, label: m[3].trim(), icon: icoImg, emoji: icoTxt, hidden: /display:\s*none/.test(attrs) })
+    }
+  } catch (e) { console.log('[디제이 페이지] 메뉴 목록 읽기 실패:', e.message) }
+  dpModuleListCache = list
+  return list
+}
+app.get('/dj-page', (req, res) => res.sendFile(__dirname + '/public/djpage.html'))
+app.get('/dj-page/data', auth.requireAuth, (req, res) => {
+  const djId = req.djId
+  const settings = store.getSettings(djId) || {}
+  const isAdmin = djId === 'sum'
+  const modules = dpModuleList().filter(x => isAdmin || !x.hidden).map(({ hidden, ...x }) => ({ ...x, on: isModuleOn(settings, x.key, djId) }))
+  const keys = new Set(modules.map(x => x.key))
+  const shortcuts = (Array.isArray(settings.djPageShortcuts) ? settings.djPageShortcuts : []).filter(k => keys.has(k))
+  res.json({ success: true, djId, modules, shortcuts, viewerUrl: '/viewer/' + encodeURIComponent(djId), myinfoOn: isModuleOn(settings, 'myinfo', djId) })
+})
+app.post('/dj-page/shortcuts', auth.requireAuth, (req, res) => {
+  const keys = new Set(dpModuleList().map(x => x.key))
+  const list = Array.isArray((req.body || {}).shortcuts) ? req.body.shortcuts : []
+  const clean = [...new Set(list.map(String))].filter(k => keys.has(k)).slice(0, 200)
+  store.saveSettings(req.djId, { djPageShortcuts: clean })
+  res.json({ success: true, shortcuts: clean })
+})
+
+// ── 📱 시청자 페이지 명령어 목록 ──
+// 일반 시청자가 쓸 수 있는 명령어만 (DJ·매니저 전용 지급/리셋/시작/종료 같은 건 뺌).
+// 명령어 이름은 DJ가 바꿔둔 값을 그대로 읽어서 보여준다. 켜진 모듈 것만 나온다.
+const VP_EXTRA = { k: 'extra', label: '추가 입력 (선택)', ph: '명령어 뒤에 붙일 내용' }
+function vpBuildCatalog(djId, settings) {
+  const groups = []
+  const on = (key) => isModuleOn(settings, key, djId)
+  const add = (key, title, icon, cmds) => {
+    const list = cmds.filter(c => c && c.base)
+    if (list.length) groups.push({ key, title, icon, cmds: list.map((c, i) => ({ id: key + ':' + i, ...c })) })
+  }
+  const num = (k, label, ph, req) => ({ k, label, ph: ph || '', type: 'number', req: !!req })
+  const txt = (k, label, ph, req) => ({ k, label, ph: ph || '', req: !!req })
+
+  if (on('request')) {
+    const sr = getSongRequestSettings(djId, settings)
+    add('request', '신청곡', '🎵', [
+      { label: '신청곡', base: sr.cmdRequest, args: [txt('artist', '가수', '예) 아이유', true), txt('title', '제목', '예) 밤편지', true)], noSpaceIn: 'artist' },
+      { label: '추천곡 받기', base: sr.cmdRecommend },
+    ])
+  }
+  if (on('loyalty')) {
+    const act = getActivitySettings(djId, settings)
+    add('loyalty', '애청지수', '💗', [
+      { label: '내정보', base: act.cmdMyInfo || '!내정보' },
+      { label: '출석', base: act.cmdAttend || '!출석' },
+      { label: '랭킹', base: act.cmdRank || '!랭킹' },
+      { label: '복권 긁기', base: act.cmdLotto || '!복권', args: [num('n', '장수', '비우면 1장')] },
+      { label: '복권 양도', base: act.cmdLottoTransfer || '!복권양도', args: [txt('tag', '받는 사람 고유닉', '', true), num('n', '장수', '', true)] },
+      { label: '내정보 생성', base: act.cmdCreate || '!내정보 생성' },
+    ])
+  }
+  if (on('roulette')) {
+    const list = ((settings.roulette && settings.roulette.list) || []).map((r, i) => ({ v: String(i + 1), t: `${i + 1}. ${r.name || '룰렛' + (i + 1)}`, ok: r && r.enabled !== false })).filter(x => x.ok).map(({ ok, ...x }) => x)
+    const kc = getRouletteCmdConfig(settings)
+    const sec = [{ v: kc.keep, t: '킵목록' }, { v: kc.event, t: '이벤트목록' }, { v: kc.misc, t: '기타목록' }]
+    add('roulette', '룰렛', '🎡', [
+      list.length && { label: '룰렛 돌리기', base: '!룰렛', args: [{ k: 'idx', label: '룰렛', type: 'select', opts: list, req: true, glue: true }, num('n', '횟수', '비우면 1번')] },
+      list.length && { label: '룰렛 항목 보기', base: '!룰렛메뉴', args: [{ k: 'idx', label: '룰렛', type: 'select', opts: list, req: true, glue: true }] },
+      { label: '내 목록 보기', base: ' ', args: [{ k: 'sec', label: '목록', type: 'select', opts: sec, req: true, glue: true }, num('page', '페이지', '비우면 1')] },
+      { label: '목록 사용', base: ' ', args: [{ k: 'sec', label: '목록', type: 'select', opts: sec.map(x => ({ v: x.v + '사용', t: x.t })), req: true, glue: true }, num('idx', '번호', '', true), num('n', '수량', '비우면 1')] },
+    ])
+  }
+  if (on('shortcuts') && Array.isArray(settings.commands)) {
+    add('shortcuts', '단축 명령어', '⌨️', settings.commands.filter(c => c && c.trigger && (!c.scope || c.scope === 'all')).map(c => ({ label: String(c.trigger).trim(), base: String(c.trigger).trim(), args: c.prefixMatch ? [VP_EXTRA] : undefined })))
+  }
+  const misc = []
+  if (on('shield') && settings.shield && settings.shield.cmd) misc.push({ label: '실드 보기', base: settings.shield.cmd.trim() })
+  if (on('flag') && settings.flags && settings.flags.cmd && (settings.flags.items || []).length) misc.push({ label: '깃발 보기', base: settings.flags.cmd.trim() })
+  if (on('funding') && settings.funding && settings.funding.cmd && (settings.funding.items || []).length) misc.push({ label: '펀딩 보기', base: settings.funding.cmd.trim() })
+  if (on('dice')) misc.push({ label: '주사위', base: getDiceSettings(djId, settings).cmd || '!주사위' })
+  if (on('saju')) misc.push({ label: '사주팔자', base: getSajuSettings(djId, settings).cmd || '!사주', args: [txt('birth', '생년월일', '예) 1995.08.15', true), num('hour', '태어난 시', '몰라도 돼요')] })
+  misc.push({ label: '날씨', base: getWeatherSettings(djId, settings).cmd || '!날씨', args: [txt('where', '지역', '비우면 기본 지역')] })
+  if (on('dday')) misc.push({ label: '디데이 보기', base: getDdaySettings(djId, settings).cmd || '!디데이' })
+  if (on('reactiontimer')) misc.push({ label: '리액션 타이머 보기', base: getReminderSettings(djId, settings).cmd || '!리액션' })
+  if (on('memo2')) misc.push({ label: '메모 보기', base: getMemo2Settings(djId, settings).cmd || '!메모' })
+  misc.push({ label: '온도 랭킹', base: '!온도' })
+  if (on('viptier')) misc.push({ label: '내 등급', base: getVipTierSettings(djId, settings).cmd || '!내등급' })
+  if (on('lottoauto')) misc.push({ label: '자동 복권 확인', base: getLottoAutoSettings(djId, settings).cmdStatus || '!자동복권' })
+  if (on('couponcheck')) misc.push({ label: '쿠폰 확인', base: getCouponCheckSettings(djId, settings).cmdCoupon || '!쿠폰', args: [VP_EXTRA] })
+  if (on('managertoken')) { misc.push({ label: '매니저 토큰', base: '!매토' }); misc.push({ label: '매토 설명서', base: '!설명서' }) }
+  if (on('autofollow')) misc.push({ label: '팔로우 신청', base: getAutoFollowSettings().cmd || '!팔로우신청' })
+  add('misc', '기본 명령어', '✨', misc)
+
+  if (on('fishing')) {
+    const bet = num('n', '금액', '', true)
+    add('fishing', '낚시 게임', '🎣', [
+      { label: '낚시', base: '!낚시' }, { label: '자동 낚시 켜기', base: '!낚시온' }, { label: '자동 낚시 끄기', base: '!낚시오프' },
+      { label: '돈 받기', base: '!돈줘' }, { label: '잔액', base: '!잔액' }, { label: '상태', base: '!상태' }, { label: '지갑', base: '!지갑' }, { label: '레벨', base: '!레벨' },
+      { label: '도감', base: '!도감' }, { label: '도감 공유', base: '!도감공유' }, { label: '컬렉션', base: '!컬렉션' },
+      { label: '어망', base: '!어망' }, { label: '물고기 판매', base: '!물고기판매', args: [VP_EXTRA] },
+      { label: '상점', base: '!상점' }, { label: '구매', base: '!구매', args: [txt('item', '살 것', '', true)] },
+      { label: '아이템 상점', base: '!아이템상점' }, { label: '아이템 구매', base: '!아이템구매', args: [txt('item', '살 아이템', '', true)] },
+      { label: '슬롯', base: '!슬롯', args: [bet] }, { label: '주사위', base: '!주사위', args: [bet] }, { label: '홀', base: '!홀', args: [bet] }, { label: '짝', base: '!짝', args: [bet] },
+      { label: '송금', base: '!송금', args: [txt('tag', '받는 사람 고유닉', '', true), num('n', '금액', '', true)] },
+      { label: '도둑', base: '!도둑', args: [txt('tag', '대상 고유닉', '', true)] },
+      { label: '대출', base: '!대출', args: [bet] }, { label: '상환', base: '!상환', args: [bet] }, { label: '신용정보', base: '!신용정보' },
+      { label: '낚시 도움말', base: '!낚시도움말' },
+    ])
+  }
+  if (isRequestModuleAllowed('fishtournament', djId)) {
+    const ft = getFishTournamentSettings(djId, settings)
+    if (ft.config && ft.config.enabled) {
+      const c = ft.config, n = (k, d) => '!' + (c[k] || d)
+      const cmds = [
+        { label: '낚시 시작', base: n('startCommand', '낚시시작') }, { label: '미끼 상점', base: n('shopCommand', '미끼상점') },
+        { label: '미끼 보유', base: n('voucherCommand', '미끼보유') }, { label: '내 물고기', base: n('myCatchCommand', '내물고기') },
+        { label: '낚시왕', base: n('rankCommand', '낚시왕') }, { label: '도움말', base: n('helpCommand', '낚시도움말') },
+      ]
+      for (const b of _ftGetBaitList(c)) cmds.push({ label: `${b.name} 미끼`, base: '!' + b.cmd, args: [VP_EXTRA] })
+      for (let i = 1; i <= FT_KEEP_SLOTS; i++) { const nm = c['keep' + i + 'Name']; if (nm) cmds.push({ label: nm, base: '!' + nm }) }
+      add('fishtournament', '낚시대회', '🏆', cmds)
+    }
+  }
+  if (on('stock')) {
+    const c = getStockSettings(djId, settings).config
+    const amt = num('n', '금액', '', true)
+    add('stock', '증권거래소', '🍞', [
+      { label: '시작', base: c.cmdStart }, { label: '출석', base: c.cmdAttend }, { label: '룰 설명', base: c.cmdRule },
+      { label: '내정보', base: c.cmdMyInfo }, { label: '내 돈', base: c.cmdMyMoney }, { label: '주식 목록', base: c.cmdStockList }, { label: '내 주식', base: c.cmdMyStock },
+      { label: '랭킹', base: c.cmdRanking }, { label: '잭팟', base: c.cmdJackpot },
+      { label: '예금', base: c.cmdDeposit, args: [amt] }, { label: '출금', base: c.cmdWithdraw, args: [amt] }, { label: '대출', base: c.cmdLoan, args: [amt] }, { label: '상환', base: c.cmdRepay, args: [amt] },
+      { label: '슬롯', base: c.cmdSlot, args: [VP_EXTRA] }, { label: '룰렛', base: c.cmdRoulette, args: [VP_EXTRA] }, { label: '홀짝', base: c.cmdOddEven, args: [VP_EXTRA] },
+      { label: '주사위', base: c.cmdDice, args: [VP_EXTRA] }, { label: '복권', base: c.cmdLotto, args: [VP_EXTRA] },
+      { label: '상점', base: c.cmdShop }, { label: '구매', base: c.cmdBuy, args: [txt('item', '살 것', '', true)] }, { label: '사용', base: c.cmdUse, args: [txt('item', '쓸 것', '', true)] },
+    ])
+  }
+  if (on('auction')) {
+    const c = getAuctionSettings(djId, settings).config
+    if (c.enabled !== false) add('auction', '경매', '🔨', [{ label: '경매 보기', base: c.cmd }, { label: '경매 참여', base: c.cmd ? c.cmd + ' 참여' : '' }, { label: '내 입찰', base: c.cmdMyBid }])
+  }
+  if (on('swordgame')) {
+    const sw = ['강화', '던전', '유물', '룬', '탐험', '룬제작', '룬판매', '룬강화', '검랭킹', '프로필', '배틀', '판매', '창고', '출석', '검상점', '검구매', '펫', '자동온', '자동오프', '거래소', '거래등록', '거래구매', '참여', '상태', '보스', '몬스터', '쿠폰', '보상', '골드', '도움말']
+    add('swordgame', '검키우기', '⚔️', sw.map(s => ({ label: s, base: '!' + s, args: [VP_EXTRA] })))
+  }
+  if (on('farm')) {
+    const c = getFarmSettings(djId, settings).config || {}
+    add('farm', '농장', '🌱', [{ label: '내 농장', base: c.cmdFarm || '!농장' }, { label: '작물 상점', base: c.cmdShop || '!작물상점' },
+      { label: '심기', base: c.cmdPlant || '!심기', args: [txt('crop', '작물 이름', '', true), num('plot', '칸 번호', '', true)] }, { label: '수확', base: c.cmdHarvest || '!수확', args: [VP_EXTRA] }, { label: '도움말', base: c.cmdHelp || '!농장도움말' }])
+  }
+  if (on('tower')) {
+    const c = getTowerSettings(djId, settings).config || {}
+    add('tower', '무한의 탑', '🗼', [{ label: '탑 오르기', base: c.cmdTower || '!탑' }, { label: '강화', base: c.cmdUpgrade || '!탑강화' }, { label: '내 정보', base: c.cmdInfo || '!탑정보' },
+      { label: '아이템', base: c.cmdItems || '!탑아이템' }, { label: '장착', base: c.cmdEquip || '!탑장착', args: [num('n', '아이템 번호', '', true)] }, { label: '도움말', base: c.cmdHelp || '!탑도움말' }])
+  }
+  if (on('monstercatch')) {
+    const mc = getMonsterCatchSettings(djId, settings)
+    add('monstercatch', '몬스터 잡기', '🐾', [
+      { label: '모험 시작', base: mc.cmdStart || '!모험시작' }, { label: '잡기', base: mc.cmdCatch || '!잡기' }, { label: '도감', base: mc.cmdDex || '!도감' },
+      { label: '랭킹', base: mc.cmdRanking || '!랭킹' }, { label: '포획볼', base: mc.cmdBag || '!포획볼' },
+      { label: '포획볼 구매', base: mc.cmdBuyBall || '!포획볼구매', args: [num('n', '개수', '비우면 1개')] },
+      { label: '상점', base: (mc.shop && mc.shop.cmdShop) || '!상점' },
+      { label: '대결', base: mc.cmdBattle || '!대결', args: [txt('nick', '상대 닉네임', '', true)] },
+      { label: '진화', base: mc.cmdEvolve || '!진화', args: [txt('mon', '몬스터 이름', '', true)] },
+      { label: '보스 참여', base: mc.cmdBossJoin || '!참여' }, { label: '보스 주사위', base: mc.cmdBossRoll || '!주사위' },
+    ])
+  }
+  if (on('pickboard')) {
+    const c = getPickboardSettings(djId, settings).config
+    add('pickboard', '뽑기판', '🎰', [{ label: '뽑기판 보기', base: c.cmdBoard }, { label: '뽑기', base: c.cmdPick, args: [VP_EXTRA] }, { label: '내 뽑기 정보', base: c.cmdPick ? c.cmdPick + ' 내정보' : '' },
+      { label: '뽑기권 양도', base: c.cmdTransfer, args: [txt('tag', '받는 사람 고유닉', '', true), num('n', '수량', '', true)] }])
+  }
+  if (on('webpickboard')) {
+    const c = getWebPickboardSettings(djId, settings).config
+    add('webpickboard', '웹뽑기판', '🎟️', [{ label: '내 뽑기권', base: c.cmdMyTicket }])
+  }
+  if (on('mafia')) {
+    const c = getMafiaSettings(djId, settings).config
+    add('mafia', '마피아 게임', '🕵️', [{ label: '참가', base: c.cmdJoin }, { label: '투표', base: c.cmdVote, args: [txt('who', '지목할 사람 (고유닉/닉네임)', '', true)] }, { label: '기권', base: c.cmdSkip }, { label: '상태', base: c.cmdStatus }])
+  }
+  if (on('idlerpg')) {
+    const g = getIdleSettings(djId, settings)
+    add('idlerpg', '방치 RPG', '⚔️', [{ label: '게임 링크', base: g.cmdLink || '!게임' }, { label: '내 캐릭터', base: g.cmdInfo || '!내캐릭' }])
+  }
+  if (on('etherrpg')) {
+    const g = getEtherSettings(djId, settings)
+    add('etherrpg', '에테르 키우기', '🌟', [{ label: '게임 링크', base: g.cmdLink || '!에테르' }, { label: '후원 보스', base: '!후원보스' }])
+  }
+  if (on('quiz') || on('drawquiz') || on('wordguess')) add('answer', '정답 맞추기', '🧩', [{ label: '정답 보내기', base: '', answer: true, args: [txt('answer', '정답', '퀴즈·그림퀴즈·단어맞추기 정답', true)] }])
+  return groups
+}
+function vpComposeText(cmd, vals) {
+  if (cmd.answer) return String(vals.answer || '').trim()
+  let text = cmd.base === ' ' ? '' : String(cmd.base || '')
+  for (const a of cmd.args || []) {
+    let v = String(vals[a.k] == null ? '' : vals[a.k]).replace(/[\r\n]+/g, ' ').trim().slice(0, 100)
+    if (a.type === 'number' && v && !/^-?\d+$/.test(v)) return { error: `${a.label}은(는) 숫자로 적어주세요` }
+    if (a.type === 'select' && v && !(a.opts || []).some(o => o.v === v)) return { error: `${a.label}을(를) 다시 골라주세요` }
+    if (!v) { if (a.req) return { error: `${a.label}을(를) 적어주세요` }; continue }
+    if (cmd.noSpaceIn === a.k) v = v.replace(/\s+/g, '')
+    text += a.glue ? v : (text ? ' ' : '') + v
+  }
+  return text.trim()
+}
+// 인증한 시청자(고유닉) → 지금 방송에서의 스푼 번호·닉네임 (이번 방송에 채팅/입장한 적 있어야 알 수 있음)
+function vpFindViewer(room, tag) {
+  const norm = String(tag || '').trim().replace(/^@/, '').toLowerCase()
+  if (!room || !norm) return null
+  let authorId = null
+  if (room.tagCache) for (const [uid, t] of room.tagCache) { if (t && String(t).replace(/^@/, '').toLowerCase() === norm) { authorId = uid; break } }
+  const nickname = room.tagToNickname ? room.tagToNickname.get(norm) : null
+  if (authorId == null || !nickname) return null
+  return { authorId, nickname, profileUrl: (room.profileUrlCache && room.profileUrlCache.get(norm)) || '' }
+}
+const vpLastRun = new Map() // `${djId}:${webUserId}` -> ts
+function vpLinkedTag(djId, settings, webUserId) {
+  if (!isModuleOn(settings, 'myinfo', djId)) return { error: '시청자 페이지를 찾을 수 없어요. (DJ가 내정보 웹페이지를 켜야 써요)' }
+  const mi = getMyInfoSettings(djId, settings)
+  const tag = webUserId ? mi.webUsers[webUserId] : null
+  return tag ? { tag } : { error: '먼저 인증해주세요', needAuth: true }
+}
+app.get('/viewer/:djId/commands', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const who = vpLinkedTag(djId, settings, String(req.query.webUserId || '').trim())
+  if (who.error) return res.json({ success: false, ...who })
+  const room = rooms[djId]
+  const live = !!(room && room.isConnected)
+  const me = live ? vpFindViewer(room, who.tag) : null
+  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
+  res.json({ success: true, tag: who.tag, nickname: me ? me.nickname : '', live, inRoom: !!me, groups })
+})
+app.post('/viewer/:djId/run', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const { webUserId, id, values } = req.body || {}
+  const wu = String(webUserId || '').trim()
+  const who = vpLinkedTag(djId, settings, wu)
+  if (who.error) return res.json({ success: false, ...who })
+  const room = rooms[djId]
+  if (!room || !room.isConnected || !room.ws) return res.json({ success: false, error: '지금은 방송에 봇이 없어요. 방송 중에 써주세요.' })
+  if (settings.botEnabled === false) return res.json({ success: false, error: '지금은 봇이 쉬는 중이에요.' })
+  const me = vpFindViewer(room, who.tag)
+  if (!me) return res.json({ success: false, error: '방송에 들어와서 채팅을 한 번 쳐주세요. 그 다음부터 버튼으로 쓸 수 있어요.' })
+  const key = djId + ':' + wu
+  const last = vpLastRun.get(key) || 0
+  if (Date.now() - last < 2500) return res.json({ success: false, error: '조금만 천천히 눌러주세요.' })
+  const cmd = vpBuildCatalog(djId, settings).flatMap(g => g.cmds).find(c => c.id === String(id || ''))
+  if (!cmd) return res.json({ success: false, error: '없는 명령어예요. 새로고침 해주세요.' })
+  const text = vpComposeText(cmd, values && typeof values === 'object' ? values : {})
+  if (!text || typeof text !== 'string') return res.json({ success: false, error: (text && text.error) || '보낼 내용이 없어요' })
+  vpLastRun.set(key, Date.now())
+  // 1) 채팅창에 "누가 무엇을" 보여주기 (! 로 시작하지 않게 앞에 붙여서 명령어로 다시 처리되지 않게)
+  sendChatToRoom(djId, `📱 ${me.nickname}: ${text}`)
+  // 2) 그 시청자가 직접 채팅 친 것처럼 처리 — 기존 명령어 처리 코드를 그대로 탄다
+  const frame = JSON.stringify({ command: 'MESSAGE', payload: { body: JSON.stringify({ eventName: 'ChatMessage', eventPayload: { message: text, generator: { id: me.authorId, nickname: me.nickname, profileUrl: me.profileUrl } } }) } })
+  setTimeout(() => { try { if (room.ws && room.isConnected) room.ws.emit('message', Buffer.from(frame)) } catch (e) { console.log('[시청자 페이지] 명령어 처리 실패:', e.message) } }, 300)
+  console.log(`[시청자 페이지:${djId}] ${me.nickname}(@${who.tag}) → ${text}`)
+  res.json({ success: true, text })
+})
+app.get('/viewer/:djId', (req, res) => res.sendFile(__dirname + '/public/viewer.html'))
+
 // 공개 내정보 페이지 (로그인 불필요) — 위의 register/me/roulettes 라우트들보다 뒤에 둬야 /:djId
 // 파라미터가 하위 경로를 가로채지 않는다.
 app.get('/myinfo/:djId', (req, res) => {

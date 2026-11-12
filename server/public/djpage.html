@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#ff8fab">
+<title>디제이 페이지 | 에디봇</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&family=Noto+Emoji&family=Jua&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fff3f5; --panel:#fffdfb; --surface2:#fff0f4; --border:#ffd9e3;
+  --accent:#ff8fab; --accent2:#ffc971; --text:#5c4438; --muted:#b58e8e;
+  --success:#8ec9a4; --danger:#f27979; --radius:20px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#fff3f5,#fff8ee 320px,#fff3f5);color:var(--text);font-family:'Noto Sans KR','Noto Emoji',sans-serif;-webkit-tap-highlight-color:transparent}
+.card-title,.top .title,.modalTitle{font-family:'Jua','Noto Sans KR',sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+@media (min-width:700px){ .wrap{max-width:900px} }
+.top{display:flex;align-items:center;gap:10px;padding:6px 2px 14px}
+.top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.top .title{font-weight:400;font-size:19px}
+.top .sub{font-size:12px;color:var(--muted);margin-top:1px}
+.card{background:var(--panel);border:2px dashed var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 3px 12px rgba(255,143,171,.1)}
+.card-title{font-weight:400;font-size:15.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.card-title .sp{flex:1}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:18px;padding:12px 18px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-sm{padding:7px 12px;font-size:12px;border-radius:14px}
+.btn-block{width:100%}
+.hidden{display:none !important}
+.linkRow{display:flex;gap:6px;margin-top:8px}
+.linkRow input{flex:1;min-width:0;border:1.5px solid var(--border);border-radius:14px;padding:9px 12px;font-size:12.5px;font-family:inherit;background:#fff;color:var(--text)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (min-width:700px){ .tiles{grid-template-columns:repeat(6,1fr)} }
+.tile{position:relative;background:var(--panel);border:1.5px solid var(--border);border-radius:18px;padding:14px 6px 12px;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;font-family:inherit;color:var(--text);transition:transform .1s,border-color .15s;min-height:96px}
+.tile:hover{border-color:var(--accent)}
+.tile:active{transform:scale(.96)}
+.tile .tIcon{width:40px;height:40px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:21px;overflow:hidden}
+.tile .tIcon img{width:28px;height:28px;object-fit:contain}
+.tile .tLabel{font-size:12px;font-weight:700;text-align:center;line-height:1.3;word-break:keep-all}
+.tile .tOff{position:absolute;top:6px;right:6px;font-size:9.5px;font-weight:800;background:#eee;color:#999;border-radius:10px;padding:1px 6px}
+.tile .tDel{position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:50%;border:none;background:var(--danger);color:#fff;font-size:13px;font-weight:800;cursor:pointer;display:none;align-items:center;justify-content:center}
+.tile .tMove{position:absolute;bottom:4px;display:none;gap:4px}
+.tile .tMove button{border:none;background:var(--surface2);border-radius:8px;width:24px;height:20px;font-size:11px;cursor:pointer;color:var(--text)}
+.editing .tile .tDel{display:flex}
+.editing .tile .tMove{display:flex}
+.editing .tile{padding-bottom:28px;cursor:default}
+.tile.addTile{border-style:dashed;color:var(--muted)}
+.tile.addTile .tIcon{font-size:24px;font-weight:800;color:var(--accent)}
+.empty{text-align:center;color:var(--muted);font-size:13px;padding:16px 0 4px;line-height:1.7}
+/* 모듈 고르기 */
+.modalBg{position:fixed;inset:0;background:rgba(60,40,40,.38);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal{background:var(--panel);width:100%;max-width:560px;border-radius:24px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.15);max-height:86vh;display:flex;flex-direction:column}
+.modalHead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.modalTitle{font-size:18px;flex:1}
+.xBtn{border:none;background:var(--surface2);width:32px;height:32px;border-radius:50%;font-size:15px;cursor:pointer;color:var(--text)}
+.search{width:100%;border:1.5px solid var(--border);border-radius:14px;padding:10px 13px;font-size:13.5px;font-family:inherit;background:#fff;color:var(--text);outline:none;margin-bottom:10px}
+.search:focus{border-color:var(--accent)}
+.pickList{overflow:auto;flex:1;margin:0 -4px;padding:0 4px}
+.pickRow{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:14px;cursor:pointer}
+.pickRow:hover{background:var(--surface2)}
+.pickRow .pIcon{width:32px;height:32px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;overflow:hidden}
+.pickRow .pIcon img{width:22px;height:22px;object-fit:contain}
+.pickRow .pLabel{flex:1;font-size:13.5px;font-weight:700}
+.pickRow .pOff{font-size:10.5px;color:var(--muted);font-weight:700}
+.pickRow input{width:18px;height:18px;accent-color:var(--accent)}
+.modalFoot{display:flex;gap:8px;margin-top:12px}
+.modalFoot .btn{flex:1}
+/* 설정 팝업 */
+.setBg{position:fixed;inset:0;background:rgba(60,40,40,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:14px}
+.setBox{background:var(--panel);width:100%;max-width:1100px;height:100%;max-height:92vh;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 10px 36px rgba(0,0,0,.2)}
+.setHead{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px;border-bottom:1px solid var(--border)}
+.setHead .modalTitle{font-size:16px}
+.setBox iframe{flex:1;border:none;width:100%;background:#fff}
+@media (max-width:699px){ .setBg{padding:0} .setBox{max-height:none;border-radius:0} }
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:80;max-width:calc(100% - 32px);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">🎛️</div>
+    <div style="flex:1;min-width:0">
+      <div class="title">디제이 페이지</div>
+      <div class="sub" id="subLine">자주 쓰는 모듈을 바로가기로</div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="loadingCard"><p class="hint" style="text-align:center">불러오는 중…</p></div>
+
+  <div class="card hidden" id="loginCard">
+    <div class="card-title">🔐 로그인이 필요해요</div>
+    <p class="hint">에디냥에 로그인한 브라우저(또는 PC 프로그램)에서 열어주세요.</p>
+    <a class="btn btn-primary btn-block" href="/" style="margin-top:12px;text-decoration:none">에디냥 로그인하러 가기</a>
+  </div>
+
+  <div id="mainWrap" class="hidden">
+    <div class="card" id="shortcutCard">
+      <div class="card-title">⭐ 바로가기<span class="sp"></span>
+        <button class="btn btn-ghost btn-sm" id="editBtn" onclick="toggleEdit()">✏️ 편집</button>
+      </div>
+      <div id="tilesWrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📱 시청자 페이지</div>
+      <p class="hint" id="viewerHint">시청자가 명령어를 버튼으로 쓰는 페이지예요. 방송 소개글이나 채팅에 주소를 올려주세요.</p>
+      <div class="linkRow">
+        <input id="viewerUrl" readonly onclick="this.select()">
+        <button class="btn btn-primary btn-sm" onclick="copyViewerUrl()">복사</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 바로가기 추가 -->
+<div class="modalBg hidden" id="pickBg" onclick="if(event.target===this)closePick()">
+  <div class="modal">
+    <div class="modalHead"><div class="modalTitle">바로가기 추가</div><button class="xBtn" onclick="closePick()">✕</button></div>
+    <input class="search" id="pickSearch" placeholder="🔍 모듈 찾기" oninput="renderPick()">
+    <div class="pickList" id="pickList"></div>
+    <div class="modalFoot">
+      <button class="btn btn-ghost" onclick="closePick()">취소</button>
+      <button class="btn btn-primary" onclick="savePick()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 모듈 설정 팝업 (에디냥 설정 화면 그대로) -->
+<div class="setBg hidden" id="setBg" onclick="if(event.target===this)closeSettings()">
+  <div class="setBox">
+    <div class="setHead"><div class="modalTitle" id="setTitle"></div><button class="xBtn" onclick="closeSettings()">✕</button></div>
+    <iframe id="setFrame" title="모듈 설정"></iframe>
+  </div>
+</div>
+
+<script>
+const djToken = localStorage.getItem('djToken') || sessionStorage.getItem('djToken') || '';
+let modules = [], shortcuts = [], picking = new Set(), editing = false;
+
+const $ = id => document.getElementById(id);
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
+function escapeHtml(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
+function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2400); }
+function api(path, opt = {}){ return fetch(path, { ...opt, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + djToken, ...(opt.headers || {}) } }).then(r => r.json()); }
+function iconHtml(m){ return m.icon ? `<img src="${escapeHtml(m.icon)}" alt="" onerror="if(!this.dataset.fb){this.dataset.fb=1;this.src='/icons/modulemarket.png'}else this.replaceWith(document.createTextNode('🧩'))">` : escapeHtml(m.emoji || '🧩'); }
+const modByKey = k => modules.find(m => m.key === k);
+
+async function load(){
+  if(!djToken){ show('loginCard'); return; }
+  show('loadingCard');
+  try{
+    const d = await api('/dj-page/data');
+    hide('loadingCard');
+    if(!d.success){ show('loginCard'); return; }
+    modules = d.modules || []; shortcuts = d.shortcuts || [];
+    $('subLine').textContent = d.djId + ' · 자주 쓰는 모듈을 바로가기로';
+    $('viewerUrl').value = location.origin + d.viewerUrl;
+    if(!d.myinfoOn) $('viewerHint').innerHTML = '시청자가 명령어를 버튼으로 쓰는 페이지예요. <b>내정보 웹페이지가 켜져 있어야</b> 쓸 수 있어요 (인증을 같이 써요).';
+    renderTiles(); show('mainWrap');
+  }catch(e){ hide('loadingCard'); toast('연결에 실패했어요. 새로고침 해주세요.'); }
+}
+
+function renderTiles(){
+  $('shortcutCard').classList.toggle('editing', editing);
+  const tiles = shortcuts.map(modByKey).filter(Boolean).map((m, i) => `
+    <div class="tile" onclick="openSettings('${escapeHtml(m.key)}')">
+      <span class="tIcon">${iconHtml(m)}</span>
+      <span class="tLabel">${escapeHtml(m.label)}</span>
+      ${m.on ? '' : '<span class="tOff">OFF</span>'}
+      <button class="tDel" onclick="event.stopPropagation();removeShortcut('${escapeHtml(m.key)}')">✕</button>
+      <span class="tMove"><button onclick="event.stopPropagation();moveShortcut(${i},-1)">◀</button><button onclick="event.stopPropagation();moveShortcut(${i},1)">▶</button></span>
+    </div>`).join('');
+  $('tilesWrap').innerHTML = `<div class="tiles">${tiles}<div class="tile addTile" onclick="openPick()"><span class="tIcon">+</span><span class="tLabel">바로가기 추가</span></div></div>`
+    + (shortcuts.length ? '' : '<div class="empty">자주 쓰는 모듈을 추가해두면<br>누르자마자 그 모듈 설정이 바로 열려요</div>');
+}
+function toggleEdit(){ editing = !editing; $('editBtn').textContent = editing ? '✅ 완료' : '✏️ 편집'; renderTiles(); }
+async function saveShortcuts(){
+  const d = await api('/dj-page/shortcuts', { method: 'POST', body: JSON.stringify({ shortcuts }) }).catch(() => null);
+  if(!d || !d.success){ toast('저장하지 못했어요'); return false; }
+  shortcuts = d.shortcuts; return true;
+}
+async function removeShortcut(k){ shortcuts = shortcuts.filter(x => x !== k); renderTiles(); await saveShortcuts(); }
+async function moveShortcut(i, dir){
+  const j = i + dir; if(j < 0 || j >= shortcuts.length) return;
+  [shortcuts[i], shortcuts[j]] = [shortcuts[j], shortcuts[i]]; renderTiles(); await saveShortcuts();
+}
+
+function openPick(){ if(editing) return; picking = new Set(shortcuts); $('pickSearch').value = ''; renderPick(); show('pickBg'); }
+function closePick(){ hide('pickBg'); }
+function renderPick(){
+  const q = $('pickSearch').value.trim().toLowerCase();
+  const list = modules.filter(m => !q || m.label.toLowerCase().includes(q) || m.key.includes(q));
+  $('pickList').innerHTML = list.map(m => `
+    <label class="pickRow">
+      <span class="pIcon">${iconHtml(m)}</span>
+      <span class="pLabel">${escapeHtml(m.label)}</span>
+      ${m.on ? '' : '<span class="pOff">꺼짐</span>'}
+      <input type="checkbox" ${picking.has(m.key) ? 'checked' : ''} onchange="togglePick('${escapeHtml(m.key)}',this.checked)">
+    </label>`).join('') || '<div class="empty">찾는 모듈이 없어요</div>';
+}
+function togglePick(k, on){ if(on) picking.add(k); else picking.delete(k); }
+async function savePick(){
+  // 원래 순서는 그대로 두고, 새로 고른 건 뒤에 붙인다
+  shortcuts = shortcuts.filter(k => picking.has(k)).concat(modules.map(m => m.key).filter(k => picking.has(k) && !shortcuts.includes(k)));
+  if(await saveShortcuts()){ closePick(); renderTiles(); }
+}
+
+function openSettings(k){
+  if(editing) return;
+  const m = modByKey(k); if(!m) return;
+  $('setTitle').textContent = m.label + ' 설정';
+  $('setFrame').src = '/?menu=' + encodeURIComponent(k);
+  show('setBg');
+}
+async function closeSettings(){
+  hide('setBg'); $('setFrame').src = 'about:blank';
+  try{ const d = await api('/dj-page/data'); if(d.success){ modules = d.modules || modules; renderTiles(); } }catch(e){} // 팝업에서 켜고 끈 게 OFF 표시에 반영되게
+}
+function copyViewerUrl(){
+  const v = $('viewerUrl').value;
+  (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => toast('📋 복사했어요'), () => { $('viewerUrl').select(); document.execCommand('copy'); toast('📋 복사했어요'); });
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape'){ if(!$('setBg').classList.contains('hidden')) closeSettings(); else if(!$('pickBg').classList.contains('hidden')) closePick(); } });
+load();
+</script>
+</body>
+</html>
