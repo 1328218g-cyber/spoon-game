@@ -5270,7 +5270,7 @@ if (window.bcast) setTimeout(() => {
           <p class="hint">DJ 전용 페이지예요. 자주 쓰는 모듈을 <b>바로가기</b>로 추가해두면, 누르자마자 그 모듈 설정이 팝업으로 열려요. 폰에서도 열 수 있어요 (에디냥에 로그인한 브라우저에서 — 시청자에게는 공유하지 마세요).</p>
           <div style="display:flex;gap:8px;margin-top:10px">
             <input type="text" id="djpUrl" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open('/dj-page','_blank')">열기</button>
+            <button class="btn-connect" style="padding:8px 14px;font-size:12.5px" onclick="openDjPagePopup()">🎛️ 팝업으로 열기</button>
           </div>
         </div>
       </div>
@@ -7306,6 +7306,7 @@ function selectPanel(name){
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
   if(name==='viewerpage'&&document.getElementById('vpUrl'))document.getElementById('vpUrl').value=location.origin+'/viewer/'+encodeURIComponent(djId);
   if(name==='djpage'&&document.getElementById('djpUrl'))document.getElementById('djpUrl').value=location.origin+'/dj-page';
+  if(name==='djpage'&&!window.__djpAutoOpened){ window.__djpAutoOpened=true; openDjPagePopup(); } // 메뉴 누르면 디제이 페이지를 팝업 창으로 바로
   if(name==='idlerpg')loadIdleRpgPanel();
   if(name==='etherrpg')loadEtherPanel();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
@@ -18399,6 +18400,15 @@ async function makeShortUrl(fullUrl, resultInputId){
 }
 
 // 🏠 여러 웹 기능(웹뽑기판/마피아 등)을 한 곳에 모아 보여주는 허브 링크 복사
+// 🎛️ 디제이 페이지 — 폰 화면 크기의 작은 팝업 창으로 열어요 (이미 열려 있으면 그 창을 앞으로)
+let djPageWin=null;
+function openDjPagePopup(){
+  if(djPageWin&&!djPageWin.closed){ try{djPageWin.focus();}catch(e){} return; }
+  const w=460,h=Math.min(860,(screen.availHeight||900)-60);
+  const left=Math.max(0,(screen.availWidth||1280)-w-40), top=30;
+  djPageWin=window.open('/dj-page','edinyangDjPage',`popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  if(!djPageWin) showToast('팝업이 막혀 있어요. 브라우저 주소창 오른쪽에서 팝업을 허용해주세요');
+}
 function copyHubUrl(inputId){
   const el=document.getElementById(inputId);
   if(!el||!el.value)return;
