@@ -68,6 +68,14 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
 .preview b{color:var(--text)}
 .sheetBtns{display:flex;gap:8px}
 .sheetBtns .btn-ghost{margin-top:0}
+.songList{max-height:52vh;overflow:auto;margin:0 0 14px}
+.songRow{display:flex;gap:10px;align-items:flex-start;padding:10px 4px;border-bottom:1px dashed var(--border);font-size:13.5px;line-height:1.5}
+.songRow:last-child{border-bottom:none}
+.songRow .sNo{flex-shrink:0;min-width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+.songRow .sMain{flex:1;min-width:0;word-break:break-all}
+.songRow .sMain b{font-weight:800}
+.songRow .sBy{display:block;font-size:11.5px;color:var(--muted)}
+.songState{font-size:12px;font-weight:700;margin-bottom:8px}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:60;max-width:calc(100% - 32px);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.2)}
 .toast.ok{background:linear-gradient(135deg,var(--accent),var(--accent2))}
 </style>
@@ -110,9 +118,10 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
     <div class="sheetTitle" id="sheetTitle"></div>
     <div class="sheetBase" id="sheetBase"></div>
     <div id="sheetFields"></div>
-    <div class="preview">채팅에 이렇게 나가요: <b id="sheetPreview"></b></div>
+    <div class="preview" id="sheetPreviewBox">채팅에 이렇게 나가요: <b id="sheetPreview"></b></div>
+    <div class="songList hidden" id="songList"></div>
     <div class="sheetBtns">
-      <button class="btn btn-ghost" onclick="closeSheet()">취소</button>
+      <button class="btn btn-ghost" id="sheetCancel" onclick="closeSheet()">취소</button>
       <button class="btn btn-primary" id="sheetOk" onclick="submitSheet()">확인</button>
     </div>
   </div>
@@ -224,14 +233,34 @@ function renderCmds(){
       <button class="cmdBtn" onclick="openCmd('${escapeHtml(c.id)}')">
         <span class="cLabel">${escapeHtml(c.label)}</span>
         ${c.base ? `<span class="cBase">${escapeHtml(c.base)}</span>` : ''}
-        ${(c.args || []).length ? `<span class="cMore">✏️ 입력하고 보내기</span>` : ''}
+        ${c.view ? `<span class="cMore">📋 페이지에서 바로 보기</span>` : (c.args || []).length ? `<span class="cMore">✏️ 입력하고 보내기</span>` : ''}
       </button>`).join('')}</div>`).join('');
 }
 function findCmd(id){ for(const g of groups) for(const c of g.cmds) if(c.id === id) return c; return null; }
 
 /* ✏️ 입력 팝업 — 입력이 필요 없는 명령어도 한 번 더 확인하고 보낸다 (실수로 누른 것 방지) */
+function sheetMode(list){ // list=true: 목록 보기 (보낼 내용·확인 버튼 숨김)
+  $('sheetPreviewBox').classList.toggle('hidden', list); $('sheetOk').classList.toggle('hidden', list);
+  $('songList').classList.toggle('hidden', !list); $('sheetCancel').textContent = list ? '닫기' : '취소';
+}
+/* 🎵 신청곡 목록 — 채팅으로 안 보내고 페이지에서 바로 */
+async function openSongs(c){
+  sheetCmd = null; sheetMode(true);
+  $('sheetTitle').textContent = '🎵 지금 신청곡 목록'; $('sheetBase').textContent = ''; $('sheetFields').innerHTML = '';
+  $('songList').innerHTML = '<div class="empty">불러오는 중…</div>';
+  show('sheetBg');
+  try{
+    const d = await (await fetch(API + '/songs?webUserId=' + encodeURIComponent(webUserId))).json();
+    if(!d.success){ $('songList').innerHTML = `<div class="empty">${escapeHtml(d.error || '목록을 못 불러왔어요')}</div>`; return; }
+    const items = d.items || [];
+    $('sheetBase').textContent = (d.accepting ? '🟢 접수 중' : '🔴 지금은 신청을 안 받아요') + ' · 대기 ' + items.length + '곡';
+    $('songList').innerHTML = items.length ? items.map((it, i) => `<div class="songRow"><span class="sNo">${i + 1}</span><span class="sMain"><b>${escapeHtml(it.artist)}</b> - ${escapeHtml(it.title)}${it.requester ? `<span class="sBy">신청: ${escapeHtml(it.requester)}</span>` : ''}</span></div>`).join('') : '<div class="empty">아직 신청곡이 없어요</div>';
+  }catch(e){ $('songList').innerHTML = '<div class="empty">연결에 실패했어요</div>'; }
+}
 function openCmd(id){
   const c = findCmd(id); if(!c) return;
+  if(c.view === 'songs') return openSongs(c);
+  sheetMode(false);
   sheetCmd = c;
   $('sheetTitle').textContent = c.label;
   $('sheetBase').textContent = c.base ? '명령어: ' + c.base : '';

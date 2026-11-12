@@ -23654,6 +23654,7 @@ function vpBuildCatalog(djId, settings) {
     const sr = getSongRequestSettings(djId, settings)
     add('request', '신청곡', '🎵', [
       { label: '신청곡', base: sr.cmdRequest, args: [txt('artist', '가수', '예) 아이유', true), txt('title', '제목', '예) 밤편지', true)], noSpaceIn: 'artist' },
+      { label: '신청곡 목록', base: sr.cmdRequest, view: 'songs' }, // 채팅으로 안 보내고 페이지에서 바로 목록을 보여줘요
       { label: '추천곡 받기', base: sr.cmdRecommend },
     ])
   }
@@ -23835,7 +23836,7 @@ app.get('/viewer/:djId/commands', (req, res) => {
   const room = rooms[djId]
   const live = !!(room && room.isConnected)
   const me = live ? vpFindViewer(room, who.tag) : null
-  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
+  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
   res.json({ success: true, tag: who.tag, nickname: me ? me.nickname : '', live, inRoom: !!me, groups })
 })
 app.post('/viewer/:djId/run', (req, res) => {
@@ -23854,7 +23855,7 @@ app.post('/viewer/:djId/run', (req, res) => {
   const last = vpLastRun.get(key) || 0
   if (Date.now() - last < 2500) return res.json({ success: false, error: '조금만 천천히 눌러주세요.' })
   const cmd = vpBuildCatalog(djId, settings).flatMap(g => g.cmds).find(c => c.id === String(id || ''))
-  if (!cmd) return res.json({ success: false, error: '없는 명령어예요. 새로고침 해주세요.' })
+  if (!cmd || cmd.view) return res.json({ success: false, error: '없는 명령어예요. 새로고침 해주세요.' })
   const text = vpComposeText(cmd, values && typeof values === 'object' ? values : {})
   if (!text || typeof text !== 'string') return res.json({ success: false, error: (text && text.error) || '보낼 내용이 없어요' })
   vpLastRun.set(key, Date.now())
@@ -23865,6 +23866,17 @@ app.post('/viewer/:djId/run', (req, res) => {
   setTimeout(() => { try { if (room.ws && room.isConnected) room.ws.emit('message', Buffer.from(frame)) } catch (e) { console.log('[시청자 페이지] 명령어 처리 실패:', e.message) } }, 300)
   console.log(`[시청자 페이지:${djId}] ${me.nickname}(@${who.tag}) → ${text}`)
   res.json({ success: true, text })
+})
+// 🎵 지금 신청곡 목록 — 페이지에서 바로 보기 (신청자 닉 표시는 DJ 설정 그대로)
+app.get('/viewer/:djId/songs', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const who = vpLinkedTag(djId, settings, String(req.query.webUserId || '').trim())
+  if (who.error) return res.json({ success: false, ...who })
+  if (!isModuleOn(settings, 'request', djId)) return res.json({ success: false, error: '신청곡 기능이 꺼져 있어요.' })
+  const sr = getSongRequestSettings(djId, settings)
+  const items = (sr.items || []).map(it => ({ artist: it.artist || '', title: it.title || '', requester: sr.showRequester !== false ? (it.requester || '') : '' }))
+  res.json({ success: true, accepting: sr.accepting !== false, items })
 })
 app.get('/viewer/:djId', (req, res) => res.sendFile(__dirname + '/public/viewer.html'))
 
