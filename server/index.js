@@ -23359,15 +23359,18 @@ app.post('/myinfo/:djId/use-item', async (req, res) => {
   const data = rec && rec[field]
   if (!data || !data[name]) return res.json({ success: false, error: '이미 사용했거나 없는 항목이에요.' })
 
-  data[name] -= 1 // 수량이 여러 개여도 한 번에 딱 1개만 차감
+  // 수량: 안 보내면 1개 (내정보 웹페이지) · 📱 시청자 페이지는 직접 고른 개수 (가진 것보다 많이는 안 돼요)
+  const useCount = Math.max(1, parseInt((req.body || {}).count, 10) || 1)
+  if (data[name] < useCount) return res.json({ success: false, error: `수량이 부족해요. (현재: ${data[name]}개)` })
+  data[name] -= useCount
   const remaining = data[name]
   if (data[name] <= 0) delete data[name]
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag })
 
   const displayName = rec.nickname || tag
-  setTimeout(() => sendChatToRoom(djId, `✅ ${displayName}님의 [${name}] 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 300)
-  addVoiceTimerUsage(djId, getRoom(djId), name, 1)
+  setTimeout(() => sendChatToRoom(djId, `✅ ${displayName}님의 [${name}]${useCount > 1 ? ` ${useCount}개` : ''} 사용 완료! (남은 수량: ${remaining > 0 ? remaining : 0}개)`), 300)
+  addVoiceTimerUsage(djId, getRoom(djId), name, useCount)
 
   const profile = await miBuildProfile(djId, settings, tag)
   res.json({ success: true, ...profile })

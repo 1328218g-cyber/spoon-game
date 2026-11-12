@@ -349,19 +349,22 @@ async function openLists(){
   try{ renderLists(await getMe()); }catch(e){ viewErr(e.message); }
 }
 function renderLists(d){
-  $('sheetBase').textContent = '사용을 누르면 1개씩 써요 · 채팅창에도 사용 알림이 나가요';
-  const sec = (t, key, l) => `<div class="vSec">${t}</div>` + ((l || []).length ? (l.map(x => `<div class="songRow" style="align-items:center"><span class="sMain">${escapeHtml(x.name)} <b style="color:var(--muted);font-weight:700">${fmt(x.count)}개</b></span><button class="btn btn-primary" style="width:auto;padding:7px 14px;font-size:12.5px" data-sec="${key}" data-name="${escapeHtml(x.name)}" onclick="useListItem(this)">사용</button></div>`).join('')) : '<div class="songState" style="color:var(--muted)">없어요</div>');
+  $('sheetBase').textContent = '개수를 고르고 사용을 누르세요 · 채팅창에도 사용 알림이 나가요';
+  const sec = (t, key, l) => `<div class="vSec">${t}</div>` + ((l || []).length ? (l.map(x => `<div class="songRow" style="align-items:center"><span class="sMain">${escapeHtml(x.name)} <b style="color:var(--muted);font-weight:700">${fmt(x.count)}개</b></span><input type="number" min="1" max="${x.count}" value="1" inputmode="numeric" style="width:54px;border:1.5px solid var(--border);border-radius:10px;padding:6px 4px;font-size:13px;text-align:center;font-family:inherit"><button class="btn btn-primary" style="width:auto;padding:7px 14px;font-size:12.5px" data-sec="${key}" data-name="${escapeHtml(x.name)}" data-max="${x.count}" onclick="useListItem(this)">사용</button></div>`).join('')) : '<div class="songState" style="color:var(--muted)">없어요</div>');
   $('songList').innerHTML = sec('🎁 킵목록', 'keep', d.keepList) + sec('🎉 이벤트목록', 'event', d.eventList) + sec('📦 기타목록', 'misc', d.miscList);
 }
-// 🎁 킵·이벤트·기타 목록 사용 — 내정보 웹페이지 "사용" 버튼과 똑같이 (1개씩 · 채팅 !킵사용 과 같은 처리)
+// 🎁 킵·이벤트·기타 목록 사용 — 개수 골라서 (채팅 !킵사용 과 같은 처리)
 async function useListItem(btn){
-  const section = btn.dataset.sec, name = btn.dataset.name;
-  if(!confirm(`[${name}] 1개를 사용할까요?`)) return;
+  const section = btn.dataset.sec, name = btn.dataset.name, max = Number(btn.dataset.max) || 1;
+  const inp = btn.previousElementSibling;
+  const count = Math.max(1, Math.min(max, parseInt(inp && inp.value, 10) || 1));
+  if(inp) inp.value = count;
+  if(!confirm(`[${name}] ${count}개를 사용할까요?`)) return;
   btn.disabled = true;
   try{
-    const d = await (await fetch(MI_API + '/use-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, section, name }) })).json();
+    const d = await (await fetch(MI_API + '/use-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, section, name, count }) })).json();
     if(!d.success){ toast('⚠️ ' + (d.error || '사용하지 못했어요')); btn.disabled = false; return; }
-    toast(`✅ [${name}] 사용했어요`, true);
+    toast(`✅ [${name}] ${count}개 사용했어요`, true);
     if(d.keepList || d.eventList || d.miscList) renderLists(d); else renderLists(await getMe());
   }catch(e){ toast('⚠️ 연결에 실패했어요'); btn.disabled = false; }
 }
