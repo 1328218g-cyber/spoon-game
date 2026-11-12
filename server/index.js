@@ -17398,9 +17398,11 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   }
 
   const wonCounts = {}
+  const wonList = [] // 📱 시청자 페이지에 결과 바로 띄우기용 (나온 순서대로)
   for (let i = 0; i < count; i++) {
     const won = percentPick(rt.items)
     if (!won) continue
+    wonList.push(won.name)
     wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
     if (!won.skipHistory) {
       hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
@@ -17410,6 +17412,7 @@ async function handleRouletteCommand(djId, room, settings, author, authorId, liv
   }
   store.saveSettings(djId, { rouletteHistory: settings.rouletteHistory })
   broadcast({ type: 'roulette', djId, tag: histKey })
+  vpPushRouletteEvent(djId, histKey, idx, rt, wonList)
 
   const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
   const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
@@ -17459,9 +17462,11 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
   for (const { rt, idx, count } of applicable) {
     const totalCount = count + bonusSpins
     const wonCounts = {}
+    const wonList = [] // 📱 시청자 페이지에 결과 바로 띄우기용 (나온 순서대로)
     for (let i = 0; i < totalCount; i++) {
       const won = percentPick(rt.items)
       if (!won) continue
+      wonList.push(won.name)
       wonCounts[won.name] = (wonCounts[won.name] || 0) + 1
       if (!won.skipHistory && hist) {
         hist.wins.push({ idx, rouletteName: rt.name, itemName: won.name, ts: Date.now() })
@@ -17473,6 +17478,7 @@ async function handleRouletteAutoGrant(djId, room, settings, author, authorId, l
     const header = (rl.resultHeaderTemplate || '').replace(/{룰렛명}/g, rt.name).replace(/{닉네임}/g, author)
     const resultLine = Object.entries(wonCounts).map(([name, c]) => '👉 ' + (c > 1 ? `${name}(${c})` : name)).join('\n')
     sendChatSplit(djId, `${header}\n${resultLine}`, 100, 700) // 길면 나눠서 (300스푼처럼 많이 돌면 한 번에 안 나가던 것)
+    vpPushRouletteEvent(djId, authorTag, idx, rt, wonList)
   }
   console.log(`[룰렛디버그:${djId}] changed=${changed} keepList=`, hist ? JSON.stringify(hist.keepList) : '(기록 없음 - 고유닉 미확인)')
 
@@ -23900,6 +23906,28 @@ app.post('/viewer/:djId/run', async (req, res) => {
   // 2) 그 시청자가 직접 채팅 친 것처럼 처리 — 기존 명령어 처리 코드를 그대로 탄다
   setTimeout(feed, 300)
   res.json({ success: true, text })
+})
+// 🎡 룰렛 결과 바로 띄우기 — 선물·채팅으로 돈 룰렛 결과를 잠깐 기억해두고, 페이지를 열어둔 그 시청자에게 바로 보여줘요 (10분)
+const vpRouletteEvents = new Map() // djId -> [{ id, tag, idx, name, items, results, at }]
+let vpRouletteSeq = 0
+function vpPushRouletteEvent(djId, tag, idx, rt, results) {
+  try {
+    if (!tag || !results || !results.length) return
+    const list = (vpRouletteEvents.get(djId) || []).filter(e => Date.now() - e.at < 10 * 60 * 1000)
+    list.push({ id: ++vpRouletteSeq, tag: String(tag).replace(/^@/, '').toLowerCase(), idx, name: rt.name || ('룰렛' + idx), items: (rt.items || []).map(it => it && it.name).filter(Boolean).slice(0, 24), results: results.slice(0, 50), at: Date.now() })
+    while (list.length > 50) list.shift()
+    vpRouletteEvents.set(djId, list)
+  } catch (e) {}
+}
+app.get('/viewer/:djId/roulette-events', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const who = vpLinkedTag(djId, settings, String(req.query.webUserId || '').trim())
+  if (who.error) return res.json({ success: false, ...who })
+  const since = Number(req.query.since) || 0
+  const me = String(who.tag).replace(/^@/, '').toLowerCase()
+  const events = (vpRouletteEvents.get(djId) || []).filter(e => e.id > since && e.tag === me).map(({ tag, ...e }) => e)
+  res.json({ success: true, events, last: vpRouletteSeq })
 })
 // 🏆 애청지수 랭킹 — 페이지에서 바로 보기 (채팅 !랭킹 과 같은 기준, 상위 20명)
 app.get('/viewer/:djId/ranking', (req, res) => {
