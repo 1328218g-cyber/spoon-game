@@ -93,6 +93,7 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
 .rtRow{display:flex;gap:6px;margin-top:9px}
 .rtRow input{width:70px;border:1.5px solid var(--border);border-radius:12px;padding:8px 10px;font-size:14px;font-family:inherit;text-align:center}
 .rtRow .btn{padding:9px 12px;font-size:13px;flex:1}
+.replyBox{white-space:pre-wrap;word-break:break-all;font-size:13.5px;line-height:1.65;background:var(--surface2);border-radius:14px;padding:12px 13px;margin-bottom:8px}
 .rtResult{font-size:12.5px;margin-top:8px;font-weight:700;color:var(--accent);word-break:break-all}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:60;max-width:calc(100% - 32px);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.2)}
 .toast.ok{background:linear-gradient(135deg,var(--accent),var(--accent2))}
@@ -365,7 +366,9 @@ function openCmd(id){
   if(c.view === 'lists') return openLists();
   if(c.view === 'rmenu') return openRmenu();
   if(c.view === 'roulette') return openRoulette(c);
+  if(c.view === 'ask' && !(c.args || []).length) return runAsk(c, {});
   sheetMode(false);
+  $('sheetPreviewBox').innerHTML = (c.view === 'ask' ? '👀 페이지에서 바로 볼 내용: ' : '채팅에 이렇게 나가요: ') + '<b id="sheetPreview"></b>';
   sheetCmd = c;
   $('sheetTitle').textContent = c.label;
   $('sheetBase').textContent = c.base ? '명령어: ' + c.base : '';
@@ -391,7 +394,20 @@ function updatePreview(){
   $('sheetPreview').textContent = t || '…';
 }
 function closeSheet(){ hide('sheetBg'); sheetCmd = null; }
+/* 🔎 보기용 명령어 — 봇 답을 채팅 대신 페이지에서 */
+async function runAsk(c, values){
+  openView((c.icon || '') + c.label);
+  $('sheetBase').textContent = '봇에게 물어보는 중…';
+  try{
+    const d = await (await fetch(API + '/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, id: c.id, values }) })).json();
+    if(!d.success){ $('sheetBase').textContent = ''; if(d.needAuth){ closeSheet(); return registerCode(); } return viewErr(d.error || '불러오지 못했어요'); }
+    $('sheetBase').textContent = d.text || '';
+    const r = d.replies || [];
+    $('songList').innerHTML = r.length ? r.map(t => `<div class="replyBox">${escapeHtml(t)}</div>`).join('') : '<div class="empty">봇 답이 없어요<br>(기능이 꺼져 있거나 아직 시작 안 했을 수 있어요)</div>';
+  }catch(e){ $('sheetBase').textContent = ''; viewErr('연결에 실패했어요'); }
+}
 async function submitSheet(){
+  if(sheetCmd && sheetCmd.view === 'ask'){ const c = sheetCmd; return runAsk(c, sheetValues()); }
   if(!sheetCmd || sending) return;
   sending = true; $('sheetOk').disabled = true;
   try{

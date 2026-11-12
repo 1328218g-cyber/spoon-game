@@ -3,6 +3,8 @@ const express = require('express')
 const cors = require('cors')
 const fs = require('fs')
 const path = require('path')
+// 📱 시청자 페이지 보기용 명령어를 처리하는 동안 봇이 보내려는 말을 채팅 대신 모아요 (그 요청에서 나온 말만 — 다른 사람 명령어 답은 그대로 채팅으로)
+const vpCaptureALS = new (require('async_hooks').AsyncLocalStorage)()
 const crypto = require('crypto')
 const tokenManager = require('./tokenManager')
 const store = require('./store')
@@ -1261,6 +1263,7 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
 }
 
 async function sendChatToRoom(djId, message, _isRetry) {
+  { const cap = vpCaptureALS.getStore(); if (cap) { cap.push(String(message)); return true } } // 📱 시청자 페이지 보기용 명령어 — 채팅 대신 페이지로
   const room = getRoom(djId)
   if (room.ws && room.ws.pcRelay && !pcRelayAlive(djId)) { console.log(`[${djId}] PC 방송 창 신호 끊김 — 메시지 못 보냄:`, message); return false }
   // 🎙️ 내 DJ 계정 — PC 방송 창이 DJ 계정으로 대신 보내요 (6초 안에 못 보내면 원래대로 봇 계정으로)
@@ -2018,6 +2021,7 @@ async function handleShortcutCommand(djId, room, settings, author, authorId, liv
 
 // 메시지 길이 제한에 맞춰 여러 줄을 나눠서 순차 전송
 function sendChatSplit(djId, fullText, maxChars, intervalMs) {
+  { const cap = vpCaptureALS.getStore(); if (cap) { cap.push(String(fullText || '')); return } } // 📱 시청자 페이지 보기용 명령어 — 채팅 대신 페이지로
   const limit = Math.max(30, Math.min(500, Number(maxChars) || 100))
   const interval = Math.max(200, Number(intervalMs) || 600)
   // 줄바꿈 없이 한 줄이 limit 보다 길면(스푼 채팅은 한 번에 200자까지) 그 줄을 먼저 잘게 나눠요
@@ -23640,11 +23644,29 @@ app.post('/dj-page/shortcuts', auth.requireAuth, (req, res) => {
 // 일반 시청자가 쓸 수 있는 명령어만 (DJ·매니저 전용 지급/리셋/시작/종료 같은 건 뺌).
 // 명령어 이름은 DJ가 바꿔둔 값을 그대로 읽어서 보여준다. 켜진 모듈 것만 나온다.
 const VP_EXTRA = { k: 'extra', label: '추가 입력 (선택)', ph: '명령어 뒤에 붙일 내용' }
+// 🔎 보기용 명령어 — 채팅에 안 보내고 봇 답을 받아서 페이지에 바로 보여줘요 (view: 'ask')
+const VP_ASK = {
+  request: ['추천곡 받기'],
+  misc: ['실드 보기', '깃발 보기', '펀딩 보기', '사주팔자', '날씨', '디데이 보기', '리액션 타이머 보기', '메모 보기', '온도 랭킹', '내 등급', '자동 복권 확인', '매니저 토큰', '매토 설명서'],
+  fishing: ['잔액', '상태', '지갑', '레벨', '도감', '컬렉션', '어망', '상점', '아이템 상점', '신용정보', '낚시 도움말'],
+  fishtournament: ['미끼 상점', '미끼 보유', '내 물고기', '낚시왕', '도움말'],
+  stock: ['룰 설명', '내정보', '내 돈', '주식 목록', '내 주식', '랭킹', '잭팟', '상점'],
+  auction: ['경매 보기', '내 입찰'],
+  swordgame: ['프로필', '검랭킹', '창고', '상태', '검상점', '골드', '도움말'],
+  farm: ['내 농장', '작물 상점', '도움말'],
+  tower: ['내 정보', '아이템', '도움말'],
+  monstercatch: ['도감', '랭킹', '포획볼', '상점'],
+  pickboard: ['뽑기판 보기', '내 뽑기 정보'],
+  webpickboard: ['내 뽑기권'],
+  mafia: ['상태'],
+  idlerpg: ['게임 링크', '내 캐릭터'],
+  etherrpg: ['게임 링크', '후원 보스'],
+}
 function vpBuildCatalog(djId, settings) {
   const groups = []
   const on = (key) => isModuleOn(settings, key, djId)
   const add = (key, title, icon, cmds) => {
-    const list = cmds.filter(c => c && c.base)
+    const list = cmds.filter(c => c && c.base).map(c => (!c.view && (VP_ASK[key] || []).includes(c.label) ? { ...c, view: 'ask' } : c))
     if (list.length) groups.push({ key, title, icon, cmds: list.map((c, i) => ({ id: key + ':' + i, ...c })) })
   }
   const num = (k, label, ph, req) => ({ k, label, ph: ph || '', type: 'number', req: !!req })
@@ -23681,9 +23703,6 @@ function vpBuildCatalog(djId, settings) {
       { label: '내 목록 보기', base: kc.keep, view: 'lists' },
       { label: '목록 사용', base: ' ', args: [{ k: 'sec', label: '목록', type: 'select', opts: sec.map(x => ({ v: x.v + '사용', t: x.t })), req: true, glue: true }, num('idx', '번호', '', true), num('n', '수량', '비우면 1')] },
     ])
-  }
-  if (on('shortcuts') && Array.isArray(settings.commands)) {
-    add('shortcuts', '단축 명령어', '⌨️', settings.commands.filter(c => c && c.trigger && (!c.scope || c.scope === 'all')).map(c => ({ label: String(c.trigger).trim(), base: String(c.trigger).trim(), args: c.prefixMatch ? [VP_EXTRA] : undefined })))
   }
   const misc = []
   if (on('shield') && settings.shield && settings.shield.cmd) misc.push({ label: '실드 보기', base: settings.shield.cmd.trim() })
@@ -23841,7 +23860,7 @@ app.get('/viewer/:djId/commands', (req, res) => {
   const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, hint: c.hint || undefined, rts: c.rts || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
   res.json({ success: true, tag: who.tag, nickname: me ? me.nickname : '', live, inRoom: !!me, groups })
 })
-app.post('/viewer/:djId/run', (req, res) => {
+app.post('/viewer/:djId/run', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
   const { webUserId, id, values } = req.body || {}
@@ -23857,16 +23876,30 @@ app.post('/viewer/:djId/run', (req, res) => {
   const last = vpLastRun.get(key) || 0
   if (Date.now() - last < 2500) return res.json({ success: false, error: '조금만 천천히 눌러주세요.' })
   const cmd = vpBuildCatalog(djId, settings).flatMap(g => g.cmds).find(c => c.id === String(id || ''))
-  if (!cmd || cmd.view) return res.json({ success: false, error: '없는 명령어예요. 새로고침 해주세요.' })
+  if (!cmd || (cmd.view && cmd.view !== 'ask')) return res.json({ success: false, error: '없는 명령어예요. 새로고침 해주세요.' })
   const text = vpComposeText(cmd, values && typeof values === 'object' ? values : {})
   if (!text || typeof text !== 'string') return res.json({ success: false, error: (text && text.error) || '보낼 내용이 없어요' })
   vpLastRun.set(key, Date.now())
+  const frame = JSON.stringify({ command: 'MESSAGE', payload: { body: JSON.stringify({ eventName: 'ChatMessage', eventPayload: { message: text, generator: { id: me.authorId, nickname: me.nickname, profileUrl: me.profileUrl } } }) } })
+  const feed = () => { try { if (room.ws && room.isConnected) room.ws.emit('message', Buffer.from(frame)) } catch (e) { console.log('[시청자 페이지] 명령어 처리 실패:', e.message) } }
+  console.log(`[시청자 페이지:${djId}] ${me.nickname}(@${who.tag}) → ${text}${cmd.view === 'ask' ? ' (페이지에서 보기)' : ''}`)
+  if (cmd.view === 'ask') {
+    // 🔎 보기용 — 채팅에는 안 내보내고, 봇 답을 모아서 페이지로 (답이 멈추고 1.5초 지나면, 최대 6초)
+    const buf = []
+    vpCaptureALS.run(buf, feed)
+    const t0 = Date.now()
+    let lastLen = 0, lastAt = Date.now()
+    while (Date.now() - t0 < 6000) {
+      await new Promise(r => setTimeout(r, 250))
+      if (buf.length !== lastLen) { lastLen = buf.length; lastAt = Date.now() }
+      if (buf.length && Date.now() - lastAt > 1500) break
+    }
+    return res.json({ success: true, text, replies: buf.slice(0, 20) })
+  }
   // 1) 채팅창에 "누가 무엇을" 보여주기 (! 로 시작하지 않게 앞에 붙여서 명령어로 다시 처리되지 않게)
   sendChatToRoom(djId, `📱 ${me.nickname}: ${text}`)
   // 2) 그 시청자가 직접 채팅 친 것처럼 처리 — 기존 명령어 처리 코드를 그대로 탄다
-  const frame = JSON.stringify({ command: 'MESSAGE', payload: { body: JSON.stringify({ eventName: 'ChatMessage', eventPayload: { message: text, generator: { id: me.authorId, nickname: me.nickname, profileUrl: me.profileUrl } } }) } })
-  setTimeout(() => { try { if (room.ws && room.isConnected) room.ws.emit('message', Buffer.from(frame)) } catch (e) { console.log('[시청자 페이지] 명령어 처리 실패:', e.message) } }, 300)
-  console.log(`[시청자 페이지:${djId}] ${me.nickname}(@${who.tag}) → ${text}`)
+  setTimeout(feed, 300)
   res.json({ success: true, text })
 })
 // 🏆 애청지수 랭킹 — 페이지에서 바로 보기 (채팅 !랭킹 과 같은 기준, 상위 20명)
