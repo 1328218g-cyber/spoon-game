@@ -709,9 +709,24 @@ async function appDjToken() {
 async function spoonToken() {
   try { const c = (await session.fromPartition(SPOON_PARTITION).cookies.get({ name: 'spoon_at_kr' })).find((x) => x.value); return c ? c.value : '' } catch (_) { return '' }
 }
+// 🔒 "내 DJ 계정" — 방송 창 스푼 로그인을 서버에도 올려둬요 (20분마다 · 로그인이 바뀌면 바로)
+//    서버가 플랜·팬 방송의 방 이름을 DJ 계정으로 알아내고, PC 가 못 보낸 봇 말을 DJ 계정으로 직접 보낼 수 있게
+let pcUploadAt = 0, pcUploadTok = ''
+async function uploadPcSession(token) {
+  const tok = await spoonToken(); if (!tok) return
+  if (tok === pcUploadTok && Date.now() - pcUploadAt < 20 * 60e3) return
+  try {
+    const list = await session.fromPartition(SPOON_PARTITION).cookies.get({ domain: 'spooncast.net' })
+    const cookies = list.filter((c) => c && c.name && c.value).map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path || '/', expires: c.expirationDate || -1, httpOnly: !!c.httpOnly, secure: !!c.secure, sameSite: c.sameSite === 'strict' ? 'Strict' : c.sameSite === 'lax' ? 'Lax' : 'None' }))
+    const r = await net.fetch(SERVER + '/session/upload-pc', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ cookies }) })
+    const j = await r.json().catch(() => ({}))
+    if (j.success) { pcUploadAt = Date.now(); pcUploadTok = tok } else console.log('[방송 창 세션 업로드] 실패', j.error || r.status)
+  } catch (e) { console.log('[방송 창 세션 업로드] 오류', e && e.message) }
+}
 async function relayPing() {
   const token = await appDjToken(); if (!token) return { ok: false, error: '에디냥 로그인이 필요해요' }
   const on = botAcctMode === 'dj' && alive(bcastWin) && !!(await spoonToken())
+  if (on) uploadPcSession(token).catch(() => {})
   try {
     const r = await net.fetch(SERVER + '/session/pc-relay/ping', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ on }) })
     const j = await r.json()

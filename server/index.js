@@ -26442,6 +26442,17 @@ app.post('/session/upload-pc', auth.requireAuth, (req, res) => {
   const reconnect = before !== after && !!(rooms[djId] && rooms[djId].isConnected)
   if (reconnect) rebootDjConnection(djId)
   console.log(`[세션:${djId}] PC 방송 창 세션 업로드 (${cookies.length}개)${reconnect ? ' → 내 DJ 계정으로 다시 입장' : ''}`)
+  // 🔒 플랜·팬 방송이라 방 이름(stream_name)을 못 받은 채 연결돼 있으면 → 방금 올라온 DJ 계정으로 다시 알아내요 (봇 말 보내기에 필요)
+  const r0 = rooms[djId]
+  if (!reconnect && r0 && r0.liveId && r0.streamNameOk === false) {
+    const own = tokenManager.getAccessToken(djId)
+    if (own) fetchLiveInfo(r0.liveId, own).then((info) => {
+      if (!info.ok || rooms[djId] !== r0) return
+      r0.streamName = info.streamName; r0.streamNameOk = true
+      if (info.djUserId) r0.liveDjUserId = info.djUserId
+      console.log(`[${djId}] 플랜·팬 방송 방 이름을 DJ 계정으로 받았어요: ${info.streamName}`)
+    }).catch(() => {})
+  }
   res.json({ success: true, using: ownAccountOn(djId) ? 'dj' : 'edinyang', reconnect })
 })
 
