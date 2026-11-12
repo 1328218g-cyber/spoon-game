@@ -1279,9 +1279,9 @@ function djSendOn(djId, room) {
 async function sendAsDjFallback(djId, room, message, status) {
   if (status === 429 || status >= 500) return false
   try { if ((store.getSettings(djId) || {}).botAccountMode !== 'dj') return false } catch (e) { return false }
-  if (!tokenManager.hasCookies(djId) || tokenDjIdFor(djId) === djId) return false
-  const own = tokenManager.getAccessToken(djId)
-  if (!own || !room.streamName) return false
+  if (tokenDjIdFor(djId) === djId) return false
+  const own = tokenManager.hasCookies(djId) ? tokenManager.getAccessToken(djId) : ''
+  if (!own || !room.streamName) { console.log(`[${djId}] DJ 계정으로 다시 보내기 못 함 — ${!own ? '서버에 DJ 스푼 로그인이 없어요' : '방송 이름(streamName)을 몰라요'}`); return false }
   try {
     const res = await spoonFetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
       method: 'POST',
@@ -1314,7 +1314,11 @@ async function sendChatToRoom(djId, message, _isRetry) {
       try { if (!room._recentSentTexts) room._recentSentTexts = []; room._recentSentTexts.push({ text: String(message), ts: Date.now() }); if (room._recentSentTexts.length > 30) room._recentSentTexts.shift() } catch (e) {}
       return true
     }
-    if (room.ws && room.ws.pcRelay) { console.log(`[${djId}] PC 대신 보내기 실패 (PC 방송 창 모드라 봇 계정으로는 안 보냄):`, message); return false }
+    if (room.ws && room.ws.pcRelay) {
+      // 🔒 PC 방송 창이 못 보냈으면(플랜·팬방 등) → 서버가 DJ 계정(PC 가 올려준 방송 창 로그인)으로 직접 보내요
+      if (await sendAsDjFallback(djId, room, message, 0)) return true
+      console.log(`[${djId}] PC 대신 보내기 실패 (PC 방송 창 모드라 봇 계정으로는 안 보냄):`, message); return false
+    }
     console.log(`[${djId}] PC 대신 보내기 실패 → 봇 계정으로 보냄`)
   }
   // 🔒 "내 DJ 계정"인데 봇 계정으로는 말이 안 나가는 방송(플랜·팬방)이었으면 → 이 방송 동안은 바로 DJ 계정으로 보내요
