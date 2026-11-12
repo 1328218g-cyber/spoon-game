@@ -23661,10 +23661,10 @@ function vpBuildCatalog(djId, settings) {
   if (on('loyalty')) {
     const act = getActivitySettings(djId, settings)
     add('loyalty', '애청지수', '💗', [
-      { label: '내정보', base: act.cmdMyInfo || '!내정보' },
+      { label: '내정보', base: act.cmdMyInfo || '!내정보', view: 'profile' }, // 👀 view: 채팅으로 안 보내고 페이지에서 바로 보여줘요
       { label: '출석', base: act.cmdAttend || '!출석' },
-      { label: '랭킹', base: act.cmdRank || '!랭킹' },
-      { label: '복권 긁기', base: act.cmdLotto || '!복권', args: [num('n', '장수', '비우면 1장')] },
+      { label: '랭킹', base: act.cmdRank || '!랭킹', view: 'rank' },
+      { label: '복권 긁기', base: act.cmdLotto || '!복권', args: [num('n', '장수', '비우면 1장')], hint: 'lotto' },
       { label: '복권 양도', base: act.cmdLottoTransfer || '!복권양도', args: [txt('tag', '받는 사람 고유닉', '', true), num('n', '장수', '', true)] },
       { label: '내정보 생성', base: act.cmdCreate || '!내정보 생성' },
     ])
@@ -23673,10 +23673,12 @@ function vpBuildCatalog(djId, settings) {
     const list = ((settings.roulette && settings.roulette.list) || []).map((r, i) => ({ v: String(i + 1), t: `${i + 1}. ${r.name || '룰렛' + (i + 1)}`, ok: r && r.enabled !== false })).filter(x => x.ok).map(({ ok, ...x }) => x)
     const kc = getRouletteCmdConfig(settings)
     const sec = [{ v: kc.keep, t: '킵목록' }, { v: kc.event, t: '이벤트목록' }, { v: kc.misc, t: '기타목록' }]
+    // 🥄 룰렛마다 몇 스푼(어떤 스티커) 선물이면 자동으로 도는지 — 룰렛 돌리기 화면에 안내
+    const rts = ((settings.roulette && settings.roulette.list) || []).map((r, i) => ({ idx: i + 1, name: r.name || '룰렛' + (i + 1), on: r && r.enabled !== false && (r.items || []).length > 0, gift: r.triggerMode === 'sticker' ? (r.triggerSticker ? `스티커 [${r.triggerSticker}]` : '') : (Number(r.triggerAmount) > 0 ? `${Number(r.triggerAmount)}스푼` : '') })).filter(x => x.on).map(({ on, ...x }) => x)
     add('roulette', '룰렛', '🎡', [
-      list.length && { label: '룰렛 돌리기', base: '!룰렛', args: [{ k: 'idx', label: '룰렛', type: 'select', opts: list, req: true, glue: true }, num('n', '횟수', '비우면 1번')] },
-      list.length && { label: '룰렛 항목 보기', base: '!룰렛메뉴', args: [{ k: 'idx', label: '룰렛', type: 'select', opts: list, req: true, glue: true }] },
-      { label: '내 목록 보기', base: ' ', args: [{ k: 'sec', label: '목록', type: 'select', opts: sec, req: true, glue: true }, num('page', '페이지', '비우면 1')] },
+      rts.length && { label: '룰렛 돌리기', base: '!룰렛', view: 'roulette', rts },
+      rts.length && { label: '룰렛 항목 보기', base: '!룰렛메뉴', view: 'rmenu' },
+      { label: '내 목록 보기', base: kc.keep, view: 'lists' },
       { label: '목록 사용', base: ' ', args: [{ k: 'sec', label: '목록', type: 'select', opts: sec.map(x => ({ v: x.v + '사용', t: x.t })), req: true, glue: true }, num('idx', '번호', '', true), num('n', '수량', '비우면 1')] },
     ])
   }
@@ -23836,7 +23838,7 @@ app.get('/viewer/:djId/commands', (req, res) => {
   const room = rooms[djId]
   const live = !!(room && room.isConnected)
   const me = live ? vpFindViewer(room, who.tag) : null
-  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
+  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, hint: c.hint || undefined, rts: c.rts || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
   res.json({ success: true, tag: who.tag, nickname: me ? me.nickname : '', live, inRoom: !!me, groups })
 })
 app.post('/viewer/:djId/run', (req, res) => {
@@ -23866,6 +23868,19 @@ app.post('/viewer/:djId/run', (req, res) => {
   setTimeout(() => { try { if (room.ws && room.isConnected) room.ws.emit('message', Buffer.from(frame)) } catch (e) { console.log('[시청자 페이지] 명령어 처리 실패:', e.message) } }, 300)
   console.log(`[시청자 페이지:${djId}] ${me.nickname}(@${who.tag}) → ${text}`)
   res.json({ success: true, text })
+})
+// 🏆 애청지수 랭킹 — 페이지에서 바로 보기 (채팅 !랭킹 과 같은 기준, 상위 20명)
+app.get('/viewer/:djId/ranking', (req, res) => {
+  const djId = req.params.djId
+  const settings = store.getSettings(djId) || {}
+  const who = vpLinkedTag(djId, settings, String(req.query.webUserId || '').trim())
+  if (who.error) return res.json({ success: false, ...who })
+  if (!isModuleOn(settings, 'loyalty', djId)) return res.json({ success: false, error: '애청지수 기능이 꺼져 있어요.' })
+  const act = getActivitySettings(djId, settings)
+  const me = String(who.tag).toLowerCase()
+  const list = Object.entries(act.users || {}).sort((a, b) => (b[1].exp || 0) - (a[1].exp || 0)).slice(0, 20)
+    .map(([k, d], i) => ({ rank: i + 1, nickname: d.nickname || k, level: actGetLevel(d.exp || 0, act.lvBase).level, exp: d.exp || 0, me: String(k).replace(/^@/, '').toLowerCase() === me }))
+  res.json({ success: true, list })
 })
 // 🎵 지금 신청곡 목록 — 페이지에서 바로 보기 (신청자 닉 표시는 DJ 설정 그대로)
 app.get('/viewer/:djId/songs', (req, res) => {

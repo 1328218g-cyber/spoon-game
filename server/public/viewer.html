@@ -76,6 +76,24 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
 .songRow .sMain b{font-weight:800}
 .songRow .sBy{display:block;font-size:11.5px;color:var(--muted)}
 .songState{font-size:12px;font-weight:700;margin-bottom:8px}
+.statGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:var(--surface2);border-radius:14px;padding:10px 6px;text-align:center}
+.stat b{display:block;font-size:17px;font-weight:800;color:var(--text)}
+.stat span{font-size:11px;color:var(--muted);font-weight:700}
+.expBar{height:8px;background:var(--surface2);border-radius:6px;overflow:hidden;margin:4px 0 14px}
+.expBar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.vSec{font-weight:800;font-size:13px;margin:12px 0 6px}
+.chipRow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 11px;font-size:12px}
+.songRow.me{background:var(--surface2);border-radius:12px}
+.rtCard{border:1.5px solid var(--border);border-radius:16px;padding:12px 13px;margin-bottom:10px}
+.rtCard .rtName{font-weight:800;font-size:14px;margin-bottom:4px}
+.rtCard .rtInfo{font-size:12px;color:var(--muted);line-height:1.6}
+.rtCard .rtInfo b{color:var(--text)}
+.rtRow{display:flex;gap:6px;margin-top:9px}
+.rtRow input{width:70px;border:1.5px solid var(--border);border-radius:12px;padding:8px 10px;font-size:14px;font-family:inherit;text-align:center}
+.rtRow .btn{padding:9px 12px;font-size:13px;flex:1}
+.rtResult{font-size:12.5px;margin-top:8px;font-weight:700;color:var(--accent);word-break:break-all}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:60;max-width:calc(100% - 32px);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.2)}
 .toast.ok{background:linear-gradient(135deg,var(--accent),var(--accent2))}
 </style>
@@ -233,7 +251,7 @@ function renderCmds(){
       <button class="cmdBtn" onclick="openCmd('${escapeHtml(c.id)}')">
         <span class="cLabel">${escapeHtml(c.label)}</span>
         ${c.base ? `<span class="cBase">${escapeHtml(c.base)}</span>` : ''}
-        ${c.view ? `<span class="cMore">📋 페이지에서 바로 보기</span>` : (c.args || []).length ? `<span class="cMore">✏️ 입력하고 보내기</span>` : ''}
+        ${c.view === 'roulette' ? `<span class="cMore">🎟️ 룰렛권 · 🥄 선물 안내</span>` : c.view ? `<span class="cMore">📋 페이지에서 바로 보기</span>` : (c.args || []).length ? `<span class="cMore">✏️ 입력하고 보내기</span>` : ''}
       </button>`).join('')}</div>`).join('');
 }
 function findCmd(id){ for(const g of groups) for(const c of g.cmds) if(c.id === id) return c; return null; }
@@ -257,9 +275,96 @@ async function openSongs(c){
     $('songList').innerHTML = items.length ? items.map((it, i) => `<div class="songRow"><span class="sNo">${i + 1}</span><span class="sMain"><b>${escapeHtml(it.artist)}</b> - ${escapeHtml(it.title)}${it.requester ? `<span class="sBy">신청: ${escapeHtml(it.requester)}</span>` : ''}</span></div>`).join('') : '<div class="empty">아직 신청곡이 없어요</div>';
   }catch(e){ $('songList').innerHTML = '<div class="empty">연결에 실패했어요</div>'; }
 }
+/* 👀 페이지에서 바로 보기 — 내정보 · 랭킹 · 내 목록 · 룰렛 · 룰렛 항목 */
+function openView(title){ sheetCmd = null; sheetMode(true); $('sheetTitle').textContent = title; $('sheetBase').textContent = ''; $('sheetFields').innerHTML = ''; $('songList').innerHTML = '<div class="empty">불러오는 중…</div>'; show('sheetBg'); }
+const viewErr = (m) => { $('songList').innerHTML = `<div class="empty">${escapeHtml(m || '불러오지 못했어요')}</div>`; };
+async function getMe(){ const d = await (await fetch(MI_API + '/me?webUserId=' + encodeURIComponent(webUserId))).json(); if(!d.success) throw new Error(d.error || '불러오지 못했어요'); if(!d.linked) throw new Error('먼저 인증해주세요'); return d; }
+const fmt = (n) => Number(n || 0).toLocaleString('ko-KR');
+async function openProfile(){
+  openView('💗 내정보');
+  try{
+    const d = await getMe(), L = d.loyalty || {};
+    $('sheetBase').textContent = (d.nickname || '') + (d.botOnline === false ? ' · 봇이 꺼져 있어서 마지막 정보예요' : '');
+    let h = '';
+    if(L.registered){
+      const pct = L.nextExp ? Math.min(100, Math.round((L.exp || 0) / L.nextExp * 100)) : 100;
+      h += `<div class="statGrid"><div class="stat"><b>Lv.${fmt(L.level)}</b><span>레벨</span></div><div class="stat"><b>${L.rank ? fmt(L.rank) + '위' : '-'}</b><span>순위</span></div><div class="stat"><b>${fmt(L.lotto)}</b><span>복권</span></div>`
+        + `<div class="stat"><b>${fmt(L.attend)}</b><span>출석</span></div><div class="stat"><b>${fmt(L.heart)}</b><span>하트</span></div><div class="stat"><b>${fmt(L.chat)}</b><span>채팅</span></div></div>`
+        + `<div class="songState">경험치 ${fmt(L.exp)} / ${fmt(L.nextExp)}</div><div class="expBar"><i style="width:${pct}%"></i></div>`;
+    } else h += '<div class="empty" style="padding:10px 0">아직 애청지수에 등록 안 돼 있어요<br>"내정보 생성" 버튼으로 만들 수 있어요</div>';
+    const cps = d.coupons || [];
+    h += `<div class="vSec">🎟️ 룰렛권</div>` + (cps.length ? `<div class="chipRow">${cps.map(c => `<span class="chip">${escapeHtml(c.name)} ${fmt(c.count)}장</span>`).join('')}</div>` : '<div class="songState" style="color:var(--muted)">없어요</div>');
+    const cnt = (l) => (l || []).reduce((t, x) => t + (Number(x.count) || 0), 0);
+    h += `<div class="vSec">📋 내 목록</div><div class="chipRow"><span class="chip">킵 ${fmt(cnt(d.keepList))}개</span><span class="chip">이벤트 ${fmt(cnt(d.eventList))}개</span><span class="chip">기타 ${fmt(cnt(d.miscList))}개</span></div>`;
+    $('songList').innerHTML = h;
+  }catch(e){ viewErr(e.message); }
+}
+async function openRank(){
+  openView('🏆 지금 랭킹');
+  try{
+    const d = await (await fetch(API + '/ranking?webUserId=' + encodeURIComponent(webUserId))).json();
+    if(!d.success) return viewErr(d.error);
+    const l = d.list || [];
+    $('sheetBase').textContent = '애청지수 경험치 순 · 상위 ' + l.length + '명';
+    $('songList').innerHTML = l.length ? l.map(r => `<div class="songRow ${r.me ? 'me' : ''}"><span class="sNo">${r.rank}</span><span class="sMain"><b>${escapeHtml(r.nickname)}</b>${r.me ? ' (나)' : ''}<span class="sBy">Lv.${fmt(r.level)}</span></span></div>`).join('') : '<div class="empty">아직 랭킹이 없어요</div>';
+  }catch(e){ viewErr('연결에 실패했어요'); }
+}
+async function openLists(){
+  openView('📋 내 목록');
+  try{
+    const d = await getMe();
+    const sec = (t, l) => `<div class="vSec">${t}</div>` + ((l || []).length ? (l.map(x => `<div class="songRow"><span class="sMain">${escapeHtml(x.name)}</span><b>${fmt(x.count)}개</b></div>`).join('')) : '<div class="songState" style="color:var(--muted)">없어요</div>');
+    $('songList').innerHTML = sec('🎁 킵목록', d.keepList) + sec('🎉 이벤트목록', d.eventList) + sec('📦 기타목록', d.miscList);
+  }catch(e){ viewErr(e.message); }
+}
+async function openRmenu(){
+  openView('🎡 룰렛 항목');
+  try{
+    const d = await (await fetch(MI_API + '/roulettes')).json();
+    const l = (d && d.roulettes) || [];
+    $('songList').innerHTML = l.length ? l.map(r => `<div class="vSec">${escapeHtml(r.idx + '. ' + r.name)}</div><div class="chipRow">${(r.items || []).map(n => `<span class="chip">${escapeHtml(typeof n === 'string' ? n : (n && n.name) || '')}</span>`).join('')}</div>`).join('') : '<div class="empty">등록된 룰렛이 없어요</div>';
+  }catch(e){ viewErr('연결에 실패했어요'); }
+}
+let rtTickets = {};
+async function openRoulette(c){
+  openView('🎡 룰렛 돌리기');
+  $('sheetBase').textContent = '선물을 보내면 자동으로 돌아가요 · 룰렛권이 있으면 여기서 바로 돌릴 수 있어요';
+  try{ const d = await getMe(); rtTickets = {}; (d.coupons || []).forEach(x => { rtTickets[x.idx] = Number(x.count) || 0; }); }catch(e){ rtTickets = {}; }
+  renderRoulette(c);
+}
+function renderRoulette(c){
+  $('songList').innerHTML = (c.rts || []).map(r => { const have = rtTickets[r.idx] || 0; return `<div class="rtCard" id="rt${r.idx}">
+    <div class="rtName">${escapeHtml(r.idx + '. ' + r.name)}</div>
+    <div class="rtInfo">${r.gift ? `🥄 <b>${escapeHtml(r.gift)}</b> 선물하면 자동으로 돌아가요 (스푼 앱에서 선물)<br>` : ''}🎟️ 내 룰렛권 <b>${fmt(have)}장</b></div>
+    ${have > 0 ? `<div class="rtRow"><input type="number" min="1" max="${have}" value="1" id="rtN${r.idx}" inputmode="numeric"><button class="btn btn-primary" onclick="spinRoulette(${r.idx})">🎟️ 룰렛권으로 돌리기</button></div>` : ''}
+    <div class="rtResult" id="rtR${r.idx}"></div></div>`; }).join('') || '<div class="empty">돌릴 수 있는 룰렛이 없어요</div>';
+  $('songList').dataset.cid = c.id;
+}
+async function spinRoulette(idx){
+  const n = Math.max(1, Math.min(rtTickets[idx] || 0, parseInt($('rtN' + idx).value, 10) || 1));
+  const btn = document.querySelector('#rt' + idx + ' .btn'); if(btn) btn.disabled = true;
+  const won = [];
+  for(let i = 0; i < n; i++){
+    $('rtR' + idx).textContent = `돌리는 중… (${i + 1}/${n})`;
+    try{
+      const d = await (await fetch(MI_API + '/spin-roulette', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, idx }) })).json();
+      if(!d.success){ toast('⚠️ ' + (d.error || '돌리지 못했어요')); break; }
+      won.push(d.result || '?');
+      const cp = (d.coupons || []).find(x => Number(x.idx) === idx); rtTickets[idx] = cp ? Number(cp.count) || 0 : Math.max(0, (rtTickets[idx] || 1) - 1);
+    }catch(e){ toast('⚠️ 연결에 실패했어요'); break; }
+    if(i < n - 1) await new Promise(r => setTimeout(r, 1200)); // 채팅에 결과가 순서대로 나가게
+  }
+  const c = findCmd($('songList').dataset.cid); if(c) renderRoulette(c);
+  if(won.length){ $('rtR' + idx).textContent = '🎉 결과: ' + won.join(', '); toast('✅ 채팅창에도 결과가 나갔어요', true); }
+}
 function openCmd(id){
   const c = findCmd(id); if(!c) return;
   if(c.view === 'songs') return openSongs(c);
+  if(c.view === 'profile') return openProfile();
+  if(c.view === 'rank') return openRank();
+  if(c.view === 'lists') return openLists();
+  if(c.view === 'rmenu') return openRmenu();
+  if(c.view === 'roulette') return openRoulette(c);
   sheetMode(false);
   sheetCmd = c;
   $('sheetTitle').textContent = c.label;
@@ -273,6 +378,7 @@ function openCmd(id){
     </div>`).join('');
   updatePreview();
   show('sheetBg');
+  if(c.hint === 'lotto') getMe().then(d => { if(sheetCmd === c) $('sheetBase').textContent = `명령어: ${c.base} · 🎫 내 복권 ${fmt((d.loyalty || {}).lotto)}장`; }).catch(() => {});
   const first = $('sheetFields').querySelector('input'); if(first) setTimeout(() => first.focus(), 50);
 }
 function sheetValues(){ const v = {}; $('sheetFields').querySelectorAll('[data-k]').forEach(el => { v[el.dataset.k] = el.value; }); return v; }
