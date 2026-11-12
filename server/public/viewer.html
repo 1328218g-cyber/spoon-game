@@ -169,8 +169,7 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
 const PATH_PARTS = location.pathname.split('/').filter(Boolean); // ['viewer','djId']
 const DJ_ID = decodeURIComponent(PATH_PARTS[1] || '');
 const API = location.origin + '/viewer/' + encodeURIComponent(DJ_ID);
-const MI_API = location.origin + '/myinfo/' + encodeURIComponent(DJ_ID); // 인증은 내정보 웹페이지 것을 그대로 씀
-const LS_KEY = 'myinfo_webUserId_' + DJ_ID; // 내정보 웹페이지와 같은 키 — 거기서 인증했으면 여기서도 바로 됨
+const LS_KEY = 'myinfo_webUserId_' + DJ_ID; // 내정보 웹페이지와 같은 인증 — 거기서 인증했으면 여기서도 바로 됨
 
 let webUserId = localStorage.getItem(LS_KEY) || '';
 let groups = [], activeGroup = 'all', sheetCmd = null, pollTimer = null, countdownTimer = null, codeExpiresAt = 0, sending = false;
@@ -203,13 +202,13 @@ function applyTheme(color, bgRatioInput){
   document.body.style.background = 'linear-gradient(180deg,' + bg + ',' + bgSoft + ' 320px,' + bg + ')';
   const meta = document.querySelector('meta[name="theme-color"]'); if(meta) meta.setAttribute('content', color);
 }
-async function loadTheme(){ try{ const d = await (await fetch(MI_API + '/theme')).json(); if(d.success && d.color) applyTheme(d.color, d.bgRatio); }catch(e){} }
+async function loadTheme(){ try{ const d = await (await fetch(API + '/theme')).json(); if(d.success && d.color) applyTheme(d.color, d.bgRatio); }catch(e){} }
 
 /* 🔐 인증 — 내정보 웹페이지 register/me 그대로 */
 async function registerCode(){
   hide('authCard'); hide('mainWrap'); hide('errorCard'); show('loadingCard');
   try{
-    const d = await (await fetch(MI_API + '/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId }) })).json();
+    const d = await (await fetch(API + '/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId }) })).json();
     hide('loadingCard');
     if(!d.success) return showError(d.error || '오류가 발생했어요');
     webUserId = d.webUserId; localStorage.setItem(LS_KEY, webUserId);
@@ -231,7 +230,7 @@ function startAuthPolling(){
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     try{
-      const d = await (await fetch(MI_API + '/me?webUserId=' + encodeURIComponent(webUserId))).json();
+      const d = await (await fetch(API + '/me?webUserId=' + encodeURIComponent(webUserId))).json();
       if(d.success && d.linked){ clearInterval(pollTimer); clearInterval(countdownTimer); hide('authCard'); loadCommands(); }
     }catch(e){}
   }, 3000);
@@ -298,7 +297,7 @@ async function openSongs(c){
 /* 👀 페이지에서 바로 보기 — 내정보 · 랭킹 · 내 목록 · 룰렛 · 룰렛 항목 */
 function openView(title){ sheetCmd = null; sheetMode(true); $('sheetTitle').textContent = title; $('sheetBase').textContent = ''; $('sheetFields').innerHTML = ''; $('songList').innerHTML = '<div class="empty">불러오는 중…</div>'; show('sheetBg'); }
 const viewErr = (m) => { $('songList').innerHTML = `<div class="empty">${escapeHtml(m || '불러오지 못했어요')}</div>`; };
-async function getMe(){ const d = await (await fetch(MI_API + '/me?webUserId=' + encodeURIComponent(webUserId))).json(); if(!d.success) throw new Error(d.error || '불러오지 못했어요'); if(!d.linked) throw new Error('먼저 인증해주세요'); return d; }
+async function getMe(){ const d = await (await fetch(API + '/me?webUserId=' + encodeURIComponent(webUserId))).json(); if(!d.success) throw new Error(d.error || '불러오지 못했어요'); if(!d.linked) throw new Error('먼저 인증해주세요'); return d; }
 const fmt = (n) => Number(n || 0).toLocaleString('ko-KR');
 async function openProfile(){
   openView('💗 내정보');
@@ -362,7 +361,7 @@ async function useListItem(btn){
   if(!confirm(`[${name}] ${count}개를 사용할까요?`)) return;
   btn.disabled = true;
   try{
-    const d = await (await fetch(MI_API + '/use-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, section, name, count }) })).json();
+    const d = await (await fetch(API + '/use-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, section, name, count }) })).json();
     if(!d.success){ toast('⚠️ ' + (d.error || '사용하지 못했어요')); btn.disabled = false; return; }
     toast(`✅ [${name}] ${count}개 사용했어요`, true);
     if(d.keepList || d.eventList || d.miscList) renderLists(d); else renderLists(await getMe());
@@ -371,7 +370,7 @@ async function useListItem(btn){
 async function openRmenu(){
   openView('🎡 룰렛 항목');
   try{
-    const d = await (await fetch(MI_API + '/roulettes')).json();
+    const d = await (await fetch(API + '/roulettes')).json();
     const l = (d && d.roulettes) || [];
     $('songList').innerHTML = l.length ? l.map(r => `<div class="vSec">${escapeHtml(r.idx + '. ' + r.name)}</div><div class="chipRow">${(r.items || []).map(n => `<span class="chip">${escapeHtml(typeof n === 'string' ? n : (n && n.name) || '')}</span>`).join('')}</div>`).join('') : '<div class="empty">등록된 룰렛이 없어요</div>';
   }catch(e){ viewErr('연결에 실패했어요'); }
@@ -431,7 +430,7 @@ async function spinRoulette(idx){
   for(let i = 0; i < n; i++){
     setWheelResult(`돌리는 중… (${i + 1}/${n})`);
     try{
-      const d = await (await fetch(MI_API + '/spin-roulette', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, idx }) })).json();
+      const d = await (await fetch(API + '/spin-roulette', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, idx }) })).json();
       if(!d.success){ toast('⚠️ ' + (d.error || '돌리지 못했어요')); break; }
       won.push(d.result || '?');
       const cp = (d.coupons || []).find(x => Number(x.idx) === idx); rtTickets[idx] = cp ? Number(cp.count) || 0 : Math.max(0, (rtTickets[idx] || 1) - 1);

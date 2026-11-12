@@ -787,6 +787,8 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="etherrpg"><span class="ic ic-img"><img src="/icons/etherrpg.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">에테르 키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="idlerpg"><span class="ic ic-img"><img src="/icons/idlerpg.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">방치 RPG</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="myinfo"><span class="ic ic-img"><img src="/icons/myinfo.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">내정보 웹페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="viewerpage"><span class="ic">📱</span><span class="lbl">시청자 페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="djpage"><span class="ic">🎛️</span><span class="lbl">디제이 페이지</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="liverank"><span class="ic ic-img"><img src="/icons/liverank.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">월간 DJ 컷랭킹</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
     <div class="nav-group-label">모듈</div>
@@ -5245,6 +5247,33 @@ if (window.bcast) setTimeout(() => {
           <div id="idlePlayers" class="hint">불러오는 중…</div>
         </div>
       </div>
+      <!-- 📱 시청자 페이지 -->
+      <div class="panel" data-panel="viewerpage">
+        <div class="card">
+          <div class="card-title"><span>📱 시청자 페이지</span></div>
+          <p class="hint">시청자가 폰으로 명령어를 <b>버튼</b>으로 써요. 신청곡은 가수·제목 적고 확인하면 채팅에 바로 나가고 접수돼요. 내정보·랭킹·신청곡 목록·낚시·주식 같은 정보는 채팅 대신 페이지에서 바로 보고, 룰렛권으로 룰렛도 돌려요.<br>인증은 내정보 웹페이지와 같은 방식(채팅에 코드)이에요 — 내정보 웹페이지를 꺼놔도 따로 써져요.</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔗 시청자 페이지 주소</span></div>
+          <p class="hint">방송 소개글이나 채팅에 공유해주세요. 봇이 방송에 들어가 있을 때 버튼이 동작해요.</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="vpUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('vpUrl')">복사</button>
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('vpUrl').value,'_blank')">열기</button>
+          </div>
+        </div>
+      </div>
+      <!-- 🎛️ 디제이 페이지 -->
+      <div class="panel" data-panel="djpage">
+        <div class="card">
+          <div class="card-title"><span>🎛️ 디제이 페이지</span></div>
+          <p class="hint">DJ 전용 페이지예요. 자주 쓰는 모듈을 <b>바로가기</b>로 추가해두면, 누르자마자 그 모듈 설정이 팝업으로 열려요. 폰에서도 열 수 있어요 (에디냥에 로그인한 브라우저에서 — 시청자에게는 공유하지 마세요).</p>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="djpUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open('/dj-page','_blank')">열기</button>
+          </div>
+        </div>
+      </div>
       <div class="panel" data-panel="myinfo">
         <div class="card">
           <div style="font-weight:700;font-size:14px">👤 내정보 웹페이지 설정</div>
@@ -5265,16 +5294,6 @@ if (window.bcast) setTimeout(() => {
           <div style="display:flex;gap:8px">
             <input type="text" id="miHubUrl" readonly style="flex:1">
             <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miHubUrl')">복사</button>
-          </div>
-          <p class="hint" style="margin-top:12px">📱 <b>시청자 페이지</b> — 시청자가 명령어를 버튼으로 써요 (신청곡은 가수·제목 적고 확인 → 채팅에 바로 나가고 접수). 인증은 내정보 페이지와 같이 써요.</p>
-          <div style="display:flex;gap:8px;margin-top:6px">
-            <input type="text" id="miViewerUrl" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('miViewerUrl')">복사</button>
-          </div>
-          <p class="hint" style="margin-top:12px">🎛️ <b>디제이 페이지</b> — DJ 전용. 자주 쓰는 모듈을 바로가기로 추가해두고 눌러서 바로 설정해요 (로그인한 브라우저에서 열기, 시청자에게 공유 X).</p>
-          <div style="display:flex;gap:8px;margin-top:6px">
-            <input type="text" id="miDjPageUrl" readonly style="flex:1">
-            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open('/dj-page','_blank')">열기</button>
           </div>
         </div>
 
@@ -7250,6 +7269,8 @@ const PANEL_META={
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
   idlerpg:['⚔️ 방치 RPG','시청자가 자기 닉네임 캐릭터로 키우는 방치형 웹게임 · 💎 스푼 후원하면 보석 자동 지급'],
+  viewerpage:['📱 시청자 페이지','시청자가 폰으로 명령어를 버튼으로 쓰고, 내정보·랭킹·신청곡 목록 같은 정보는 페이지에서 바로 봐요 (내정보 인증 방식)'],
+  djpage:['🎛️ 디제이 페이지','자주 쓰는 모듈을 바로가기로 모아두고 누르면 그 설정이 팝업으로 바로 열리는 DJ 전용 페이지'],
   myinfo:['👤 내정보 웹페이지','시청자가 웹페이지+채팅인증으로 애청지수·복권·킵/이벤트/기타목록·룰렛권 보유 현황을 채팅 명령어 없이 한 번에 확인합니다'],
 };
 
@@ -7283,6 +7304,8 @@ function selectPanel(name){
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
+  if(name==='viewerpage'&&document.getElementById('vpUrl'))document.getElementById('vpUrl').value=location.origin+'/viewer/'+encodeURIComponent(djId);
+  if(name==='djpage'&&document.getElementById('djpUrl'))document.getElementById('djpUrl').value=location.origin+'/dj-page';
   if(name==='idlerpg')loadIdleRpgPanel();
   if(name==='etherrpg')loadEtherPanel();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
@@ -7415,7 +7438,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','wordguess','myinfo','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','wordguess','myinfo','viewerpage','djpage','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7447,7 +7470,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['viewerpage','djpage','wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -18140,8 +18163,6 @@ async function loadIdleRpgPanel(){
 // 👤 내정보 웹페이지 설정 — 공개 URL과 현재 저장된 테마 색상을 채워준다
 function loadMyInfoSettings(){
   document.getElementById('miHubUrl').value=location.origin+'/myinfo/'+djId;
-  document.getElementById('miViewerUrl').value=location.origin+'/viewer/'+encodeURIComponent(djId);
-  document.getElementById('miDjPageUrl').value=location.origin+'/dj-page';
   const color=myinfoThemeData.color||MI_THEME_DEFAULT;
   document.getElementById('miThemeColorPicker').value=color;
   document.getElementById('miThemeColorHex').value=color;

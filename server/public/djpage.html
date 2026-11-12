@@ -158,11 +158,11 @@ async function load(){
   try{
     const d = await api('/dj-page/data');
     hide('loadingCard');
-    if(!d.success){ show('loginCard'); return; }
+    if(!d.success){ if(d.off){ $('loginCard').querySelector('.card-title').textContent = '🎛️ 디제이 페이지가 꺼져 있어요'; $('loginCard').querySelector('.hint').textContent = d.error; $('loginCard').querySelector('a').textContent = '에디냥으로 가기'; } show('loginCard'); return; }
     modules = d.modules || []; shortcuts = d.shortcuts || [];
     $('subLine').textContent = d.djId + ' · 자주 쓰는 모듈을 바로가기로';
     $('viewerUrl').value = location.origin + d.viewerUrl;
-    if(!d.myinfoOn) $('viewerHint').innerHTML = '시청자가 명령어를 버튼으로 쓰는 페이지예요. <b>내정보 웹페이지가 켜져 있어야</b> 쓸 수 있어요 (인증을 같이 써요).';
+    if(!d.viewerOn) $('viewerHint').innerHTML = '시청자가 명령어를 버튼으로 쓰는 페이지예요. <b>모듈 마켓에서 "시청자 페이지"를 켜야</b> 쓸 수 있어요.';
     renderTiles(); show('mainWrap');
   }catch(e){ hide('loadingCard'); toast('연결에 실패했어요. 새로고침 해주세요.'); }
 }
