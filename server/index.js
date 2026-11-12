@@ -23688,7 +23688,7 @@ function vpBuildCatalog(djId, settings) {
       { label: '랭킹', base: act.cmdRank || '!랭킹', view: 'rank' },
       { label: '복권 긁기', base: act.cmdLotto || '!복권', args: [num('n', '장수', '비우면 1장')], hint: 'lotto' },
       { label: '복권 양도', base: act.cmdLottoTransfer || '!복권양도', args: [txt('tag', '받는 사람 고유닉', '', true), num('n', '장수', '', true)] },
-      { label: '내정보 생성', base: act.cmdCreate || '!내정보 생성' },
+      { label: '내정보 생성', base: act.cmdCreate || '!내정보 생성', hidden: true }, // 버튼은 숨기고 내정보 화면의 "내정보 생성하기"에서만 써요
     ])
   }
   if (on('roulette')) {
@@ -23856,7 +23856,7 @@ app.get('/viewer/:djId/commands', (req, res) => {
   const room = rooms[djId]
   const live = !!(room && room.isConnected)
   const me = live ? vpFindViewer(room, who.tag) : null
-  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, hint: c.hint || undefined, rts: c.rts || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
+  const groups = vpBuildCatalog(djId, settings).map(g => ({ ...g, cmds: g.cmds.map(c => ({ id: c.id, label: c.label, base: c.base === ' ' ? '' : c.base, noSpace: c.noSpaceIn || undefined, view: c.view || undefined, hint: c.hint || undefined, rts: c.rts || undefined, hidden: c.hidden || undefined, args: (c.args || []).map(a => ({ k: a.k, label: a.label, ph: a.ph || '', type: a.type || 'text', req: !!a.req, glue: !!a.glue, opts: a.opts })) })) }))
   res.json({ success: true, tag: who.tag, nickname: me ? me.nickname : '', live, inRoom: !!me, groups })
 })
 app.post('/viewer/:djId/run', async (req, res) => {

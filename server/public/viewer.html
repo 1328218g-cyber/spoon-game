@@ -244,7 +244,7 @@ function renderTabs(){
 function pickGroup(k){ activeGroup = k; renderTabs(); renderCmds(); }
 function renderCmds(){
   const q = $('searchInput').value.trim().toLowerCase();
-  const list = groups.filter(g => activeGroup === 'all' || g.key === activeGroup).map(g => ({ ...g, cmds: g.cmds.filter(c => !q || c.label.toLowerCase().includes(q) || (c.base || '').toLowerCase().includes(q) || g.title.toLowerCase().includes(q)) })).filter(g => g.cmds.length);
+  const list = groups.filter(g => activeGroup === 'all' || g.key === activeGroup).map(g => ({ ...g, cmds: g.cmds.filter(c => !c.hidden).filter(c => !q || c.label.toLowerCase().includes(q) || (c.base || '').toLowerCase().includes(q) || g.title.toLowerCase().includes(q)) })).filter(g => g.cmds.length);
   if(!list.length){ $('cmdList').innerHTML = `<div class="empty">${groups.length ? '찾는 명령어가 없어요' : '쓸 수 있는 명령어가 없어요'}</div>`; return; }
   $('cmdList').innerHTML = list.map(g => `
     <div class="gTitle">${g.icon} ${escapeHtml(g.title)}</div>
