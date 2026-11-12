@@ -1171,13 +1171,14 @@ async function fetchLiveInfo(liveId, accessToken) {
     // 필드가 이 응답 안에 있는지 확인하려는 목적 — 있으면 candidates에 추가해서 실시간 스푼 집계에 쓸 수 있다.
     console.log(`[라이브 상세 원본 구조] liveId=${liveId}:`, JSON.stringify(live).slice(0, 1500))
     return {
+      ok: !!(live.stream_name || live.streamName), // 팬방·구독방은 팬/구독자가 아닌 계정으로 물으면 거절돼서 stream_name이 안 옴
       streamName: live.stream_name || live.streamName || String(liveId),
       djUserId: live.dj_user_id || live.author?.id || live.user?.id || null,
       djProfileUrl: live.author?.profile_url || live.author?.profileUrl || live.author?.image_url || live.user?.profile_url || live.user?.profileUrl || '',
     }
   } catch (e) {
     console.log('[stream_name 오류]', e.message)
-    return { streamName: String(liveId), djUserId: null, djProfileUrl: '' }
+    return { ok: false, streamName: String(liveId), djUserId: null, djProfileUrl: '' }
   }
 }
 
@@ -1269,7 +1270,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
     const ok = await new Promise((resolve) => {
       const t = setTimeout(() => { r.pending.delete(id); resolve(false) }, 6000)
       r.pending.set(id, (v) => { clearTimeout(t); resolve(!!v) })
-      broadcast({ type: 'chatrelay', djId, id, message: String(message), stream: room.streamName || '' })
+      broadcast({ type: 'chatrelay', djId, id, message: String(message), stream: room.streamNameOk === false ? '' : (room.streamName || '') })
     })
     if (ok) {
       try { if (!room._recentSentTexts) room._recentSentTexts = []; room._recentSentTexts.push({ text: String(message), ts: Date.now() }); if (room._recentSentTexts.length > 30) room._recentSentTexts.shift() } catch (e) {}
@@ -17941,8 +17942,19 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
   if (isNewLiveSession) focusLogStartNewSession(djId) // 🎯 집중 로그 지정된 djId라면, 진짜 새 방송(liveId가 바뀜)일 때만 로그 파일을 새로 나눈다 (단순 재접속은 같은 파일 유지)
 
   const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
-  const { streamName, djUserId, djProfileUrl } = await fetchLiveInfo(liveId, accessToken)
+  let liveInfo = await fetchLiveInfo(liveId, accessToken)
+  // 🔒 팬방·구독방 — 공용 봇 계정은 팬/구독자가 아니라 방 정보(stream_name)를 못 받아서, PC "내 DJ 계정" 모드에서
+  //    방 소식은 들어오는데 봇 말하기가 엉뚱한 주소로 가서 출력이 안 됐다 → DJ 본인 세션이 있으면 그걸로 한 번 더 물어본다
+  if (!liveInfo.ok && tokenManager.hasCookies(djId)) {
+    const ownToken = tokenManager.getAccessToken(djId)
+    if (ownToken && ownToken !== accessToken) {
+      const ownInfo = await fetchLiveInfo(liveId, ownToken)
+      if (ownInfo.ok) { liveInfo = ownInfo; console.log(`[${djId}] 공용 봇 계정으로 방 정보 못 받음(팬방·구독방?) → DJ 본인 계정으로 받음`) }
+    }
+  }
+  const { streamName, djUserId, djProfileUrl } = liveInfo
   room.streamName = streamName
+  room.streamNameOk = !!liveInfo.ok // 못 받았으면 PC 대신 보내기는 방송 창이 직접 본 방 이름을 쓰게 (아래 chatrelay)
   room.roomToken = roomToken
   room.liveDjUserId = djUserId
   try { const _s = store.getSettings(djId); if (djUserId && _s && String(_s.spoonUid || '') !== String(djUserId)) store.saveSettings(djId, { spoonUid: String(djUserId) }) } catch (_) {} // 🏦 충전금 — 초이스 DJ 확인용 스푼 번호
