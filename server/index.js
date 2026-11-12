@@ -23708,7 +23708,6 @@ function vpBuildCatalog(djId, settings) {
   if (on('shield') && settings.shield && settings.shield.cmd) misc.push({ label: '실드 보기', base: settings.shield.cmd.trim() })
   if (on('flag') && settings.flags && settings.flags.cmd && (settings.flags.items || []).length) misc.push({ label: '깃발 보기', base: settings.flags.cmd.trim() })
   if (on('funding') && settings.funding && settings.funding.cmd && (settings.funding.items || []).length) misc.push({ label: '펀딩 보기', base: settings.funding.cmd.trim() })
-  if (on('dice')) misc.push({ label: '주사위', base: getDiceSettings(djId, settings).cmd || '!주사위' })
   if (on('saju')) misc.push({ label: '사주팔자', base: getSajuSettings(djId, settings).cmd || '!사주', args: [txt('birth', '생년월일', '예) 1995.08.15', true), num('hour', '태어난 시', '몰라도 돼요')] })
   misc.push({ label: '날씨', base: getWeatherSettings(djId, settings).cmd || '!날씨', args: [txt('where', '지역', '비우면 기본 지역')] })
   if (on('dday')) misc.push({ label: '디데이 보기', base: getDdaySettings(djId, settings).cmd || '!디데이' })

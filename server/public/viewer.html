@@ -292,13 +292,28 @@ async function openProfile(){
       h += `<div class="statGrid"><div class="stat"><b>Lv.${fmt(L.level)}</b><span>레벨</span></div><div class="stat"><b>${L.rank ? fmt(L.rank) + '위' : '-'}</b><span>순위</span></div><div class="stat"><b>${fmt(L.lotto)}</b><span>복권</span></div>`
         + `<div class="stat"><b>${fmt(L.attend)}</b><span>출석</span></div><div class="stat"><b>${fmt(L.heart)}</b><span>하트</span></div><div class="stat"><b>${fmt(L.chat)}</b><span>채팅</span></div></div>`
         + `<div class="songState">경험치 ${fmt(L.exp)} / ${fmt(L.nextExp)}</div><div class="expBar"><i style="width:${pct}%"></i></div>`;
-    } else h += '<div class="empty" style="padding:10px 0">아직 애청지수에 등록 안 돼 있어요<br>"내정보 생성" 버튼으로 만들 수 있어요</div>';
+    } else {
+      const mk = groups.flatMap(g => g.cmds).find(x => x.label === '내정보 생성');
+      h += '<div class="empty" style="padding:10px 0 12px">아직 애청지수에 등록 안 돼 있어요</div>'
+        + (mk ? `<button class="btn btn-primary" style="margin-bottom:8px" onclick="createProfile('${escapeHtml(mk.id)}', this)">✨ 내정보 생성하기</button>` : '');
+    }
     const cps = d.coupons || [];
     h += `<div class="vSec">🎟️ 룰렛권</div>` + (cps.length ? `<div class="chipRow">${cps.map(c => `<span class="chip">${escapeHtml(c.name)} ${fmt(c.count)}장</span>`).join('')}</div>` : '<div class="songState" style="color:var(--muted)">없어요</div>');
     const cnt = (l) => (l || []).reduce((t, x) => t + (Number(x.count) || 0), 0);
     h += `<div class="vSec">📋 내 목록</div><div class="chipRow"><span class="chip">킵 ${fmt(cnt(d.keepList))}개</span><span class="chip">이벤트 ${fmt(cnt(d.eventList))}개</span><span class="chip">기타 ${fmt(cnt(d.miscList))}개</span></div>`;
     $('songList').innerHTML = h;
   }catch(e){ viewErr(e.message); }
+}
+// ✨ 내정보 생성 — 채팅 "내정보 생성" 명령어와 똑같이 (채팅에도 나가요) → 잠깐 뒤 내정보 다시 불러오기
+async function createProfile(id, btn){
+  if(btn) btn.disabled = true;
+  try{
+    const d = await (await fetch(API + '/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ webUserId, id, values: {} }) })).json();
+    if(!d.success){ toast('⚠️ ' + (d.error || '만들지 못했어요')); if(btn) btn.disabled = false; return; }
+    toast('✅ 내정보를 만들었어요', true);
+    $('songList').innerHTML = '<div class="empty">만드는 중…</div>';
+    setTimeout(openProfile, 3500); // 봇이 만들고 웹에 올릴 시간
+  }catch(e){ toast('⚠️ 연결에 실패했어요'); if(btn) btn.disabled = false; }
 }
 async function openRank(){
   openView('🏆 지금 랭킹');
