@@ -1269,6 +1269,34 @@ async function updateSpoonNotice(djId, liveId, newNotice) {
   }
 }
 
+// 🔒 플랜(구독)·팬 방송 — 봇 계정은 방에 들어와서 채팅은 받는데, 구독자·팬이 아니라 말하기가 막혀요.
+//    봇을 "내 DJ 계정"으로 설정했고 서버에 DJ 스푼 로그인이 있으면 → 그 방송 동안은 봇 말을 DJ 계정으로 보내요
+function djSendOn(djId, room) {
+  if (!room || !room._djSendFor || String(room._djSendFor) !== String(room.liveId || '')) return false
+  try { if ((store.getSettings(djId) || {}).botAccountMode !== 'dj') return false } catch (e) { return false }
+  return tokenManager.hasCookies(djId)
+}
+async function sendAsDjFallback(djId, room, message, status) {
+  if (status === 429 || status >= 500) return false
+  try { if ((store.getSettings(djId) || {}).botAccountMode !== 'dj') return false } catch (e) { return false }
+  if (!tokenManager.hasCookies(djId) || tokenDjIdFor(djId) === djId) return false
+  const own = tokenManager.getAccessToken(djId)
+  if (!own || !room.streamName) return false
+  try {
+    const res = await spoonFetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${own}`, 'User-Agent': CHROME_UA, 'Origin': 'https://www.spooncast.net', 'Referer': 'https://www.spooncast.net/' },
+      body: JSON.stringify({ message, messageType: 'GENERAL_MESSAGE' })
+    }, djId)
+    if (!res.ok) { console.log(`[${djId}] DJ 계정으로 다시 보내기도 실패 ${res.status}:`, (await res.text().catch(() => '')).slice(0, 200)); return false }
+    if (String(room._djSendFor || '') !== String(room.liveId || '')) { room._djSendFor = room.liveId; console.log(`[${djId}] 봇 계정으로 말이 안 나가는 방송(플랜·팬방) → 이 방송은 봇 말을 DJ 계정으로 보내요`) }
+    if (!room._recentSentTexts) room._recentSentTexts = []
+    room._recentSentTexts.push({ text: message, ts: Date.now() })
+    if (room._recentSentTexts.length > 12) room._recentSentTexts.shift()
+    return true
+  } catch (e) { console.log(`[${djId}] DJ 계정으로 다시 보내기 오류:`, e.message); return false }
+}
+
 async function sendChatToRoom(djId, message, _isRetry) {
   { const cap = vpCaptureALS.getStore(); if (cap) { cap.push(String(message)); return true } } // 📱 시청자 페이지 보기용 명령어 — 채팅 대신 페이지로
   const room = getRoom(djId)
@@ -1289,7 +1317,9 @@ async function sendChatToRoom(djId, message, _isRetry) {
     if (room.ws && room.ws.pcRelay) { console.log(`[${djId}] PC 대신 보내기 실패 (PC 방송 창 모드라 봇 계정으로는 안 보냄):`, message); return false }
     console.log(`[${djId}] PC 대신 보내기 실패 → 봇 계정으로 보냄`)
   }
-  const accessToken = tokenManager.getAccessToken(tokenDjIdFor(djId))
+  // 🔒 "내 DJ 계정"인데 봇 계정으로는 말이 안 나가는 방송(플랜·팬방)이었으면 → 이 방송 동안은 바로 DJ 계정으로 보내요
+  const useOwnSend = djSendOn(djId, room)
+  const accessToken = useOwnSend ? tokenManager.getAccessToken(djId) : tokenManager.getAccessToken(tokenDjIdFor(djId))
   if (!room.streamName || !accessToken) {
     console.log(`[채팅전송 실패][${djId}] streamName=${room.streamName || '없음'}, accessToken=${accessToken ? '있음' : '없음'} — 메시지가 전송되지 않았어요:`, message)
     return false
@@ -1302,7 +1332,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
       'Origin': 'https://www.spooncast.net',
       'Referer': 'https://www.spooncast.net/',
     }
-    if (room.roomToken) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
+    if (room.roomToken && !useOwnSend) headers['x-live-authorization'] = `Bearer ${room.roomToken}`
     const res = await spoonFetch(`${GW_BASE}/lives/${room.streamName}/chat/message`, {
       method: 'POST',
       headers,
@@ -1311,6 +1341,7 @@ async function sendChatToRoom(djId, message, _isRetry) {
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '')
       console.log(`[채팅전송 실패][${djId}] 응답 ${res.status}:`, bodyText.slice(0, 300), '— 메시지:', message)
+      if (!useOwnSend && await sendAsDjFallback(djId, room, message, res.status)) return true // 🔒 플랜·팬방 — 봇 계정은 못 써서 DJ 계정으로
       let body = null
       try { body = JSON.parse(bodyText) } catch (e) { /* JSON이 아니면 무시 */ }
 
@@ -18209,7 +18240,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           // 반복하는 문제가 있었다 — Set으로 누적해서 한 번 학습된 계정은 계속 기억하게 한다.
           if (matched) { if (!room._selfGeneratorIds) room._selfGeneratorIds = new Set(); room._selfGeneratorIds.add(authorId) }
           // 📻 PC 방송 창 모드 — 봇이 DJ 이름으로 보낸 말이 DJ 채팅으로 되돌아온 것: 화면엔 보여주고 명령어로는 처리 안 함
-          if (matched && ws.pcRelay) { broadcast({ type: 'chat', djId, nick: author, text, profileUrl: (eventPayload.generator || {}).profileUrl || '', isDj: true }); return }
+          if (matched && (ws.pcRelay || djSendOn(djId, room))) { broadcast({ type: 'chat', djId, nick: author, text, profileUrl: (eventPayload.generator || {}).profileUrl || '', isDj: true }); return }
         }
 
         // 🎙️ TTS: 이 유저가 "채팅 1회 읽기" 권한을 갖고 있으면(명령어 제외) 이번 채팅을 읽어주고 권한을 소진한다.
