@@ -21976,22 +21976,34 @@ app.post('/tts/typecast-speak', auth.requireAuth, async (req, res) => {
   const cleanText = String(text || '').slice(0, 200)
   if (!cleanText) return res.json({ success: false, error: '읽을 텍스트가 없어요' })
   try {
-    const upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'User-Agent': CHROME_UA, 'Accept': 'application/json, audio/*, */*' },
-      body: JSON.stringify({
-        voice_id: voiceId,
-        text: cleanText,
-        model: model || 'ssfm-v30',
-        language: 'kor',
-        prompt: { emotion_type: 'preset', emotion_preset: emotion || 'normal', emotion_intensity: 1.0 },
-        output: { volume: 100, audio_pitch: 0, audio_tempo: Math.max(0.5, Math.min(2, Number(rate) || 1)), audio_format: 'wav' },
-      }),
-    })
+    // 목소리마다 되는 모델이 달라요 (예: Woony 는 ssfm-v21 안 됨) → "이 모델 안 됨"(422)이면 다른 모델로 한 번 더
+    const want = model || 'ssfm-v30'
+    const models = [want, ...['ssfm-v30', 'ssfm-v21'].filter((m) => m !== want)]
+    let upstream = null
+    let errText = ''
+    let emo = emotion || 'normal'
+    for (let k = 0; k < models.length; k++) {
+      upstream = await fetch('https://api.typecast.ai/v1/text-to-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey, 'User-Agent': CHROME_UA, 'Accept': 'application/json, audio/*, */*' },
+        body: JSON.stringify({
+          voice_id: voiceId,
+          text: cleanText,
+          model: models[k],
+          language: 'kor',
+          prompt: { emotion_type: 'preset', emotion_preset: emo, emotion_intensity: 1.0 },
+          output: { volume: 100, audio_pitch: 0, audio_tempo: Math.max(0.5, Math.min(2, Number(rate) || 1)), audio_format: 'wav' },
+        }),
+      })
+      if (upstream.ok) break
+      errText = await upstream.text().catch(() => '')
+      if (upstream.status === 422 && /emotion/i.test(errText) && emo !== 'normal') { emo = 'normal'; k--; continue } // (그 모델에 없는 감정이면 보통으로)
+      if (!(upstream.status === 422 && /VOICE_MODEL_NOT_SUPPORTED|not support model/i.test(errText))) break
+    }
     if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => '')
       console.log('[타입캐스트 오류]', upstream.status, errText.slice(0, 300))
-      return res.json({ success: false, error: `HTTP ${upstream.status}${errText ? ' — ' + errText.slice(0, 150) : ''}` })
+      const unsup = /VOICE_MODEL_NOT_SUPPORTED/i.test(errText)
+      return res.json({ success: false, error: unsup ? '이 목소리는 ssfm-v30 · ssfm-v21 모두 안 돼요 — 다른 목소리를 골라주세요' : `HTTP ${upstream.status}${errText ? ' — ' + errText.slice(0, 150) : ''}` })
     }
     const buf = Buffer.from(await upstream.arrayBuffer())
     res.set('Content-Type', 'audio/wav')
