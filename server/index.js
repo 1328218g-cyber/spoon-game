@@ -45,6 +45,12 @@ app.use((req, res, next) => {
   if (m) { req._viewerPage = true; req.url = '/myinfo/' + m[1] + '/' + m[2] + (m[3] || '') }
   next()
 })
+// 🏴‍☠️ 해적 러시안룰렛 — /pirate/아이디/register|me 도 내정보 웹페이지 인증을 그대로 써요 ("해적 러시안룰렛" 모듈이 켜져 있는지로 판단)
+app.use((req, res, next) => {
+  const m = /^\/pirate\/([^/]+)\/(register|me)(\?.*)?$/.exec(req.url)
+  if (m) { req._pirate = true; req.url = '/myinfo/' + m[1] + '/' + m[2] + (m[3] || '') }
+  next()
+})
 app.use(require('express').static(__dirname + '/public'))
 
 // 🎵 입장/좋아요/지정인사 등에 첨부하는 음원 파일 — 예전엔 base64로 인코딩해서 djs.json 안에
@@ -1419,7 +1425,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['viewerpage', 'djpage', 'wordguess', 'drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['pirate', 'viewerpage', 'djpage', 'wordguess', 'drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -4041,7 +4047,7 @@ function getMyInfoSettings(djId, settings) {
 }
 function saveMyInfo(djId, mi) { store.saveSettings(djId, { myinfo: mi }) }
 // 내정보 웹페이지 기능을 쓰는 요청이 열려 있는지 — 📱 시청자 페이지에서 온 요청은 "시청자 페이지" 모듈로, 그 외는 "내정보 웹페이지" 모듈로
-function miGateOn(req, settings, djId) { return isModuleOn(settings, req && req._viewerPage ? 'viewerpage' : 'myinfo', djId) }
+function miGateOn(req, settings, djId) { return isModuleOn(settings, req && req._pirate ? 'pirate' : req && req._viewerPage ? 'viewerpage' : 'myinfo', djId) }
 
 // 🎰 포스트에 좋아요 또는 댓글을 처음 남긴 시청자에게 딱 한 번(좋아요든 댓글이든, 둘 중 먼저 한 쪽
 // 기준으로) 복권 10장을 지급한다. 애청지수(loyalty) 모듈이 켜져있을 때만 지급하고, 이미 받았으면
@@ -4084,7 +4090,7 @@ function miHandleAuth(djId, mi, tag, author, code) {
 
 // 채팅 명령어 처리: "!내정보인증 코드6자리" 또는 코드만 딱 (다른 웹인증 모듈들과 동일한 방식)
 function handleMyInfoCommand(djId, settings, author, actTag, text) {
-  if (!isModuleOn(settings, 'myinfo', djId) && !isModuleOn(settings, 'viewerpage', djId)) return // 📱 시청자 페이지도 같은 인증 코드를 써요
+  if (!isModuleOn(settings, 'myinfo', djId) && !isModuleOn(settings, 'viewerpage', djId) && !isModuleOn(settings, 'pirate', djId)) return // 📱 시청자 페이지·🏴‍☠️ 해적 러시안룰렛도 같은 인증 코드를 써요
   const mi = getMyInfoSettings(djId, settings)
   const msg = String(text || '').trim()
   const tag = actTag ? String(actTag).replace(/^@/, '').trim() : ''
@@ -23369,7 +23375,7 @@ app.get('/mafia/:djId', (req, res) => {
 app.post('/myinfo/:djId/register', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   miCleanExpiredKeys(mi)
   const requestedWebUserId = String((req.body || {}).webUserId || '').trim()
@@ -23387,7 +23393,7 @@ app.post('/myinfo/:djId/register', (req, res) => {
 app.get('/myinfo/:djId/me', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String(req.query.webUserId || '').trim()
   if (!webUserId) return res.json({ success: true, linked: false })
@@ -23411,7 +23417,7 @@ app.get('/myinfo/:djId/me', async (req, res) => {
 app.post('/myinfo/:djId/use-item', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const section = String((req.body || {}).section || '').trim() // 'keep' | 'event' | 'misc'
@@ -23450,7 +23456,7 @@ app.post('/myinfo/:djId/use-item', async (req, res) => {
 app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const tag = webUserId ? mi.webUsers[webUserId] : ''
@@ -23500,7 +23506,7 @@ app.post('/myinfo/:djId/spin-roulette', async (req, res) => {
 app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const tag = webUserId ? mi.webUsers[webUserId] : ''
@@ -23548,7 +23554,7 @@ app.post('/myinfo/:djId/draw-lotto', async (req, res) => {
 app.get('/myinfo/:djId/roulettes', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const list = (settings.roulette && Array.isArray(settings.roulette.list)) ? settings.roulette.list : []
   const roulettes = list
     .map((rt, i) => ({ rt, idx: i + 1 }))
@@ -23564,7 +23570,7 @@ app.get('/myinfo/:djId/roulettes', (req, res) => {
 app.get('/myinfo/:djId/posts', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String(req.query.webUserId || '').trim()
   const myTag = webUserId ? mi.webUsers[webUserId] : ''
@@ -23608,7 +23614,7 @@ app.post('/myinfo/:djId/dj-posts', auth.requireAuth, (req, res) => {
 app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const tag = webUserId ? mi.webUsers[webUserId] : ''
@@ -23628,7 +23634,7 @@ app.post('/myinfo/:djId/posts/:postId/like', (req, res) => {
 app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const mi = getMyInfoSettings(djId, settings)
   const webUserId = String((req.body || {}).webUserId || '').trim()
   const text = String((req.body || {}).text || '').trim().slice(0, 300)
@@ -23654,7 +23660,7 @@ app.post('/myinfo/:djId/posts/:postId/comment', (req, res) => {
 app.get('/myinfo/:djId/calendar', (req, res) => {
   const djId = req.params.djId
   const settings = store.getSettings(djId) || {}
-  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
+  if (!miGateOn(req, settings, djId)) return res.json({ success: false, error: req._pirate ? '해적 러시안룰렛을 찾을 수 없어요. (DJ가 해적 러시안룰렛 모듈을 켜야 해요)' : req._viewerPage ? '시청자 페이지를 찾을 수 없어요. (DJ가 시청자 페이지 모듈을 켜야 해요)' : '내정보 웹페이지를 찾을 수 없어요.' })
   const events = (settings.calendarEvents || []).slice().sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)).map(e => ({
     id: e.id, date: e.date || '', time: e.time || '', title: e.title || '', description: e.description || '',
   }))
@@ -25567,6 +25573,31 @@ const drawQuiz = require('./drawquiz')({
     save: (djId) => { const s = store.getSettings(djId); if (s && s.drawquiz) store.saveSettings(djId, { drawquiz: s.drawquiz }) },
     exists: (djId) => !!store.getSettings(djId),
   },
+})
+// 🏴‍☠️ 해적 러시안룰렛 — 시청자가 /pirate/:djId 에서 인증하고 참가 → 참가 순서대로 페이지 채팅창에 구멍 번호 · 3D 술통 (에디냥과 같은 모듈 · 재미용)
+require('./pirate')({
+  app,
+  isOn: (djId) => { const s = store.getSettings(djId); return !!s && isModuleOn(s, 'pirate', djId) },
+  settings: (djId) => store.getSettings(djId) || {},
+  tagOfWeb: (djId, webUserId) => { if (!webUserId) return ''; const s = store.getSettings(djId) || {}; return (getMyInfoSettings(djId, s).webUsers || {})[webUserId] || '' },
+  nickOf: (djId, tag) => {
+    const s = store.getSettings(djId) || {}
+    try { const act = getActivitySettings(djId, s); const k = actResolveKey(act, null, tag); const ad = k ? act.users[k] : null; if (ad && ad.nickname) return ad.nickname } catch (_) {}
+    const rec = s.rouletteHistory && s.rouletteHistory[tag]
+    return (rec && rec.nickname) || resolveNicknameFromInput(getRoom(djId), tag) || tag
+  },
+  photoOf: (djId, tag) => { try { return getCachedProfileUrl(getRoom(djId), tag, '') || '' } catch (_) { return '' } },
+})
+app.get('/pirate-settings', auth.requireAuth, (req, res) => {
+  const s = store.getSettings(req.djId) || {}
+  res.json({ success: true, settings: Object.assign({ holes: 18, traps: 1, turnSec: 30 }, s.pirate || {}) })
+})
+app.post('/pirate-settings', auth.requireAuth, (req, res) => {
+  const s = store.getSettings(req.djId) || {}
+  const b = req.body || {}, cur = s.pirate || {}
+  const cfg = { holes: [12, 18, 24].includes(+b.holes) ? +b.holes : (cur.holes || 18), traps: [1, 2].includes(+b.traps) ? +b.traps : (cur.traps || 1), turnSec: Math.max(10, Math.min(120, Math.round(+b.turnSec) || cur.turnSec || 30)) }
+  store.saveSettings(req.djId, { pirate: cfg })
+  res.json({ success: true, settings: cfg })
 })
 // 🧩 단어 맞추기 — DJ 가 정한 단어를 시청자가 :단어 로 추측 · 뜻이 가까운 정도(%)와 TOP 5 를 채팅에 (에디냥과 같은 모듈)
 const wordGuess = require('./wordguess')({

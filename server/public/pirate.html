@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0b1626">
+<title>해적 러시안룰렛 | 에디봇</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  /* 🏴‍☠️ 밤바다 갑판 위 3D 술통 · 오른쪽(좁으면 아래)에 참가자와 채팅 */
+  :root {
+    --sea: #0b1626; --panel: #13202f; --line: #2a3c52; --ink: #f4ead7; --sub: #b4a68c;
+    --gold: #ffc94a; --red: #e2483d; --chip: #0f1a28; --green: #46c46b;
+    --disp: "Black Han Sans", "Noto Sans KR", sans-serif; --f: "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 30% -10%, #1f3a58 0%, transparent 60%), var(--sea); color: var(--ink); font-family: var(--f);
+    padding: 18px max(14px, env(safe-area-inset-right, 0px)) 22px max(14px, env(safe-area-inset-left, 0px)); min-height: 100vh; }
+  .hidden { display: none !important; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  header { grid-column: 1 / -1; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-family: var(--disp); font-weight: 400; font-size: clamp(30px, 6vw, 54px); margin: 0; letter-spacing: 1px; line-height: 1; color: var(--gold); text-shadow: 0 3px 0 #7a3b12, 0 8px 22px rgba(0,0,0,.55); }
+  h1 small { display: block; font-family: var(--f); font-size: 13px; color: var(--sub); letter-spacing: 0; text-shadow: none; margin-top: 8px; font-weight: 500; }
+  .status { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 6px 12px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .chip b { color: var(--gold); }
+  .chip.turnme { background: #3b2c08; border-color: var(--gold); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(255,201,74,.25); } }
+
+  .stage { position: relative; border-radius: 22px; border: 1px solid var(--line); overflow: hidden; aspect-ratio: 1 / .9; max-width: 100%; background: #0a1220; touch-action: none; cursor: grab; }
+  .stage.drag { cursor: grabbing; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .hint { position: absolute; left: 14px; top: 12px; font-size: 12px; color: var(--sub); background: rgba(8,14,24,.6); padding: 4px 10px; border-radius: 12px; pointer-events: none; }
+  .boom { position: absolute; left: 50%; top: 26%; transform: translate(-50%, -50%) scale(0); font-family: var(--disp); font-size: clamp(46px, 10vw, 96px); color: var(--gold); text-shadow: 0 5px 0 #9b2b16, 0 0 34px rgba(255,120,40,.75); pointer-events: none; white-space: nowrap; }
+  .boom.on { animation: boom 1.5s ease-out forwards; }
+  @keyframes boom { 0% { transform: translate(-50%, -50%) scale(0) rotate(-10deg); opacity: 0; } 22% { transform: translate(-50%, -50%) scale(1.3) rotate(4deg); opacity: 1; } 60% { opacity: 1; } 100% { transform: translate(-50%, -90%) scale(1); opacity: 0; } }
+  .loser { position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%); background: rgba(10,16,26,.9); border: 2px solid var(--red); border-radius: 16px; padding: 10px 18px; text-align: center; min-width: 60%; max-width: 92%; }
+  .loser b { display: block; font-family: var(--disp); font-weight: 400; font-size: 26px; color: var(--red); }
+  .loser span { font-size: 14px; }
+  .flash { position: absolute; inset: 0; background: radial-gradient(circle at 50% 40%, rgba(255,220,140,.55), transparent 60%); opacity: 0; pointer-events: none; }
+  .flash.on { animation: flash .6s ease-out; }
+  @keyframes flash { 10% { opacity: 1; } }
+  .lobbyMsg { position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%); background: rgba(10,16,26,.85); border: 1px solid var(--line); border-radius: 14px; padding: 9px 16px; font-size: 14px; font-weight: 700; text-align: center; max-width: 92%; }
+  .nogl { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; color: var(--sub); }
+
+  .side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .card h2 { margin: 0; font-size: 15px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card h2 small { font-weight: 500; color: var(--sub); font-size: 12px; }
+  #chat { height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+  .m { font-size: 13px; line-height: 1.45; padding: 6px 10px; border-radius: 10px; background: #1a2a3e; word-break: break-word; display: flex; gap: 7px; align-items: flex-start; }
+  .m .av { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: #0f1a28; }
+  .m i { font-style: normal; color: var(--sub); font-weight: 700; margin-right: 6px; }
+  .m.me { background: #1d3350; }
+  .m.bot { background: #271f36; } .m.bot i { color: #c7b4ff; }
+  .m.hit { background: #3a1716; border: 1px solid #7a2a24; } .m.hit i { color: #ff9b8f; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { flex: 1; min-width: 0; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; font: inherit; font-size: 15px; }
+  input.turnme { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(255,201,74,.25); }
+  button { font: inherit; font-weight: 700; font-size: 14px; border: 0; border-radius: 10px; padding: 10px 14px; background: var(--gold); color: #2a1600; cursor: pointer; }
+  button.ghost { background: var(--chip); color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  label.ck { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sub); }
+  .players { display: flex; flex-direction: column; gap: 6px; }
+  .pl { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--chip); border: 1px solid var(--line); border-radius: 12px; padding: 7px 10px; }
+  .pl.now { border-color: var(--gold); background: #2a2208; }
+  .pl.lose { border-color: var(--red); background: #2a1210; }
+  .pl .no { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 900; color: #10161f; flex-shrink: 0; }
+  .pl .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+  .pl .hs { color: var(--sub); font-size: 12px; white-space: nowrap; }
+  .empty { color: var(--sub); font-size: 13px; text-align: center; padding: 8px 0; }
+
+  .auth { max-width: 460px; margin: 30px auto 0; text-align: center; }
+  .authCode { font-family: var(--disp); font-size: 40px; letter-spacing: 8px; color: var(--gold); background: var(--chip); border-radius: 16px; padding: 14px; }
+  .authCmd { font-size: 14px; color: var(--sub); }
+  .authCmd code { background: var(--chip); color: var(--ink); padding: 3px 8px; border-radius: 8px; font-weight: 700; }
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: #3a1716; border: 1px solid #7a2a24; color: #fff; padding: 10px 16px; border-radius: 18px; font-size: 13px; font-weight: 700; z-index: 60; max-width: calc(100% - 32px); text-align: center; }
+  @media (prefers-reduced-motion: reduce) { .boom.on, .flash.on, .chip.turnme { animation-duration: .01s; } }
+</style>
+</head>
+<body>
+
+<div class="card auth hidden" id="loadingCard"><p class="empty">불러오는 중…</p></div>
+<div class="card auth hidden" id="errorCard"><p class="empty" id="errorText" style="color:#ff9b8f"></p></div>
+<div class="card auth hidden" id="authCard">
+  <h1 style="font-size:34px">🏴‍☠️ 해적 러시안룰렛<small>들어가려면 본인 인증을 해주세요</small></h1>
+  <p class="authCmd">방송 채팅에 아래 코드를 쳐주세요 (내정보 웹페이지·시청자 페이지에서 인증했으면 같은 기기에선 바로 들어가져요)</p>
+  <div class="authCode" id="authCode">------</div>
+  <div class="authCmd">채팅에 <code id="authCmdText">코드</code> 입력</div>
+  <p class="authCmd" id="authTimer"></p>
+  <button class="ghost" onclick="registerCode()">🔄 새 코드 받기</button>
+</div>
+
+<div class="wrap hidden" id="mainWrap">
+  <header>
+    <h1>🏴‍☠️ 해적 러시안룰렛<small>참가한 순서대로 내 차례에 채팅창에 구멍 번호를 쳐요 · 선장이 튀어나오면 당첨!</small></h1>
+    <div class="status"><span class="chip">남은 구멍 <b id="left">-</b></span><span class="chip">참가 <b id="pcount">0</b>명</span><span class="chip" id="turn">대기 중</span></div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="hint">드래그해서 돌려보기 · 내 차례엔 구멍을 눌러도 돼요</div>
+    <div class="flash" id="flash"></div>
+    <div class="boom" id="boom">퉁!</div>
+    <div class="loser hidden" id="loser"><b id="loserName"></b><span id="loserSub"></span></div>
+    <div class="lobbyMsg hidden" id="lobbyMsg"></div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h2>🙋 참가자 <small id="meLine"></small></h2>
+      <div class="players" id="players"></div>
+      <div class="row">
+        <button id="joinBtn" onclick="act('join')">🙋 참가</button>
+        <button id="leaveBtn" class="ghost hidden" onclick="act('leave')">참가 취소</button>
+        <button id="startBtn" class="hidden" onclick="act('start')">🏴‍☠️ 시작</button>
+      </div>
+      <label class="ck"><input type="checkbox" id="snd"> 효과음</label>
+    </div>
+    <div class="card">
+      <h2>💬 채팅 <small>내 차례에 번호를 치면 칼을 꽂아요</small></h2>
+      <div id="chat"></div>
+      <form class="row" id="cf"><input type="text" id="cin" maxlength="80" placeholder="채팅 입력" autocomplete="off" enterkeyhint="send"><button type="submit">보내기</button></form>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const PATH_PARTS = location.pathname.split('/').filter(Boolean); // ['pirate','djId']
+const DJ_ID = decodeURIComponent(PATH_PARTS[1] || '');
+const API = location.origin + '/pirate/' + encodeURIComponent(DJ_ID);
+const LS_KEY = 'myinfo_webUserId_' + DJ_ID; // 내정보 웹페이지와 같은 인증
+let webUserId = ''; try { webUserId = localStorage.getItem(LS_KEY) || ''; } catch (_) {}
+let pollTimer = null, countdownTimer = null, codeExpiresAt = 0, stateTimer = null;
+
+const $ = (id) => document.getElementById(id);
+const show = (id) => $(id).classList.remove('hidden');
+const hide = (id) => $(id).classList.add('hidden');
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+const post = (p, body) => fetch(API + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ webUserId, ...(body || {}) }) }).then((r) => r.json());
+
+/* 🔐 인증 — 내정보 웹페이지 register/me 그대로 */
+function showError(msg) { hide('loadingCard'); hide('authCard'); hide('mainWrap'); $('errorText').textContent = msg; show('errorCard'); }
+async function registerCode() {
+  hide('authCard'); hide('mainWrap'); hide('errorCard'); show('loadingCard'); clearInterval(stateTimer);
+  try {
+    const d = await post('/register');
+    hide('loadingCard');
+    if (!d.success) return showError(d.error || '오류가 발생했어요');
+    webUserId = d.webUserId; try { localStorage.setItem(LS_KEY, webUserId); } catch (_) {}
+    codeExpiresAt = Date.now() + (d.expiresInSec || 600) * 1000;
+    $('authCode').textContent = d.code; $('authCmdText').textContent = (d.cmd || '!내정보인증') + ' ' + d.code;
+    show('authCard'); startCountdown(); startAuthPolling();
+  } catch (e) { hide('loadingCard'); showError('연결에 실패했어요. 새로고침 해주세요.'); }
+}
+function startCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const remain = Math.max(0, Math.floor((codeExpiresAt - Date.now()) / 1000));
+    $('authTimer').textContent = remain > 0 ? `코드 유효시간 ${String(Math.floor(remain / 60)).padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}` : '코드가 만료됐어요. 새 코드를 받아주세요.';
+    if (remain <= 0) clearInterval(countdownTimer);
+  }, 1000);
+}
+function startAuthPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try { const d = await (await fetch(API + '/me?webUserId=' + encodeURIComponent(webUserId))).json(); if (d.success && d.linked) { clearInterval(pollTimer); clearInterval(countdownTimer); hide('authCard'); enter(); } } catch (e) {}
+  }, 3000);
+}
+
+/* 🎮 게임 화면 */
+let ST = null, seq = 0, entered = false;
+async function enter() {
+  show('loadingCard');
+  const ok = await poll(true);
+  hide('loadingCard');
+  if (!ok) return;
+  show('mainWrap'); entered = true; G.resize(); $('chat').scrollTop = $('chat').scrollHeight;
+  clearInterval(stateTimer); stateTimer = setInterval(() => poll(false), 1000);
+}
+async function poll(first) {
+  try {
+    const d = await (await fetch(API + '/state?webUserId=' + encodeURIComponent(webUserId) + '&since=' + seq)).json();
+    if (!d.success) { clearInterval(stateTimer); if (d.needAuth) { registerCode(); return false; } showError(d.error || '오류가 발생했어요'); return false; }
+    if ((d.seq || 0) < seq) return true; // (늦게 온 예전 응답은 버려요)
+    ST = d;
+    (d.chat || []).forEach((m) => { if (m.seq > seq) { seq = m.seq; addMsg(m, first); } }); // (겹친 요청으로 같은 글이 두 번 붙지 않게)
+    ST = d; render(first); return true;
+  } catch (e) { if (first) showError('연결에 실패했어요. 새로고침 해주세요.'); return false; }
+}
+function addMsg(m, first) {
+  const box = $('chat'); const el = document.createElement('div');
+  el.className = 'm ' + (m.cls || '') + (m.tag && ST && m.tag === ST.me ? ' me' : '');
+  const av = m.cls === 'bot' || m.cls === 'hit' ? '' : (m.img ? `<img class="av" src="${esc(m.img)}" alt="" onerror="this.remove()">` : '');
+  el.innerHTML = `${av}<div><i style="${m.color ? 'color:' + esc(m.color) : ''}">${esc(m.nick)}</i>${esc(m.text)}</div>`;
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  box.appendChild(el); while (box.children.length > 120) box.firstChild.remove();
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+function render(first) {
+  const d = ST; const myTurn = d.phase === 'play' && d.turn === d.me; const tp = d.players.find((p) => p.tag === d.turn);
+  const usedN = new Map(d.used.map((u) => [u.n, u]));
+  $('left').textContent = d.phase === 'lobby' ? d.holes : d.holes - d.used.length;
+  $('pcount').textContent = d.players.length;
+  const tc = $('turn'); tc.classList.toggle('turnme', myTurn);
+  tc.innerHTML = d.phase === 'lobby' ? '참가 모집 중' : d.phase === 'over' ? '판 끝' : myTurn ? `<b>내 차례!</b> ${d.turnLeft}초` : `${esc(tp ? tp.nick : '')} 차례 · ${d.turnLeft}초`;
+  $('meLine').textContent = (d.nick || '') + '님' + (d.joined ? ' · 참가 중' : '');
+  $('players').innerHTML = d.players.length ? d.players.map((p, i) => {
+    const hs = d.used.filter((u) => u.nick === p.nick).map((u) => u.n + '번').join(' ');
+    const cls = 'pl' + (d.phase === 'play' && p.tag === d.turn ? ' now' : '') + (d.loser && d.loser.tag === p.tag ? ' lose' : '');
+    return `<div class="${cls}"><span class="no" style="background:${esc(p.color)}">${i + 1}</span><span class="nm">${esc(p.nick)}${p.tag === d.me ? ' (나)' : ''}</span><span class="hs">${d.loser && d.loser.tag === p.tag ? '💥 당첨' : d.phase === 'play' && p.tag === d.turn ? '🗡️ 차례' : esc(hs)}</span></div>`;
+  }).join('') : '<div class="empty">아직 참가자가 없어요 · [참가] 를 눌러주세요</div>';
+  $('joinBtn').classList.toggle('hidden', !((d.phase === 'lobby' && !d.joined) || d.phase === 'over'));
+  $('joinBtn').textContent = d.phase === 'over' ? '🙋 다음 판 참가' : '🙋 참가';
+  $('leaveBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
+  $('startBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
+  $('startBtn').disabled = d.players.length < 2;
+  const inp = $('cin'); inp.classList.toggle('turnme', myTurn); inp.placeholder = myTurn ? `내 차례! 구멍 번호(1~${d.holes})를 쳐주세요` : '채팅 입력';
+  inp.setAttribute('inputmode', myTurn ? 'numeric' : 'text');
+  const lm = $('lobbyMsg');
+  if (d.phase === 'lobby') { lm.textContent = d.players.length < 2 ? '⚓ 2명 이상 참가하면 시작할 수 있어요' : '🏴‍☠️ 참가한 사람 누구나 [시작] 을 누를 수 있어요'; show('lobbyMsg'); } else hide('lobbyMsg');
+  G.sync(d, first, usedN);
+}
+async function act(a) {
+  try { const d = await post('/' + a); if (!d.success) { if (d.needAuth) return registerCode(); toast('⚠️ ' + (d.error || '실패했어요')); } poll(false); } catch (e) { toast('⚠️ 연결에 실패했어요'); }
+}
+let sending = false;
+$('cf').addEventListener('submit', async (e) => {
+  e.preventDefault(); const v = $('cin').value.trim(); if (!v || sending) return;
+  sending = true;
+  try { const d = await post('/chat', { text: v }); if (d.success) $('cin').value = ''; else if (d.needAuth) registerCode(); else toast('⚠️ ' + (d.error || '보내지 못했어요')); poll(false); } catch (_) { toast('⚠️ 연결에 실패했어요'); }
+  sending = false;
+});
+function pickHole(n) { if (!ST || ST.phase !== 'play' || ST.turn !== ST.me) return; post('/chat', { text: String(n) }).then(() => poll(false)).catch(() => {}); }
+
+/* 🛢️ 3D 술통 (three.js) */
+const G = (() => {
+  const noop = { sync() {}, resize() {} };
+  const stage = $('stage');
+  if (!window.THREE) { stage.insertAdjacentHTML('beforeend', '<div class="nogl">3D 그림 도구를 못 불러왔어요. 새로고침해 주세요.</div>'); return noop; }
+  const T = THREE;
+  let renderer;
+  try { renderer = new T.WebGLRenderer({ antialias: true }); } catch (e) { stage.insertAdjacentHTML('beforeend', '<div class="nogl">이 기기에서는 3D 화면을 그릴 수 없어요. (채팅으로는 그대로 할 수 있어요)</div>'); return noop; }
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+  renderer.outputEncoding = T.sRGBEncoding; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+  stage.prepend(renderer.domElement);
+  const scene = new T.Scene(); scene.background = new T.Color('#0a1220'); scene.fog = new T.Fog('#0a1220', 9, 20);
+  const camera = new T.PerspectiveCamera(36, 1, .1, 60); camera.position.set(0, 2.9, 9.4); camera.lookAt(0, 1.75, 0);
+  scene.add(new T.HemisphereLight('#7fa6d8', '#2a1608', .55));
+  const key = new T.DirectionalLight('#ffe2b0', 1.25); key.position.set(3.5, 6, 4); key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
+  Object.assign(key.shadow.camera, { left: -4, right: 4, top: 5, bottom: -2, near: 1, far: 20 }); scene.add(key);
+  const lantern = new T.PointLight('#ff9a3c', 1.4, 9, 2); lantern.position.set(-2.6, 3.1, 1.6); scene.add(lantern);
+  const lampMesh = new T.Mesh(new T.SphereGeometry(.13, 16, 12), new T.MeshBasicMaterial({ color: '#ffcc66' })); lampMesh.position.copy(lantern.position); scene.add(lampMesh);
+  const rim = new T.DirectionalLight('#6fb3ff', .55); rim.position.set(-4, 3, -5); scene.add(rim);
+
+  function woodTex(w, h, staves, base, dark) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+    const sw = w / staves;
+    for (let i = 0; i < staves; i++) {
+      const g = x.createLinearGradient(i * sw, 0, (i + 1) * sw, 0);
+      const k = .85 + Math.random() * .25; const col = (a) => `rgb(${Math.round(base[0] * k * a)},${Math.round(base[1] * k * a)},${Math.round(base[2] * k * a)})`;
+      g.addColorStop(0, col(.72)); g.addColorStop(.5, col(1)); g.addColorStop(1, col(.72)); x.fillStyle = g; x.fillRect(i * sw, 0, sw, h);
+      x.strokeStyle = `rgba(${dark},.35)`; x.lineWidth = 1;
+      for (let j = 0; j < 9; j++) { x.beginPath(); const ox = i * sw + Math.random() * sw; x.moveTo(ox, 0); for (let y = 0; y <= h; y += 16) x.lineTo(ox + Math.sin(y * .02 + j) * 3, y); x.stroke(); }
+      if (Math.random() < .5) { x.fillStyle = `rgba(${dark},.5)`; x.beginPath(); x.ellipse(i * sw + sw * .5, Math.random() * h, 5, 9, 0, 0, 7); x.fill(); }
+      x.fillStyle = `rgba(${dark},.85)`; x.fillRect(i * sw, 0, 2.5, h);
+    }
+    const t = new T.CanvasTexture(c); t.wrapS = T.RepeatWrapping; t.encoding = T.sRGBEncoding; t.anisotropy = 8; return t;
+  }
+
+  // 술통
+  const H = 2.6, R0 = 1.02, RB = .28;
+  const radiusAt = (y) => R0 + RB * Math.sin(Math.PI * (y / H));
+  const barrel = new T.Group(); scene.add(barrel);
+  { const pts = []; for (let i = 0; i <= 24; i++) { const y = (i / 24) * H; pts.push(new T.Vector2(radiusAt(y), y)); }
+    const m = new T.Mesh(new T.LatheGeometry(pts, 96), new T.MeshStandardMaterial({ map: woodTex(2048, 512, 22, [176, 106, 54], '40,18,6'), roughness: .72, metalness: .05 }));
+    m.castShadow = true; m.receiveShadow = true; barrel.add(m);
+    const bandMat = new T.MeshStandardMaterial({ color: '#b58b3a', metalness: .85, roughness: .32 });
+    for (const y of [.18, .55, H - .55, H - .18]) { const b = new T.Mesh(new T.TorusGeometry(radiusAt(y) + .012, .045, 12, 96), bandMat); b.rotation.x = Math.PI / 2; b.position.y = y; b.castShadow = true; barrel.add(b);
+      for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; const rv = new T.Mesh(new T.SphereGeometry(.028, 8, 6), bandMat); rv.position.set(Math.cos(a) * (radiusAt(y) + .05), y, Math.sin(a) * (radiusAt(y) + .05)); barrel.add(rv); } }
+    const lid = new T.Mesh(new T.CircleGeometry(R0 - .05, 64), new T.MeshStandardMaterial({ map: woodTex(512, 512, 7, [120, 70, 34], '30,12,4'), roughness: .8 }));
+    lid.rotation.x = -Math.PI / 2; lid.position.y = H - .06; barrel.add(lid);
+    const rimT = new T.Mesh(new T.TorusGeometry(R0 - .02, .05, 10, 80), new T.MeshStandardMaterial({ color: '#6e3d1b', roughness: .7 })); rimT.rotation.x = Math.PI / 2; rimT.position.y = H; barrel.add(rimT);
+    const hole = new T.Mesh(new T.CircleGeometry(.42, 40), new T.MeshBasicMaterial({ color: '#050302' })); hole.rotation.x = -Math.PI / 2; hole.position.y = H - .055; barrel.add(hole);
+  }
+  { const c = woodTex(1024, 1024, 8, [92, 60, 38], '20,10,4'); c.repeat.set(3, 3); c.wrapT = T.RepeatWrapping; c.rotation = Math.PI / 2;
+    const floor = new T.Mesh(new T.PlaneGeometry(30, 30), new T.MeshStandardMaterial({ map: c, roughness: .9 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor); }
+
+  // 구멍 · 번호
+  let holes = [], holeGroup = null;
+  function numTex(n) {
+    const c = document.createElement('canvas'); c.width = 128; c.height = 128; const x = c.getContext('2d');
+    x.font = '900 72px "Noto Sans KR", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineWidth = 10; x.strokeStyle = 'rgba(40,16,4,.85)'; x.strokeText(n, 64, 66); x.fillStyle = '#ffe3a8'; x.fillText(n, 64, 66);
+    const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; return t;
+  }
+  function buildHoles(N) {
+    if (holeGroup) barrel.remove(holeGroup);
+    holeGroup = new T.Group(); barrel.add(holeGroup); holes = [];
+    const rows = N === 12 ? 2 : 3; const cols = N / rows; const ys = rows === 2 ? [.95, 1.65] : [.85, 1.3, 1.75];
+    const holeMat = new T.MeshStandardMaterial({ color: '#0b0603', roughness: 1 });
+    const ringMat = new T.MeshStandardMaterial({ color: '#4a2610', roughness: .8 });
+    let n = 0;
+    ys.slice().reverse().forEach((y, ri) => {
+      for (let c = 0; c < cols; c++) {
+        n++;
+        const a = ((c + (ri % 2 ? .5 : 0)) / cols) * Math.PI * 2;
+        const r = radiusAt(y);
+        const dir = new T.Vector3(Math.sin(a), 0, Math.cos(a));
+        const g = new T.Group(); g.position.set(dir.x * r, y, dir.z * r); g.lookAt(dir.x * (r + 1), y, dir.z * (r + 1));
+        g.rotateX(Math.atan(RB * Math.PI / H * Math.cos(Math.PI * y / H)));
+        const ring = new T.Mesh(new T.RingGeometry(.11, .16, 32), ringMat); ring.position.z = .02; g.add(ring);
+        const disk = new T.Mesh(new T.CircleGeometry(.115, 32), holeMat); disk.position.z = .022; g.add(disk);
+        const lab = new T.Mesh(new T.PlaneGeometry(.2, .2), new T.MeshBasicMaterial({ map: numTex(n), transparent: true, depthWrite: false })); lab.position.set(0, -.27, .02); g.add(lab);
+        const hit = new T.Mesh(new T.CircleGeometry(.2, 16), new T.MeshBasicMaterial({ visible: false })); hit.position.z = .02; g.add(hit);
+        hit.userData.n = n; g.userData = { n, a, lab, disk };
+        holeGroup.add(g); holes.push({ n, a, g, hit });
+      }
+    });
+  }
+
+  // 칼
+  function makeSword(color) {
+    const s = new T.Group();
+    const steel = new T.MeshStandardMaterial({ color: '#d9dde3', metalness: .95, roughness: .18 });
+    const blade = new T.Mesh(new T.BoxGeometry(.07, .016, .7), steel); blade.position.z = -.2; s.add(blade);
+    const guard = new T.Mesh(new T.BoxGeometry(.34, .06, .05), new T.MeshStandardMaterial({ color: '#c9a24a', metalness: .9, roughness: .3 })); guard.position.z = .2; s.add(guard);
+    const grip = new T.Mesh(new T.CylinderGeometry(.045, .045, .3, 14), new T.MeshStandardMaterial({ color, roughness: .45 })); grip.rotation.x = Math.PI / 2; grip.position.z = .37; s.add(grip);
+    const pommel = new T.Mesh(new T.SphereGeometry(.06, 16, 12), guard.material); pommel.position.z = .54; s.add(pommel);
+    s.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    return s;
+  }
+  const anims = [];
+  function animate(dur, fn) { anims.push({ t0: performance.now(), dur, fn }); }
+  function putSword(n, color, anim) {
+    const h = holes.find((x) => x.n === n); if (!h) return;
+    const s = makeSword(color || '#e2483d'); h.g.add(s); s.rotation.z = (Math.random() - .5) * .8; h.g.userData.lab.visible = false;
+    if (!anim) { s.position.z = .02; return; }
+    animate(260, (k) => { const e = 1 - Math.pow(1 - k, 3); s.position.z = .9 * (1 - e) + .02; });
+    animate(420, (k) => { barrel.rotation.z = Math.sin(k * Math.PI * 6) * .035 * (1 - k); barrel.position.x = Math.sin(k * Math.PI * 8) * .03 * (1 - k); });
+  }
+
+  // 🐱 에디냥 해적 선장
+  function stripeTex() {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d');
+    for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#f4efe6' : '#d8343a'; x.fillRect(0, i * 32, 64, 32); }
+    const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.wrapS = t.wrapT = T.RepeatWrapping; return t;
+  }
+  function makePirate() {
+    const M = (color, o = {}) => { const m = new T.MeshStandardMaterial(Object.assign({ color, roughness: .62, metalness: 0 }, o)); m.color.convertSRGBToLinear(); return m; };
+    const fur = M('#f2963a', { roughness: .78 }), furLight = M('#ffd9a8', { roughness: .8 }), pink = M('#ff8fa3', { roughness: .5 });
+    const black = M('#17161c', { roughness: .55 }), white = M('#fbfaf6', { roughness: .35 }), gold = M('#e7b84b', { metalness: .9, roughness: .25 });
+    const shirt = M('#ffffff', { map: stripeTex(), roughness: .7 });
+    const add = (parent, geo, mat, x = 0, y = 0, z = 0) => { const m = new T.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+    const outer = new T.Group(); const p = new T.Group(); p.position.y = -.6; outer.add(p);
+    add(p, new T.CylinderGeometry(.27, .33, .5, 32), shirt, 0, .25, 0);
+    add(p, new T.TorusGeometry(.305, .035, 10, 40), black, 0, .1, 0).rotation.x = Math.PI / 2;
+    add(p, new T.BoxGeometry(.11, .085, .04), gold, 0, .1, .32);
+    for (const sx of [-1, 1]) {
+      const arm = add(p, new T.CylinderGeometry(.065, .075, .34, 14), shirt, sx * .34, .32, .02); arm.rotation.z = sx * .7; arm.rotation.x = -.25;
+      const hand = add(p, new T.SphereGeometry(.085, 16, 12), fur, sx * .45, .18, .1);
+      if (sx > 0) { const sw = new T.Group(); sw.position.copy(hand.position); sw.rotation.set(-.6, 0, -.35); p.add(sw);
+        add(sw, new T.BoxGeometry(.035, .36, .012), M('#dfe3e8', { metalness: .95, roughness: .15 }), 0, .22, 0);
+        add(sw, new T.BoxGeometry(.13, .03, .03), gold, 0, .04, 0); }
+    }
+    const head = new T.Group(); head.position.y = .82; p.add(head);
+    add(head, new T.SphereGeometry(.36, 40, 30), fur).scale.set(1, .92, .95);
+    for (const sx of [-1, 1]) {
+      const ear = add(head, new T.ConeGeometry(.12, .2, 20), fur, sx * .21, .27, -.02); ear.rotation.z = -sx * .45;
+      const inn = add(head, new T.ConeGeometry(.07, .13, 16), pink, sx * .205, .255, .035); inn.rotation.z = -sx * .45;
+    }
+    add(head, new T.TorusGeometry(.035, .009, 8, 20), gold, -.3, .17, .04).rotation.y = Math.PI / 2;
+    add(head, new T.SphereGeometry(.08, 20, 16), white, -.13, .05, .3).scale.set(1, 1.1, .6);
+    add(head, new T.SphereGeometry(.05, 16, 12), black, -.125, .045, .345);
+    add(head, new T.SphereGeometry(.017, 10, 8), white, -.105, .07, .382);
+    add(head, new T.BoxGeometry(.13, .022, .02), black, -.13, .15, .3).rotation.z = .2;
+    add(head, new T.CylinderGeometry(.085, .085, .03, 24), black, .13, .06, .315).rotation.x = Math.PI / 2;
+    const strap = add(head, new T.TorusGeometry(.355, .014, 8, 60), black, 0, .06, 0); strap.rotation.set(Math.PI / 2, .38, 0);
+    add(head, new T.SphereGeometry(.09, 18, 14), furLight, -.06, -.1, .29).scale.set(1, .8, .8);
+    add(head, new T.SphereGeometry(.09, 18, 14), furLight, .06, -.1, .29).scale.set(1, .8, .8);
+    add(head, new T.SphereGeometry(.04, 14, 10), pink, 0, -.05, .355).scale.set(1.2, .8, .8);
+    const mouth = add(head, new T.TorusGeometry(.05, .01, 8, 20, Math.PI), black, 0, -.15, .345); mouth.rotation.z = Math.PI;
+    for (const sx of [-1, 1]) for (const k of [-1, 0, 1]) { const w = add(head, new T.CylinderGeometry(.005, .005, .26, 6), black, sx * .25, -.09 + k * .035, .25); w.rotation.z = Math.PI / 2 + sx * k * .18; w.rotation.y = -sx * .35; }
+    const hat = new T.Group(); hat.position.set(0, .3, -.01); hat.rotation.x = -.12; head.add(hat);
+    const brim = add(hat, new T.CylinderGeometry(.5, .5, .045, 3), black); brim.rotation.y = Math.PI / 2; brim.scale.set(1, 1, .82);
+    const trim = add(hat, new T.CylinderGeometry(.53, .53, .03, 3), gold, 0, -.012, 0); trim.rotation.y = Math.PI / 2; trim.scale.set(1, 1, .82);
+    add(hat, new T.CylinderGeometry(.22, .27, .24, 32), black, 0, .13, 0);
+    add(hat, new T.TorusGeometry(.265, .018, 8, 40), gold, 0, .03, 0).rotation.x = Math.PI / 2;
+    add(hat, new T.SphereGeometry(.06, 16, 12), white, 0, .15, .245).scale.set(1, .95, .5);
+    add(hat, new T.SphereGeometry(.014, 8, 6), black, -.022, .158, .275); add(hat, new T.SphereGeometry(.014, 8, 6), black, .022, .158, .275);
+    for (const r of [-1, 1]) { const bone = add(hat, new T.CylinderGeometry(.009, .009, .16, 6), white, 0, .09, .25); bone.rotation.z = r * .9; }
+    return outer;
+  }
+  const captain = makePirate(); scene.add(captain);
+  const spring = new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3([...Array(60)].map((_, i) => new T.Vector3(Math.cos(i * .7) * .16, i * .014, Math.sin(i * .7) * .16))), 240, .018, 8), new T.MeshStandardMaterial({ color: '#c9ced6', metalness: .9, roughness: .25 }));
+  spring.visible = false; scene.add(spring);
+  let capState = { mode: 'idle', t0: performance.now() };
+  const COLORS = ['#e2483d', '#4aa3ff', '#46c46b', '#ffc94a', '#c07bff', '#ff8fb1', '#3fd1c7', '#ff9a3c'];
+  const confetti = [];
+  function burst() {
+    for (let i = 0; i < 90; i++) {
+      const m = new T.Mesh(new T.PlaneGeometry(.06, .1), new T.MeshStandardMaterial({ color: COLORS[i % COLORS.length], side: T.DoubleSide, roughness: .5, emissive: COLORS[i % COLORS.length], emissiveIntensity: .25 }));
+      m.position.set(0, H + .2, 0); const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 3.5;
+      m.userData = { v: new T.Vector3(Math.cos(a) * sp * .55, 3 + Math.random() * 3.2, Math.sin(a) * sp * .55), w: new T.Vector3(Math.random() * 9, Math.random() * 9, Math.random() * 9), life: 2.6 };
+      scene.add(m); confetti.push(m);
+    }
+  }
+
+  // 크기 · 조작
+  function resize() { const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  new ResizeObserver(resize).observe(stage); resize();
+  let rotY = 0, vel = 0, targetY = null, dragging = false, lastX = 0, moved = 0;
+  stage.addEventListener('pointerdown', (e) => { dragging = true; moved = 0; lastX = e.clientX; targetY = null; stage.classList.add('drag'); stage.setPointerCapture(e.pointerId); });
+  stage.addEventListener('pointermove', (e) => { if (!dragging) return; const dx = e.clientX - lastX; lastX = e.clientX; moved += Math.abs(dx); rotY += dx * .008; vel = dx * .008; });
+  stage.addEventListener('pointerup', (e) => { dragging = false; stage.classList.remove('drag'); if (moved < 6) pick(e); });
+  const ray = new T.Raycaster(), mv = new T.Vector2();
+  function pick(e) {
+    const r = stage.getBoundingClientRect(); mv.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(mv, camera);
+    const hit = ray.intersectObjects(holes.map((h) => h.hit), false)[0];
+    if (hit && !shown.has(hit.object.userData.n)) pickHole(hit.object.userData.n);
+  }
+  function faceHole(n) { const h = holes.find((x) => x.n === n); if (!h) return; let want = -h.a; const twoPi = Math.PI * 2; want = rotY + ((((want - rotY) % twoPi) + twoPi + Math.PI) % twoPi - Math.PI); targetY = want; }
+
+  // 소리
+  let ac = null;
+  function tone(f, d, type = 'square', v = .08, slide) {
+    if (!$('snd').checked) return;
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.value = f; if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + d); g.gain.value = v; g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + d); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + d); } catch (_) {}
+  }
+
+  // 서버 상태 → 화면 (새로 꽂힌 칼만 차례로 애니메이션)
+  let round = 0, N = 0, shown = new Set(), queue = [], busy = false, over = false, boomed = false;
+  function resetBarrel(n) {
+    N = n; buildHoles(n); shown = new Set(); queue = []; busy = false; over = false; boomed = false;
+    captain.visible = true; captain.rotation.set(0, 0, 0); spring.visible = false; capState = { mode: 'idle', t0: performance.now() };
+    hide('loser'); $('boom').classList.remove('on');
+  }
+  function runQueue() {
+    if (busy || !queue.length) return;
+    busy = true; const u = queue.shift();
+    faceHole(u.n);
+    setTimeout(() => {
+      putSword(u.n, u.color, true); tone(170, .12, 'square', .07, 80);
+      if (u.trap) setTimeout(() => { boom(u, true); busy = false; runQueue(); }, 420);
+      else setTimeout(() => { tone(560, .08, 'triangle', .05); busy = false; runQueue(); }, 380);
+    }, 650);
+  }
+  function boom(u, anim) {
+    if (boomed) return; boomed = true;
+    $('loserName').textContent = `${u.nick} 당첨! (${u.n}번)`; $('loserSub').textContent = '🏴‍☠️ 선장이 튕겨 나왔어요!';
+    if (!anim) { capState = { mode: 'fly', t0: performance.now() - 5000, p: new T.Vector3(1.4, .6, 1), v: new T.Vector3(0, 0, 0), spin: 0, rz: 0, bounces: 3 }; show('loser'); return; }
+    spring.visible = true; capState = { mode: 'fly', t0: performance.now(), p: new T.Vector3(0, H - .06, 0), v: new T.Vector3((Math.random() < .5 ? -1 : 1) * (.7 + Math.random() * .4), 6.6, .9), spin: (Math.random() < .5 ? -1 : 1) * (7 + Math.random() * 4), rz: 0, bounces: 0 };
+    burst(); $('flash').classList.remove('on'); void stage.offsetWidth; $('flash').classList.add('on');
+    const b = $('boom'); b.classList.remove('on'); void b.offsetWidth; b.classList.add('on');
+    tone(140, .5, 'sine', .16, 900); setTimeout(() => tone(900, .35, 'triangle', .08, 300), 90); setTimeout(() => tone(85, .5, 'sawtooth', .1, 40), 40);
+    setTimeout(() => show('loser'), 900);
+  }
+  function sync(d, first) {
+    if (d.round !== round || d.holes !== N || (d.phase === 'lobby' && shown.size)) { round = d.round; resetBarrel(d.holes); }
+    over = d.phase === 'over';
+    const loserN = d.loser ? d.loser.n : null;
+    for (const u of d.used) {
+      if (shown.has(u.n)) continue;
+      shown.add(u.n);
+      const trap = u.n === loserN;
+      if (first) { putSword(u.n, u.color, false); if (trap) boom({ ...u, nick: d.loser.nick }, false); }
+      else queue.push({ ...u, trap, nick: trap ? d.loser.nick : u.nick });
+    }
+    runQueue();
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    if (!dragging) {
+      if (targetY != null) { rotY += (targetY - rotY) * Math.min(1, dt * 6); if (Math.abs(targetY - rotY) < .002) targetY = null; vel = 0; }
+      else { vel *= .94; rotY += vel; if (!over) rotY += dt * .35; }
+    }
+    barrel.rotation.y = rotY;
+    for (let i = anims.length - 1; i >= 0; i--) { const a = anims[i]; const k = Math.min(1, (now - a.t0) / a.dur); a.fn(k); if (k >= 1) anims.splice(i, 1); }
+    if (capState) {
+      const t = (now - capState.t0) / 1000;
+      if (capState.mode === 'idle') {
+        captain.position.set(0, H - .06 + Math.sin(t * 1.6) * .03, 0); captain.scale.setScalar(1);
+        captain.rotation.set(0, Math.sin(t * .8) * .45, Math.sin(t * 1.3) * .05);
+      } else {
+        const c = capState; const g = 13;
+        c.v.y -= g * dt; c.p.addScaledVector(c.v, dt);
+        if (c.p.y < .6 && c.v.y < 0 && t > .3) {
+          c.p.y = .6; c.v.y = -c.v.y * .45; c.v.x *= .7; c.v.z *= .7; c.spin *= .5; c.bounces++;
+          if (c.bounces < 3) tone(220 - c.bounces * 50, .12, 'sine', .07, 120);
+          if (Math.abs(c.v.y) < .6) { c.v.set(0, 0, 0); c.spin = 0; }
+        }
+        captain.position.copy(c.p);
+        if (c.spin) { captain.rotation.z += c.spin * dt; captain.rotation.x += c.spin * .45 * dt; captain.rotation.y += c.spin * .3 * dt; }
+        else {
+          const wrap = (v) => Math.atan2(Math.sin(v), Math.cos(v)); captain.rotation.x = wrap(captain.rotation.x); captain.rotation.y = wrap(captain.rotation.y); captain.rotation.z = wrap(captain.rotation.z);
+          const k = Math.min(1, dt * 6); captain.rotation.x += (0 - captain.rotation.x) * k; captain.rotation.z += (Math.sin(t * 3) * .06 - captain.rotation.z) * k;
+          captain.rotation.y += ((Math.atan2(camera.position.x - c.p.x, camera.position.z - c.p.z)) - captain.rotation.y) * k;
+        }
+        if (t < .35) { spring.visible = true; spring.position.set(0, H - .25, 0); spring.scale.set(1, .2 + (t / .35) * 2.2, 1); } else spring.visible = false;
+      }
+    }
+    for (let i = confetti.length - 1; i >= 0; i--) { const m = confetti[i], u = m.userData; u.v.y -= 6.5 * dt; u.v.multiplyScalar(.985); m.position.addScaledVector(u.v, dt); m.rotation.x += u.w.x * dt; m.rotation.y += u.w.y * dt; m.rotation.z += u.w.z * dt; u.life -= dt; if (m.position.y < .02) { m.position.y = .02; u.v.set(0, 0, 0); u.w.set(0, 0, 0); } if (u.life <= 0) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); confetti.splice(i, 1); } }
+    lantern.intensity = 1.3 + Math.sin(now * .004) * .12 + Math.sin(now * .017) * .06;
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  return { sync, resize };
+})();
+
+/* 시작 */
+if (!DJ_ID) showError('주소가 잘못됐어요.');
+else if (!webUserId) registerCode();
+else enter();
+</script>
+</body>
+</html>

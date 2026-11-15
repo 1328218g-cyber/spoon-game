@@ -857,6 +857,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="trophyboard"><span class="ic ic-img"><img src="/icons/trophyboard.png" alt=""></span><span class="lbl">박제판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftcapture"><span class="ic ic-img"><img src="/icons/giftcapture.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">선물 애니메이션 캡처판</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="reversi"><span class="ic ic-img"><img src="/icons/reversi.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">리버시 게임</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="pirate"><span class="ic">🏴‍☠️</span><span class="lbl">해적 러시안룰렛</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="wordguess"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">단어 맞추기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
@@ -5661,6 +5662,28 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <!-- ⚫⚪ 리버시 게임 -->
+      <!-- 🏴‍☠️ 해적 러시안룰렛 -->
+      <div class="panel" data-panel="pirate">
+        <div class="card">
+          <div class="card-title"><span>🏴‍☠️ 해적 러시안룰렛 주소</span></div>
+          <p class="hint">시청자가 이 주소로 들어와서 <b>채팅 인증</b>(내정보 웹페이지와 같은 인증)을 하고 <b>[참가]</b> → 2명 이상 모이면 <b>[시작]</b>. 참가한 순서대로 차례가 돌고, 내 차례에 페이지 채팅창에 <b>구멍 번호</b>를 치면 칼을 꽂아요. 선장이 숨은 구멍이면 "퉁!" 하고 당첨 (재미용 · 보상/벌칙 없음)</p>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="prUrl" readonly style="flex:1">
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="copyHubUrl('prUrl')">복사</button>
+            <button class="btn-gray" style="padding:8px 14px;font-size:12.5px" onclick="window.open(document.getElementById('prUrl').value,'_blank')">열기</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>⚙️ 설정</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="savePirateSettings()">💾 저장</button></div>
+          <label>구멍 수</label>
+          <select id="prHoles"><option value="12">12개</option><option value="18">18개</option><option value="24">24개</option></select>
+          <label>선장 수 (당첨 구멍)</label>
+          <select id="prTraps"><option value="1">1명</option><option value="2">2명</option></select>
+          <label>차례 제한 시간 (초)</label>
+          <input type="number" id="prTurnSec" min="10" max="120">
+          <p class="hint">제한 시간 안에 번호를 안 치면 남은 구멍 중 아무 데나 자동으로 꽂혀요 · 바꾼 설정은 다음 판부터 적용돼요</p>
+        </div>
+      </div>
       <div class="panel" data-panel="reversi">
         <div class="card">
           <div class="card-title"><span>⚫⚪ 리버시 게임 링크</span></div>
@@ -7265,6 +7288,7 @@ const PANEL_META={
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
   wordguess:['🧩 단어 맞추기','DJ 가 정한 단어를 맞히는 게임 — 시청자가 :단어 로 치면 뜻이 얼마나 가까운지(%)와 TOP 5 를 채팅에 보여줘요'],
+  pirate:['🏴‍☠️ 해적 러시안룰렛','시청자가 웹페이지에서 인증하고 참가 → 참가한 순서대로 페이지 채팅창에 구멍 번호를 쳐서 칼을 꽂아요 · 선장이 튀어나오면 당첨 (3D 술통)'],
   reversi:['⚫⚪ 리버시 게임','시청자·디제이 누구나 웹페이지에서 방을 만들고 코드로 초대해서 1:1로 두는 리버시(오델로) 게임입니다. 30초 안에 안 두면 자동으로 턴이 넘어가요'],
   broadcast:['🎙️ 방송하기','에디냥 PC에서 스푼 방송에 고음질 사운드(리버브·EQ·배경음악·효과음·녹음)를 넣어요'],
   etherrpg:['🌟 에테르 키우기','라그나로크 스타일 방치형 RPG 웹게임 · 코드만 채팅에 치면 바로 접속 · 💎 후원 자동 지급 · 🎁 후원보스'],
@@ -7304,6 +7328,7 @@ function selectPanel(name){
   if(name==='webpickboard'&&document.getElementById('wpbRankList'))loadWpbSettings();
   if(name==='mafia'&&document.getElementById('mfRoleList'))loadMfSettings();
   if(name==='myinfo'&&document.getElementById('miHubUrl'))loadMyInfoSettings();
+  if(name==='pirate'&&document.getElementById('prUrl'))loadPirateSettings();
   if(name==='viewerpage'&&document.getElementById('vpUrl'))document.getElementById('vpUrl').value=location.origin+'/viewer/'+encodeURIComponent(djId);
   if(name==='djpage'&&document.getElementById('djpUrl'))document.getElementById('djpUrl').value=location.origin+'/dj-page';
   if(name==='djpage'&&!window.__djpAutoOpened){ window.__djpAutoOpened=true; openDjPagePopup(); } // 메뉴 누르면 디제이 페이지를 팝업 창으로 바로
@@ -7439,7 +7464,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','drawquiz','wordguess','myinfo','viewerpage','djpage','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','pirate','drawquiz','wordguess','myinfo','viewerpage','djpage','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7471,7 +7496,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['viewerpage','djpage','wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['pirate','viewerpage','djpage','wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -18408,6 +18433,25 @@ function openDjPagePopup(){
   const left=Math.max(0,(screen.availWidth||1280)-w-40), top=30;
   djPageWin=window.open('/dj-page','edinyangDjPage',`popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
   if(!djPageWin) showToast('팝업이 막혀 있어요. 브라우저 주소창 오른쪽에서 팝업을 허용해주세요');
+}
+// 🏴‍☠️ 해적 러시안룰렛
+async function loadPirateSettings(){
+  document.getElementById('prUrl').value=location.origin+'/pirate/'+encodeURIComponent(djId);
+  try{
+    const d=await (await fetch(SERVER+'/pirate-settings',{headers:authHeaders()})).json();
+    if(!d.success)return;
+    document.getElementById('prHoles').value=String(d.settings.holes);
+    document.getElementById('prTraps').value=String(d.settings.traps);
+    document.getElementById('prTurnSec').value=d.settings.turnSec;
+  }catch(e){}
+}
+async function savePirateSettings(){
+  const body={holes:+document.getElementById('prHoles').value,traps:+document.getElementById('prTraps').value,turnSec:+document.getElementById('prTurnSec').value};
+  try{
+    const d=await (await fetch(SERVER+'/pirate-settings',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)})).json();
+    if(d.success){showToast('설정 저장 완료 ✓');loadPirateSettings();}
+    else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
 }
 function copyHubUrl(inputId){
   const el=document.getElementById(inputId);
