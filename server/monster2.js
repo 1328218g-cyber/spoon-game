@@ -633,6 +633,33 @@ module.exports = function createMonster2(A) {
   }
 
   // 웹 설정 화면용
+  // 🏪 웹 도감 상점 (아이템 사기 · 지니기 — 채팅 !아이템구매 · !지니기 와 같아요)
+  function shopFor(djId, tag) {
+    const settings = store.getSettings(djId) || {};
+    const mc = A.getMonsterCatchSettings(djId, settings); const g = cfgOf(mc);
+    const key = String(tag || '').trim().toLowerCase();
+    const s = sec('g2items')[key] || {}; const owned = s.owned || {};
+    return { success: true, started: mc.bags[key] != null, points: pointsOf(key), held: s.held || '', items: ITEMS.map((x) => ({ ...x, price: g.itemPrice[x.id] || 0, owned: owned[x.id] || 0 })) };
+  }
+  function shopBuy(djId, tag, itemId, count) {
+    const settings = store.getSettings(djId) || {};
+    const mc = A.getMonsterCatchSettings(djId, settings); const g = cfgOf(mc);
+    const key = String(tag || '').trim().toLowerCase();
+    if (mc.bags[key] == null) return { success: false, error: '먼저 채팅으로 !모험시작 을 해주세요.' };
+    const x = ITEMS.find((i) => i.id === itemId); if (!x) return { success: false, error: '없는 아이템이에요.' };
+    const n = clampInt(count, 1, 99, 1); const cost = (g.itemPrice[x.id] || 0) * n;
+    if (pointsOf(key) < cost) return { success: false, error: `포인트가 모자라요. (필요 ${cost} · 보유 ${pointsOf(key)})` };
+    addPoints(key, -cost);
+    const it = itemsOf(key); it.owned[x.id] = (it.owned[x.id] || 0) + n; if (!it.held) it.held = x.id; saveDex();
+    return { ...shopFor(djId, tag), bought: { id: x.id, name: x.name, icon: x.icon, count: n, cost } };
+  }
+  function shopHold(djId, tag, itemId) {
+    const key = String(tag || '').trim().toLowerCase();
+    const x = ITEMS.find((i) => i.id === itemId); if (!x) return { success: false, error: '없는 아이템이에요.' };
+    const it = itemsOf(key); if (!it.owned[x.id]) return { success: false, error: `${x.name}이(가) 없어요.` };
+    it.held = x.id; saveDex();
+    return shopFor(djId, tag);
+  }
   function settingsFor(djId) {
     const settings = store.getSettings(djId) || {};
     const mc = A.getMonsterCatchSettings(djId, settings);
@@ -646,5 +673,5 @@ module.exports = function createMonster2(A) {
     return mc.g2;
   }
 
-  return { GEN2, ensureGen2, ensureGen2Global, ensureGen2Gmax, pickSpawn, onCaught, onChat, onOffline, catchBonus, powerMult, addFriend, settingsFor, saveFor };
+  return { GEN2, ensureGen2, ensureGen2Global, ensureGen2Gmax, pickSpawn, onCaught, onChat, onOffline, catchBonus, powerMult, addFriend, settingsFor, saveFor, shopFor, shopBuy, shopHold };
 };
