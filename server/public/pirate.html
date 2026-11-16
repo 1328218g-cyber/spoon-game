@@ -33,6 +33,13 @@
 
   .stage { position: relative; border-radius: 22px; border: 1px solid var(--line); overflow: hidden; aspect-ratio: 1 / .9; max-width: 100%; background: #0a1220; touch-action: none; cursor: grab; }
   .stage.drag { cursor: grabbing; }
+  /* 🗡️ 내 차례 — 술통 화면 아래에 바로 번호 치기 (아래 채팅창까지 안 내려가도 돼요) */
+  .mypad { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 5; background: rgba(10,16,26,.92); border: 2px solid var(--gold); border-radius: 16px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; cursor: default; box-shadow: 0 8px 24px rgba(0,0,0,.45); animation: pulse 1.2s ease-in-out infinite; }
+  .mypad .t { font-weight: 800; color: var(--gold); font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .mypad .t small { color: var(--sub); font-weight: 600; font-size: 12px; }
+  .mypad .nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 7px; max-height: 132px; overflow-y: auto; }
+  .mypad .nums button { padding: 11px 0; border-radius: 12px; border: 1px solid #6b5a2a; background: linear-gradient(180deg, #8a5a2b, #5d3a1a); color: #fff3d6; font: inherit; font-weight: 900; font-size: 17px; cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
+  .mypad .nums button:active, .mypad .nums button.pick { background: var(--gold); color: #2a1600; }
   .stage canvas { display: block; width: 100%; height: 100%; }
   .hint { position: absolute; left: 14px; top: 12px; font-size: 12px; color: var(--sub); background: rgba(8,14,24,.6); padding: 4px 10px; border-radius: 12px; pointer-events: none; }
   .boom { position: absolute; left: 50%; top: 26%; transform: translate(-50%, -50%) scale(0); font-family: var(--disp); font-size: clamp(46px, 10vw, 96px); color: var(--gold); text-shadow: 0 5px 0 #9b2b16, 0 0 34px rgba(255,120,40,.75); pointer-events: none; white-space: nowrap; }
@@ -108,6 +115,10 @@
     <div class="boom" id="boom">퉁!</div>
     <div class="loser hidden" id="loser"><b id="loserName"></b><span id="loserSub"></span></div>
     <div class="lobbyMsg hidden" id="lobbyMsg"></div>
+    <div class="mypad hidden" id="myPad">
+      <div class="t"><span>🗡️ 내 차례! 찌를 구멍을 골라요</span><small id="myPadLeft"></small></div>
+      <div class="nums" id="myPadNums"></div>
+    </div>
   </div>
 
   <div class="side">
@@ -223,6 +234,16 @@ function render(first) {
   $('startBtn').disabled = d.players.length < 2;
   const inp = $('cin'); inp.classList.toggle('turnme', myTurn); inp.placeholder = myTurn ? `내 차례! 구멍 번호(1~${d.holes})를 쳐주세요` : '채팅 입력';
   inp.setAttribute('inputmode', myTurn ? 'numeric' : 'text');
+  { // 🗡️ 내 차례 패드 (술통 화면 위)
+    const pad = $('myPad');
+    if (myTurn) {
+      show('myPad');
+      $('myPadLeft').textContent = d.turnLeft + '초 남음';
+      const free = []; for (let n = 1; n <= d.holes; n++) if (!usedN.has(n)) free.push(n);
+      const key = free.join(',');
+      if (pad.dataset.k !== key) { pad.dataset.k = key; $('myPadNums').innerHTML = free.map((n) => `<button type="button" data-n="${n}">${n}</button>`).join(''); }
+    } else { hide('myPad'); pad.dataset.k = ''; }
+  }
   const lm = $('lobbyMsg');
   if (d.phase === 'lobby') { lm.textContent = d.players.length < 2 ? '⚓ 2명 이상 참가하면 시작할 수 있어요' : '🏴‍☠️ 참가한 사람 누구나 [시작] 을 누를 수 있어요'; show('lobbyMsg'); } else hide('lobbyMsg');
   G.sync(d, first, usedN);
@@ -237,6 +258,9 @@ $('cf').addEventListener('submit', async (e) => {
   try { const d = await post('/chat', { text: v }); if (d.success) $('cin').value = ''; else if (d.needAuth) registerCode(); else toast('⚠️ ' + (d.error || '보내지 못했어요')); poll(false); } catch (_) { toast('⚠️ 연결에 실패했어요'); }
   sending = false;
 });
+// 🗡️ 패드에서 번호 치기 · 번호 버튼 누르기 (술통 돌리기 드래그랑 안 겹치게)
+['pointerdown', 'mousedown', 'touchstart'].forEach((ev) => $('myPad').addEventListener(ev, (e) => e.stopPropagation(), { passive: true }));
+$('myPadNums').addEventListener('click', (e) => { const b = e.target.closest('[data-n]'); if (!b || b.disabled) return; b.classList.add('pick'); $('myPadNums').querySelectorAll('button').forEach((x) => { x.disabled = true; }); pickHole(+b.dataset.n); setTimeout(() => { $('myPad').dataset.k = ''; }, 1500); }); // (안 찔렸으면 1.5초 뒤 다시 누를 수 있게)
 function pickHole(n) { if (!ST || ST.phase !== 'play' || ST.turn !== ST.me) return; post('/chat', { text: String(n) }).then(() => poll(false)).catch(() => {}); }
 
 /* 🛢️ 3D 술통 (three.js) */
