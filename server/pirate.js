@@ -132,19 +132,8 @@ function createPirate({ app, isOn, settings, tagOfWeb, nickOf, photoOf }) {
     if (g.phase === 'over') newLobby(dj, g);
     res.json({ success: true });
   });
-  app.post('/pirate/:djId/chat', (req, res) => {
-    const dj = req.params.djId; const b = req.body || {}; const w = who(dj, b.webUserId, true);
-    if (w.error) return res.json({ success: false, ...w });
-    const text = String(b.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
-    if (!text) return res.json({ success: false, error: '내용을 입력해주세요' });
-    const g = G(dj);
-    const last = g.lastSay.get(w.tag) || 0;
-    if (Date.now() - last < 700) return res.json({ success: false, error: '조금 천천히 쳐주세요' });
-    g.lastSay.set(w.tag, Date.now());
-    const me = g.players.find((x) => x.tag === w.tag);
-    say(g, text, '', { nick: w.nick, tag: w.tag, color: me ? me.color : '', img: w.img }); // (채팅은 채팅만 · 구멍은 술통을 돌려서 눌러요)
-    res.json({ success: true });
-  });
+  // (💬 페이지 채팅은 뺐어요 — 구멍은 술통을 돌려서 눌러요)
+
   // 🗡️ 술통 구멍 누르기 (내 차례에만)
   app.post('/pirate/:djId/stab', (req, res) => {
     const dj = req.params.djId; const b = req.body || {}; const w = who(dj, b.webUserId, true);

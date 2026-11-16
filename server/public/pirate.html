@@ -121,11 +121,6 @@
       </div>
       <label class="ck"><input type="checkbox" id="snd"> 효과음</label>
     </div>
-    <div class="card">
-      <h2>💬 채팅</h2>
-      <div id="chat"></div>
-      <form class="row" id="cf"><input type="text" id="cin" maxlength="80" placeholder="채팅 입력" autocomplete="off" enterkeyhint="send"><button type="submit">보내기</button></form>
-    </div>
   </div>
 </div>
 
@@ -181,7 +176,7 @@ async function enter() {
   const ok = await poll(true);
   hide('loadingCard');
   if (!ok) return;
-  show('mainWrap'); entered = true; G.resize(); $('chat').scrollTop = $('chat').scrollHeight;
+  show('mainWrap'); entered = true; G.resize();
   clearInterval(stateTimer); stateTimer = setInterval(() => poll(false), 1000);
 }
 async function poll(first) {
@@ -195,7 +190,8 @@ async function poll(first) {
   } catch (e) { if (first) showError('연결에 실패했어요. 새로고침 해주세요.'); return false; }
 }
 function addMsg(m, first) {
-  const box = $('chat'); const el = document.createElement('div');
+  const box = $('chat'); if (!box) return; // (채팅 칸은 뺐어요)
+  const el = document.createElement('div');
   el.className = 'm ' + (m.cls || '') + (m.tag && ST && m.tag === ST.me ? ' me' : '');
   const av = m.cls === 'bot' || m.cls === 'hit' ? '' : (m.img ? `<img class="av" src="${esc(m.img)}" alt="" onerror="this.remove()">` : '');
   el.innerHTML = `${av}<div><i style="${m.color ? 'color:' + esc(m.color) : ''}">${esc(m.nick)}</i>${esc(m.text)}</div>`;
@@ -221,7 +217,6 @@ function render(first) {
   $('leaveBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
   $('startBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
   $('startBtn').disabled = d.players.length < 2;
-  const inp = $('cin'); inp.placeholder = '채팅 입력';
   const lm = $('lobbyMsg');
   if (d.phase === 'lobby') { lm.textContent = d.players.length < 2 ? '⚓ 2명 이상 참가하면 시작할 수 있어요' : '🏴‍☠️ 참가한 사람 누구나 [시작] 을 누를 수 있어요'; show('lobbyMsg'); } else hide('lobbyMsg');
   G.sync(d, first, usedN);
@@ -229,13 +224,6 @@ function render(first) {
 async function act(a) {
   try { const d = await post('/' + a); if (!d.success) { if (d.needAuth) return registerCode(); toast('⚠️ ' + (d.error || '실패했어요')); } poll(false); } catch (e) { toast('⚠️ 연결에 실패했어요'); }
 }
-let sending = false;
-$('cf').addEventListener('submit', async (e) => {
-  e.preventDefault(); const v = $('cin').value.trim(); if (!v || sending) return;
-  sending = true;
-  try { const d = await post('/chat', { text: v }); if (d.success) $('cin').value = ''; else if (d.needAuth) registerCode(); else toast('⚠️ ' + (d.error || '보내지 못했어요')); poll(false); } catch (_) { toast('⚠️ 연결에 실패했어요'); }
-  sending = false;
-});
 function pickHole(n) { if (!ST || ST.phase !== 'play' || ST.turn !== ST.me) return; post('/stab', { n }).then((d) => { if (d && !d.success && d.error) toast('⚠️ ' + d.error); poll(false); }).catch(() => {}); }
 
 /* 🛢️ 3D 술통 (three.js) */
