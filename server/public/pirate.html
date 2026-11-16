@@ -98,12 +98,12 @@
 
 <div class="wrap hidden" id="mainWrap">
   <header>
-    <h1>🏴‍☠️ 해적 러시안룰렛<small>참가한 순서대로 내 차례에 채팅창에 구멍 번호를 쳐요 · 선장이 튀어나오면 당첨!</small></h1>
+    <h1>🏴‍☠️ 해적 러시안룰렛<small>참가한 순서대로 내 차례에 술통을 돌려서 구멍을 눌러요 · 선장이 튀어나오면 당첨!</small></h1>
     <div class="status"><span class="chip">남은 구멍 <b id="left">-</b></span><span class="chip">참가 <b id="pcount">0</b>명</span><span class="chip" id="turn">대기 중</span></div>
   </header>
 
   <div class="stage" id="stage">
-    <div class="hint">드래그해서 돌려보기 · 내 차례엔 구멍을 눌러도 돼요</div>
+    <div class="hint">드래그해서 돌려보기 · 내 차례엔 찌를 구멍을 눌러요</div>
     <div class="flash" id="flash"></div>
     <div class="boom" id="boom">퉁!</div>
     <div class="loser hidden" id="loser"><b id="loserName"></b><span id="loserSub"></span></div>
@@ -122,7 +122,7 @@
       <label class="ck"><input type="checkbox" id="snd"> 효과음</label>
     </div>
     <div class="card">
-      <h2>💬 채팅 <small>내 차례에 번호를 치면 칼을 꽂아요</small></h2>
+      <h2>💬 채팅</h2>
       <div id="chat"></div>
       <form class="row" id="cf"><input type="text" id="cin" maxlength="80" placeholder="채팅 입력" autocomplete="off" enterkeyhint="send"><button type="submit">보내기</button></form>
     </div>
@@ -221,8 +221,7 @@ function render(first) {
   $('leaveBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
   $('startBtn').classList.toggle('hidden', !(d.phase === 'lobby' && d.joined));
   $('startBtn').disabled = d.players.length < 2;
-  const inp = $('cin'); inp.classList.toggle('turnme', myTurn); inp.placeholder = myTurn ? `내 차례! 구멍 번호(1~${d.holes})를 쳐주세요` : '채팅 입력';
-  inp.setAttribute('inputmode', myTurn ? 'numeric' : 'text');
+  const inp = $('cin'); inp.placeholder = '채팅 입력';
   const lm = $('lobbyMsg');
   if (d.phase === 'lobby') { lm.textContent = d.players.length < 2 ? '⚓ 2명 이상 참가하면 시작할 수 있어요' : '🏴‍☠️ 참가한 사람 누구나 [시작] 을 누를 수 있어요'; show('lobbyMsg'); } else hide('lobbyMsg');
   G.sync(d, first, usedN);
@@ -237,7 +236,7 @@ $('cf').addEventListener('submit', async (e) => {
   try { const d = await post('/chat', { text: v }); if (d.success) $('cin').value = ''; else if (d.needAuth) registerCode(); else toast('⚠️ ' + (d.error || '보내지 못했어요')); poll(false); } catch (_) { toast('⚠️ 연결에 실패했어요'); }
   sending = false;
 });
-function pickHole(n) { if (!ST || ST.phase !== 'play' || ST.turn !== ST.me) return; post('/chat', { text: String(n) }).then(() => poll(false)).catch(() => {}); }
+function pickHole(n) { if (!ST || ST.phase !== 'play' || ST.turn !== ST.me) return; post('/stab', { n }).then((d) => { if (d && !d.success && d.error) toast('⚠️ ' + d.error); poll(false); }).catch(() => {}); }
 
 /* 🛢️ 3D 술통 (three.js) */
 const G = (() => {

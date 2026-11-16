@@ -1,6 +1,6 @@
 // pirate.js — 🏴‍☠️ 해적 러시안룰렛 (/pirate/:djId) — "해적 러시안룰렛" 모듈
 //  · 시청자가 내정보 웹페이지와 같은 채팅 인증을 하고 들어와서 [참가] → 참가한 순서대로 차례가 돌아요
-//  · 내 차례에 페이지 채팅창에 구멍 번호(예: 7)를 치면 칼을 꽂아요 · 선장이 숨은 구멍이면 "퉁!" 하고 당첨 (재미용 · 보상/벌칙 없음)
+//  · 내 차례에 술통을 돌려서 구멍을 누르면 칼을 꽂아요 · 선장이 숨은 구멍이면 "퉁!" 하고 당첨 (재미용 · 보상/벌칙 없음)
 //  · 게임은 메모리에만 있어요 (서버가 다시 켜지면 새 판) · 인증은 내정보 웹페이지 인증과 같아요
 //  · /pirate/아이디/register|me 는 index.js 에서 /myinfo/... 로 넘겨서 같은 인증을 써요 (에디냥과 같은 모듈)
 'use strict';
@@ -41,7 +41,7 @@ function createPirate({ app, isOn, settings, tagOfWeb, nickOf, photoOf }) {
     const t = Math.max(1, Math.min(2, +cfg.traps || 1)); const traps = new Set();
     while (traps.size < t) traps.add(1 + Math.floor(Math.random() * g.holes));
     g.traps = [...traps]; g.used = []; g.loser = null; g.turn = 0; g.phase = 'play'; g.turnAt = Date.now();
-    say(g, `🏴‍☠️ 해적 러시안룰렛 시작! 구멍 1~${g.holes}번 중에 선장 ${t}명이 숨어 있어요 · 참가한 순서대로 내 차례에 채팅창에 번호를 쳐주세요`);
+    say(g, `🏴‍☠️ 해적 러시안룰렛 시작! 구멍 1~${g.holes}번 중에 선장 ${t}명이 숨어 있어요 · 참가한 순서대로 내 차례에 술통을 돌려서 구멍을 눌러주세요`);
     say(g, `🗡️ ${g.players[0].nick}님 차례예요!`);
   }
   function stab(dj, g, p, n, auto) {
@@ -142,17 +142,20 @@ function createPirate({ app, isOn, settings, tagOfWeb, nickOf, photoOf }) {
     if (Date.now() - last < 700) return res.json({ success: false, error: '조금 천천히 쳐주세요' });
     g.lastSay.set(w.tag, Date.now());
     const me = g.players.find((x) => x.tag === w.tag);
-    say(g, text, '', { nick: w.nick, tag: w.tag, color: me ? me.color : '', img: w.img });
-    const p = cur(g);
-    if (p && /^\d{1,2}$/.test(text)) {
-      if (p.tag !== w.tag) { if (me) say(g, `⏳ 지금은 ${p.nick}님 차례예요`); }
-      else {
-        const n = +text;
-        if (n < 1 || n > g.holes) say(g, `❓ 1~${g.holes}번 중에서 골라주세요`);
-        else if (g.used.some((x) => x.n === n)) { const left = leftOf(g); say(g, `🗡️ ${n}번은 이미 꽂혔어요 · 남은 구멍: ${left.slice(0, 12).join(', ')}${left.length > 12 ? '…' : ''}`); }
-        else stab(dj, g, p, n, false);
-      }
-    }
+    say(g, text, '', { nick: w.nick, tag: w.tag, color: me ? me.color : '', img: w.img }); // (채팅은 채팅만 · 구멍은 술통을 돌려서 눌러요)
+    res.json({ success: true });
+  });
+  // 🗡️ 술통 구멍 누르기 (내 차례에만)
+  app.post('/pirate/:djId/stab', (req, res) => {
+    const dj = req.params.djId; const b = req.body || {}; const w = who(dj, b.webUserId, true);
+    if (w.error) return res.json({ success: false, ...w });
+    const g = G(dj); const p = cur(g);
+    if (!p) return res.json({ success: false, error: '지금은 게임 중이 아니에요' });
+    if (p.tag !== w.tag) return res.json({ success: false, error: `지금은 ${p.nick}님 차례예요` });
+    const n = parseInt(b.n, 10);
+    if (!(n >= 1 && n <= g.holes)) return res.json({ success: false, error: `1~${g.holes}번 중에서 골라주세요` });
+    if (g.used.some((x) => x.n === n)) return res.json({ success: false, error: `${n}번은 이미 꽂혔어요` });
+    stab(dj, g, p, n, false);
     res.json({ success: true });
   });
 
