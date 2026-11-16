@@ -5962,6 +5962,30 @@ if (window.bcast) setTimeout(() => {
           </div>
         </div>
 
+        <!-- 🐾 2세대 기능 -->
+        <div class="card" id="mcG2Card">
+          <div class="card-title"><span>🐾 2세대 · 추가 기능</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveMonsterG2()">💾 저장</button></div>
+          <p class="hint" style="margin-bottom:10px">포켓몬 2세대 100마리가 자동으로 추가됐어요 (이로치·거다이맥스도 나와요). 🌙 밤에만/☀️ 낮에만 나오는 몬스터가 있고, 2세대 전설(라이코·앤테이·스이쿤·루기아·칠색조·세레비)은 <b>!이벤트 전설 [분]</b> 때만 나와요.<br>
+          시청자 명령어: <b>!맡기기 · !알 · !친밀도 · !교환 · !교환수락 · !체육관 · !도전 · !토너먼트참가 · !팔기 · !경매 · !입찰 · !아이템 · !아이템구매 · !지니기 · !안농 · !트레이너</b><br>
+          DJ·매니저 명령어: <b>!이벤트 [몬스터이름 또는 전설] [분]</b> (끝내기: !이벤트 끝) · <b>!토너먼트</b> (참가 받고 자동 대진)</p>
+          <label class="sm" style="display:flex;align-items:center;gap:8px;margin:4px 0 10px"><input type="checkbox" id="g2Follow" style="width:auto"> 🐾 따라다니기 — 대표 몬스터가 방송에 처음 채팅할 때 인사해요 (한 사람당 6시간에 한 번)</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
+            <div><label>🥚 부화 채팅 수</label><input type="number" id="g2EggChats" min="1" max="9999"></div>
+            <div><label>🥚 알 이로치 확률(%)</label><input type="number" id="g2EggShiny" min="0" max="100"></div>
+            <div><label>🥚 알 최대 개수</label><input type="number" id="g2EggMax" min="1" max="10"></div>
+            <div><label>💞 친밀도 진화</label><input type="number" id="g2FriendNeed" min="1" max="9999"></div>
+            <div><label>🏟️ 도전 쿨타임(초)</label><input type="number" id="g2GymCd" min="0" max="3600"></div>
+            <div><label>🎣 이벤트 기본(분)</label><input type="number" id="g2EventMin" min="1" max="180"></div>
+            <div><label>🏆 토너먼트 접수(초)</label><input type="number" id="g2TourneySec" min="15" max="600"></div>
+            <div><label>🏪 경매 시간(초)</label><input type="number" id="g2AuctionSec" min="15" max="600"></div>
+          </div>
+          <label style="margin-top:12px">🎁 아이템 가격 (포인트 · 웹 도감 포인트와 같아요)</label>
+          <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0" id="g2ItemPrices"></div>
+          <label style="margin-top:12px">🎉 달성 보상 (칭호는 항상 같이 줘요)</label>
+          <div id="g2Rewards" style="display:flex;flex-direction:column;gap:6px"></div>
+          <label style="margin-top:12px">🏟️ 체육관 8곳 (관장 몬스터·공격력)</label>
+          <div id="g2Gyms" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
         <div class="card">
           <div class="card-title">💬 안내 멘트 커스텀</div>
           <label>몬스터 등장 (일반)</label>
@@ -8832,7 +8856,7 @@ async function loadDjSettings(){
       if(document.getElementById('gcItemsWrap')){ loadGiftCapture(); }
       if(document.getElementById('csRoundsWrap')){ loadChuseokSettings(); }
       if(document.getElementById('ggGrid')){ loadGgSettings(); }
-      if(document.getElementById('mcMonstersWrap')){ loadMonsterCatch(); }
+      if(document.getElementById('mcMonstersWrap')){ loadMonsterCatch(); loadMonsterG2(); }
       if(document.getElementById('memo2ListWrap')) loadMemo2Data();
       if(document.getElementById('planSubListWrap')) loadPlanSubData();
       if(document.getElementById('viptierTiersWrap')) loadVipTierData();
@@ -14492,6 +14516,35 @@ let mcEditingIndex=null;
 let mcIdSeq=1;
 let mcShopIdSeq=1;
 
+// 🐾 몬스터 2세대 · 추가 기능 설정
+let g2Data=null;
+async function loadMonsterG2(){
+  try{
+    const d=await (await fetch(SERVER+'/monstercatch/g2',{headers:authHeaders()})).json();
+    if(!d.success)return;
+    g2Data=d; const c=d.cfg;
+    document.getElementById('g2Follow').checked=!!c.follow;
+    const v=(id,x)=>{document.getElementById(id).value=x;};
+    v('g2EggChats',c.eggChats);v('g2EggShiny',c.eggShiny);v('g2EggMax',c.eggMax);v('g2FriendNeed',c.friendNeed);v('g2GymCd',c.gymCooldownSec);v('g2EventMin',c.eventMin);v('g2TourneySec',c.tourneyJoinSec);v('g2AuctionSec',c.auctionSec);
+    const esc=(t)=>String(t==null?'':t).replace(/[&<>"]/g,(m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+    document.getElementById('g2ItemPrices').innerHTML=d.items.map(it=>`<div><label>${it.icon} ${esc(it.name)}</label><input type="number" min="0" data-item="${it.id}" value="${(c.itemPrice||{})[it.id]||0}" title="${esc(it.desc)}"></div>`).join('');
+    const kinds=[['none','없음'],['balls','포획볼'],['greatballs','고급몬스터볼'],['points','포인트'],['lotto','복권'],['roulette','룰렛권']];
+    document.getElementById('g2Rewards').innerHTML=d.rewardKeys.map(k=>{const r=(c.rewards||{})[k]||{};return `<div style="display:grid;grid-template-columns:1.4fr 1fr .8fr .8fr;gap:6px;align-items:center" data-reward="${k}"><span class="sm">${esc(d.rewardLabel[k])}</span><select data-f="kind">${kinds.map(([x,t])=>`<option value="${x}"${r.kind===x?' selected':''}>${t}</option>`).join('')}</select><input type="number" min="0" data-f="amount" value="${r.amount||0}" placeholder="수량"><input type="number" min="1" max="10" data-f="roulette" value="${r.roulette||1}" title="룰렛권일 때 몇 번 룰렛" placeholder="룰렛번호"></div>`;}).join('');
+    const opts=(sel)=>d.monsters.map(m=>`<option value="${esc(m.id)}"${m.id===sel?' selected':''}>${esc(m.name)}</option>`).join('');
+    document.getElementById('g2Gyms').innerHTML=(c.gyms||[]).map((g,i)=>`<div style="display:grid;grid-template-columns:1.4fr 1fr .7fr;gap:6px" data-gym="${i}"><input type="text" data-f="name" value="${esc(g.name)}"><select data-f="monsterId">${opts(g.monsterId)}</select><input type="number" min="1" data-f="power" value="${g.power}"></div>`).join('');
+  }catch(e){}
+}
+async function saveMonsterG2(){
+  const n=(id)=>+document.getElementById(id).value;
+  const body={follow:document.getElementById('g2Follow').checked,eggChats:n('g2EggChats'),eggShiny:n('g2EggShiny'),eggMax:n('g2EggMax'),friendNeed:n('g2FriendNeed'),gymCooldownSec:n('g2GymCd'),eventMin:n('g2EventMin'),tourneyJoinSec:n('g2TourneySec'),auctionSec:n('g2AuctionSec'),itemPrice:{},rewards:{},gyms:[]};
+  document.querySelectorAll('#g2ItemPrices [data-item]').forEach(el=>{body.itemPrice[el.dataset.item]=+el.value;});
+  document.querySelectorAll('#g2Rewards [data-reward]').forEach(row=>{body.rewards[row.dataset.reward]={kind:row.querySelector('[data-f=kind]').value,amount:+row.querySelector('[data-f=amount]').value,roulette:+row.querySelector('[data-f=roulette]').value};});
+  document.querySelectorAll('#g2Gyms [data-gym]').forEach(row=>{body.gyms.push({name:row.querySelector('[data-f=name]').value,monsterId:row.querySelector('[data-f=monsterId]').value,power:+row.querySelector('[data-f=power]').value});});
+  try{
+    const d=await (await fetch(SERVER+'/monstercatch/g2',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)})).json();
+    if(d.success){showToast('2세대 설정 저장 완료 ✓');loadMonsterG2();}else showToast(d.error||'저장 실패');
+  }catch(e){showToast('오류: '+e.message);}
+}
 async function loadMonsterCatch(){
   try{
     const res=await fetch(SERVER+'/monstercatch/settings',{headers:authHeaders()});
