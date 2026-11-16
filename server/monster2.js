@@ -1,7 +1,7 @@
 // monster2.js — 🐾 몬스터잡기 2세대 (공식 웹·PC 같은 파일)
 //  · 포켓몬 2세대 100마리 자동 추가 (DJ가 넣은 몬스터는 그대로 · 이로치/거다이맥스도 다 나와요)
-//  · 🥚 알 부화 · 🌙 낮/밤 출현 · 💞 친밀도 진화 · 🔁 교환(교환 진화) · 🏟️ 체육관/배지 · 🏆 토너먼트
-//  · 🎣 시간 한정 출현(이벤트) · 🐾 따라다니기 · 🏪 팔기/경매 · 📜 도감 완성 보상 · 🎁 지닌 물건 · 🔤 안농 수집
+//  · 🌙 낮/밤 출현 · 💞 친밀도 진화 · 🔁 교환(교환 진화) · 🏟️ 체육관/배지 · 🏆 토너먼트
+//  · 🎣 시간 한정 출현(이벤트) · 🏪 팔기/경매 · 📜 도감 완성 보상 · 🎁 지닌 물건 · 🔤 안농 수집
 //  유저 데이터는 몬스터 공용 저장소(globalMonsterDex)의 새 칸(g2eggs·g2friend·g2badges·g2items·g2unown·g2awards)에 둬서
 //  PC 프로그램과 자동으로 같이 맞춰져요. 포인트는 웹 도감 포인트(분해·레벨업에 쓰는 그 포인트)를 같이 써요.
 'use strict';
@@ -27,7 +27,6 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const ITEMS = [
   { id: 'band', name: '힘의머리띠', icon: '⚔️', desc: '대결·체육관·토너먼트 공격력 +15%' },
   { id: 'charm', name: '행운의부적', icon: '🍀', desc: '잡기 확률 +10%p (각자 확률판정 방식)' },
-  { id: 'egg', name: '부화의돌', icon: '🥚', desc: '알이 2배 빨리 부화' },
 ];
 const REWARD_KEYS = ['gym', 'tourney', 'dexGen1', 'dexGen2', 'shinyDex', 'unown'];
 const REWARD_LABEL = { gym: '🏟️ 배지 8개', tourney: '🏆 토너먼트 우승', dexGen1: '📜 1세대 도감 완성', dexGen2: '📜 2세대 도감 완성', shinyDex: '🌈 이로치 도감 완성', unown: '🔤 안농 26종' };
@@ -43,7 +42,7 @@ const DEFAULT_GYMS = [
   { name: '검은먹체육관 · 이향', monsterId: 'pkmn-230', power: 760 },
 ];
 const DEFAULT_CFG = {
-  follow: true,          // 🐾 따라다니기 (대표 몬스터가 방송에 처음 채팅할 때 인사 · 6시간에 한 번)
+  follow: false,         // (🐾 따라다니며 인사하기는 뺐어요)
   eggChats: 30,          // 🥚 알 부화에 필요한 채팅 수
   eggShiny: 15,          // 🥚 알에서 이로치가 나올 확률(%)
   eggMax: 3,             // 🥚 한 사람이 가질 수 있는 알 수
@@ -222,7 +221,7 @@ module.exports = function createMonster2(A) {
     say(djId, `🎉 ${nick}님 ${REWARD_LABEL[which]} 달성! 칭호 [${TITLE[which]}] 획득${got ? ` · 보상 ${got}` : ''}`, 900);
     return true;
   }
-  // 📜 도감 완성 확인 (잡을 때·알 부화·교환 뒤)
+  // 📜 도감 완성 확인 (잡을 때·교환 뒤)
   function checkDex(djId, settings, mc, key, nick) {
     const c = mc.collections[key] || {};
     const has = (id) => (c[id] || 0) > 0 || Object.prototype.hasOwnProperty.call(c, id);
@@ -302,30 +301,6 @@ module.exports = function createMonster2(A) {
     saveDex();
   }
 
-  // ───── 🥚 알 ─────
-  const PRE = {}; for (const m of GEN2) if (m.evolvesTo) PRE[m.evolvesTo] = m.id;
-  function eggOf(mc, id) {
-    let cur = baseOf(id);
-    const pre = {}; for (const m of mc.monsters) if (m.evolvesTo) pre[m.evolvesTo] = pre[m.evolvesTo] || m.id;
-    for (let i = 0; i < 5 && pre[cur]; i++) cur = pre[cur];
-    return BABY_OF[cur] && mc.monsters.some((m) => m.id === BABY_OF[cur]) ? BABY_OF[cur] : cur;
-  }
-  function hatchTick(djId, settings, mc, key, nick) {
-    const s = sec('g2eggs'); const eggs = s[key];
-    if (!Array.isArray(eggs) || !eggs.length) return;
-    const g = cfgOf(mc);
-    eggs[0].steps = (eggs[0].steps || 0) + (heldOf(key) === 'egg' ? 2 : 1);
-    if (eggs[0].steps >= (eggs[0].need || g.eggChats)) {
-      const egg = eggs.shift();
-      const shiny = Math.random() * 100 < (egg.shiny ? Math.min(100, g.eggShiny * 2) : g.eggShiny);
-      const gid = (shiny ? A.MC_SHINY_PREFIX : '') + egg.id;
-      give(mc, key, gid, 1); A.mcSaveUserData();
-      say(djId, `🥚✨ ${nick}님의 알이 부화해서 [${labelOf(mc, gid)}]이(가) 태어났어요!${eggs.length ? ` (남은 알 ${eggs.length}개)` : ''}`, 600);
-      onCaught(djId, settings, mc, key, nick, gid);
-    }
-    saveDex();
-  }
-
   // ───── 방마다 (메모리) ─────
   const R = (djId) => { const r = getRoom(djId); if (!r._g2) r._g2 = { greet: new Map(), friendAt: new Map(), gymAt: new Map(), trade: null, tourney: null, auction: null }; return r._g2; };
 
@@ -340,20 +315,11 @@ module.exports = function createMonster2(A) {
     const parts = msg.split(/\s+/);
     const head = parts[0];
 
-    // 자동: 따라다니기 · 친밀도 · 알 부화 (명령어가 아닌 채팅만 · 모험 시작한 사람만)
+    // 자동: 친밀도 (명령어가 아닌 채팅만 · 모험 시작한 사람만)
     if (!self && key && mc.bags[key] != null) {
-      if (g.follow) {
-        const last = st.greet.get(key) || 0;
-        const w = web(); const sel = w.selected[key];
-        if (Date.now() - last > 6 * 3600 * 1000 && sel && owns(mc, key, sel) > 0) {
-          st.greet.set(key, Date.now());
-          say(djId, `🐾 ${author}님의 [${labelOf(mc, sel)}]이(가) 졸졸 따라와서 인사해요!`, 900);
-        } else if (!last) st.greet.set(key, Date.now());
-      }
       if (!msg.startsWith('!')) {
         const fa = st.friendAt.get(key) || 0;
         if (Date.now() - fa > 20000) { st.friendAt.set(key, Date.now()); addFriend(djId, settings, mc, key, author, 1); }
-        hatchTick(djId, settings, mc, key, author);
       }
     }
     if (!msg.startsWith('!')) return;
@@ -362,7 +328,6 @@ module.exports = function createMonster2(A) {
     if (msg === '!몬스터도움말' || msg === '!몬스터명령어') {
       setTimeout(() => sayLong(djId, [
         '🐾 몬스터 2세대 명령어',
-        '!맡기기 [몬스터] — 같은 몬스터 2마리로 알 받기 · !알 — 알 확인 (채팅을 치면 부화)',
         '!친밀도 — 대표 몬스터 친밀도 (가득 차면 진화하는 몬스터도 있어요 · 이브이는 낮=에브이 밤=블래키)',
         '!교환 [고유닉] [내 몬스터] [상대 몬스터] → 상대가 !교환수락 (교환하면 진화하는 몬스터도 있어요)',
         '!체육관 · !도전 — 배지 8개 모으기 · !토너먼트참가 (DJ가 !토너먼트 로 열어요)',
@@ -409,26 +374,6 @@ module.exports = function createMonster2(A) {
     if (!key) return;
     const started = mc.bags[key] != null;
     const needStart = () => say(djId, `⚠️ ${author}님, 먼저 ${mc.cmdStart || '!모험시작'}으로 모험을 시작해주세요!`);
-
-    // 🥚 알
-    if (head === '!맡기기') {
-      if (!started) return needStart();
-      const f = findByName(mc, parts.slice(1).join(' '));
-      if (!f) return say(djId, '⚠️ 사용법: !맡기기 [몬스터이름] (같은 몬스터 2마리가 필요해요)');
-      if (f.mon.legendary || f.mon.id === UNOWN) return say(djId, '⚠️ 전설 몬스터와 안농은 알을 낳지 않아요.');
-      const s = sec('g2eggs'); if (!Array.isArray(s[key])) s[key] = [];
-      if (s[key].length >= g.eggMax) return say(djId, `⚠️ 알은 ${g.eggMax}개까지 가질 수 있어요! 채팅을 쳐서 먼저 부화시켜주세요.`);
-      if (owns(mc, key, f.id) < 2) return say(djId, `⚠️ [${f.label}] 2마리가 필요해요! (지금 ${owns(mc, key, f.id)}마리)`);
-      take(mc, key, f.id, 2); A.mcSaveUserData();
-      const eid = eggOf(mc, f.mon.id);
-      s[key].push({ id: eid, steps: 0, need: g.eggChats, shiny: f.prefix === A.MC_SHINY_PREFIX, at: Date.now() }); saveDex();
-      return say(djId, `🥚 ${author}님이 [${f.label}] 2마리를 맡겨서 알을 받았어요! 채팅 ${g.eggChats}번이면 부화해요${f.prefix === A.MC_SHINY_PREFIX ? ' (이로치 부모라 이로치 확률 2배!)' : ''} (알 ${s[key].length}/${g.eggMax})`);
-    }
-    if (head === '!알') {
-      const eggs = sec('g2eggs')[key] || [];
-      if (!eggs.length) return say(djId, `🥚 ${author}님은 알이 없어요. !맡기기 [몬스터]로 같은 몬스터 2마리를 맡기면 알을 받아요.`);
-      return say(djId, `🥚 ${author}님의 알\n` + eggs.map((e, i) => `${i + 1}. ${i === 0 ? '부화 중' : '대기'} ${e.steps || 0}/${e.need || g.eggChats}`).join('\n') + (heldOf(key) === 'egg' ? '\n(🥚 부화의돌 — 2배 빨리!)' : ''));
-    }
 
     // 💞 친밀도
     if (head === '!친밀도') {
@@ -572,9 +517,8 @@ module.exports = function createMonster2(A) {
     if (head === '!트레이너') {
       const b = (sec('g2badges')[key] || {}).list || [];
       const a = awardsOf(key); const titles = Object.keys(TITLE).filter((k) => a[k]).map((k) => TITLE[k]);
-      const eggs = (sec('g2eggs')[key] || []).length;
       const held = ITEMS.find((i) => i.id === heldOf(key));
-      return say(djId, `🧢 ${author}님의 트레이너 카드\n🏅 배지 ${b.length}/8 · 🔤 안농 ${String(sec('g2unown')[key] || '').length}/26 · 🥚 알 ${eggs}개\n🎁 ${held ? held.icon + held.name : '지닌 물건 없음'} · 💰 포인트 ${pointsOf(key)}\n${titles.length ? '칭호 ' + titles.join(' ') : '칭호 없음'}`);
+      return say(djId, `🧢 ${author}님의 트레이너 카드\n🏅 배지 ${b.length}/8 · 🔤 안농 ${String(sec('g2unown')[key] || '').length}/26\n🎁 ${held ? held.icon + held.name : '지닌 물건 없음'} · 💰 포인트 ${pointsOf(key)}\n${titles.length ? '칭호 ' + titles.join(' ') : '칭호 없음'}`);
     }
   }
 

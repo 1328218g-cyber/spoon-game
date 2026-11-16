@@ -5966,13 +5966,13 @@ if (window.bcast) setTimeout(() => {
         <div class="card" id="mcG2Card">
           <div class="card-title"><span>🐾 2세대 · 추가 기능</span><button class="btn-connect" style="padding:6px 14px;font-size:12px" onclick="saveMonsterG2()">💾 저장</button></div>
           <p class="hint" style="margin-bottom:10px">포켓몬 2세대 100마리가 자동으로 추가됐어요 (이로치·거다이맥스도 나와요). 🌙 밤에만/☀️ 낮에만 나오는 몬스터가 있고, 2세대 전설(라이코·앤테이·스이쿤·루기아·칠색조·세레비)은 <b>!이벤트 전설 [분]</b> 때만 나와요.<br>
-          시청자 명령어: <b>!맡기기 · !알 · !친밀도 · !교환 · !교환수락 · !체육관 · !도전 · !토너먼트참가 · !팔기 · !경매 · !입찰 · !아이템 · !아이템구매 · !지니기 · !안농 · !트레이너</b><br>
+          시청자 명령어: <b>!친밀도 · !교환 · !교환수락 · !체육관 · !도전 · !토너먼트참가 · !팔기 · !경매 · !입찰 · !아이템 · !아이템구매 · !지니기 · !안농 · !트레이너</b><br>
           DJ·매니저 명령어: <b>!이벤트 [몬스터이름 또는 전설] [분]</b> (끝내기: !이벤트 끝) · <b>!토너먼트</b> (참가 받고 자동 대진)</p>
-          <label class="sm" style="display:flex;align-items:center;gap:8px;margin:4px 0 10px"><input type="checkbox" id="g2Follow" style="width:auto"> 🐾 따라다니기 — 대표 몬스터가 방송에 처음 채팅할 때 인사해요 (한 사람당 6시간에 한 번)</label>
+          <label class="sm" style="display:none;align-items:center;gap:8px;margin:4px 0 10px"><input type="checkbox" id="g2Follow" style="width:auto"> 🐾 따라다니기 — 대표 몬스터가 방송에 처음 채팅할 때 인사해요 (한 사람당 6시간에 한 번)</label>
           <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr;margin-top:0">
-            <div><label>🥚 부화 채팅 수</label><input type="number" id="g2EggChats" min="1" max="9999"></div>
-            <div><label>🥚 알 이로치 확률(%)</label><input type="number" id="g2EggShiny" min="0" max="100"></div>
-            <div><label>🥚 알 최대 개수</label><input type="number" id="g2EggMax" min="1" max="10"></div>
+            <div style="display:none"><label>🥚 부화 채팅 수</label><input type="number" id="g2EggChats" min="1" max="9999"></div>
+            <div style="display:none"><label>🥚 알 이로치 확률(%)</label><input type="number" id="g2EggShiny" min="0" max="100"></div>
+            <div style="display:none"><label>🥚 알 최대 개수</label><input type="number" id="g2EggMax" min="1" max="10"></div>
             <div><label>💞 친밀도 진화</label><input type="number" id="g2FriendNeed" min="1" max="9999"></div>
             <div><label>🏟️ 도전 쿨타임(초)</label><input type="number" id="g2GymCd" min="0" max="3600"></div>
             <div><label>🎣 이벤트 기본(분)</label><input type="number" id="g2EventMin" min="1" max="180"></div>
