@@ -964,6 +964,110 @@ function createAppWin() {
 }
 
 // ─────────────────────────────────────────────
+// 🪟 켤 때 업데이트 — 새 버전이 있으면 창 뜨기 전에 안내 창(공식 에디냥과 같은 모양)을 띄우고
+//    받기 → 설치 → 다시 켜기 까지 진행률로 보여줘요. (확인이 8초 넘게 걸리거나 실패하면 그냥 켜요)
+// ─────────────────────────────────────────────
+// 🪟 업데이트 안내 창 — set(제목, 설명, 진행률%)
+function updatePopup(fromVer, toVer) {
+  try {
+    const w = new BrowserWindow({
+      width: 440, height: 300, frame: false, transparent: true, resizable: false, alwaysOnTop: true, center: true, title: '에디냥 PC 업데이트',
+      backgroundColor: '#00000000', hasShadow: false, show: true, icon: path.join(__dirname, 'build', 'icon.png'), skipTaskbar: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    let logo = '';
+    try { logo = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'build', 'icon.png')).toString('base64'); } catch (_) {}
+    // ❄️ 공식 에디냥 업데이트 창과 같은 모양 (겨울 색감 · 고양이 로고 · 단계 표시(받기 → 설치 → 다시 켜기) · 진행률 숫자
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box}html,body{margin:0;height:100%;background:transparent;font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;user-select:none;-webkit-app-region:drag}
+      .card{position:absolute;inset:12px;border-radius:22px;overflow:hidden;background:#fff;box-shadow:0 14px 34px rgba(20,50,90,.28),0 0 0 1px rgba(120,160,210,.25)}
+      .top{position:relative;height:104px;background:linear-gradient(140deg,#1b3a5c,#2c6fbf 70%,#5aa6ec);overflow:hidden}
+      .top canvas{position:absolute;inset:0;width:100%;height:100%}
+      .logo{position:absolute;left:50%;top:58px;transform:translateX(-50%);width:66px;height:66px;border-radius:20px;background:#fff;padding:4px;box-shadow:0 8px 20px rgba(20,50,90,.3);z-index:2}
+      .logo img{width:100%;height:100%;border-radius:16px;display:block;object-fit:cover}
+      .logo .spin{position:absolute;right:-6px;bottom:-6px;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#5aa6ec,#2a68b6);color:#fff;font-size:14px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;animation:sp 1.4s linear infinite}
+      @keyframes sp{to{transform:rotate(360deg)}}
+      .body{padding:30px 26px 0;text-align:center;color:#13263b}
+      .t{font-size:16.5px;font-weight:800;letter-spacing:-.3px}
+      .v{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;font-weight:700;color:#56708c}
+      .v b{background:#eef4fb;border-radius:99px;padding:2px 9px}.v b.n{background:linear-gradient(135deg,#5aa6ec,#2a68b6);color:#fff}
+      .d{margin-top:9px;font-size:12px;color:#6a7d92;line-height:1.55;min-height:19px}.d b{color:#2a68b6}
+      .row{display:flex;align-items:center;gap:10px;margin:12px 4px 0}
+      .bar{flex:1;height:9px;background:#e7eef7;border-radius:99px;overflow:hidden;position:relative}
+      .bar i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:99px;background:linear-gradient(90deg,#7cc0ff,#2a68b6);transition:width .25s}
+      .bar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sh 1.3s linear infinite}
+      @keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+      .pct{width:38px;text-align:right;font-size:12px;font-weight:800;color:#2a68b6;font-variant-numeric:tabular-nums}
+      .steps{display:flex;justify-content:center;gap:6px;margin-top:12px;font-size:10.5px;font-weight:700;color:#a3b3c4}
+      .steps span{padding:3px 9px;border-radius:99px;background:#f3f7fb}.steps span.on{background:#e0efff;color:#2a68b6}.steps span.ok{color:#3e9a6e;background:#e6f6ee}
+    </style></head><body><div class="card">
+      <div class="top"><canvas id="sn"></canvas></div>
+      <div class="logo">${logo ? `<img src="${logo}" alt="">` : ''}<span class="spin">⟳</span></div>
+      <div class="body">
+        <div class="t" id="t">업데이트 중이에요</div>
+        <div class="v"><b>v${fromVer}</b>→<b class="n">v${toVer}</b></div>
+        <div class="d" id="d">새 버전을 받는 중이에요. 잠시만 기다려주세요.</div>
+        <div class="row"><div class="bar"><i id="p"></i></div><div class="pct" id="pc"></div></div>
+        <div class="steps"><span id="s1" class="on">① 받기</span><span id="s2">② 설치</span><span id="s3">③ 다시 켜기</span></div>
+      </div></div>
+      <script>
+        // 위쪽 파란 띠에 작은 눈 결정이 내려요
+        const c=document.getElementById('sn'),g=c.getContext('2d');let W,H;const fl=[];
+        function rs(){W=c.width=c.offsetWidth*2;H=c.height=c.offsetHeight*2;}rs();
+        for(let i=0;i<26;i++)fl.push({x:Math.random()*W,y:Math.random()*H,r:3+Math.random()*7,v:.4+Math.random()*.9,a:Math.random()*6,s:(Math.random()-.5)*.03});
+        function fk(x,y,r,a){g.save();g.translate(x,y);g.rotate(a);g.strokeStyle='rgba(255,255,255,.85)';g.lineWidth=1.4;g.lineCap='round';for(let k=0;k<6;k++){g.rotate(Math.PI/3);g.beginPath();g.moveTo(0,0);g.lineTo(0,-r);g.moveTo(0,-r*.55);g.lineTo(-r*.25,-r*.8);g.moveTo(0,-r*.55);g.lineTo(r*.25,-r*.8);g.stroke();}g.restore();}
+        (function t(){g.clearRect(0,0,W,H);for(const f of fl){f.y+=f.v;f.a+=f.s;if(f.y>H+10){f.y=-10;f.x=Math.random()*W;}fk(f.x,f.y,f.r,f.a);}requestAnimationFrame(t);})();
+      </script></body></html>`;
+    w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    const set = (title, desc, pct) => {
+      if (w.isDestroyed()) return;
+      const js = [];
+      if (title != null) {
+        js.push(`document.getElementById('t').textContent=${JSON.stringify(title)};`);
+        if (/설치/.test(title)) js.push("document.getElementById('s1').className='ok';document.getElementById('s2').className='on';"); // 단계 표시
+        if (/다시 켜/.test(title)) js.push("document.getElementById('s1').className='ok';document.getElementById('s2').className='ok';document.getElementById('s3').className='on';");
+      }
+      if (desc != null) js.push(`document.getElementById('d').innerHTML=${JSON.stringify(String(desc).replace(/\s*\(\d+%\)/, ''))};`); // 퍼센트는 오른쪽 숫자로
+      if (pct != null) { const v = Math.max(0, Math.min(100, pct)); js.push(`document.getElementById('p').style.width='${v}%';document.getElementById('pc').textContent='${v}%';`); }
+      w.webContents.executeJavaScript(`(()=>{${js.join('')}})()`).catch(() => {});
+    };
+    return { set, close: () => { try { if (!w.isDestroyed()) w.destroy(); } catch (_) {} } };
+  } catch (_) { return { set: () => {}, close: () => {} }; }
+}
+const verNewer = (a, b) => {
+  const x = String(a || '').split('.').map(Number), y = String(b || '').split('.').map(Number)
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) > (y[i] || 0)) return true; if ((x[i] || 0) < (y[i] || 0)) return false }
+  return false
+}
+let launchPop = null // 업데이트가 실패하면 본 창을 띄운 다음에 닫아요 (먼저 닫으면 창이 하나도 없어서 프로그램이 꺼져요)
+async function launchUpdate() {
+  if (!app.isPackaged) return false
+  let autoUpdater
+  try { autoUpdater = require('electron-updater').autoUpdater } catch (_) { return false }
+  try {
+    autoUpdater.on('error', (e) => console.warn('[업데이트] 켤 때 오류:', e && e.message)) // ('error' 를 듣는 곳이 없으면 프로그램이 죽을 수 있어요)
+    autoUpdater.autoDownload = false
+    const r = await Promise.race([autoUpdater.checkForUpdates(), new Promise((res) => setTimeout(() => res(null), 8000))])
+    const v = r && r.updateInfo && r.updateInfo.version
+    if (!v || !verNewer(v, app.getVersion())) return false
+    console.log('[업데이트] 켤 때 새 버전 ' + app.getVersion() + ' → ' + v)
+    launchPop = updatePopup(app.getVersion(), v)
+    const onPct = (p) => { if (launchPop) launchPop.set(null, '새 버전을 받는 중이에요. 잠시만 기다려주세요.', Math.floor((p && p.percent) || 0)) }
+    autoUpdater.on('download-progress', onPct)
+    await autoUpdater.downloadUpdate()
+    autoUpdater.removeListener('download-progress', onPct)
+    launchPop.set('설치 중이에요', '프로그램이 잠시 꺼졌다가 <b>자동으로 다시 켜져요.</b><br>1분이 지나도 안 켜지면 다시 실행해주세요.', 100)
+    await new Promise((res) => setTimeout(res, 1200))
+    launchPop.set('다시 켜는 중이에요', null, 100)
+    app.__quitting = true
+    setImmediate(() => autoUpdater.quitAndInstall(true, true))
+    return true
+  } catch (e) {
+    console.warn('[업데이트] 켤 때 확인 실패 — 그냥 켜요', e && e.message)
+    return false
+  }
+}
+
+// ─────────────────────────────────────────────
 // 🔄 자동 업데이트 — GitHub 릴리즈(1328218g-cyber/spoon-game)에 새 버전이 올라오면 뒤에서 받아두고,
 // 다 받으면 "지금 재시작할까요?"를 물어본다. 방송 중이면 묻지 않고, 프로그램을 끌 때 자동으로 설치된다.
 // (설치 파일로 깔린 경우에만 동작 — npm start 개발 실행에서는 건너뜀)
@@ -1001,9 +1105,11 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   try { engineCode = fs.readFileSync(path.join(__dirname, 'broadcast_inject.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 엔진 파일 없음:', e.message) }
   try { buttonCode = fs.readFileSync(path.join(__dirname, 'spoon_button.js'), 'utf-8') } catch (e) { console.warn('[방송하기] 버튼 파일 없음:', e.message) }
+  if (await launchUpdate()) return // 🪟 새 버전이면 안내 창 띄우고 설치 후 다시 켜요
   await startLocalServer()
   try { setupFileScheme() } catch (e) { console.warn('[방송하기] 음악 주소 준비 실패:', e.message) }
   createAppWin()
+  if (launchPop) { launchPop.close(); launchPop = null } // (켤 때 업데이트가 실패했으면 안내 창 닫기)
   setupAutoUpdate()
 })
 
