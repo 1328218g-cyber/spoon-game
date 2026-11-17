@@ -11,8 +11,24 @@
 //   현재 룰렛 목록 순서에 그대로 위치 매핑한다. 완전히 정확하지 않을 수 있다.
 // ══════════════════════════════════════════════════════════════
 
-function buildMigrationPatch(raw) {
+// 📦 짜잔에디봇 자동백업 파일({ localStorage, userDataFiles })이 그대로 와도 펼쳐서 받아요
+function unwrapLocalData(raw) {
   raw = raw || {};
+  if (!raw.localStorage || typeof raw.localStorage !== 'object' || Array.isArray(raw.localStorage)) return raw;
+  const out = { ...raw.localStorage };
+  const u = raw.userDataFiles && typeof raw.userDataFiles === 'object' ? raw.userDataFiles : {};
+  const f = (n) => { const v = u[n]; if (v == null) return null; if (typeof v === 'string') { try { return JSON.parse(v); } catch (e) { return null; } } return v; };
+  const act = f('act_data.json'); if (act && typeof act === 'object' && Object.keys(act).length) out.spoon_act_data = JSON.stringify(act);
+  const rh = f('roulette_history.json'); if (rh && typeof rh === 'object' && Object.keys(rh).length) out.spoon_roulette_history = JSON.stringify(rh);
+  return out;
+}
+// 가져올 짜잔 데이터(spoon_* 키)가 하나라도 있는지 — 없으면 빈 값으로 덮어쓰지 않게 막아요
+function hasLocalData(raw) {
+  return Object.keys(unwrapLocalData(raw) || {}).some((k) => k.startsWith('spoon_'));
+}
+
+function buildMigrationPatch(raw) {
+  raw = unwrapLocalData(raw);
 
   // localStorage 값들은 대부분 "JSON 문자열"로 한 번 더 감싸져 저장되어 있어서 한 번 더 파싱한다.
   function j(key, fallback) {
@@ -317,4 +333,4 @@ function buildMigrationPatch(raw) {
   return { patch, report };
 }
 
-module.exports = { buildMigrationPatch };
+module.exports = { buildMigrationPatch, hasLocalData };

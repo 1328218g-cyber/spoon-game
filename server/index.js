@@ -9,7 +9,7 @@ const crypto = require('crypto')
 const tokenManager = require('./tokenManager')
 const store = require('./store')
 const auth = require('./auth')
-const { buildMigrationPatch } = require('./localMigrate')
+const { buildMigrationPatch, hasLocalData } = require('./localMigrate')
 const r2Backup = require('./r2Backup')
 
 // 🛡️ 치명적 오류로 서버 전체가 죽는 것을 방지 — 처리 안 된 예외(uncaughtException)나
@@ -20556,6 +20556,8 @@ app.post('/account/migrate-local', auth.requireAuth, (req, res) => {
   if (!isModuleOn(settings, 'migrate', req.djId)) return res.json({ success: false, error: '로컬 데이터 가져오기 메뉴가 꺼져있어요. 사이드바에서 먼저 켜주세요.' })
   const raw = (req.body || {}).data
   if (!raw || typeof raw !== 'object') return res.json({ success: false, error: '올바른 데이터 파일이 아니에요' })
+  // 짜잔 데이터가 하나도 없는 파일이면 빈 값으로 덮어쓰지 않게 막아요
+  if (!hasLocalData(raw)) return res.json({ success: false, error: '가져올 짜잔에디봇 데이터가 없는 파일이에요. 짜잔에디봇의 💾 설정 내보내기 파일이나 자동백업(auto_backup) 파일을 올려주세요.' })
   try {
     const { patch, report } = buildMigrationPatch(raw)
     store.saveSettings(req.djId, patch)

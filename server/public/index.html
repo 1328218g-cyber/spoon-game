@@ -20270,7 +20270,27 @@ async function rebootMyBot(){
 // 수십 MB까지도 커질 수 있어서, 안 걸러내면 업로드 자체가 서버 용량 제한에 걸려 실패한다.
 const MIGRATION_SKIP_KEYS=['spoon_sticker_sound_settings','spoon_tts_settings','spoon_sword_data','spoon_sword_settings','spoon_fishing_settings'];
 
+// 📦 짜잔에디봇 자동백업 파일(auto_backup_*.json = { localStorage, userDataFiles })도 받아요 → 설정 내보내기 모양(spoon_* 키)으로 펼치기
+//    애청지수·룰렛 기록은 봇 엔진이 쓰는 원본 파일(act_data.json / roulette_history.json)이 더 최신이라 그걸 우선해요
+function unwrapLocalMigrationData(raw){
+  raw=raw||{};
+  let out;
+  if(raw.localStorage&&typeof raw.localStorage==='object'&&!Array.isArray(raw.localStorage)){
+    out={...raw.localStorage};
+    const u=raw.userDataFiles&&typeof raw.userDataFiles==='object'?raw.userDataFiles:{};
+    const f=(n)=>{const v=u[n];if(v==null)return null;if(typeof v==='string'){try{return JSON.parse(v)}catch(e){return null}}return v};
+    const act=f('act_data.json');if(act&&typeof act==='object'&&Object.keys(act).length)out.spoon_act_data=JSON.stringify(act);
+    const rh=f('roulette_history.json');if(rh&&typeof rh==='object'&&Object.keys(rh).length)out.spoon_roulette_history=JSON.stringify(rh);
+  }else{
+    out={...raw};
+    for(const [k,lk] of [['__store__act_data.json','spoon_act_data'],['__store__roulette_history.json','spoon_roulette_history']]){
+      try{const v=raw[k]&&JSON.parse(raw[k]);if(v&&typeof v==='object'&&Object.keys(v).length)out[lk]=raw[k]}catch(e){}
+    }
+  }
+  return out;
+}
 function stripLocalMigrationData(raw){
+  raw=unwrapLocalMigrationData(raw);
   const cleaned={};
   Object.keys(raw||{}).forEach(k=>{
     if(k.startsWith('__store__'))return;
