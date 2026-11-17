@@ -20578,10 +20578,36 @@ app.get('/account/settings-export', auth.requireAuth, (req, res) => {
 // ⚠️ 이용 만료일(expiresAt/expiryStartAt)과 신규가입 기본 이용기간(defaultTrialDays)은
 // 관리자만 관리하는 값이라, 업로드한 파일에 들어있어도 무시하고 반영하지 않는다.
 // (그렇지 않으면 유저가 만료일을 조작한 파일을 만들어 이용기간을 우회할 수 있음)
+// 🧹 짜잔에디봇 파일(자동백업/설정 내보내기)을 "설정 가져오기"에 올리면 예전엔 파일 통째로 설정에 섞여 들어갔어요
+//    (설정은 그대로고 쓸모없는 큰 덩어리만 남음) → 그런 키를 지워요 (가져오기 때 · 서버 켤 때 한 번)
+function cleanZzajanJunk(s) {
+  if (!s || typeof s !== 'object') return 0
+  let n = 0
+  for (const k of Object.keys(s)) {
+    const junk = k === 'localStorage' || k === 'userDataFiles' || k === 'externalModules' || k === 'backedUpAt' || ((k.startsWith('spoon_') || k.startsWith('__store__')) && typeof s[k] === 'string') ||
+      (k === 'app' && s[k] === 'edibot') || (k === 'kind' && (s[k] === 'auto' || s[k] === 'manual' || s[k] === 'update')) || (k === '_version' && typeof s[k] === 'number') ||
+      (k === 'stats' && s[k] && typeof s[k] === 'object' && 'localStorageKeys' in s[k]) || (k === 'version' && typeof s[k] === 'string' && /^\d+\.\d+\.\d+$/.test(s[k]))
+    if (junk) { delete s[k]; n++ }
+  }
+  return n
+}
+setTimeout(() => { try { let n = 0; for (const id of store.listDjIds()) n += cleanZzajanJunk(store.getSettings(id)); if (n) { store.saveSettings('sum', {}); console.log('[설정 가져오기] 섞여 들어간 짜잔에디봇 파일 키 정리:', n) } } catch (e) { console.warn('[설정 가져오기] 정리 실패', e.message) } }, 20000)
+
 app.post('/account/settings-import', auth.requireAuth, (req, res) => {
   const incoming = (req.body || {}).settings
   if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
     return res.json({ success: false, error: '올바른 설정 파일이 아니에요' })
+  }
+  // 📦 짜잔에디봇 파일(자동백업 auto_backup · 💾 설정 내보내기)이면 → 로컬 데이터 가져오기와 같은 변환으로 옮겨요
+  if (hasLocalData(incoming)) {
+    try {
+      const { patch, report } = buildMigrationPatch(incoming)
+      cleanZzajanJunk(store.getSettings(req.djId))
+      store.saveSettings(req.djId, patch)
+      return res.json({ success: true, report, zzajan: true })
+    } catch (e) {
+      return res.json({ success: false, error: '짜잔에디봇 데이터 가져오기 중 오류: ' + e.message })
+    }
   }
   const patch = { ...incoming }
   delete patch.expiresAt

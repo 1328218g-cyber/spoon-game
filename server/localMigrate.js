@@ -24,7 +24,8 @@ function unwrapLocalData(raw) {
 }
 // 가져올 짜잔 데이터(spoon_* 키)가 하나라도 있는지 — 없으면 빈 값으로 덮어쓰지 않게 막아요
 function hasLocalData(raw) {
-  return Object.keys(unwrapLocalData(raw) || {}).some((k) => k.startsWith('spoon_'));
+  const r = unwrapLocalData(raw) || {};
+  return Object.keys(r).some((k) => k.startsWith('spoon_') && typeof r[k] === 'string'); // 짜잔 값은 전부 글자(localStorage)예요
 }
 
 function buildMigrationPatch(raw) {

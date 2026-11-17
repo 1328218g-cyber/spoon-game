@@ -20584,7 +20584,8 @@ function startSettingsImport(){
       const res=await fetch(SERVER+'/account/settings-import',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({settings})});
       const d=await res.json();
       if(!d.success){showToast(d.error||'가져오기 실패');return;}
-      showToast('가져오기 완료! 설정을 새로 불러올게요');
+      showToast(d.zzajan?'📦 짜잔에디봇 데이터를 가져왔어요! 설정을 새로 불러올게요':'가져오기 완료! 설정을 새로 불러올게요');
+      if(d.zzajan&&Array.isArray(d.report))setTimeout(()=>alert('📦 짜잔에디봇 데이터 가져오기 결과\n\n'+d.report.join('\n')),300);
       input.value='';
       loadDjSettings();
     }catch(e){showToast('오류: '+e.message);}
