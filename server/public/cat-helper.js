@@ -238,6 +238,7 @@ ask.querySelector('[data-a="hide"]').onclick = () => hide(true);
 paw.onclick = () => hide(false);
 form.onsubmit = (e) => { e.preventDefault(); const q = inp.value.trim(); if (q && !busy){ inp.value = ''; send(q); } };
 ask.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAsk(); e.stopPropagation(); }); /* (봇 화면 단축키가 같이 눌리지 않게) */
+const clean = (s) => String(s || '').replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/\*\*/g, '').replace(/__([^_\n]+)__/g, '$1').replace(/^#{1,6}\s+/gm, '').replace(/^\s*[*-]\s+/gm, '· ').replace(/`([^`\n]+)`/g, '$1').replace(/\n{3,}/g, '\n\n');
 async function send(q){
   if (busy) return; busy = true; sendBtn.disabled = true;
   addMsg(q, 'me'); chips.innerHTML = '';
@@ -245,12 +246,20 @@ async function send(q){
   cat.classList.add('yawn'); setTimeout(() => cat.classList.remove('yawn'), 600);
   let a = '';
   try {
-    const r = await fetch(API() + '/api/cat/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bot: BOT, q, page: curPage(), hist: hist.slice(-6) }) });
-    const j = await r.json().catch(() => ({}));
-    a = (j && (j.answer || j.error)) || '';
+    const r = await fetch(API() + '/api/cat/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bot: BOT, q, page: curPage(), hist: hist.slice(-6), stream: 1 }) });
+    if (/json/.test(r.headers.get('content-type') || '') || !r.body || !r.body.getReader) { const j = await r.json().catch(() => ({})); a = (j && (j.answer || j.error)) || ''; }
+    else { /* 대답이 나오는 대로 바로바로 보여줘요 */
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      for (;;){
+        const { done, value } = await rd.read(); if (done) break;
+        a += dec.decode(value, { stream: true });
+        if (a.trim()){ t.className = 'nyc-m bot'; t.textContent = clean(a); msgs.scrollTop = msgs.scrollHeight; }
+      }
+    }
   } catch (_) {}
+  a = clean(a).trim();
   if (!a) a = '앗, 서버랑 연결이 안 돼요 🙀 인터넷을 확인하고 다시 물어봐 주세요!';
-  t.remove(); addMsg(a, 'bot');
+  t.className = 'nyc-m bot'; t.textContent = a; msgs.scrollTop = msgs.scrollHeight;
   hist.push({ r: 'u', t: q }, { r: 'a', t: a }); if (hist.length > 12) hist.splice(0, hist.length - 12);
   busy = false; sendBtn.disabled = false;
   if (open) try { inp.focus({ preventScroll: true }); } catch (_) {}
