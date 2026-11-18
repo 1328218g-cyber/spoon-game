@@ -106,7 +106,86 @@ h1,.card-title,.top .title,.gTitle,.sheetTitle{font-family:'Jua','Noto Sans KR',
 .rtResult{font-size:12.5px;margin-top:8px;font-weight:700;color:var(--accent);word-break:break-all}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#5c4438;color:#fff;padding:11px 18px;border-radius:20px;font-size:13px;font-weight:700;z-index:60;max-width:calc(100% - 32px);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.2)}
 .toast.ok{background:linear-gradient(135deg,var(--accent),var(--accent2))}
+/* 🎄 크리스마스 꾸미기 — 11월 15일 ~ 12월 31일 자동 (주소 끝 ?xmas=1 / ?xmas=0 으로 켜고 끄기) */
+html.xmas{--bg:#fffaf6;--panel:#ffffff;--surface2:#fff0ee;--border:#f2cfc9;--accent:#d63a4a;--accent2:#2f9a5b;--text:#4a2b22;--muted:#a37f74}
+html.xmas body{background:radial-gradient(900px 420px at 50% -140px,#ffe3df 0,rgba(255,227,223,0) 70%),radial-gradient(700px 360px at 110% 110%,#e3f4e8 0,rgba(227,244,232,0) 70%),#fffaf6;background-attachment:fixed}
+html.xmas .wrap{position:relative;z-index:2;padding-top:40px}
+.xmGarland{position:absolute;left:0;right:0;top:0;height:38px;z-index:3;pointer-events:none;overflow:hidden}
+.xmGarland svg{position:absolute;inset:0;width:100%;height:38px}
+.xmBulb{position:absolute;width:10px;height:14px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;transform:translateX(-50%);box-shadow:0 0 10px 2px currentColor;background:currentColor;animation:xmTw 2.4s ease-in-out infinite}
+.xmBulb::before{content:'';position:absolute;left:2px;top:-4px;width:6px;height:5px;border-radius:2px;background:#5b6b5e}
+@keyframes xmTw{0%,100%{opacity:1;filter:brightness(1.15)}50%{opacity:.45;filter:brightness(.8)}}
+#xmSnow{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+html.xmas .top .logo{background:linear-gradient(135deg,#d63a4a,#f0656a);box-shadow:0 4px 12px rgba(214,58,74,.35);position:relative;overflow:visible}
+html.xmas .top .logo::after{content:'';position:absolute;left:-3px;right:-3px;top:-5px;height:11px;border-radius:10px;background:#fff;box-shadow:0 2px 0 rgba(0,0,0,.05)}
+html.xmas .top .title{color:#b72d3b}
+.xmBadge{display:inline-flex;align-items:center;gap:4px;margin-left:6px;vertical-align:2px;font-family:'Noto Sans KR',sans-serif;font-size:10.5px;font-weight:800;color:#fff;background:linear-gradient(135deg,#2f9a5b,#3fb36d);border-radius:20px;padding:2px 8px;letter-spacing:.02em}
+html.xmas .card{border-color:#f2cfc9;box-shadow:0 4px 16px rgba(214,58,74,.08)}
+html.xmas .status{background:linear-gradient(90deg,#fff0ee,#eef8f0)}
+html.xmas .cmdBtn{position:relative;overflow:hidden;box-shadow:0 2px 0 #f6dcd8}
+html.xmas .cmdBtn::after{content:'❄';position:absolute;right:8px;top:6px;font-size:13px;color:#9fc6e8;opacity:.55}
+html.xmas .cmdBtn:nth-child(3n+2)::after{content:'✦';color:#e6b24a}
+html.xmas .cmdBtn:nth-child(3n)::after{content:'❅';color:#8fcfa5}
+html.xmas .gTitle::after{content:'';flex:1;height:2px;margin-left:6px;border-radius:2px;background:repeating-linear-gradient(90deg,#d63a4a 0 10px,#fff 10px 14px,#2f9a5b 14px 24px,#fff 24px 28px);opacity:.45}
+html.xmas .gmOpen{position:relative;border-color:#ffd27a;background:linear-gradient(135deg,#c62f3f,#e75a52);box-shadow:0 6px 16px rgba(198,47,63,.3)}
+html.xmas .gmOpen::before,html.xmas .evBtn::before{content:'';position:absolute;left:10px;right:10px;top:-3px;height:9px;border-radius:0 0 10px 10px;background:radial-gradient(circle at 8px 0,#fff 6px,transparent 6.5px) 0 0/16px 9px repeat-x;opacity:.95}
+html.xmas .gmOpen small{color:#ffe6dc}
+html.xmas .gmOpen .go{color:#c62f3f}
+html.xmas .evBtn{position:relative;background:linear-gradient(135deg,#1d4a36,#2a6a4a);border-color:#ffd27a;box-shadow:0 6px 16px rgba(29,74,54,.3)}
+html.xmas .evBtn small{color:#ffe7a8}
+html.xmas .evBtn .go{color:#1d4a36}
+html.xmas .gmSheet .hd b::after{content:' 🎄'}
+.xmFoot{position:relative;z-index:2;text-align:center;font-family:'Jua','Noto Sans KR',sans-serif;font-size:14px;color:#b72d3b;margin:-18px 0 26px}
+.xmFoot small{display:block;font-family:'Noto Sans KR',sans-serif;font-size:11px;color:var(--muted);margin-top:2px}
+/* 🎄 팝업 · 시트 · 알림도 크리스마스로 */
+html.xmas .sheetBg{background:radial-gradient(circle at 50% 30%,rgba(40,70,52,.45),rgba(20,30,24,.62))}
+html.xmas .sheet,html.xmas .gmSheet{position:relative;border:2px solid #f3c969;box-shadow:0 14px 40px rgba(20,40,28,.35),inset 0 0 0 4px #fff7ec;background:linear-gradient(180deg,#fffdf9 0,#fff6f2 100%);padding-top:34px}
+html.xmas .sheet::before,html.xmas .gmSheet::before{content:'';position:absolute;left:0;right:0;top:0;height:22px;border-radius:22px 22px 0 0;background:radial-gradient(circle at 10px 12px,#ff4d5e 4px,transparent 4.5px) 0 0/80px 22px repeat-x,radial-gradient(circle at 30px 15px,#ffd23f 4px,transparent 4.5px) 0 0/80px 22px repeat-x,radial-gradient(circle at 50px 12px,#3fd27a 4px,transparent 4.5px) 0 0/80px 22px repeat-x,radial-gradient(circle at 70px 15px,#4db2ff 4px,transparent 4.5px) 0 0/80px 22px repeat-x,linear-gradient(180deg,#c62f3f,#a8232f);animation:xmBlink 1.6s steps(2) infinite}
+@keyframes xmBlink{50%{filter:brightness(1.35) saturate(1.2)}}
+html.xmas .sheet::after,html.xmas .gmSheet::after{content:'🎄';position:absolute;right:14px;top:24px;font-size:24px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.15));pointer-events:none}
+html.xmas .gmSheet .grab{background:#f3c969}
+html.xmas .gmSheet .hd b::after{content:''}
+html.xmas .sheetTitle{color:#b72d3b;padding-right:34px}
+html.xmas .sheetTitle::before{content:'❄ ';color:#8fbfe6}
+html.xmas .sheet .sub,html.xmas .sheetSub{color:#9a7a6e}
+html.xmas .field input,html.xmas .field select{border-color:#f0cfc8;background:#fffefc}
+html.xmas .field input:focus,html.xmas .field select:focus{border-color:#2f9a5b;box-shadow:0 0 0 3px rgba(47,154,91,.15)}
+html.xmas .btn-primary{background:linear-gradient(135deg,#d63a4a,#e8574f);box-shadow:0 4px 0 #9e2532}
+html.xmas .btn-primary:active{transform:translateY(2px);box-shadow:0 2px 0 #9e2532}
+html.xmas .btn-ghost{background:#f2faf4;border-color:#cfe8d6;color:#2a5a3c}
+html.xmas .songRow{border-bottom-color:#f0d6d1}
+html.xmas .songRow .sNo{background:linear-gradient(135deg,#d63a4a,#ef6a5c)}
+html.xmas .songRow:nth-child(even) .sNo{background:linear-gradient(135deg,#2f9a5b,#46b874)}
+html.xmas .songRow.me{background:linear-gradient(90deg,#fff1df,#fff8ec);box-shadow:inset 0 0 0 1.5px #f3c969}
+html.xmas .songRow.me .sMain b::after{content:' 🎁'}
+html.xmas .stat{background:linear-gradient(180deg,#fff2ef,#ffe9e5);border:1px solid #f6d3cc;position:relative}
+html.xmas .stat:nth-child(even){background:linear-gradient(180deg,#eef9f1,#e2f3e7);border-color:#cde8d5}
+html.xmas .stat b{color:#b72d3b}
+html.xmas .stat:nth-child(even) b{color:#237a47}
+html.xmas .expBar{background:#f6e6e2;height:10px}
+html.xmas .expBar i{background:repeating-linear-gradient(135deg,#d63a4a 0 8px,#fff 8px 12px,#2f9a5b 12px 20px,#fff 20px 24px);background-size:34px 34px;animation:xmCandy 1.2s linear infinite}
+@keyframes xmCandy{to{background-position:34px 0}}
+html.xmas .vSec{color:#2a5a3c}
+html.xmas .chip{background:#fff;border-color:#f0cfc8}
+html.xmas .chip:nth-child(even){border-color:#cde8d5;background:#f6fbf7}
+html.xmas .dexCell{background:#fffaf6;border-color:#f0d6d1}
+html.xmas .dexMode.active{background:#2f9a5b;border-color:#2f9a5b}
+html.xmas .dexPts{background:linear-gradient(135deg,#ffd76a,#f3a531)}
+html.xmas .dexDis{border-color:#f3c969;background:#fffaf0}
+html.xmas .toast{background:linear-gradient(135deg,#1f5a3d,#2f7a52);box-shadow:0 6px 18px rgba(20,60,40,.35)}
+html.xmas .toast.ok{background:linear-gradient(135deg,#d63a4a,#2f9a5b)}
+html.xmas .toast::before{content:'🎄 '}
+html.xmas .evView .evBar{background:linear-gradient(90deg,#a8232f,#c62f3f 40%,#1f5a3d);position:relative;padding-bottom:16px}
+html.xmas .evView .evBar::after{content:'';position:absolute;left:0;right:0;bottom:0;height:8px;background:radial-gradient(circle at 6px 4px,#ffd23f 3px,transparent 3.5px) 0 0/24px 8px repeat-x,radial-gradient(circle at 18px 4px,#fff 3px,transparent 3.5px) 0 0/24px 8px repeat-x;animation:xmBlink 1.4s steps(2) infinite}
+html.xmas .evView .evBar button{background:#ffd76a;color:#7a1b25}
+html.xmas .gmBtn{background:#fffdf9;border-color:#f0d6d1}
+html.xmas .gmBtn:nth-child(even){border-color:#cde8d5}
+@media (prefers-reduced-motion:reduce){ .xmBulb,html.xmas .sheet::before,html.xmas .gmSheet::before,html.xmas .expBar i,html.xmas .evView .evBar::after{animation:none} #xmSnow{display:none} }
 </style>
+<script>
+// 🎄 크리스마스 꾸미기 켜기 (11/15 ~ 12/31 · ?xmas=1 켜기 · ?xmas=0 끄기)
+(function(){ var q = /[?&]xmas=([01])/.exec(location.search), d = new Date(), m = d.getMonth() + 1, on = q ? q[1] === '1' : ((m === 11 && d.getDate() >= 15) || m === 12); if (on) document.documentElement.classList.add('xmas'); })();
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -507,6 +586,42 @@ async function submitSheet(){
 loadTheme();
 if(webUserId) loadCommands(); else registerCode();
 setInterval(() => { if(!$('mainWrap').classList.contains('hidden') && $('sheetBg').classList.contains('hidden')) loadCommands(true); }, 20000); // 방송 상태·명령어 목록 갱신
+</script>
+<script>
+// 🎄 크리스마스 꾸미기 — 전구 줄 · 눈 · 산타 모자 · 인사말
+(function(){
+  if (!document.documentElement.classList.contains('xmas')) return;
+  var wrap = document.querySelector('.wrap');
+  var logo = document.querySelector('.top .logo'); if (logo) logo.textContent = '🎅';
+  var title = document.querySelector('.top .title'); if (title && !title.querySelector('.xmBadge')) title.insertAdjacentHTML('beforeend', '<span class="xmBadge">🎄 Merry Christmas</span>');
+  // 전구 줄
+  var g = document.createElement('div'); g.className = 'xmGarland'; document.body.prepend(g);
+  var COLS = ['#ff4d5e', '#ffd23f', '#3fd27a', '#4db2ff', '#ff8a3d'];
+  function garland(){
+    var w = Math.max(320, document.documentElement.clientWidth), step = 34, n = Math.ceil(w / step) + 1, d = 'M0 8';
+    for (var x = 0; x <= w + step; x += step / 2) d += ' Q' + (x + step / 4) + ' ' + (x / (step / 2) % 2 ? 4 : 18) + ' ' + (x + step / 2) + ' 8';
+    var h = '<svg viewBox="0 0 ' + w + ' 38" preserveAspectRatio="none"><path d="' + d + '" fill="none" stroke="#3d5a46" stroke-width="2"/></svg>';
+    for (var i = 0; i < n; i++){ h += '<span class="xmBulb" style="left:' + (i * step + step / 4) + 'px;top:' + 13 + 'px;color:' + COLS[i % COLS.length] + ';animation-delay:' + (i % 5 * .45) + 's"></span>'; }
+    g.innerHTML = h;
+  }
+  garland(); window.addEventListener('resize', garland);
+  // 인사말
+  if (wrap && !document.querySelector('.xmFoot')) wrap.insertAdjacentHTML('beforeend', '<div class="xmFoot">🎁 즐거운 크리스마스 보내세요 ⛄<small>오늘도 방송 함께해줘서 고마워요</small></div>');
+  // 눈 내리기
+  var cv = document.createElement('canvas'); cv.id = 'xmSnow'; document.body.prepend(cv);
+  var x = cv.getContext('2d'), W = 0, H = 0, dpr = Math.min(2, window.devicePixelRatio || 1), flakes = [];
+  function size(){ W = window.innerWidth; H = window.innerHeight; cv.width = W * dpr; cv.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  size(); window.addEventListener('resize', size);
+  for (var i = 0; i < 46; i++) flakes.push({ x: Math.random() * W, y: Math.random() * H, r: 1 + Math.random() * 2.6, s: .3 + Math.random() * .8, o: Math.random() * 6.28, a: .45 + Math.random() * .45 });
+  var last = 0;
+  function tick(t){
+    requestAnimationFrame(tick); if (document.hidden) return; var dt = Math.min(50, t - last) / 16.7; last = t;
+    x.clearRect(0, 0, W, H);
+    for (var i = 0; i < flakes.length; i++){ var f = flakes[i]; f.y += f.s * dt; f.o += .02 * dt; f.x += Math.sin(f.o) * .35 * dt; if (f.y > H + 6){ f.y = -6; f.x = Math.random() * W; }
+      x.beginPath(); x.arc(f.x, f.y, f.r, 0, 6.283); x.fillStyle = 'rgba(190,215,240,' + f.a + ')'; x.fill(); }
+  }
+  requestAnimationFrame(tick);
+})();
 </script>
 </body>
 </html>
