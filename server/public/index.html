@@ -7116,6 +7116,7 @@ async function submitChangePassword(){
 
 function enterApp(){
   document.getElementById('authScreen').style.display='none';
+  if(!window.__nyCat&&!document.querySelector('script[src*="cat-helper"]')){const cs=document.createElement('script');cs.src='/cat-helper.js';cs.dataset.bot='2';cs.dataset.api='https://edinyang-production.up.railway.app';document.body.appendChild(cs);} /* 🐱 고양이 도우미 (누르면 봇 사용법 질문 · AI 대답 · 1번 서버에 물어봐요) */
   document.getElementById('appRoot').classList.add('ready');
   document.getElementById('djIdLabel').textContent=djId;
   if(window.bcast&&window.bcast.botAccount) setTimeout(function(){ try{ bcBotAcctInit(); }catch(_){} },2500); /* 🤖 봇 계정이 내 DJ 계정이면 PC가 세션 올리기 시작 */
