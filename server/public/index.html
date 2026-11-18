@@ -6880,7 +6880,8 @@ function maybeAutoShowTutorial(){
   // 📢 순서: 1) 이미지 팝업(있으면, 업데이트 공지랑 완전 별개) → 2) 업데이트 공지(텍스트, 있으면) →
   // 3) 신규가입자면 튜토리얼. 튜토리얼은 브라우저 localStorage가 아니라 서버(가입 계정 기준)로
   // 판단해서, 최초 가입 후 한 번만 뜨고 그 뒤로는 다른 기기/브라우저에서 로그인해도 다시 뜨지 않는다.
-  checkImagePopup(true);
+  // ⛔ 접속할 때 이미지 팝업·업데이트 공지는 안 띄워요 (튜토리얼만) — 다시 켜려면 아래를 checkImagePopup(true); 로
+  maybeShowTutorialIfNew();
 }
 
 async function maybeShowTutorialIfNew(){
@@ -21205,6 +21206,6 @@ function updateAutoJoinStatus(d){
   else if(d.status==='error')el.textContent='❌ '+d.msg;
 }
 </script>
-<script src="/price-notice.js?v=1"></script><!-- 💰 요금제 변경 안내 팝업 -->
+<script src="/price-notice.js?v=2"></script><!-- 💰 요금제 변경 안내 팝업 -->
 </body>
 </html>

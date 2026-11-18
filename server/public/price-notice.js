@@ -1,6 +1,7 @@
 // 💰 요금제 변경 안내 팝업 (2027년 1월부터 초이스 상관없이 월 1만원 · 2026년 12월 결제부터 적용)
 //  · 접속할 때마다 떠요 · "오늘 하루 보지 않기" 체크하고 닫으면 그날은 안 떠요 (이 기기 · 이 브라우저만)
 (function () {
+  return; // ⛔ 요금제 안내 팝업 꺼둠 — 다시 켜려면 이 줄만 지우면 돼요
   var IMG = '/notice/price-2027.png';
   var KEY = 'edi_price2027_hide';
   var d = new Date(), today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
