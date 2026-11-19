@@ -1425,7 +1425,7 @@ function escapeRegExp(s) {
 // ⚠️ 관리자(sum) 계정은 화면에서 이용 만료일을 직접 입력/수정할 수는 있지만(테스트/기록용),
 //    스스로를 잠가버리는 사고를 막기 위해 만료 강제잠금 자체는 항상 적용하지 않는다.
 const EXPIRY_EXEMPT_KEYS = ['chat', 'entrysettings', 'funding', 'roulettelog', 'reactiontimer', 'dday']
-const NEW_MODULE_DEFAULT_OFF_KEYS = ['pirate', 'viewerpage', 'djpage', 'wordguess', 'drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
+const NEW_MODULE_DEFAULT_OFF_KEYS = ['pirate', 'viewerpage', 'djpage', 'wordguess', 'drawquiz', 'lottoauto', 'reactiontimer', 'dday', 'raffle', 'dice', 'soundfx', 'tts', 'wheelroulette', 'couponcheck', 'usernotes', 'discordnotify', 'fishing', 'stock', 'auction', 'randombox', 'swordgame', 'mynotes', 'pickboard', 'webpickboard', 'mafia', 'saju', 'memo2', 'plansub', 'viptier', 'managertoken', 'lottorank', 'trophyboard', 'monstercatch', 'myinfo', 'blinddate', 'tower', 'etherrpg', 'stickerbook'] // 새로 추가하는 모듈은 여기에 키를 등록한다 (fishtournament·chuseokevent는 아래 "요청 모듈" 접근 목록으로 관리되므로 이 목록에서 제외) — giftcapture는 기본 ON이라 여기 목록에서 제외 — tower(무한의 탑)는 안 쓰기로 해서 기본 꺼짐으로 내림
 function isAccountExpired(settings, djId) {
   if (djId === 'sum') return false
   return !!(settings && settings.expiresAt && Date.now() > new Date(settings.expiresAt).getTime())
@@ -9201,6 +9201,56 @@ function handleGiftGalleryHook(djId, settings, author, tag, sticker, stickerImag
   saveGiftGallery(djId, gallery)
   console.log(`[선물카드 갤러리:${djId}] 저장 완료 — ${author} / ${totalSpoons}스푼 (누적 ${gallery.items.length}개)`)
   broadcast({ type: 'giftgallery', djId, item })
+}
+
+// ══════════════════════════════════════════════════════
+// 📚 스티커 컬렉션북 — 지금까지 받은 스푼 스티커를 도감처럼 (받은 건 컬러 · 못 받은 건 흑백 · 처음 보내준 사람 기록)
+// settings.stickerBook = { items: { [스티커 name]: { cnt, spoon, first:{n,h,at}, last, fans:{ [고유닉]: {n,c} } } }, seeded }
+// ══════════════════════════════════════════════════════
+const STICKER_BOOK_FANS = 30
+function getStickerBook(settings) {
+  const b = settings.stickerBook && typeof settings.stickerBook === 'object' ? settings.stickerBook : {}
+  if (!b.items || typeof b.items !== 'object') b.items = {}
+  return b
+}
+function stickerBookAdd(b, name, nick, tag, cnt, spoon, at) {
+  const it = b.items[name] || (b.items[name] = { cnt: 0, spoon: 0, first: { n: nick || '', h: tag || '', at }, last: at, fans: {} })
+  it.cnt += cnt; it.spoon += spoon; it.last = Math.max(it.last || 0, at)
+  if (at < it.first.at) it.first = { n: nick || '', h: tag || '', at }
+  const fk = String(tag || nick || '?').replace(/^@/, '')
+  const f = it.fans[fk] || (it.fans[fk] = { n: nick || fk, c: 0 }); f.c += cnt; if (nick) f.n = nick
+  const keys = Object.keys(it.fans)
+  if (keys.length > STICKER_BOOK_FANS) { keys.sort((a, c) => it.fans[c].c - it.fans[a].c); keys.slice(STICKER_BOOK_FANS).forEach(k => { delete it.fans[k] }) }
+}
+// 선물 이름 → 스푼 스티커 목록의 진짜 name (판매 끝난 스티커까지 찾아요)
+async function stickerBookName(sticker) {
+  const target = String(sticker || '').trim().toLowerCase()
+  if (!target) return ''
+  try {
+    const raw = await getTrophyEditorStickerData()
+    for (const cat of (raw.categories || [])) for (const s of (cat.stickers || [])) {
+      if (String(s.name || '').toLowerCase() === target || String(s.title || '').toLowerCase() === target) return s.name
+    }
+  } catch (e) {}
+  return String(sticker).trim()
+}
+async function handleStickerBookHook(djId, settings, author, tag, sticker, amount, comboCount) {
+  if (!isModuleOn(settings, 'stickerbook', djId)) return
+  const name = await stickerBookName(sticker)
+  if (!name) return
+  const cnt = Math.max(1, Number(comboCount) || 1)
+  const s = store.getSettings(djId) || settings
+  const b = getStickerBook(s)
+  stickerBookAdd(b, name, author, String(tag || '').replace(/^@/, ''), cnt, (Number(amount) || 0) * cnt, Date.now())
+  store.saveSettings(djId, { stickerBook: b })
+}
+// 처음 열 때: 선물카드 갤러리에 쌓여 있던 기록으로 한 번 채워요
+function stickerBookSeed(settings, b) {
+  if (b.seeded) return false
+  b.seeded = Date.now()
+  const g = settings.giftGallery && Array.isArray(settings.giftGallery.items) ? settings.giftGallery.items : []
+  for (const it of [...g].reverse()) if (it && it.sticker) stickerBookAdd(b, it.sticker, it.author || '', it.tag || '', Math.max(1, Number(it.comboCount) || 1), Number(it.totalSpoons) || 0, Number(it.ts) || Date.now())
+  return true
 }
 
 function getPickboardSettings(djId, settings) {
@@ -18539,6 +18589,7 @@ async function connectSpoonForDj(djId, liveId, roomToken) {
           handlePickboardDonationHook(djId, settings, donationTag, author, amount * Math.max(1, comboCount))
           handleTrophyBoardDonationHook(djId, settings, author, donationTag, sticker)
           handleGiftGalleryHook(djId, settings, author, donationTag, sticker, stickerImage, amount, comboCount, donorProfileUrl, room.djProfileUrl)
+          handleStickerBookHook(djId, settings, author, donationTag, sticker, amount, comboCount).catch(e => console.log('[스티커 컬렉션북 오류]', e.message))
           handleGiftCaptureHook(djId, settings, author, donationTag, sticker, comboCount)
           handleChuseokDonationHook(djId, settings, author, donationTag, amount, comboCount)
           handleMonsterCatchGiftBallHook(djId, settings, author, donationTag)
@@ -19091,6 +19142,30 @@ app.post('/giftgallery/clear', auth.requireAuth, (req, res) => {
   gallery.items = []
   store.saveSettings(req.djId, { giftGallery: gallery })
   res.json({ success: true, settings: gallery })
+})
+// 📚 스티커 컬렉션북 — 지금 파는 스티커 + 받은 적 있는(판매 끝난) 스티커 · 내 기록
+app.get('/stickerbook', auth.requireAuth, async (req, res) => {
+  const settings = store.getSettings(req.djId) || {}
+  if (!isModuleOn(settings, 'stickerbook', req.djId)) return res.json({ success: false, error: '스티커 컬렉션북 메뉴가 꺼져있어요. 모듈 마켓에서 먼저 켜주세요.' })
+  const b = getStickerBook(settings)
+  if (stickerBookSeed(settings, b)) store.saveSettings(req.djId, { stickerBook: b })
+  let raw = null
+  try { raw = await getTrophyEditorStickerData() } catch (e) {}
+  if (!raw || !raw.categories) return res.status(502).json({ success: false, error: '스푼 스티커 목록을 가져오지 못했어요. 잠시 후 다시 열어주세요.' })
+  const now = new Date()
+  const seen = new Map()
+  for (const cat of raw.categories) for (const s of (cat.stickers || [])) {
+    if (!s || !s.name || seen.has(s.name)) continue
+    const ended = s.is_used === false || (s.end_date && new Date(s.end_date) < now) || (s.start_date && new Date(s.start_date) > now)
+    const image = s.image_url_web || s.image_thumbnail_web || s.image_thumbnail || ''
+    if (!image || (ended && !b.items[s.name])) continue
+    seen.set(s.name, { name: s.name, title: s.title || s.name, price: Number(s.price) || 0, image, lottie: s.lottie_url ? '/giftcapture/lottie-proxy?url=' + encodeURIComponent(s.lottie_url) : '', category: cat.title || cat.name || '기타', active: !ended })
+  }
+  res.json({ success: true, stickers: [...seen.values()], items: b.items, since: b.seeded || 0 })
+})
+app.post('/stickerbook/reset', auth.requireAuth, (req, res) => {
+  store.saveSettings(req.djId, { stickerBook: { items: {}, seeded: Date.now() } })
+  res.json({ success: true })
 })
 // 🔄 이미 저장된 카드들의 스티커 이미지를 최신 우선순위(image_url_web 우선)로 다시 찾아서 갱신한다.
 // 코드만 고쳐서는 이미 저장된 항목의 stickerImage URL이 자동으로 안 바뀌기 때문에 필요한 일회성 작업.

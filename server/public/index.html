@@ -861,6 +861,7 @@ html.menu-popup .dj-tag button[onclick="logout()"]{display:none!important} /* �
     <div class="nav-item" data-panel="drawquiz"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">그림 퀴즈</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="wordguess"><span class="ic ic-img"><img src="/icons/quiz-settings.png" alt="" onerror="this.onerror=null;this.src='/icons/modulemarket.png'"></span><span class="lbl">단어 맞추기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="giftgallery"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">선물카드 갤러리</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
+    <div class="nav-item" data-panel="stickerbook"><span class="ic ic-img"><img src="/icons/giftgallery.png" alt=""></span><span class="lbl">스티커 컬렉션북</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="monstercatch"><span class="ic ic-img"><img src="/icons/monstercatch.png" alt=""></span><span class="lbl">몬스터 잡기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
     <div class="nav-item" data-panel="swordgame"><span class="ic ic-img"><img src="/icons/swordgame.png" alt=""></span><span class="lbl">검키우기</span><span class="nav-badge on" onclick="event.stopPropagation();toggleModuleBadge(this)">ON</span></div>
 
@@ -5878,6 +5879,84 @@ if (window.bcast) setTimeout(() => {
       </div>
 
       <!-- 🎁 선물카드 갤러리 -->
+      <div class="panel" data-panel="stickerbook">
+<div class="sbw" id="sbw">
+<style>
+.sbw{--sb-card:var(--panel,var(--card,#fff));--sb-line:var(--border,var(--line,#e5e7eb));--sb-text:var(--text,#222);--sb-muted:var(--muted,#888);color:var(--sb-text)}
+.sbw .sb-box0{background:var(--sb-card);border:1px solid var(--sb-line);border-radius:16px;padding:16px;margin-bottom:14px}
+.sbw .sb-hero{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;background:linear-gradient(135deg,rgba(255,170,90,.22),rgba(255,214,120,.18))}
+@media (max-width:760px){.sbw .sb-hero{grid-template-columns:auto 1fr}.sbw .sb-latest{display:none}}
+@media (max-width:480px){.sbw .sb-hero{grid-template-columns:1fr;text-align:center}.sbw .sb-ring{margin:0 auto}.sbw .sb-stats{justify-content:center}}
+.sbw .sb-ring{position:relative;width:112px;height:112px}.sbw .sb-ring svg{transform:rotate(-90deg)}
+.sbw .sb-ring .t{position:absolute;inset:0;display:grid;place-items:center;text-align:center;line-height:1.15}
+.sbw .sb-ring b{font-size:26px;font-weight:900}.sbw .sb-ring small{display:block;font-size:11px;color:var(--sb-muted)}
+.sbw .sb-stats{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.sbw .sb-stat{background:var(--sb-card);border:1px solid var(--sb-line);border-radius:12px;padding:7px 12px;font-size:12px;color:var(--sb-muted)}
+.sbw .sb-stat b{display:block;font-size:16px;color:var(--sb-text)}
+.sbw .sb-latest{text-align:center;font-size:11px;color:var(--sb-muted)}.sbw .sb-latest .sb-stk{margin:0 auto 6px}
+.sbw .sb-track{position:relative;height:10px;border-radius:6px;background:var(--sb-line);margin:22px 8px 34px}
+.sbw .sb-track .fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:linear-gradient(90deg,#ffb648,#ff7a45)}
+.sbw .sb-mile{position:absolute;top:50%;transform:translate(-50%,-50%)}
+.sbw .sb-mile i{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--sb-card);border:2.5px solid var(--sb-line);font-style:normal;font-size:15px}
+.sbw .sb-mile.ok i{border-color:#ff7a45}
+.sbw .sb-mile span{position:absolute;top:34px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:11px;color:var(--sb-muted)}
+.sbw .sb-mile.ok span{color:#ff7a45;font-weight:700}.sbw .sb-mile:last-child span{left:auto;right:-6px;transform:none}
+.sbw .sb-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.sbw .sb-tabs,.sbw .sb-cats{display:flex;gap:6px;flex-wrap:wrap}
+.sbw .sb-cats{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin-bottom:12px}
+.sbw .sb-tabs button,.sbw .sb-cats button{flex-shrink:0;border:1px solid var(--sb-line);background:var(--sb-card);color:var(--sb-text);font:inherit;font-size:12.5px;padding:6px 12px;border-radius:16px;cursor:pointer;width:auto;margin:0}
+.sbw .sb-tabs button.on{background:var(--sb-text);color:var(--sb-card);border-color:var(--sb-text)}
+.sbw .sb-cats button{color:var(--sb-muted)}.sbw .sb-cats button.on{border-color:#ff7a45;color:#ff7a45}
+.sbw .sb-tabs em{font-style:normal;opacity:.6;font-size:11px;margin-left:3px}
+.sbw .sb-search{margin-left:auto;display:flex;gap:6px}.sbw .sb-search input{width:160px;margin:0}.sbw .sb-search select{width:auto;margin:0}
+@media (max-width:600px){.sbw .sb-search{margin-left:0;width:100%}.sbw .sb-search input{flex:1;width:auto}}
+.sbw .sb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:12px}
+@media (max-width:560px){.sbw .sb-grid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}}
+.sbw .sb-slot{position:relative;background:var(--sb-card);border:1px solid var(--sb-line);border-radius:16px;padding:10px 6px 9px;text-align:center;cursor:pointer;font:inherit;color:inherit;transition:transform .15s,box-shadow .15s;width:auto;margin:0}
+.sbw .sb-slot:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(0,0,0,.1)}
+.sbw .sb-stk{position:relative;width:70px;height:70px;margin:0 auto 6px;border-radius:20px;display:grid;place-items:center;background:radial-gradient(circle at 50% 35%,rgba(255,214,150,.45),rgba(255,170,120,.12))}
+.sbw .sb-stk img{width:84%;height:84%;object-fit:contain}
+.sbw .sb-slot.got .sb-stk img{animation:sbwBob 3s ease-in-out infinite;animation-delay:var(--d,0s)}
+@keyframes sbwBob{50%{transform:translateY(-3px) rotate(2deg)}}
+.sbw .sb-slot.no .sb-stk{background:rgba(127,127,127,.08)}.sbw .sb-slot.no .sb-stk img{filter:grayscale(1) contrast(.75);opacity:.38}
+.sbw .sb-slot.no .sb-stk::after{content:'🔒';position:absolute;right:-4px;bottom:-4px;font-size:15px}
+.sbw .sb-slot .nm{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sbw .sb-slot.no .nm{color:var(--sb-muted)}
+.sbw .sb-slot .pr{font-size:11px;color:var(--sb-muted)}
+.sbw .sb-slot .fs{font-size:10.5px;color:var(--sb-muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sbw .sb-slot .cnt{position:absolute;top:6px;right:6px;background:#ff7a45;color:#fff;font-size:10.5px;font-weight:700;border-radius:10px;padding:1px 7px}
+.sbw .sb-slot .end{position:absolute;top:6px;left:6px;background:#8b5cf6;color:#fff;font-size:9.5px;font-weight:800;border-radius:8px;padding:2px 6px}
+.sbw .sb-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:var(--sb-muted)}
+.sbw .sb-reset{border:1px solid rgba(225,29,72,.45);color:#e11d48;background:transparent;border-radius:10px;padding:6px 12px;font:inherit;font-size:12px;cursor:pointer;width:auto;margin:0}
+.sbw-dim{position:fixed;inset:0;background:rgba(20,14,8,.5);z-index:3000;display:none;align-items:center;justify-content:center;padding:16px}
+.sbw-dim.on{display:flex}
+.sbw-dlg{background:var(--panel,var(--card,#fff));color:var(--text,#222);width:min(420px,100%);max-height:calc(100vh - 32px);overflow:auto;border-radius:22px;padding:20px;box-shadow:0 30px 60px rgba(0,0,0,.3);position:relative}
+.sbw-dlg .x{position:absolute;right:12px;top:12px;border:1px solid var(--border,var(--line,#ddd));background:transparent;color:inherit;border-radius:50%;width:32px;height:32px;cursor:pointer;margin:0;padding:0}
+.sbw-dlg h3{margin:0 0 6px;text-align:center;font-size:20px}
+.sbw-dlg .big{width:150px;height:150px;margin:6px auto 8px}.sbw-dlg .big img,.sbw-dlg .big .lt{width:100%;height:100%;object-fit:contain}
+.sbw-dlg.lock .big img{filter:grayscale(1);opacity:.45}
+.sbw-dlg .mu{color:var(--muted,#888);font-size:12px;text-align:center}
+.sbw-dlg .kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.sbw-dlg .kv div{border:1px solid var(--border,var(--line,#e5e7eb));border-radius:12px;padding:9px 4px;text-align:center;font-size:11px;color:var(--muted,#888)}.sbw-dlg .kv b{display:block;font-size:16px;color:var(--text,#222)}
+.sbw-dlg .bx{border:1px solid var(--border,var(--line,#e5e7eb));border-radius:14px;padding:10px 12px;margin-bottom:8px;font-size:13px}.sbw-dlg .bx h4{margin:0 0 6px;font-size:13px}
+.sbw-dlg .rk div{display:grid;grid-template-columns:22px 1fr auto;gap:8px;font-size:12.5px;padding:3px 0}
+.sbw-dlg .rk .bar{grid-column:2/3;height:5px;border-radius:3px;background:linear-gradient(90deg,#ffb648,#ff7a45);padding:0}
+.sbw-dlg .row2{display:flex;justify-content:space-between}
+</style>
+<div class="sb-box0 sb-hero">
+  <div class="sb-ring"><svg width="112" height="112"><circle cx="56" cy="56" r="47" fill="none" stroke="rgba(127,127,127,.18)" stroke-width="11"/><circle class="sb-arc" cx="56" cy="56" r="47" fill="none" stroke="#ff7a45" stroke-width="11" stroke-linecap="round" stroke-dasharray="295.3" stroke-dashoffset="295.3" style="transition:stroke-dashoffset 1s"/></svg><div class="t"><div><b class="sb-pct">0%</b><small class="sb-cnt"></small></div></div></div>
+  <div><b style="font-size:15px">지금까지 받은 스푼 스티커 도감</b><p style="margin:4px 0 0;line-height:1.6;font-size:12.5px;color:var(--sb-muted)">스티커를 받으면 자동으로 채워져요 · 받은 건 컬러, 아직 못 받은 건 흑백 · 스티커마다 <b>처음 보내준 사람</b>이 남아요</p><div class="sb-stats"></div></div>
+  <div class="sb-latest"></div>
+</div>
+<div class="sb-box0"><div style="display:flex;justify-content:space-between;font-size:13px"><b>🏅 수집 단계</b><span class="sb-goal" style="color:var(--sb-muted)"></span></div><div class="sb-track"></div></div>
+<div class="sb-box0">
+  <div class="sb-tools"><div class="sb-tabs"></div><div class="sb-search"><input class="sb-q" placeholder="🔍 스티커 이름"><select class="sb-sort"><option value="cat">기본 순서</option><option value="price">가격 높은 순</option><option value="cnt">많이 받은 순</option><option value="recent">최근 받은 순</option></select></div></div>
+  <div class="sb-cats"></div>
+  <div class="sb-grid"><p style="color:var(--sb-muted)">불러오는 중…</p></div>
+  <div class="sb-foot"><span class="sb-note"></span><button class="sb-reset" type="button">기록 초기화</button></div>
+</div>
+</div>
+      </div>
+
       <div class="panel" data-panel="giftgallery">
         <div class="card">
           <div class="card-title"><span>🎁 선물카드 갤러리 설정</span></div>
@@ -7311,6 +7390,7 @@ const PANEL_META={
   chuseokevent:['🎑 추석 팀배틀 이벤트','라운드마다 팀 이름이 바뀌는 스푼 대결 이벤트예요. 시청자가 !팀이름으로 참여하고, 10스푼 이상 선물이 팀 점수로 쌓여요'],
   monstercatch:['🐾 몬스터 잡기','설정한 시간마다 채팅에 랜덤 몬스터가 등장하고, 시청자가 잡아서 도감을 모으는 미니게임입니다'],
   giftgallery:['🎁 선물카드 갤러리','받은 선물을 카드 형태로 자동 저장해서 모아보는 갤러리입니다'],
+  stickerbook:['📚 스티커 컬렉션북','지금까지 받은 스푼 스티커를 도감처럼 모아봐요 · 받은 건 컬러, 못 받은 건 흑백 · 스티커마다 처음 보내준 사람·받은 개수 기록'],
   swordgame:['⚔️ 검키우기','강화·던전·배틀·상점·펫·방보스·자동배틀·거래소까지 즐기는 검 키우기 RPG 게임입니다'],
   autofollow:['🤝 고정매니저신청','인증번호를 관리자 팬보드에 남기면 자동으로 맞팔로우합니다'],
   drawquiz:['🎨 그림 퀴즈','DJ 가 그리는 그림을 시청자가 웹페이지에서 실시간으로 보고, 방송 채팅에 정답을 맞혀요'],
@@ -7360,6 +7440,7 @@ function selectPanel(name){
   if(name==='djpage'&&document.getElementById('djpUrl'))document.getElementById('djpUrl').value=location.origin+'/dj-page';
   if(name==='djpage'&&!window.__djpAutoOpened){ window.__djpAutoOpened=true; openDjPagePopup(); } // 메뉴 누르면 디제이 페이지를 팝업 창으로 바로
   if(name==='idlerpg')loadIdleRpgPanel();
+  if(name==='stickerbook'&&window.StickerBook)StickerBook.init(document.getElementById('sbw'),{ load:()=>fetch(SERVER+'/stickerbook',{headers:authHeaders()}).then(r=>r.json()).then(d=>{ if(d&&d.stickers) d.stickers.forEach(x=>{ if(x.lottie) x.lottie=SERVER+x.lottie; }); return d; }), reset:()=>fetch(SERVER+'/stickerbook/reset',{method:'POST',headers:authHeaders()}) }); // 📚 스티커 컬렉션북
   if(name==='etherrpg')loadEtherPanel();
   if(name==='liverank'&&document.getElementById('lrDjTag'))loadLiveRankSettings();
   if(name==='roulettelog')renderRlCommandInputs();
@@ -7491,7 +7572,7 @@ function moveSidebarItem(btn,dir){
 
 
 /* ── 메뉴별 ON/OFF (모듈 켜짐 상태) ── */
-const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','giftcapture','reversi','pirate','drawquiz','wordguess','myinfo','viewerpage','djpage','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
+const MODULE_KEYS=['session','userlist','autojoin','chat','entrysettings','funding','shortcuts','greet','flag','shield','request','roulette','roulettelog','autogrant','loyalty','quiz','botreboot','migrate','lottoauto','lottorank','reactiontimer','dday','saju','memo2','plansub','viptier','managertoken','raffle','dice','soundfx','tts','dashboard','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','liverank','trophyboard','monstercatch','giftgallery','stickerbook','giftcapture','reversi','pirate','drawquiz','wordguess','myinfo','viewerpage','djpage','blinddate','idlerpg','etherrpg']; // fishtournament(팝블리)·chuseokevent(추석이벤트)는 요청 모듈 시스템으로 이동해서 여기서 제외
 
 // 🖼️ 사이드바 아이콘이랑 같은 이미지 세트를 모듈 마켓 카드에도 그대로 쓴다 (모듈 키 → /icons/ 파일명)
 const MODULE_ICON_FILES={
@@ -7506,7 +7587,7 @@ const MODULE_ICON_FILES={
   raffle:'raffle.png',dice:'dice.png',soundfx:'soundfx.png',tts:'tts.png',wheelroulette:'wheelroulette.png',
   couponcheck:'couponcheck.png',usernotes:'usernotes.png',mynotes:'mynotes.png',discordnotify:'discordnotify.png',
   fishing:'fishing.png',stock:'stock.png',auction:'auction.png',randombox:'randombox.png',pickboard:'pickboard.png',webpickboard:'webpickboard.png',mafia:'mafia.png',liverank:'liverank.png',
-  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',wordguess:'quiz-settings.png',
+  trophyboard:'trophyboard.png',monstercatch:'monstercatch.png',swordgame:'swordgame.png',giftgallery:'giftgallery.png',stickerbook:'giftgallery.png',giftcapture:'giftcapture.png',chuseokevent:'chuseokevent.png',reversi:'reversi.png',drawquiz:'quiz-settings.png',wordguess:'quiz-settings.png',
   'trophy-editor':'trophyeditor.png',myinfo:'myinfo.png',blinddate:'blinddate.png',
 };
 const EXPIRY_EXEMPT_KEYS=['autojoin','chat','entrysettings','funding','roulettelog','reactiontimer','dday']; // 이용기간이 만료돼도 계속 동작하는 메뉴 — 그 외는 유료신청 안내로 잠김
@@ -7523,7 +7604,7 @@ function isAccountExpired(){
   return !!(expiresAt && Date.now() > new Date(expiresAt).getTime());
 }
 
-const NEW_MODULE_DEFAULT_OFF_KEYS=['pirate','viewerpage','djpage','wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
+const NEW_MODULE_DEFAULT_OFF_KEYS=['pirate','viewerpage','djpage','wordguess','drawquiz','lottoauto','lottorank','reactiontimer','dday','raffle','dice','soundfx','tts','wheelroulette','couponcheck','usernotes','discordnotify','fishing','stock','auction','randombox','swordgame','mynotes','pickboard','webpickboard','mafia','trophyboard','monstercatch','saju','memo2','plansub','viptier','managertoken','reversi','blinddate','etherrpg','stickerbook']; // 새로 추가하는 모듈은 여기에 키를 등록한다 (값이 없으면 기본 꺼짐) — giftcapture·myinfo는 기본 ON, fishtournament·chuseokevent는 요청 모듈이라 여기 목록에서 제외
 // 🆕 처음 가입해서 아직 사이드바를 한 번도 안 건드린 계정에게 기본으로 보여줄 메뉴만 골라둔 목록.
 // (모듈마켓/요청모듈/설정내보내기가져오기는 MODULE_KEYS에 아예 없어서 이 목록과 무관하게 항상 보임)
 // 여기 없는 메뉴는 기능 자체는 그대로 켜진 채로 동작하고, 사이드바에서만 안 보이는 것뿐이라
@@ -21207,5 +21288,6 @@ function updateAutoJoinStatus(d){
 }
 </script>
 <script src="/price-notice.js?v=2"></script><!-- 💰 요금제 변경 안내 팝업 -->
+<script src="/stickerbook.js"></script>
 </body>
 </html>
